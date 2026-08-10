@@ -97,6 +97,29 @@ if ! gh auth status &>/dev/null; then
   gh auth login
 fi
 
+# A clean macOS install has no git identity. Without one, every commit below
+# fails with "Author identity unknown", both repos get created and pushed empty,
+# and the sync hook then fails silently forever because it swallows the error.
+# Catch it here where there is still someone at the keyboard to answer.
+if [ -z "$(git config --global user.name 2>/dev/null)" ] ||
+  [ -z "$(git config --global user.email 2>/dev/null)" ]; then
+  warn "No global git identity is set. Every commit will fail without one."
+  echo ""
+  read -rp "  Git author name (e.g. Jane Doe): " GIT_NAME
+  read -rp "  Git author email: " GIT_EMAIL
+  if [ -z "$GIT_NAME" ] || [ -z "$GIT_EMAIL" ]; then
+    err "Both are required. Set them yourself and re-run this script:"
+    err "  git config --global user.name \"Your Name\""
+    err "  git config --global user.email \"you@example.com\""
+    exit 1
+  fi
+  git config --global user.name "$GIT_NAME"
+  git config --global user.email "$GIT_EMAIL"
+  log "Git identity set: $GIT_NAME <$GIT_EMAIL>"
+else
+  log "Git identity: $(git config --global user.name) <$(git config --global user.email)>"
+fi
+
 GITHUB_USER=$(gh api user --jq .login 2>/dev/null)
 log "GitHub: $GITHUB_USER"
 
