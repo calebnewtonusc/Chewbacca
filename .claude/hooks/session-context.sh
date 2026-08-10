@@ -40,10 +40,18 @@ PLACEHOLDER = re.compile(
     r"^(?:[-*+]\s*\.{2,}\s*$"          # - ...
     r"|\|(?:\s*\.{2,}\s*\|)+\s*$"      # | ... | ... |
     r"|\|[\s:|-]+\|\s*$"               # table separator row
-    r"|>?\s*_?TODO_?\s*$"
-    r"|\s*$)"
+    r"|-{3,}$|\*{3,}$|_{3,}$"          # horizontal rule
+    r"|<!--.*?-->$"                    # whole-line HTML comment
+    r"|>?\s*_?(?:TODO|TBD)_?\s*$"
+    r"|\s*$)",
+    re.S,
 )
-TEMPLATE_TOKEN = re.compile(r"PROJECT_NAME|YOUR_NAME|YOUR_GITHUB|\{name\}|<your[- ]", re.I)
+# Anything still wearing its template clothes. YOUR_CITY, YOUR_TITLE, {name},
+# <your name here>, and the "auto-updated by Claude" boilerplate all qualify.
+TEMPLATE_TOKEN = re.compile(
+    r"YOUR_[A-Z_]{2,}|PROJECT_NAME|\{name\}|<your[- ]|Auto-updated by Claude",
+    re.I,
+)
 
 def useful_lines(path):
     try:
