@@ -92,7 +92,9 @@ if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
 ## Anthropic API Integration
 
-Default model: `claude-sonnet-4-6`. Fast/cheap: `claude-haiku-4-5-20251001`. Best: `claude-opus-4-6`.
+Default model: `claude-opus-5`. Cheaper high-volume: `claude-sonnet-5`. Fast/cheap: `claude-haiku-4-5`.
+
+Use `output_config: { effort: "high" }` to tune depth. `temperature`, `top_p`, and `budget_tokens` are rejected on Opus 5 and return a 400.
 
 ```ts
 import Anthropic from "@anthropic-ai/sdk";
@@ -100,7 +102,7 @@ import Anthropic from "@anthropic-ai/sdk";
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const message = await client.messages.create({
-  model: "claude-sonnet-4-6",
+  model: "claude-opus-5",
   max_tokens: 1024,
   messages: [{ role: "user", content: prompt }],
 });
@@ -109,7 +111,7 @@ const message = await client.messages.create({
 ## Streaming Responses
 
 ```ts
-const stream = await client.messages.stream({ model: "claude-sonnet-4-6", ... });
+const stream = await client.messages.stream({ model: "claude-opus-5", ... });
 
 return new Response(stream.toReadableStream(), {
   headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },

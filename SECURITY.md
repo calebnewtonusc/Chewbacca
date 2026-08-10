@@ -24,7 +24,7 @@ brew install bfg
 git clone --mirror https://github.com/calebnewtonusc/D1-Vibe-Coding.git
 
 # Create a file with the secret to remove
-echo "f0126e193b7fb233c00d57d8480de4741106209e" > secrets.txt
+echo "<the-leaked-token-string>" > secrets.txt
 
 # Run BFG
 bfg --replace-text secrets.txt D1-Vibe-Coding.git
