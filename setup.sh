@@ -271,7 +271,17 @@ cd "$CC_DIR"
 git init -q 2>/dev/null || true
 git remote remove origin 2>/dev/null || true
 git remote add origin "https://github.com/$GITHUB_USER/claude-context.git"
-git add .
+
+cat > "$CC_DIR/.gitignore" << 'GITIGNORE'
+.DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.example
+*.log
+GITIGNORE
+
+git add -- .gitignore CLAUDE.md README.md .claude
 git diff --cached --quiet || git commit -q -m "init: claude-context from D1-Vibe-Coding"
 git branch -M main
 git push -u origin main -q 2>/dev/null || warn "Push failed — you may need to push manually"
