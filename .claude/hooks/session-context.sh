@@ -49,11 +49,12 @@ PLACEHOLDER = re.compile(
 # Anything still wearing its template clothes. YOUR_CITY, YOUR_TITLE, {name},
 # <your name here>, and the "auto-updated by Claude" boilerplate all qualify.
 TEMPLATE_TOKEN = re.compile(
-    r"YOUR_[A-Z_]{2,}|PROJECT_NAME|\{name\}|<your[- ]|Auto-updated by Claude",
+    r"YOUR_[A-Z_]{2,}|PROJECT_NAME|\{name\}|<your[- ]"
+    r"|Auto-updated by Claude|Update trigger:",
     re.I,
 )
 
-> # A standalone "..." is scaffolding wherever it appears: as a bullet, a
+# A standalone "..." is scaffolding wherever it appears: as a bullet, a
 # numbered item, or one cell of a table row.
 ELLIPSIS_CELL = re.compile(r"(?:^|[|\s])\.{3,}(?:$|[|\s])")
 

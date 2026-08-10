@@ -8,7 +8,7 @@
   <a href="https://github.com/calebnewtonusc/D1-Vibe-Coding/stargazers"><img src="https://img.shields.io/github/stars/calebnewtonusc/D1-Vibe-Coding?style=social" alt="Stars"></a>
   <a href="https://github.com/calebnewtonusc/D1-Vibe-Coding/commits/main"><img src="https://img.shields.io/github/last-commit/calebnewtonusc/D1-Vibe-Coding" alt="Last Commit"></a>
   <a href=".claude/commands"><img src="https://img.shields.io/badge/slash_commands-36-indigo" alt="Commands"></a>
-  <a href=".claude/rules"><img src="https://img.shields.io/badge/rules_files-18-green" alt="Rules"></a>
+  <a href=".claude/rules"><img src="https://img.shields.io/badge/always_on_rules-6-green" alt="Rules"></a>
   <a href="docs/EXTENSIONS.md"><img src="https://img.shields.io/badge/plugins-9-orange" alt="Plugins"></a>
 </p>
 
@@ -27,7 +27,7 @@
 - [Slash Commands](#the-slash-commands)
 - [Second Brain](#the-second-brain)
 - [Design System](#the-design-system)
-- [Rules Files](#the-rules-files)
+- [Standards Files](#the-standards-files)
 - [Hooks](#the-hooks)
 - [Stack](#stack-assumptions)
 - [Ecosystem](#ecosystem-and-resources)
@@ -46,10 +46,10 @@
 | Feature                | Details                                                                                                                                                              |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **36 slash commands**  | Full dev lifecycle: scaffold, push, deploy, audit, PR review, sprint tracking, debugging                                                                             |
-| **18 rules files**     | Auto-injected context by file type: security, API, components, database, deployment, naming, performance, state, accessibility, TypeScript, design, testing, UX laws |
+| **18 standards files** | 6 universal ones imported into every session (~3.7k tokens); 12 stack-specific ones behind a skill that loads only when the work touches them                        |
 | **Full design system** | Dark mode, shadcn/ui, Tailwind, scroll-aware navbar, real typography. Every UI looks like a funded startup's product page                                            |
 | **Second brain**       | Two-repo system: public `claude-context` (operational) + private `{name}-context` (personal). Auto-syncs to GitHub                                                   |
-| **Smart hooks**        | Auto-format on save, sync context repos, warn on `.env` writes, load Todoist priorities at session start                                                             |
+| **Smart hooks**        | Format on save, sync context repos, warn on `.env` writes, and flag unpushed work only when there is any                                                             |
 | **iMessage agent**     | Optional macOS integration: read chat history, triage messages, send via AppleScript                                                                                 |
 | **Skills and plugins** | graph-engineering and no-ai-slop skills, plus Understand-Anything, context7, serena, and six more plugins                                                            |
 | **Example project**    | Working Cloudflare Worker + D1 todo app you can deploy in 60 seconds                                                                                                 |
@@ -178,44 +178,64 @@ New to this? Start with [CLAUDE-QUICK.md](CLAUDE-QUICK.md) (50 lines, essential 
 
 ---
 
-## The rules files
+## The standards files
 
-Each file is auto-loaded as context when Claude touches matching files:
+Eighteen files, split by whether they earn their place in every session.
 
-| Rule                   | What It Enforces                                                      |
-| ---------------------- | --------------------------------------------------------------------- |
-| `security.md`          | Parameterized queries, RLS, no secrets in logs, auth ownership checks |
-| `api.md`               | Next.js App Router routes, Zod validation, consistent error shapes    |
-| `components.md`        | shadcn/ui enforcement, skeleton/empty/error state patterns            |
-| `database.md`          | Supabase conventions, RLS policies, migration workflow                |
-| `deployment.md`        | Vercel deploy workflow, pre-deploy checklist                          |
-| `naming.md`            | File, variable, DB, API, branch naming conventions                    |
-| `performance.md`       | `next/image`, `next/font`, Server Components, bundle size             |
-| `state.md`             | React Query for server state, URL state, Zustand for shared UI        |
-| `accessibility.md`     | Semantic HTML, focus management, WCAG contrast, ARIA                  |
-| `typescript.md`        | Strict mode patterns, Zod integration, no `any`                       |
-| `design.md`            | D1 design system: color, typography, components                       |
-| `writing.md`           | Copy standards, no AI slop                                            |
-| `scroll-effects.md`    | CSS scroll animations, IntersectionObserver, parallax                 |
-| `testing.md`           | Unit, integration, and E2E testing patterns                           |
-| `ux-laws.md`           | Hick's, Fitts's, Miller's, and other UX laws applied                  |
-| `review-discipline.md` | Code review standards and checklists                                  |
-| `audit.md`             | Pre-ship audit checklist                                              |
-| `git.md`               | Commit format, branch naming, PR rules                                |
+**Six always on.** `CLAUDE.md` imports these with `@`, so they are in context
+from the first token. About 3,700 tokens total. They apply to any language.
 
----
+| Rule                   | What it enforces                                                     |
+| ---------------------- | -------------------------------------------------------------------- |
+| `security.md`          | Parameterized queries, no secrets in logs, ownership checks, SSRF     |
+| `git.md`               | Commit format, branch naming, stage by filename                      |
+| `writing.md`           | Copy standards, no AI slop, no em dashes                             |
+| `naming.md`            | File, variable, DB, API, and branch naming conventions               |
+| `typescript.md`        | Strict mode patterns, Zod integration, no `any`                      |
+| `review-discipline.md` | Code review standards and checklists                                 |
+
+**Twelve on demand.** These live in the `stack-rules` skill and load only when
+the task touches them: components, api, database, deployment, design,
+performance, state, accessibility, scroll-effects, testing, ux-laws, audit.
+
+Importing all eighteen would cost roughly 16,000 tokens on every session,
+including a Python service that will never render a component. The skill's
+description triggers on UI, API, database, deploy, and test work, so the twelve
+arrive exactly when they are relevant and cost nothing otherwise.
 
 ## The hooks
 
-| Hook           | Trigger           | What It Does                                             |
-| -------------- | ----------------- | -------------------------------------------------------- |
-| `SessionStart` | Every new session | Load personal context + Todoist priorities               |
-| `PostToolUse`  | After Write/Edit  | Auto-format with Prettier + sync context repos to GitHub |
-| `PreToolUse`   | Before Write      | Warn before touching `.env` files                        |
-| `Stop`         | Session end       | Remind to push to GitHub + surface TODOs                 |
-| `Notification` | Task complete     | Voice alert via macOS `say`                              |
+Each one is a script in `.claude/hooks/`, installed to `~/.claude/hooks/` and
+referenced by path from `settings.json`. They are scripts rather than inline
+JSON commands because an inline command with seven levels of backslash escaping
+is not something anyone will debug confidently later.
 
-The `PostToolUse` hook watches your `{name}-context/` and `claude-context/` directories. Any write auto-commits and pushes.
+| Hook               | Trigger           | What it does                                                      |
+| ------------------ | ----------------- | ----------------------------------------------------------------- |
+| `session-context`  | Every new session | Loads your context, skipping unfilled template placeholders       |
+| `format-and-sync`  | After Write/Edit  | Formats with Prettier, then commits and pushes context repos      |
+| `stop-check`       | Session end       | Flags uncommitted or unpushed work, silent when there is none     |
+| `env-guard`        | Before Write      | Warns before writing a real `.env`, ignores `.env.example`        |
+
+Three details worth knowing, because each one was silently broken before:
+
+**Prettier needs node on PATH.** Hooks do not inherit an nvm-managed PATH, and
+Prettier's shebang is `#!/usr/bin/env node`. Without help it fails to find node
+and exits 0, so you get no formatting and no error. `format-and-sync.sh`
+resolves the node bin directory itself, and prefers a local or global Prettier
+over `npx`, which otherwise re-resolves the package on every single file write.
+
+**The stop reminder is conditional.** An unconditional "push to GitHub" on
+every turn is noise, and noise gets ignored. It now checks actual git state and
+stays silent when the tree is clean.
+
+**Session context filters placeholders.** Until you fill in `YOU.md`, the
+template is empty headings, `- ...` bullets, and `| ... | ... |` rows. Injecting
+that is pure token cost, so placeholder lines and headings with no content under
+them are dropped.
+
+Hook paths come from `~/.claude/d1-config.sh`, written by `setup.sh`. Edit that
+file if you move your context repos.
 
 ---
 
@@ -300,6 +320,7 @@ subagents behind one versioned install.
 
 | Extension                                                                    | Layer  | What it does                                                          |
 | ---------------------------------------------------------------------------- | ------ | --------------------------------------------------------------------- |
+| [skills/stack-rules](skills/stack-rules)                                     | Skill  | The 12 stack-specific standards, loaded only when the work needs them |
 | [skills/graph-engineering](skills/graph-engineering)                         | Skill  | Knowledge graphs and agent task graphs, with teaching mode            |
 | [no-ai-slop](https://github.com/petergyang/no-ai-slop)                       | Skill  | Strips 20+ AI-slop patterns from a draft, or flags them without edits |
 | [Understand-Anything](https://github.com/Egonex-AI/Understand-Anything)      | Plugin | Turns a codebase into an interactive knowledge graph you can query    |
@@ -344,8 +365,8 @@ D1-Vibe-Coding/
 ├── .github/                     # Issue templates, PR template, CI
 ├── .claude/
 │   ├── commands/                # 36 slash commands
-│   ├── rules/                   # 18 rules files (auto-injected context)
-│   └── hooks/                   # PostToolUse formatters and sync hooks
+│   ├── rules/                   # 6 always-on standards, imported by CLAUDE.md
+│   └── hooks/                   # Hook scripts (format, sync, session, stop, env guard)
 ├── docs/
 │   ├── METHODOLOGY.md           # Vibe coding philosophy and workflow
 │   ├── CLOUDFLARE.md            # D1/Workers/KV/R2 patterns and examples
@@ -357,7 +378,8 @@ D1-Vibe-Coding/
 ├── templates/                   # Full starter files (Worker, migration, components)
 ├── snippets/                    # Copy-paste patterns (Drizzle, wrangler, hooks)
 ├── skills/
-│   └── graph-engineering/       # Knowledge graphs and agent task graphs
+│   ├── graph-engineering/       # Knowledge graphs and agent task graphs
+│   └── stack-rules/             # 12 stack standards, loaded on demand
 ├── second-brain/
 │   ├── README.md                # Two-repo architecture explained
 │   ├── init-brain.sh            # Standalone second brain setup

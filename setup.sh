@@ -232,7 +232,7 @@ Forked from [D1-Vibe-Coding](https://github.com/calebnewtonusc/D1-Vibe-Coding).
 
 - \`CLAUDE.md\` — full design system, behavioral rules, coding standards
 - \`.claude/commands/\` — 36 slash commands covering the full dev lifecycle
-- \`.claude/rules/\` — 18 rules files injected as context by file type
+- \`.claude/rules/\` — 6 always-on standards, imported by CLAUDE.md
 - \`.claude/hooks/\` — PostToolUse formatters and linters
 
 ## How to use

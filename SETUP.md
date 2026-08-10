@@ -11,8 +11,8 @@
 ## Option A: One-command install
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USERNAME/claude-workflow-kit
-cd claude-workflow-kit
+git clone https://github.com/calebnewtonusc/D1-Vibe-Coding
+cd D1-Vibe-Coding
 chmod +x install.sh && ./install.sh
 ```
 
@@ -99,7 +99,7 @@ In `CLAUDE.md`, find `indigo` and replace with your preferred color (`violet`, `
 
 ### Swap the database
 
-The rules in `.claude/rules/database.md` assume Supabase. Replace the contents with your ORM/DB of choice.
+The database standards in `skills/stack-rules/references/database.md` assume Supabase. Replace the contents with your ORM or database of choice.
 
 ### Add your own commands
 

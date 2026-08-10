@@ -18,8 +18,8 @@ typescript, review-discipline) are not here. Those are `@`-imported by
 
 Read the specific file before writing code in its area. Do not read all twelve.
 
-| Working on                                       | Read                           |
-| ------------------------------------------------ | ------------------------------ |
+| Working on                                        | Read                           |
+| ------------------------------------------------- | ------------------------------ |
 | React components, shadcn/ui, loading/empty states | `references/components.md`     |
 | API routes, Zod validation, error shapes          | `references/api.md`            |
 | Supabase schema, RLS, migrations, queries         | `references/database.md`       |

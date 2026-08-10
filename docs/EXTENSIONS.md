@@ -35,7 +35,6 @@ component should not pay for the Tailwind rules.
 
 Install: `cp -R skills/stack-rules ~/.claude/skills/` (both installers do this).
 
-
 **`skills/graph-engineering/`** teaches both halves of graph work: knowledge graphs (ontology
 design, entity and relation extraction, fusion, GraphRAG) and task graphs (parallel fan-out,
 verifier separation, stop rules, human gates). The knowledge-graph half is distilled and translated
