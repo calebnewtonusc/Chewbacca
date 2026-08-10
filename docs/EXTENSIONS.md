@@ -20,6 +20,22 @@ MCP servers, and subagents behind one install command and one version number.
 
 ### Shipped in this repo
 
+**`skills/stack-rules/`** holds twelve stack-specific standards: components, api,
+database, deployment, design, performance, state, accessibility, scroll-effects,
+testing, ux-laws, and audit. They used to sit in `.claude/rules/` alongside the
+universal six, where nothing loaded them at all: `CLAUDE.md` had no `@` imports
+and no other mechanism read that directory, so all eighteen installed and then
+did nothing.
+
+The six universal ones (git, security, writing, naming, typescript,
+review-discipline) are now `@`-imported by `CLAUDE.md` at about 3,700 tokens.
+The other twelve became this skill because importing all eighteen costs roughly
+16,000 tokens on every session, and a Python service that will never render a
+component should not pay for the Tailwind rules.
+
+Install: `cp -R skills/stack-rules ~/.claude/skills/` (both installers do this).
+
+
 **`skills/graph-engineering/`** teaches both halves of graph work: knowledge graphs (ontology
 design, entity and relation extraction, fusion, GraphRAG) and task graphs (parallel fan-out,
 verifier separation, stop rules, human gates). The knowledge-graph half is distilled and translated
