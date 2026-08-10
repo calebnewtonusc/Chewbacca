@@ -430,6 +430,22 @@ msg_read = "Read(" + os.path.expanduser("~") + "/Library/Messages/**)"
 if msg_read not in perms["allow"]:
     perms["allow"] += [msg_read, "Bash(sqlite3:*)", "Bash(osascript:*)", "WebSearch"]
 
+# Nothing prompts under bypassPermissions, so the deny list is the only brake
+# left. It covers operations with no undo, and reads that would pull a secret
+# into context where it can be echoed back or logged. deny wins over allow.
+perms.setdefault("deny", [])
+for rule in [
+    "Bash(rm -rf /)", "Bash(rm -rf /*)", "Bash(rm -rf ~)", "Bash(rm -rf ~/*)",
+    "Bash(sudo rm:*)",
+    "Bash(git push --force*)", "Bash(git push -f*)", "Bash(git reset --hard origin*)",
+    "Bash(gh repo delete:*)", "Bash(dropdb:*)",
+    "Read(./.env)", "Read(./.env.*)",
+    "Read(" + os.path.expanduser("~") + "/.ssh/**)",
+    "Read(" + os.path.expanduser("~") + "/.aws/**)",
+]:
+    if rule not in perms["deny"]:
+        perms["deny"].append(rule)
+
 settings["enableAllProjectMcpServers"] = True
 settings["alwaysThinkingEnabled"] = True
 
