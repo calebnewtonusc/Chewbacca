@@ -23,12 +23,24 @@ echo ""
 cp "$SCRIPT_DIR/CLAUDE.md" "$PROJECT_DIR/CLAUDE.md"
 echo -e "  ${GRN}✓${NC} CLAUDE.md"
 
-# Copy .claude/ (commands, rules, hooks)
+# Commands and hooks are project-scoped.
 mkdir -p "$PROJECT_DIR/.claude"
 cp -r "$SCRIPT_DIR/.claude/commands" "$PROJECT_DIR/.claude/"
-cp -r "$SCRIPT_DIR/.claude/rules"    "$PROJECT_DIR/.claude/"
 cp -r "$SCRIPT_DIR/.claude/hooks"    "$PROJECT_DIR/.claude/"
-echo -e "  ${GRN}✓${NC} .claude/ ($(ls "$SCRIPT_DIR/.claude/commands/" | wc -l | tr -d ' ') commands, $(ls "$SCRIPT_DIR/.claude/rules/" | wc -l | tr -d ' ') rules)"
+echo -e "  ${GRN}✓${NC} .claude/commands ($(ls "$SCRIPT_DIR/.claude/commands/" | wc -l | tr -d ' ') commands)"
+
+# Rules go global. CLAUDE.md imports them as @~/.claude/rules/*.md, so they have
+# to be at that path for the imports to resolve in any project.
+mkdir -p "$HOME/.claude/rules"
+cp "$SCRIPT_DIR/.claude/rules/"*.md "$HOME/.claude/rules/"
+echo -e "  ${GRN}✓${NC} ~/.claude/rules ($(ls "$SCRIPT_DIR/.claude/rules/" | wc -l | tr -d ' ') always-on rules)"
+
+# Skills load on demand, including the twelve stack-specific standards.
+if [ -d "$SCRIPT_DIR/skills" ]; then
+  mkdir -p "$HOME/.claude/skills"
+  cp -R "$SCRIPT_DIR/skills/." "$HOME/.claude/skills/"
+  echo -e "  ${GRN}✓${NC} ~/.claude/skills ($(ls "$SCRIPT_DIR/skills" | wc -l | tr -d ' ') skills)"
+fi
 
 # Merge settings if no global settings exist
 SETTINGS_DEST="$HOME/.claude/settings.json"
