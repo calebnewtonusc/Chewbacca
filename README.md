@@ -43,16 +43,16 @@
 
 ## What you get
 
-| Feature                | Details                                                                                                                                                              |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **36 slash commands**  | Full dev lifecycle: scaffold, push, deploy, audit, PR review, sprint tracking, debugging                                                                             |
-| **18 standards files** | 6 universal ones imported into every session (~3.7k tokens); 12 stack-specific ones behind a skill that loads only when the work touches them                        |
-| **Full design system** | Dark mode, shadcn/ui, Tailwind, scroll-aware navbar, real typography. Every UI looks like a funded startup's product page                                            |
-| **Second brain**       | Two-repo system: public `claude-context` (operational) + private `{name}-context` (personal). Auto-syncs to GitHub                                                   |
-| **Smart hooks**        | Format on save, sync context repos, warn on `.env` writes, and flag unpushed work only when there is any                                                             |
-| **iMessage agent**     | Optional macOS integration: read chat history, triage messages, send via AppleScript                                                                                 |
-| **Skills and plugins** | graph-engineering and no-ai-slop skills, plus Understand-Anything, context7, serena, and six more plugins                                                            |
-| **Example project**    | Working Cloudflare Worker + D1 todo app you can deploy in 60 seconds                                                                                                 |
+| Feature                | Details                                                                                                                                       |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **36 slash commands**  | Full dev lifecycle: scaffold, push, deploy, audit, PR review, sprint tracking, debugging                                                      |
+| **18 standards files** | 6 universal ones imported into every session (~3.7k tokens); 12 stack-specific ones behind a skill that loads only when the work touches them |
+| **Full design system** | Dark mode, shadcn/ui, Tailwind, scroll-aware navbar, real typography. Every UI looks like a funded startup's product page                     |
+| **Second brain**       | Two-repo system: public `claude-context` (operational) + private `{name}-context` (personal). Auto-syncs to GitHub                            |
+| **Smart hooks**        | Format on save, sync context repos, warn on `.env` writes, and flag unpushed work only when there is any                                      |
+| **iMessage agent**     | Optional macOS integration: read chat history, triage messages, send via AppleScript                                                          |
+| **Skills and plugins** | graph-engineering and no-ai-slop skills, plus Understand-Anything, context7, serena, and six more plugins                                     |
+| **Example project**    | Working Cloudflare Worker + D1 todo app you can deploy in 60 seconds                                                                          |
 
 ---
 
@@ -185,14 +185,14 @@ Eighteen files, split by whether they earn their place in every session.
 **Six always on.** `CLAUDE.md` imports these with `@`, so they are in context
 from the first token. About 3,700 tokens total. They apply to any language.
 
-| Rule                   | What it enforces                                                     |
-| ---------------------- | -------------------------------------------------------------------- |
-| `security.md`          | Parameterized queries, no secrets in logs, ownership checks, SSRF     |
-| `git.md`               | Commit format, branch naming, stage by filename                      |
-| `writing.md`           | Copy standards, no AI slop, no em dashes                             |
-| `naming.md`            | File, variable, DB, API, and branch naming conventions               |
-| `typescript.md`        | Strict mode patterns, Zod integration, no `any`                      |
-| `review-discipline.md` | Code review standards and checklists                                 |
+| Rule                   | What it enforces                                                  |
+| ---------------------- | ----------------------------------------------------------------- |
+| `security.md`          | Parameterized queries, no secrets in logs, ownership checks, SSRF |
+| `git.md`               | Commit format, branch naming, stage by filename                   |
+| `writing.md`           | Copy standards, no AI slop, no em dashes                          |
+| `naming.md`            | File, variable, DB, API, and branch naming conventions            |
+| `typescript.md`        | Strict mode patterns, Zod integration, no `any`                   |
+| `review-discipline.md` | Code review standards and checklists                              |
 
 **Twelve on demand.** These live in the `stack-rules` skill and load only when
 the task touches them: components, api, database, deployment, design,
