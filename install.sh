@@ -27,6 +27,7 @@ echo -e "  ${GRN}✓${NC} CLAUDE.md"
 mkdir -p "$PROJECT_DIR/.claude"
 cp -r "$SCRIPT_DIR/.claude/commands" "$PROJECT_DIR/.claude/"
 cp -r "$SCRIPT_DIR/.claude/hooks"    "$PROJECT_DIR/.claude/"
+cp -r "$SCRIPT_DIR/.claude/agents"   "$PROJECT_DIR/.claude/" 2>/dev/null || true
 echo -e "  ${GRN}✓${NC} .claude/commands ($(ls "$SCRIPT_DIR/.claude/commands/" | wc -l | tr -d ' ') commands)"
 
 # Rules go global. CLAUDE.md imports them as @~/.claude/rules/*.md, so they have

@@ -167,6 +167,11 @@ SKILL_COUNT="$(ls -d "$CLAUDE_DIR"/skills/*/ 2>/dev/null | wc -l | tr -d ' ')"
   ok "$SKILL_COUNT skills installed" ||
   warn "no skills in ~/.claude/skills/, the 12 stack standards will never load"
 
+AGENT_COUNT="$(ls "$CLAUDE_DIR"/agents/*.md 2>/dev/null | wc -l | tr -d ' ')"
+[ "$AGENT_COUNT" -gt 0 ] &&
+  ok "$AGENT_COUNT subagents installed" ||
+  warn "no subagents in ~/.claude/agents/"
+
 CMD_COUNT="$(ls "$CLAUDE_DIR"/commands/*.md 2>/dev/null | wc -l | tr -d ' ')"
 [ "$CMD_COUNT" -gt 0 ] &&
   ok "$CMD_COUNT slash commands installed" ||

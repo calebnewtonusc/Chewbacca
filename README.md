@@ -35,6 +35,7 @@
 - [Documentation](#documentation)
 - [Templates and Snippets](#templates-and-snippets)
 - [Skills and Plugins](#skills-and-plugins)
+- [Subagents](#subagents)
 - [Example Project](#example-project)
 - [File Structure](#file-structure)
 - [Related Repos](#related-repos)
@@ -53,6 +54,7 @@
 | **Smart hooks**        | Format on save, sync context repos, warn on `.env` writes, and flag unpushed work only when there is any                                      |
 | **iMessage agent**     | Optional macOS integration: read chat history, triage messages, send via AppleScript                                                          |
 | **Skills and plugins** | graph-engineering and no-ai-slop skills, plus Understand-Anything, context7, serena, and six more plugins                                     |
+| **4 subagents**        | context-keeper, code-reviewer, debugger, and explorer, each with a tight scope and its own tool set
 | **Example project**    | Working Cloudflare Worker + D1 todo app you can deploy in 60 seconds                                                                          |
 
 ---
@@ -309,6 +311,7 @@ The vibe coding landscape is growing fast. **[ECOSYSTEM.md](ECOSYSTEM.md)** is o
 | [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)   | D1 query patterns, migrations, Drizzle ORM, Worker routing (vanilla + Hono), D1 + KV + R2, deployment  |
 | [docs/PROMPTS.md](docs/PROMPTS.md)         | 20+ real prompts for scaffolding, features, debugging, database work, UI design, deployment            |
 | [docs/INTERNALS.md](docs/INTERNALS.md)     | How Claude Code works under the hood: CLAUDE.md loading, hooks, tools, agents, context compression     |
+| [docs/SKILLS.md](docs/SKILLS.md)           | What this kit ships, the four public skill registries, the licensing traps in them, and how to write your own |
 | [docs/EXTENSIONS.md](docs/EXTENSIONS.md)   | Skills, plugins, and MCP: what each layer is for, what setup.sh installs, and which to reach for first |
 
 ---
@@ -354,6 +357,7 @@ subagents behind one versioned install.
 
 | Extension                                                                    | Layer  | What it does                                                          |
 | ---------------------------------------------------------------------------- | ------ | --------------------------------------------------------------------- |
+| [skills/second-brain](skills/second-brain)                                   | Skill  | Reading, writing, and auditing your personal context repo              |
 | [skills/stack-rules](skills/stack-rules)                                     | Skill  | The 12 stack-specific standards, loaded only when the work needs them |
 | [skills/graph-engineering](skills/graph-engineering)                         | Skill  | Knowledge graphs and agent task graphs, with teaching mode            |
 | [no-ai-slop](https://github.com/petergyang/no-ai-slop)                       | Skill  | Strips 20+ AI-slop patterns from a draft, or flags them without edits |
@@ -362,6 +366,42 @@ subagents behind one versioned install.
 | serena, playwright, vercel, railway, expo, pinecone, bigquery-data-analytics | Plugin | Code navigation, browser automation, deploys, and data tooling        |
 
 Full breakdown of which layer to reach for, and why, in [docs/EXTENSIONS.md](docs/EXTENSIONS.md).
+
+---
+
+## Subagents
+
+Four agents in `.claude/agents/`, each with a narrow job and only the tools that
+job needs. Claude delegates to them when the task matches; none of them run on
+their own.
+
+| Agent            | Use it for                                                             |
+| ---------------- | ---------------------------------------------------------------------- |
+| `context-keeper` | Auditing and repairing the second brain: contradictions, stale projects, duplicates, relative dates |
+| `code-reviewer`  | Reviewing a diff against the standards this kit installs, ranked blocker / should fix / consider    |
+| `debugger`       | Tracing a bug to root cause through the seven-step protocol, no guessing                            |
+| `explorer`       | Read-only reconnaissance of unfamiliar code, returns conclusions and `file.ts:42` pointers          |
+
+`explorer` cannot write, and `code-reviewer` cannot edit. That is deliberate:
+an agent that reports and an agent that changes things should not be the same
+agent, or the report starts justifying the changes.
+
+---
+
+## Adding skills from elsewhere
+
+```bash
+./add-skill.sh https://github.com/petergyang/no-ai-slop
+```
+
+Clones from upstream into `~/.claude/skills/`, carries the LICENSE along, and
+records where it came from in a `.source` file so it can be updated later.
+
+It prints the declared license before installing, and warns loudly on
+Proprietary or AGPL. That check is not theoretical: one popular skills repo
+advertises Apache 2.0 while shipping four skills marked Proprietary and one
+under AGPL-3.0, which would relicense an MIT project by contagion.
+[docs/SKILLS.md](docs/SKILLS.md) has the full map of what is out there.
 
 ---
 
@@ -395,13 +435,15 @@ D1-Vibe-Coding/
 ├── LICENSE                      # MIT
 ├── setup.sh                     # One-command full infrastructure setup
 ├── doctor.sh                    # Verifies the install actually works
+├── add-skill.sh                 # Installs a skill from upstream, license-aware
 ├── install.sh                   # Quick project-level install
 ├── SETUP.md                     # Manual setup instructions
 ├── .github/                     # Issue templates, PR template, CI
 ├── .claude/
 │   ├── commands/                # 36 slash commands
 │   ├── rules/                   # 6 always-on standards, imported by CLAUDE.md
-│   └── hooks/                   # Hook scripts (format, sync, session, stop, env guard)
+│   ├── hooks/                   # Hook scripts (format, sync, session, stop, env guard)
+│   └── agents/                  # 4 subagents (context-keeper, reviewer, debugger, explorer)
 ├── docs/
 │   ├── METHODOLOGY.md           # Vibe coding philosophy and workflow
 │   ├── CLOUDFLARE.md            # D1/Workers/KV/R2 patterns and examples
@@ -413,6 +455,7 @@ D1-Vibe-Coding/
 ├── templates/                   # Full starter files (Worker, migration, components)
 ├── snippets/                    # Copy-paste patterns (Drizzle, wrangler, hooks)
 ├── skills/
+│   ├── second-brain/            # Operating the personal context repo
 │   ├── graph-engineering/       # Knowledge graphs and agent task graphs
 │   └── stack-rules/             # 12 stack standards, loaded on demand
 ├── second-brain/

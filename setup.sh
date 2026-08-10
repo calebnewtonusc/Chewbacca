@@ -567,10 +567,13 @@ mkdir -p "$GLOBAL_CLAUDE/commands" "$GLOBAL_CLAUDE/rules"
 
 cp "$SCRIPT_DIR/.claude/commands/"*.md "$GLOBAL_CLAUDE/commands/" 2>/dev/null || true
 cp "$SCRIPT_DIR/.claude/rules/"*.md    "$GLOBAL_CLAUDE/rules/"    2>/dev/null || true
+mkdir -p "$GLOBAL_CLAUDE/agents"
+cp "$SCRIPT_DIR/.claude/agents/"*.md   "$GLOBAL_CLAUDE/agents/"   2>/dev/null || true
 cp "$SCRIPT_DIR/CLAUDE.md"             "$GLOBAL_CLAUDE/CLAUDE.md" 2>/dev/null || true
 
 log "Commands installed to ~/.claude/commands/ ($(ls "$GLOBAL_CLAUDE/commands/" | wc -l | tr -d ' ') files)"
 log "Rules installed to ~/.claude/rules/ ($(ls "$GLOBAL_CLAUDE/rules/" | wc -l | tr -d ' ') files)"
+log "Subagents installed to ~/.claude/agents/ ($(ls "$GLOBAL_CLAUDE/agents/" 2>/dev/null | wc -l | tr -d ' ') agents)"
 log "CLAUDE.md installed to ~/.claude/CLAUDE.md"
 
 # ── Skills and plugins ────────────────────────────────────────────────────────
