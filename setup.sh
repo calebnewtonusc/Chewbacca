@@ -253,8 +253,6 @@ cp CLAUDE.md ~/.claude/CLAUDE.md
 ## Source
 
 Built and maintained at [D1-Vibe-Coding](https://github.com/calebnewtonusc/D1-Vibe-Coding).
-
-All glory to God! ✝️❤️
 READMEOF
 
 if gh repo view "$GITHUB_USER/claude-context" &>/dev/null; then
