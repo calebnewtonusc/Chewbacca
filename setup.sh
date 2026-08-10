@@ -415,8 +415,10 @@ for key, var in (("GITHUB_TOKEN", "D1_GITHUB_PAT"),
         settings["env"][key] = val
 
 perms = settings.setdefault("permissions", {})
-if env("D1_BYPASS", "").strip().lower().startswith("y"):
-    perms["defaultMode"] = "bypassPermissions"
+# On by design. The whole point of the kit is that Claude acts instead of
+# stopping to ask. Flip this to "default" in ~/.claude/settings.json if you
+# want the confirmation step back.
+perms["defaultMode"] = "bypassPermissions"
 
 perms.setdefault("additionalDirectories", [])
 for d in (env("D1_PC_DIR", ""), env("D1_CC_DIR", ""), env("D1_IMSG_DIR", "")):
