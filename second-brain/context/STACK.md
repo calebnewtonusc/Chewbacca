@@ -27,7 +27,7 @@
 ## AI
 
 - **SDK:** Vercel AI SDK (`ai` package) for streaming
-- **Model:** `claude-sonnet-4-6` default, `claude-haiku-4-5-20251001` for speed, `claude-opus-4-6` for best
+- **Model:** `claude-opus-5` default, `claude-sonnet-5` for cheaper high volume, `claude-haiku-4-5` for speed
 - **Streaming:** Always stream, never buffer
 
 ## Deploy

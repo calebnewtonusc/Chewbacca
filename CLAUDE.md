@@ -520,7 +520,7 @@ import { anthropic } from "@ai-sdk/anthropic";
 export async function POST(req: Request) {
   const { messages } = await req.json();
   const result = streamText({
-    model: anthropic("claude-sonnet-4-6"),
+    model: anthropic("claude-opus-5"),
     messages,
     system: "You are a helpful assistant.",
   });
@@ -549,7 +549,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 
 const { object } = await generateObject({
-  model: anthropic("claude-sonnet-4-6"),
+  model: anthropic("claude-opus-5"),
   schema: z.object({
     title: z.string(),
     tags: z.array(z.string()),
@@ -567,7 +567,7 @@ import { streamText, tool } from "ai";
 import { z } from "zod";
 
 const result = streamText({
-  model: anthropic("claude-sonnet-4-6"),
+  model: anthropic("claude-opus-5"),
   tools: {
     searchDatabase: tool({
       description: "Search the product database",

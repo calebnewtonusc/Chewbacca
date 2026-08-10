@@ -51,7 +51,7 @@
 | **Second brain**       | Two-repo system: public `claude-context` (operational) + private `{name}-context` (personal). Auto-syncs to GitHub                                                   |
 | **Smart hooks**        | Auto-format on save, sync context repos, warn on `.env` writes, load Todoist priorities at session start                                                             |
 | **iMessage agent**     | Optional macOS integration: read chat history, triage messages, send via AppleScript                                                                                 |
-| **Skills and plugins** | graph-engineering and no-ai-slop skills, plus Understand-Anything, context7, serena, and six more plugins |
+| **Skills and plugins** | graph-engineering and no-ai-slop skills, plus Understand-Anything, context7, serena, and six more plugins                                                            |
 | **Example project**    | Working Cloudflare Worker + D1 todo app you can deploy in 60 seconds                                                                                                 |
 
 ---

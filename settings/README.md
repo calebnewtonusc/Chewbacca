@@ -126,10 +126,10 @@ Note: setting secrets here means they're in a plaintext file. Use this for dev t
 Override the default model.
 
 ```json
-"model": "claude-opus-4-6"
+"model": "claude-opus-5"
 ```
 
-Available: `claude-sonnet-4-6` (default), `claude-opus-4-6` (best), `claude-haiku-4-5-20251001` (fast/cheap).
+Available: `claude-opus-5` (default), `claude-sonnet-5` (cheaper high-volume), `claude-haiku-4-5` (fast/cheap).
 
 ---
 
