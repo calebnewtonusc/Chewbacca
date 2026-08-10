@@ -348,128 +348,140 @@ fi
 head "Wiring ~/.claude/settings.json"
 
 SETTINGS="$HOME/.claude/settings.json"
-mkdir -p "$HOME/.claude"
+mkdir -p "$HOME/.claude/hooks"
 
-SESSION_CTX_CMD="PERSONAL=\$(cat \"$PC_DIR/YOU.md\" \"$PC_DIR/NOW.md\" 2>/dev/null | head -150 | python3 -c \"import sys; content=sys.stdin.read(); lines=[l for l in content.split(chr(10)) if l.strip()]; print(' | '.join(lines[:20]))\" 2>/dev/null || echo ''); printf '%s' \"{\\\\\\\"hookSpecificOutput\\\\\\\": {\\\\\\\"hookEventName\\\\\\\": \\\\\\\"SessionStart\\\\\\\", \\\\\\\"additionalContext\\\\\\\": \\\\\\\"$USER_NAME's context: \$PERSONAL\\\\\\\"}}\""
+# Hook logic lives in script files, not in escaped one-liners inside JSON. The
+# SessionStart command used to be a single string with seven levels of
+# backslash escaping: it worked, and nobody could read or safely change it.
+cp "$SCRIPT_DIR/.claude/hooks/"*.sh "$HOME/.claude/hooks/" 2>/dev/null || true
+chmod +x "$HOME/.claude/hooks/"*.sh 2>/dev/null || true
+log "Hooks installed to ~/.claude/hooks/"
 
-if [ -n "$TODOIST_TOKEN" ]; then
-  SESSION_CTX_CMD="TASKS=\$(curl -sf 'https://api.todoist.com/rest/v2/tasks?filter=today' -H 'Authorization: Bearer $TODOIST_TOKEN' 2>/dev/null | python3 -c \"import json,sys; tasks=json.load(sys.stdin); top=[t['content'] for t in sorted(tasks, key=lambda x: -x.get('priority',1))[:3]]; print(', '.join(top))\" 2>/dev/null || echo 'none'); PERSONAL=\$(cat \"$PC_DIR/YOU.md\" \"$PC_DIR/NOW.md\" 2>/dev/null | head -100 | python3 -c \"import sys; content=sys.stdin.read(); lines=[l for l in content.split(chr(10)) if l.strip()]; print(' | '.join(lines[:15]))\" 2>/dev/null || echo ''); printf '%s' \"{\\\\\\\"hookSpecificOutput\\\\\\\": {\\\\\\\"hookEventName\\\\\\\": \\\\\\\"SessionStart\\\\\\\", \\\\\\\"additionalContext\\\\\\\": \\\\\\\"Today priorities: \$TASKS. Context: \$PERSONAL\\\\\\\"}}\""
+# Hooks read their paths from here instead of having them baked in by string
+# substitution. Edit this file to move your context repos later.
+cat > "$HOME/.claude/d1-config.sh" << D1CONFIG
+# Written by D1-Vibe-Coding setup.sh. Safe to edit by hand.
+PERSONAL_CONTEXT_DIR="$PC_DIR"
+PUBLIC_CONTEXT_DIR="$CC_DIR"
+CONTEXT_OWNER="$USER_NAME"
+D1CONFIG
+log "Hook config written to ~/.claude/d1-config.sh"
+
+# ── Optional behaviors, both off unless you ask for them ─────────────────────
+echo ""
+echo "  Two settings change how Claude behaves. Both default to off."
+echo ""
+
+read -rp "  Add a session opener on every response (prayer, mantra, focus line)? [y/N]: " WANT_OPENER
+SESSION_OPENER_TEXT=""
+if [[ "$WANT_OPENER" =~ ^[Yy]$ ]]; then
+  echo ""
+  echo "  What should Claude do at the start of every response?"
+  echo "  Example: Open with a short prayer, specific and personal, ending in Amen."
+  echo "  Example: State the one thing this change is meant to accomplish."
+  read -rp "  > " SESSION_OPENER_TEXT
 fi
 
-# Build the full settings.json
-python3 << PYEOF
-import json, os
+echo ""
+warn "bypassPermissions lets Claude write files and run shell commands without asking."
+read -rp "  Enable bypassPermissions? [y/N]: " WANT_BYPASS
+
+# Secrets and paths reach python through the environment. Interpolating them
+# into python source breaks the moment a token contains a quote or backslash.
+export D1_GITHUB_PAT="${GITHUB_PAT:-}"
+export D1_ANTHROPIC_KEY="${ANTHROPIC_KEY:-}"
+export D1_TODOIST_TOKEN="${TODOIST_TOKEN:-}"
+export D1_PC_DIR="${PC_DIR:-}"
+export D1_CC_DIR="${CC_DIR:-}"
+export D1_IMSG_DIR="${IMSG_DIR:-}"
+export D1_OPENER="${SESSION_OPENER_TEXT:-}"
+export D1_BYPASS="${WANT_BYPASS:-}"
+export D1_HOOKS="$HOME/.claude/hooks"
+
+python3 << 'PYEOF'
+import json, os, shlex
 
 settings_path = os.path.expanduser("~/.claude/settings.json")
-
 try:
     with open(settings_path) as f:
         settings = json.load(f)
-except:
+except Exception:
     settings = {}
 
-# Env
-if "env" not in settings:
-    settings["env"] = {}
+env = os.environ.get
+hooks_dir = env("D1_HOOKS") or os.path.expanduser("~/.claude/hooks")
 
-github_pat = "${GITHUB_PAT}"
-anthropic_key = "${ANTHROPIC_KEY}"
-todoist_token = "${TODOIST_TOKEN}"
+settings.setdefault("env", {})
+for key, var in (("GITHUB_TOKEN", "D1_GITHUB_PAT"),
+                 ("ANTHROPIC_API_KEY", "D1_ANTHROPIC_KEY"),
+                 ("TODOIST_API_TOKEN", "D1_TODOIST_TOKEN")):
+    val = env(var, "").strip()
+    if val:
+        settings["env"][key] = val
 
-if github_pat:
-    settings["env"]["GITHUB_TOKEN"] = github_pat
-if anthropic_key:
-    settings["env"]["ANTHROPIC_API_KEY"] = anthropic_key
-if todoist_token:
-    settings["env"]["TODOIST_API_TOKEN"] = todoist_token
+perms = settings.setdefault("permissions", {})
+if env("D1_BYPASS", "").strip().lower().startswith("y"):
+    perms["defaultMode"] = "bypassPermissions"
 
-# Permissions
-if "permissions" not in settings:
-    settings["permissions"] = {}
-settings["permissions"]["defaultMode"] = "bypassPermissions"
-if "additionalDirectories" not in settings["permissions"]:
-    settings["permissions"]["additionalDirectories"] = []
-for d in ["${PC_DIR}", "${CC_DIR}", "${IMSG_DIR}"]:
-    if d and d not in settings["permissions"]["additionalDirectories"]:
-        settings["permissions"]["additionalDirectories"].append(d)
+perms.setdefault("additionalDirectories", [])
+for d in (env("D1_PC_DIR", ""), env("D1_CC_DIR", ""), env("D1_IMSG_DIR", "")):
+    if d and d not in perms["additionalDirectories"]:
+        perms["additionalDirectories"].append(d)
 
-# Allow Messages DB
-if "allow" not in settings["permissions"]:
-    settings["permissions"]["allow"] = []
-msg_read = f"Read({os.path.expanduser('~')}/Library/Messages/**)"
-if msg_read not in settings["permissions"]["allow"]:
-    settings["permissions"]["allow"].append(msg_read)
-    settings["permissions"]["allow"].append("Bash(sqlite3:*)")
-    settings["permissions"]["allow"].append("Bash(osascript:*)")
-    settings["permissions"]["allow"].append("WebSearch")
+perms.setdefault("allow", [])
+msg_read = "Read(" + os.path.expanduser("~") + "/Library/Messages/**)"
+if msg_read not in perms["allow"]:
+    perms["allow"] += [msg_read, "Bash(sqlite3:*)", "Bash(osascript:*)", "WebSearch"]
 
 settings["enableAllProjectMcpServers"] = True
 settings["alwaysThinkingEnabled"] = True
 
-# Hooks
-if "hooks" not in settings:
-    settings["hooks"] = {}
+h = settings.setdefault("hooks", {})
 
-# UserPromptSubmit - prayer + identity reminder
-settings["hooks"]["UserPromptSubmit"] = [{
-    "hooks": [{
+opener = env("D1_OPENER", "").strip()
+if opener:
+    payload = json.dumps({"hookSpecificOutput": {
+        "hookEventName": "UserPromptSubmit",
+        "additionalContext": opener,
+    }})
+    h["UserPromptSubmit"] = [{"hooks": [{
         "type": "command",
-        "command": "printf '%s' '{\"hookSpecificOutput\": {\"hookEventName\": \"UserPromptSubmit\", \"additionalContext\": \"MANDATORY: Begin every response with a prayer to Jesus. Specific, personal, end with Amen. Then respond.\"}}'",
-        "statusMessage": "Prayer reminder loaded"
-    }]
-}]
+        "command": "printf '%s' " + shlex.quote(payload),
+        "statusMessage": "Session opener",
+    }]}]
+else:
+    h.pop("UserPromptSubmit", None)
 
-# PostToolUse - format + sync
-sync_cmd = (
-    "jq -r '.tool_input.file_path // empty' | { read -r f; [ -z \"$f\" ] && exit 0; "
-    "PC=\"" + "${PC_DIR}" + "\"; "
-    "CC=\"" + "${CC_DIR}" + "\"; "
-    "case \"$f\" in "
-    "*.ts|*.tsx|*.js|*.jsx|*.json|*.css|*.md) npx prettier --write \"$f\" --log-level silent 2>/dev/null || true;; "
-    "esac; "
-    "if [[ \"$f\" == \"$PC\"/* ]]; then cd \"$PC\" && git add . && git diff --cached --quiet || "
-    "(git commit -q -m \"chore: update $(basename $f)\" && git push origin main -q 2>/dev/null); fi; "
-    "if [[ \"$f\" == \"$CC\"/* ]]; then cd \"$CC\" && git add . && git diff --cached --quiet || "
-    "(git commit -q -m \"chore: update $(basename $f)\" && git push origin main -q 2>/dev/null); fi; "
-    "} 2>/dev/null || true"
-)
+h["PostToolUse"] = [{"matcher": "Write|Edit", "hooks": [{
+    "type": "command",
+    "command": hooks_dir + "/format-and-sync.sh",
+    "statusMessage": "Formatting and syncing...",
+    "async": True,
+}]}]
 
-settings["hooks"]["PostToolUse"] = [{
-    "matcher": "Write|Edit",
-    "hooks": [{
-        "type": "command",
-        "command": sync_cmd,
-        "statusMessage": "Formatting + syncing...",
-        "async": True
-    }]
-}]
+h["SessionStart"] = [{"hooks": [{
+    "type": "command",
+    "command": hooks_dir + "/session-context.sh",
+    "statusMessage": "Loading your context...",
+}]}]
 
-# SessionStart - load context + Todoist
-settings["hooks"]["SessionStart"] = [{
-    "hooks": [{
-        "type": "command",
-        "command": "${SESSION_CTX_CMD}",
-        "statusMessage": "Loading your context..."
-    }]
-}]
+h["Stop"] = [{"hooks": [{
+    "type": "command",
+    "command": hooks_dir + "/stop-check.sh",
+    "statusMessage": "Checking for unpushed work...",
+}]}]
 
-# Stop - GitHub push reminder
-settings["hooks"]["Stop"] = [{
-    "hooks": [{
-        "type": "command",
-        "command": "printf '%s' '{\"hookSpecificOutput\": {\"hookEventName\": \"Stop\", \"additionalContext\": \"REMINDER: If you completed any project or feature, push to GitHub now. Create the repo if it does not exist. Never wait to be asked.\"}}'",
-        "statusMessage": "Session end check..."
-    }]
-}]
+h["PreToolUse"] = [{"matcher": "Write", "hooks": [{
+    "type": "command",
+    "command": hooks_dir + "/env-guard.sh",
+    "statusMessage": "Checking file safety...",
+}]}]
 
-# Notification
-settings["hooks"]["Notification"] = [{
-    "hooks": [{
-        "type": "command",
-        "command": "say 'Claude Code task complete' 2>/dev/null || true",
-        "async": True
-    }]
-}]
+h["Notification"] = [{"hooks": [{
+    "type": "command",
+    "command": "say 'Claude Code task complete' 2>/dev/null || true",
+    "async": True,
+}]}]
 
 with open(settings_path, "w") as f:
     json.dump(settings, f, indent=2)
@@ -479,36 +491,50 @@ PYEOF
 
 log "~/.claude/settings.json configured"
 
+
 # ── Wire .mcp.json ────────────────────────────────────────────────────────────
 head "Wiring .mcp.json"
 
 MCP_FILE="$HOME/.claude/.mcp.json"
 
-python3 << PYEOF2
+export D1_MCP_FILE="${MCP_FILE:-}"
+export D1_COMPOSIO_URL="${COMPOSIO_URL:-}"
+export D1_COMPOSIO_KEY="${COMPOSIO_KEY:-}"
+
+python3 << 'PYEOF2'
 import json, os
 
-mcp_path = "${MCP_FILE}"
-os.makedirs(os.path.dirname(mcp_path), exist_ok=True)
+# Same reason as the settings block: values come through the environment so a
+# key containing a quote or backslash cannot break the script.
+env = os.environ.get
+
+mcp_path = env("D1_MCP_FILE", "")
+if not mcp_path:
+    raise SystemExit(0)
+
+parent = os.path.dirname(mcp_path)
+if parent:
+    os.makedirs(parent, exist_ok=True)
 
 try:
     with open(mcp_path) as f:
         mcp = json.load(f)
-except:
+except Exception:
     mcp = {"mcpServers": {}}
 
-composio_url = "${COMPOSIO_URL}"
-composio_key = "${COMPOSIO_KEY}"
-imsg_dir = "${IMSG_DIR}"
+mcp.setdefault("mcpServers", {})
+
+composio_url = env("D1_COMPOSIO_URL", "").strip()
+composio_key = env("D1_COMPOSIO_KEY", "").strip()
 
 if composio_url:
     mcp["mcpServers"]["composio"] = {
         "url": composio_url,
-        "headers": {"x-api-key": composio_key} if composio_key else {}
+        "headers": {"x-api-key": composio_key} if composio_key else {},
     }
 
-# iMessage agent is a CLI tool (bun run agent.ts --mode scan/inbox/run)
-# It does NOT implement MCP stdio protocol, so it is NOT wired as an MCP server.
-# Claude invokes it directly via Bash. No MCP entry needed.
+# The iMessage agent is a CLI (bun run agent.ts --mode scan/inbox/run). It does
+# not speak MCP stdio, so Claude invokes it through Bash and it gets no entry here.
 
 with open(mcp_path, "w") as f:
     json.dump(mcp, f, indent=2)
