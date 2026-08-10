@@ -21,8 +21,8 @@ plus one pragmatic shortcut:
 | **Typed edges in JSON/SQLite** | <50K nodes, single application, agent-local memory. | Query power capped; migrate when multi-hop queries get slow or frequent. |
 
 Decide at this stage (not later) how every fact carries:
-- **Time** — validity interval or event timestamp (`since`, `until`).
-- **Provenance** — source document/URL + extraction timestamp + confidence.
+- **Time**: validity interval or event timestamp (`since`, `until`).
+- **Provenance**: source document/URL + extraction timestamp + confidence.
 
 In property graphs these are edge properties; in RDF use reification or RDF-star; in JSON just
 add the fields. Retrofitting provenance after fusion is effectively impossible.
@@ -43,7 +43,7 @@ Condensed from the course's ontology-engineering process:
 5. **Type hierarchy only when queries need it.** `Company ⊂ Organization` is worth having if
    some queries span all organizations; otherwise skip subclassing — flat is easier to extract
    against.
-6. **Validate against the competency questions** — walk each question through the schema on
+6. **Validate against the competency questions**: walk each question through the schema on
    paper. Any question you can't path through the schema = missing type or relation.
 
 ## Schema design rules

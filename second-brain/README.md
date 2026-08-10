@@ -1,4 +1,4 @@
-# Second Brain — Two-Repo Architecture
+# Second Brain: Two-Repo Architecture
 
 The D1 second brain splits into two repos with a hard boundary:
 
@@ -56,9 +56,9 @@ The script creates both repos, fills in templates, and wires the SessionStart ho
 
 ## Agent integrations
 
-- [iMessage Agent](agents/imessage.md) — Claude reads and sends your iMessages
-- [Composio MCP](agents/composio.md) — 100+ integrations: GitHub, Gmail, Calendar, Todoist, Vercel
-- [Todoist Session Context](agents/todoist.md) — Today's top tasks injected into every session
+- [iMessage Agent](agents/imessage.md): Claude reads and sends your iMessages
+- [Composio MCP](agents/composio.md): 100+ integrations: GitHub, Gmail, Calendar, Todoist, Vercel
+- [Todoist Session Context](agents/todoist.md): Today's top tasks injected into every session
 
 ## The auto-update loop
 

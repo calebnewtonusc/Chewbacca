@@ -1,4 +1,4 @@
-# People — Your Network and Collaborators
+# People: Your Network and Collaborators
 
 **Updated:** Auto-updated when new collaborators join or relationships change.
 

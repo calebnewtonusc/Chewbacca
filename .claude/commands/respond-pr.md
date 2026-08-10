@@ -42,10 +42,10 @@ Deduplicate — bots sometimes post the same finding under multiple IDs. Group b
 
 For each unique issue:
 
-1. **Check if already fixed** — read the current file at the referenced location. If a prior commit resolved it, mark "already resolved".
-2. **Assess validity** — is this a real problem or a false positive? Be honest. Explain false positives.
-3. **Classify severity** — Critical (security/data loss) | High (bug/broken behavior) | Medium (correctness/robustness) | Low (style/nit)
-4. **Plan the fix** — describe the specific code change needed.
+1. **Check if already fixed**: read the current file at the referenced location. If a prior commit resolved it, mark "already resolved".
+2. **Assess validity**: is this a real problem or a false positive? Be honest. Explain false positives.
+3. **Classify severity**: Critical (security/data loss) | High (bug/broken behavior) | Medium (correctness/robustness) | Low (style/nit)
+4. **Plan the fix**: describe the specific code change needed.
 
 Present a plan table to the user:
 

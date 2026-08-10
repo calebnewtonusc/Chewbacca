@@ -65,9 +65,9 @@ Wait for approval before implementing.
 1. Make each change from the plan.
 2. Write all planned tests.
 3. Run the quality gate:
-   - `npm run typecheck 2>/dev/null || npx tsc --noEmit` — zero errors
-   - `npm run lint 2>/dev/null || npx eslint . --max-warnings 0` — zero errors
-   - `npm test` — all pass
+   - `npm run typecheck 2>/dev/null || npx tsc --noEmit`: zero errors
+   - `npm run lint 2>/dev/null || npx eslint . --max-warnings 0`: zero errors
+   - `npm test`: all pass
 4. Fix any failures before proceeding.
 
 ## Step 7: Commit and summarize

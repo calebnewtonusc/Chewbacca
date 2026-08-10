@@ -31,7 +31,7 @@ const supabase = createServerClient(
 );
 ```
 
-## Row-Level Security (RLS) — Always Enable
+## Row-Level Security (RLS): Always Enable
 
 Every table must have RLS enabled and explicit policies. Never leave a table with RLS disabled in production.
 

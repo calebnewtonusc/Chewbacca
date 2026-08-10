@@ -34,48 +34,48 @@ Run this checklist BEFORE designing a single component. Every law must be satisf
 
 ### Information Architecture
 
-**Hick's Law** — Decision time grows with options.
+**Hick's Law**: Decision time grows with options.
 
 - How many choices are visible at once? More than 5-7 primary options → chunk them or use progressive disclosure.
 - Navigation: max 5-7 top-level items. If more, group them.
 - Dropdowns: max 7 items before search is required.
 
-**Miller's Law** — Working memory holds 7 ± 2 items.
+**Miller's Law**: Working memory holds 7 ± 2 items.
 
 - List items visible at once: limit to 5-9 before pagination or infinite scroll.
 - Form fields per section: group into semantic chunks of 3-5, never show 12 fields at once.
 
-**Choice Overload** — Too many parallel options kill decisions.
+**Choice Overload**: Too many parallel options kill decisions.
 
 - Pricing pages: max 3 tiers. Highlight one with Von Restorff Effect.
 - Feature lists: progressive disclosure (show 3-5, reveal more on demand).
 
 ### Layout and Visual Hierarchy
 
-**Law of Proximity** — Elements placed close together are assumed related.
+**Law of Proximity**: Elements placed close together are assumed related.
 
 - Related fields must be visually closer to each other than to unrelated fields.
 - Label-to-input gap: `mb-1.5` or `mb-2`. Section-to-section gap: `mb-8` or `mb-12`.
 - Never put unrelated items at equal spacing.
 
-**Law of Common Region** — Shared border or background = perceived group.
+**Law of Common Region**: Shared border or background = perceived group.
 
 - Use cards (`bg-zinc-900 border border-zinc-800 rounded-2xl`) to group related content.
 - Use dividers (`border-t border-zinc-800`) to separate sections, not whitespace alone.
 
-**Law of Similarity** — Elements that look alike are assumed to behave alike.
+**Law of Similarity**: Elements that look alike are assumed to behave alike.
 
 - All interactive elements (buttons, links, inputs) must look visually distinct from static content.
 - Primary CTAs: always `bg-indigo-600`. Never use the same color for non-interactive elements.
 - Links: always `text-indigo-400 hover:text-indigo-300`. Never unstyled.
 
-**Serial Position Effect** — First and last items are best remembered.
+**Serial Position Effect**: First and last items are best remembered.
 
 - Primary CTA: place at the top or bottom of the viewport, not buried in the middle.
 - Navigation: most important action at start or end, never in the center of a list.
 - Feature lists: lead with the strongest feature, end with the second strongest.
 
-**Von Restorff Effect** — The different element is the remembered element.
+**Von Restorff Effect**: The different element is the remembered element.
 
 - One and only one primary button per screen section. Everything else is secondary or ghost.
 - One pricing tier highlighted. If all tiers are highlighted, none are.
@@ -83,25 +83,25 @@ Run this checklist BEFORE designing a single component. Every law must be satisf
 
 ### Interaction Design
 
-**Fitts's Law** — Larger targets closer to attention are easier to hit.
+**Fitts's Law**: Larger targets closer to attention are easier to hit.
 
 - Primary CTA: minimum `px-6 py-3` (44px+ tap target). Never a tiny button far from content.
 - Mobile: bottom sheet CTAs, not top-right. Thumbs reach the bottom.
 - Icon-only buttons: minimum `w-10 h-10` click area even if icon is `w-5 h-5`.
 
-**Doherty Threshold** — Response must appear within 400ms to maintain flow.
+**Doherty Threshold**: Response must appear within 400ms to maintain flow.
 
 - Every button that triggers an async action: show loading state immediately.
 - Use `isLoading` + `<Loader2 className="animate-spin" />` on submit buttons.
 - Skeleton loaders: appear instantly, before any data arrives.
 
-**Goal-Gradient Effect** — Motivation accelerates near completion.
+**Goal-Gradient Effect**: Motivation accelerates near completion.
 
 - Multi-step forms: always show a `<progress>` or step indicator ("Step 2 of 4").
 - Upload flows: show percentage. Never an indeterminate spinner for file operations.
 - Onboarding: show checkmarks as steps complete. Name how many remain.
 
-**Zeigarnik Effect** — Incomplete tasks are remembered better than finished ones.
+**Zeigarnik Effect**: Incomplete tasks are remembered better than finished ones.
 
 - Show "resume where you left off" CTAs for abandoned flows (draft saved, profile incomplete).
 - Progress badges on incomplete profile sections drive completion.
@@ -109,14 +109,14 @@ Run this checklist BEFORE designing a single component. Every law must be satisf
 
 ### Cognitive Load
 
-**Cognitive Load** — Every non-essential element taxes the brain for free.
+**Cognitive Load**: Every non-essential element taxes the brain for free.
 
 - Audit: can any element be removed without losing information?
 - Remove decorative text that doesn't help the user's goal.
 - Remove icons that don't add meaning.
 - Empty states: one headline + one CTA. Not three paragraphs of explanation.
 
-**Tesler's Law** — Complexity can't be eliminated, only moved.
+**Tesler's Law**: Complexity can't be eliminated, only moved.
 
 - Smart defaults so users don't have to think: pre-fill, suggest, auto-detect.
 - Complex decisions should have a "recommended" option pre-selected.
@@ -124,19 +124,19 @@ Run this checklist BEFORE designing a single component. Every law must be satisf
 
 ### Emotional Design
 
-**Aesthetic-Usability Effect** — Beautiful UI is perceived as more usable.
+**Aesthetic-Usability Effect**: Beautiful UI is perceived as more usable.
 
 - Apply the full design system: dark background, Tailwind, shadcn, Inter/Geist, scroll animations.
 - Consistent spacing, consistent corner radius, consistent color usage.
 - Hover states and transitions on everything interactive.
 
-**Peak-End Rule** — Experience is judged by its peak and its ending.
+**Peak-End Rule**: Experience is judged by its peak and its ending.
 
 - Design the success moment: confetti, bold confirmation, clear next step.
 - Design the error moment: friendly, specific, actionable — never "Something went wrong."
 - Final screen of a flow should feel like an accomplishment, not just text.
 
-**Chunking** — Break content into visually distinct groups.
+**Chunking**: Break content into visually distinct groups.
 
 - Never show a wall of text. Max 3-4 lines before a visual break.
 - Feature grids: 3 columns max, each card self-contained.

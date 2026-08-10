@@ -33,7 +33,7 @@ gh pr diff {number} --name-only
 
 For each changed file, read the ENTIRE current file (not just diff hunks). You need surrounding context to catch callers of modified functions, interface contracts, and invariants. Prioritize: service logic > routes/handlers > types/schema > tests > docs.
 
-## Step 4: Deep review — 6 lenses
+## Step 4: Deep review: 6 lenses
 
 For every finding: file, line range, severity, concrete description.
 

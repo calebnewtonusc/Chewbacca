@@ -26,7 +26,7 @@ For nested resources: `src/app/api/{parent}/{[id]}/{resource}/route.ts`
 
 ## Step 3: Write the route
 
-### GET — list or fetch
+### GET: list or fetch
 
 ```typescript
 import { NextRequest, NextResponse } from "next/server";
@@ -102,7 +102,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 }
 ```
 
-### POST — create
+### POST: create
 
 ```typescript
 const createSchema = z.object({
@@ -169,7 +169,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 }
 ```
 
-### PATCH — update (by [id])
+### PATCH: update (by [id])
 
 Path: `src/app/api/{resource}/[id]/route.ts`
 
@@ -233,7 +233,7 @@ export async function PATCH(
 }
 ```
 
-### DELETE — soft delete
+### DELETE: soft delete
 
 ```typescript
 export async function DELETE(

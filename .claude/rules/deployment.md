@@ -27,9 +27,9 @@ vercel --prod
 
 Set in Vercel dashboard, not hardcoded. Three environments:
 
-- `Development` — local dev, optional
-- `Preview` — PRs and branch deploys
-- `Production` — main branch only
+- `Development`: local dev, optional
+- `Preview`: PRs and branch deploys
+- `Production`: main branch only
 
 Never put production secrets in Preview environments if they're not safe to expose.
 
@@ -46,7 +46,7 @@ Before every production deploy:
 
 ## Branch Strategy
 
-- `main` — production, always deployable
+- `main`: production, always deployable
 - Feature branches → Vercel preview deployments automatically
 - Never merge to main without a passing preview deploy
 

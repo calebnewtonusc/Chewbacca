@@ -6,7 +6,7 @@ Source: https://prismic.io/blog/css-scroll-effects
 
 ---
 
-## The Modern Baseline — CSS Scroll-Driven Animations
+## The Modern Baseline: CSS Scroll-Driven Animations
 
 Chrome 115+ / Firefox 110+. No JS needed for most visual effects.
 
@@ -277,7 +277,7 @@ highlights.forEach((el) => observer.observe(el));
 
 ---
 
-## AOS (Animate on Scroll) — Drop-in Library
+## AOS (Animate on Scroll): Drop-in Library
 
 When you need broad support with zero custom code, use AOS (~9KB).
 

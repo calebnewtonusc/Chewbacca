@@ -21,10 +21,10 @@ useless.
 
 Three steps, from the course's large-scale entity-matching material:
 
-1. **Blocking** — never compare all pairs (O(n²)). Group candidates cheaply first: same type +
+1. **Blocking**: never compare all pairs (O(n²)). Group candidates cheaply first: same type +
    (shared token | matching acronym expansion | embedding similarity above threshold | same
    normalized key). Only pairs within a block get full comparison.
-2. **Matching** — score candidate pairs on layered evidence:
+2. **Matching**: score candidate pairs on layered evidence:
    - String layer: normalized/alias/acronym match.
    - Attribute layer: compatible attributes (same founding year, same email domain).
    - **Structure layer** (the course's emphasis, and what naive dedup misses): compare
@@ -32,7 +32,7 @@ Three steps, from the course's large-scale entity-matching material:
      person; identical names with disjoint neighborhoods are not.
    - LLM adjudication for the ambiguous middle band only (cheap heuristics for the clear
      cases; the model sees both nodes' attributes + neighborhoods + evidence quotes).
-3. **Merge policy** — deterministic code, not model judgment: keep canonical name, union
+3. **Merge policy**: deterministic code, not model judgment: keep canonical name, union
    aliases and edges, keep per-source attribute values with provenance when they conflict
    (do NOT silently overwrite — conflicting values are signal), record `merged_from` for undo.
 

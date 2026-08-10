@@ -41,7 +41,7 @@ Before proposing fixes, verify:
 4. Is this an async issue? (accessing data before it's loaded?)
 5. Is this a version mismatch? (check `package.json` for the relevant package)
 
-## Step 4: Propose 3 fixes — ranked by likelihood
+## Step 4: Propose 3 fixes: ranked by likelihood
 
 Output exactly this format:
 

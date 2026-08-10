@@ -1,4 +1,4 @@
-# Stack — Preferred Technologies and Standards
+# Stack: Preferred Technologies and Standards
 
 **Updated:** When stack preferences change.
 

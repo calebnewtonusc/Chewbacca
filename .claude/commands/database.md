@@ -243,8 +243,8 @@ Test that RLS works:
 # Using Supabase Studio or CLI
 # 1. Create two test users
 # 2. Insert a row as user A
-# 3. Query as user B — should return 0 rows
-# 4. Try to update as user B — should fail with RLS error
+# 3. Query as user B: should return 0 rows
+# 4. Try to update as user B: should fail with RLS error
 ```
 
 ## RLS patterns by use case

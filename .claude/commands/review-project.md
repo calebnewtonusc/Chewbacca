@@ -15,7 +15,7 @@ If `$ARGUMENTS` is given, use that path. Otherwise, use the current directory. C
 Read:
 
 - `package.json` / `pyproject.toml` — dependencies, scripts, entry points
-- `README.md` — stated purpose and architecture
+- `README.md`: stated purpose and architecture
 - Top-level source files — build a mental map before diving in
 
 Do NOT comment on what you haven't read.
@@ -84,11 +84,11 @@ Check for:
 
 Group by severity:
 
-**Critical** — will cause data loss, security breach, or crash in production
-**High** — bug that breaks a feature or creates incorrect behavior
-**Medium** — correctness risk, missing edge case handling
-**Low** — style, naming, missing docs
-**Nit** — very minor
+**Critical**: will cause data loss, security breach, or crash in production
+**High**: bug that breaks a feature or creates incorrect behavior
+**Medium**: correctness risk, missing edge case handling
+**Low**: style, naming, missing docs
+**Nit**: very minor
 
 For each finding:
 

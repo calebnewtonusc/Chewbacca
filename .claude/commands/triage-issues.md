@@ -22,14 +22,14 @@ gh api --paginate repos/{owner}/{repo}/issues?state=open&per_page=100
 ## Step 2: Classify each issue
 
 **Type:**
-- `bug` — broken existing functionality with clear reproduction
-- `feature` — new capability requested
-- `ambiguous` — unclear whether bug or feature, or needs more info
+- `bug`: broken existing functionality with clear reproduction
+- `feature`: new capability requested
+- `ambiguous`: unclear whether bug or feature, or needs more info
 
 **Spec quality:**
-- `well-specified` — clear steps, expected vs actual, acceptance criteria
-- `adequate` — enough to act on, minor gaps
-- `under-specified` — missing key information to reproduce or implement
+- `well-specified`: clear steps, expected vs actual, acceptance criteria
+- `adequate`: enough to act on, minor gaps
+- `under-specified`: missing key information to reproduce or implement
 
 ## Step 3: Score bugs by severity
 

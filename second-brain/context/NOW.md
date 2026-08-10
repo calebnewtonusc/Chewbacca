@@ -1,4 +1,4 @@
-# NOW — What's Happening Right Now
+# NOW: What's Happening Right Now
 
 **Updated:** Auto-updated by Claude when projects ship, roles change, or priorities shift.
 **Update trigger:** When roles change, projects ship or stall, or priorities shift.
@@ -17,11 +17,11 @@
 
 ### Primary Focus
 
-- **PROJECT_NAME** — description. Live: URL. GitHub: username/repo.
+- **PROJECT_NAME**: description. Live: URL. GitHub: username/repo.
 
 ### Secondary
 
-- **PROJECT_NAME** — description. Live: URL.
+- **PROJECT_NAME**: description. Live: URL.
 
 ---
 

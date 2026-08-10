@@ -36,7 +36,7 @@ Categorize each commit by conventional commit type:
 ## Step 3: Output
 
 ```markdown
-## Changelog — {date range}
+## Changelog: {date range}
 
 ### Features
 

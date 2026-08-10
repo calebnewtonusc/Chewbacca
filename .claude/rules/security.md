@@ -10,18 +10,18 @@ paths:
 
 ## SQL / database
 
-- **Never interpolate user input into SQL** — always use parameterized queries (Supabase `.eq()` / `.filter()`, pg `$1` params, never string interpolation in raw queries).
+- **Never interpolate user input into SQL**: always use parameterized queries (Supabase `.eq()` / `.filter()`, pg `$1` params, never string interpolation in raw queries).
 - Multi-step DB operations (insert+insert, update+delete, read-modify-write) must use transactions.
 
 ## Secrets and credentials
 
-- **Never log secrets, tokens, passwords, or PII** — not even at `debug` level.
+- **Never log secrets, tokens, passwords, or PII**: not even at `debug` level.
 - Secrets live in env vars only. Never commit `.env` files. Document all required vars in `.env.example`.
 - Redact sensitive fields before logging or broadcasting to SSE/WebSocket.
 
 ## Authentication and authorization
 
-- **Never trust user-supplied IDs without ownership verification** — always join on the authenticated user's ID.
+- **Never trust user-supplied IDs without ownership verification**: always join on the authenticated user's ID.
 - Validate all user-supplied IDs server-side before acting on them.
 - Destructive operations require explicit confirmation or re-auth.
 

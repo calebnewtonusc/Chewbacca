@@ -1,4 +1,4 @@
-# You — Who You Are
+# You: Who You Are
 
 **Updated:** Auto-updated by Claude when you share new info about yourself.
 

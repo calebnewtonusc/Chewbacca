@@ -70,24 +70,24 @@ When performing a `/audit` on any codebase, evaluate across all six lenses below
 ## Audit: {project name}
 **Date:** {date}
 
-### Security  — Grade: {A-F}
+### Security : Grade: {A-F}
 - [CRITICAL] {finding} — {file:line}
 - [HIGH] {finding}
 - [MEDIUM] {finding}
 
-### Type Safety — Grade: {A-F}
+### Type Safety: Grade: {A-F}
 ...
 
-### Error Handling — Grade: {A-F}
+### Error Handling: Grade: {A-F}
 ...
 
-### Performance — Grade: {A-F}
+### Performance: Grade: {A-F}
 ...
 
-### Code Quality — Grade: {A-F}
+### Code Quality: Grade: {A-F}
 ...
 
-### Design Quality — Grade: {A-F}
+### Design Quality: Grade: {A-F}
 ...
 
 ### Overall Grade: {A-F}

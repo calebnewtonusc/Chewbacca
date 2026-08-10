@@ -17,11 +17,11 @@ Split `$ARGUMENTS` into:
 
 Ask the user what type of project:
 
-1. **Next.js app** — full-stack web app (default for anything UI)
-2. **Node.js API** — Fastify/Express backend, no frontend
-3. **Python service** — FastAPI or script
-4. **Library/package** — reusable TS/JS module
-5. **Bare** — just README + git init
+1. **Next.js app**: full-stack web app (default for anything UI)
+2. **Node.js API**: Fastify/Express backend, no frontend
+3. **Python service**: FastAPI or script
+4. **Library/package**: reusable TS/JS module
+5. **Bare**: just README + git init
 
 ## Step 2: Create the directory and init git
 
@@ -33,7 +33,7 @@ git init
 
 ## Step 3: Scaffold by type
 
-### Next.js app — full design system from day one
+### Next.js app: full design system from day one
 
 ```bash
 cd "$HOME/dev/projects/{name}"
@@ -200,7 +200,7 @@ git add src/ .prettierrc package.json tsconfig.json .gitignore 2>/dev/null
 git commit -m "init: {name} — {description or 'initial scaffold'}"
 ```
 
-## Step 5: Create GitHub repo and push (always — never wait to be asked)
+## Step 5: Create GitHub repo and push (always: never wait to be asked)
 
 ```bash
 GITHUB_USER=$(gh api user --jq .login 2>/dev/null)

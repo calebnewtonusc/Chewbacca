@@ -1,6 +1,6 @@
 # Component Rules
 
-## Always Use shadcn/ui — Never Build Primitives From Scratch
+## Always Use shadcn/ui: Never Build Primitives From Scratch
 
 Before writing any UI component, check if shadcn/ui has it:
 
@@ -56,7 +56,7 @@ export function UserCard({ user, onEdit }: UserCardProps) {
 }
 ```
 
-## Skeleton Loaders — Required for Every Async Component
+## Skeleton Loaders: Required for Every Async Component
 
 Never show blank space while loading. Every component that fetches data needs a skeleton:
 
@@ -71,7 +71,7 @@ export function UserCardSkeleton() {
 }
 ```
 
-## Empty States — Required for Every List Component
+## Empty States: Required for Every List Component
 
 Never show nothing when a list is empty:
 
@@ -156,7 +156,7 @@ import {
 </Dialog>;
 ```
 
-## Icons — Lucide React Only
+## Icons: Lucide React Only
 
 ```tsx
 import { Loader2, Check, X, ChevronRight, ArrowRight } from "lucide-react";
@@ -177,10 +177,10 @@ Never use emoji as icons. Never use text characters (→, ×) as icons.
 Prefer composition over props drilling:
 
 ```tsx
-// Bad — prop drilling
+// Bad: prop drilling
 <Card title="..." description="..." footer="..." icon="..." />
 
-// Good — composition
+// Good: composition
 <Card>
   <Card.Header>
     <Card.Icon><Zap /></Card.Icon>

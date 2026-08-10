@@ -48,7 +48,7 @@ Every section must look visually distinct from every other section on the page.
 - Accent: `indigo-500` / `indigo-600` as default
 - Never use default browser blue links
 
-## Cards — must be visible
+## Cards: must be visible
 
 - Minimum background: `rgba(255,255,255,0.06)` or solid `zinc-900` / `zinc-800`
 - Never use `rgba(255,255,255,0.025)` — it is invisible on dark backgrounds
@@ -66,7 +66,7 @@ Every section must look visually distinct from every other section on the page.
 
 ## Images
 
-- **Always include real photos on personal and tribute sites** — use actual images, never placeholders
+- **Always include real photos on personal and tribute sites**: use actual images, never placeholders
 - Real people deserve real photos. Never ship a person's page without their face on it
 - Photo treatment: `rounded-2xl overflow-hidden` with subtle gradient overlay at bottom
 - Photo frame: `border border-white/10` with `box-shadow: 0 32px 80px rgba(0,0,0,0.6)`
@@ -76,7 +76,7 @@ Every section must look visually distinct from every other section on the page.
 
 Include a scrolling identity-tag marquee strip on tribute and landing pages between Hero and the first content section. It signals personality immediately and breaks the monotony of section stacking.
 
-## Backgrounds — never flat black
+## Backgrounds: never flat black
 
 - Radial gradient: `radial-gradient(ellipse at top, rgba(indigo/blue, 0.2), transparent)`
 - Dot grid: `background-image: radial-gradient(circle, rgba(255,255,255,0.055) 1px, transparent 1px); background-size: 32px 32px`

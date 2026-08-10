@@ -93,7 +93,7 @@ type CreateProjectInput = z.infer<typeof createProjectSchema>;
 
 ## App Router Patterns
 
-**Server Components are default** — only opt into `"use client"` when you need:
+**Server Components are default**: only opt into `"use client"` when you need:
 
 - `useState`, `useEffect`, event handlers
 - browser APIs
@@ -123,7 +123,7 @@ export const metadata: Metadata = {
 
 ---
 
-## Utility Types — Use These
+## Utility Types: Use These
 
 ```typescript
 // Pick specific fields
@@ -148,13 +148,13 @@ type NonNullId = NonNullable<Project["id"]>;
 3. Internal absolute (`@/components/...`)
 4. Internal relative (`../`, `./`)
 
-**Never use `require()` in TypeScript files** — use ESM `import`.
+**Never use `require()` in TypeScript files**: use ESM `import`.
 
 ---
 
 ## What NOT to Do
 
-- `as any` — use `unknown` + type guard instead
+- `as any`: use `unknown` + type guard instead
 - `!` non-null assertion on values that could genuinely be null — check first
 - Separate interface and type when one will do — pick one style and stick to it
 - `Object.keys(x).forEach` when you want `Object.entries(x)` — be explicit

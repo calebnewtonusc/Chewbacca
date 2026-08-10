@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
 }
 ```
 
-## Validation — Always Use Zod
+## Validation: Always Use Zod
 
 Never trust `req.body` or `req.json()` raw. Parse and validate with Zod:
 

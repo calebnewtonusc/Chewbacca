@@ -20,35 +20,35 @@ gh pr view {number} --json files --jq '.files[].path'
 ## Step 2: Classify each PR
 
 **Module** (based on changed file paths):
-- `web/ui` — components, pages, styles
-- `api` — routes, handlers, middleware
-- `db/schema` — migrations, schema, ORM models
-- `auth` — authentication, session, OAuth
-- `ai/ml` — model integration, prompts, inference
-- `infra/ci` — GitHub Actions, Vercel config, Docker
-- `tests` — test files only
-- `docs` — documentation only
-- `deps` — dependency bumps
-- `other` — doesn't fit above
+- `web/ui`: components, pages, styles
+- `api`: routes, handlers, middleware
+- `db/schema`: migrations, schema, ORM models
+- `auth`: authentication, session, OAuth
+- `ai/ml`: model integration, prompts, inference
+- `infra/ci`: GitHub Actions, Vercel config, Docker
+- `tests`: test files only
+- `docs`: documentation only
+- `deps`: dependency bumps
+- `other`: doesn't fit above
 
 **Review state:**
-- `approved` — at least one approval, no changes requested
-- `changes-requested` — reviewer asked for changes
-- `reviewed` — comments but no formal decision
-- `automated-only` — only bot reviews (Copilot, Dependabot)
-- `no-review` — no reviews at all
+- `approved`: at least one approval, no changes requested
+- `changes-requested`: reviewer asked for changes
+- `reviewed`: comments but no formal decision
+- `automated-only`: only bot reviews (Copilot, Dependabot)
+- `no-review`: no reviews at all
 
 **Scope:**
-- `tiny` — <50 lines changed
-- `small` — 50–200 lines
-- `medium` — 200–500 lines
-- `large` — 500–2000 lines
-- `xl` — 2000+ lines or 15+ files
+- `tiny`: <50 lines changed
+- `small`: 50–200 lines
+- `medium`: 200–500 lines
+- `large`: 500–2000 lines
+- `xl`: 2000+ lines or 15+ files
 
 **Risk type:**
-- `fix` — bug fix, safe to merge quickly after review
-- `feature` — new capability, standard review
-- `architectural` — changes interfaces, DB schema, auth flow — needs deep review
+- `fix`: bug fix, safe to merge quickly after review
+- `feature`: new capability, standard review
+- `architectural`: changes interfaces, DB schema, auth flow — needs deep review
 
 ## Step 3: Detect conflicts/overlaps
 
@@ -72,7 +72,7 @@ Total open: N | Approved: N | Needs review: N | Stale (>14d): N
 ## Architectural PRs (need deep review)
 [table: # | title | author | scope | module | age | what changes]
 
-## Changes Requested — Awaiting Author
+## Changes Requested: Awaiting Author
 [table: # | title | author | feedback summary | stale?]
 
 ## Draft PRs

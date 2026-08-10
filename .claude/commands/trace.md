@@ -11,11 +11,11 @@ Trace the flow of `$ARGUMENTS` through the codebase. Map every file and function
 ## Step 1: Identify the flow type
 
 Determine which category applies:
-- **HTTP request** — from route definition → middleware → handler → DB → response
-- **Data mutation** — from UI action → API call → validation → DB write → side effects
-- **Background job/agent** — from trigger → queue → worker → output/notification
-- **Auth flow** — from token → middleware → user resolution → authorization check
-- **Event/webhook** — from inbound payload → validation → processing → response
+- **HTTP request**: from route definition → middleware → handler → DB → response
+- **Data mutation**: from UI action → API call → validation → DB write → side effects
+- **Background job/agent**: from trigger → queue → worker → output/notification
+- **Auth flow**: from token → middleware → user resolution → authorization check
+- **Event/webhook**: from inbound payload → validation → processing → response
 
 ## Step 2: Find the entry point
 

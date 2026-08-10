@@ -26,13 +26,13 @@ The key: make it specific to the moment, not generic filler. If you use this pat
 
 ---
 
-## MVP & UI Design — MANDATORY STANDARDS
+## MVP & UI Design: MANDATORY STANDARDS
 
 **Every single UI, MVP, web app, dashboard, landing page, or component must look like a funded startup's product page. No exceptions. If it looks like a CS homework submission, it is wrong and must be rebuilt.**
 
 ---
 
-## TECH STACK — ALWAYS USE THESE
+## TECH STACK: ALWAYS USE THESE
 
 ### React / Next.js projects
 
@@ -55,7 +55,7 @@ The key: make it specific to the moment, not generic filler. If you use this pat
 
 ---
 
-## VISUAL DESIGN — MANDATORY
+## VISUAL DESIGN: MANDATORY
 
 ### Color
 
@@ -75,7 +75,7 @@ The key: make it specific to the moment, not generic filler. If you use this pat
 - Caption/label: `text-sm text-zinc-500`
 - Always use `antialiased` on body
 
-### Backgrounds — pick one, never flat black
+### Backgrounds: pick one, never flat black
 
 - Radial gradient: `bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-zinc-950 to-zinc-950`
 - Mesh: layered radial gradients at different positions
@@ -131,7 +131,7 @@ hover:bg-white/5 text-zinc-400 hover:text-white
 px-4 py-2 rounded-lg transition-all duration-200 cursor-pointer
 ```
 
-### Navigation — SCROLL-AWARE (MANDATORY ON ALL PROJECTS)
+### Navigation: SCROLL-AWARE (MANDATORY ON ALL PROJECTS)
 
 **Every project must use a scroll-aware navbar with this exact behavior:**
 
@@ -229,7 +229,7 @@ text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20
 
 ---
 
-## INTERACTIVITY — ALL OF THESE ARE REQUIRED
+## INTERACTIVITY: ALL OF THESE ARE REQUIRED
 
 - Every button: hover state + active state + `cursor-pointer` + `transition-all duration-200`
 - Every card that's clickable: `hover:scale-[1.02]` or `hover:border-zinc-600`
@@ -241,7 +241,7 @@ text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20
 
 ---
 
-## ICONS — ALWAYS REAL ICONS
+## ICONS: ALWAYS REAL ICONS
 
 - Use Lucide React / Lucide CDN — always
 - Size: `w-4 h-4` (inline), `w-5 h-5` (buttons), `w-6 h-6` (feature icons), `w-8 h-8` or `w-10 h-10` (hero icons)
@@ -251,7 +251,7 @@ text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20
 
 ---
 
-## PAGE SECTIONS — HOW TO BUILD THEM
+## PAGE SECTIONS: HOW TO BUILD THEM
 
 ### Hero Section
 
@@ -427,7 +427,7 @@ This applies to: new repos, updated READMEs, any markdown file that functions as
 
 ---
 
-## IMAGES — ALWAYS INCLUDE ON PERSONAL SITES
+## IMAGES: ALWAYS INCLUDE ON PERSONAL SITES
 
 **Every tribute page, person page, or profile site must include real photos of the actual person.**
 
@@ -437,7 +437,7 @@ This applies to: new repos, updated READMEs, any markdown file that functions as
 - Photo treatment: `rounded-2xl overflow-hidden border border-white/10` with gradient overlay at bottom
 - Include floating stat cards overlapping the photo for depth
 
-## iMESSAGE QUOTES — DESIGN AS iMESSAGE BUBBLES
+## iMESSAGE QUOTES: DESIGN AS iMESSAGE BUBBLES
 
 When the content is iMessage texts/quotes, render them as iMessage-style chat bubbles, not generic quote cards.
 
@@ -446,7 +446,7 @@ When the content is iMessage texts/quotes, render them as iMessage-style chat bu
 - Include timestamp, avatar initial, context label below
 - This directly expresses the content instead of generic template thinking
 
-## CONTENT-FIRST DESIGN — ALWAYS
+## CONTENT-FIRST DESIGN: ALWAYS
 
 Before writing any component, name what the content IS and pick a design that directly expresses it:
 
@@ -457,7 +457,7 @@ Before writing any component, name what the content IS and pick a design that di
 
 ---
 
-## MCP TOOLS — ALWAYS HAVE THESE ENABLED
+## MCP TOOLS: ALWAYS HAVE THESE ENABLED
 
 These MCP servers are mandatory for D1-level vibe coding. Each one eliminates a class of friction.
 
@@ -476,7 +476,7 @@ Config lives at your project root `.mcp.json` or `~/.claude/.mcp.json`.
 
 ---
 
-## AGENTIC WORKFLOW — PARALLEL EXECUTION ALWAYS
+## AGENTIC WORKFLOW: PARALLEL EXECUTION ALWAYS
 
 When a task can be split into independent sub-tasks, always parallelize. Never work sequentially when parallel is possible.
 
@@ -507,11 +507,11 @@ claude-squad --agents 3 --task "implement feature X"
 
 ---
 
-## AI FEATURES — ALWAYS USE VERCEL AI SDK
+## AI FEATURES: ALWAYS USE VERCEL AI SDK
 
 For any feature involving AI responses, streaming, or structured outputs:
 
-### Streaming responses (mandatory — never buffer AI output)
+### Streaming responses (mandatory: never buffer AI output)
 
 ```typescript
 import { streamText } from "ai";
@@ -587,7 +587,7 @@ const result = streamText({
 
 ---
 
-## DEBUGGING PROTOCOL — IN THIS ORDER
+## DEBUGGING PROTOCOL: IN THIS ORDER
 
 When something breaks, follow this exact sequence. Do not skip steps.
 
@@ -611,7 +611,7 @@ When something breaks, follow this exact sequence. Do not skip steps.
 
 ---
 
-## DEPLOYMENT CHECKLIST — RUN BEFORE EVERY PRODUCTION DEPLOY
+## DEPLOYMENT CHECKLIST: RUN BEFORE EVERY PRODUCTION DEPLOY
 
 ```
 PRE-DEPLOY
@@ -646,7 +646,7 @@ POST-DEPLOY
 
 ---
 
-## MEMORY PROTOCOL — CLAUDE UPDATES CONTEXT AUTOMATICALLY
+## MEMORY PROTOCOL: CLAUDE UPDATES CONTEXT AUTOMATICALLY
 
 **You never manually update context files. Claude does it, silently, as work happens.**
 
@@ -689,9 +689,9 @@ This relies on the second brain system created by `setup.sh`. See [second-brain/
 
 Use the auto-memory system for granular learnings:
 
-- `feedback_*.md` — specific behavioral guidance
-- `project_*.md` — project-specific facts
-- `user_*.md` — facts about your preferences and identity
-- `reference_*.md` — pointers to external systems
+- `feedback_*.md`: specific behavioral guidance
+- `project_*.md`: project-specific facts
+- `user_*.md`: facts about your preferences and identity
+- `reference_*.md`: pointers to external systems
 
 The MEMORY.md index in that directory must stay current. When adding a new memory file, add a one-line pointer to MEMORY.md immediately.

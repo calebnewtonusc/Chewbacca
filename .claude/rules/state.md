@@ -1,6 +1,6 @@
 # State Management Rules
 
-## State Hierarchy — Choose the Lowest Level That Works
+## State Hierarchy: Choose the Lowest Level That Works
 
 1. **Server state** (DB/API data) → React Query or SWR
 2. **URL state** (filters, tabs, pagination) → `useSearchParams` / router
@@ -11,7 +11,7 @@
 
 Never reach for Zustand when `useState` is sufficient. Never reach for Context when URL params work better.
 
-## Server State — React Query
+## Server State: React Query
 
 For any data that lives in a database or external API:
 
@@ -48,7 +48,7 @@ const { mutate: deletePost } = useMutation({
 });
 ```
 
-## URL State — Filters and Pagination
+## URL State: Filters and Pagination
 
 ```ts
 import { useRouter, useSearchParams } from "next/navigation";
@@ -85,7 +85,7 @@ const filteredPosts = useMemo(
 
 Never store derived state — compute it. Never duplicate server state in local state.
 
-## Shared UI State — Zustand
+## Shared UI State: Zustand
 
 For UI state shared across unrelated components (modals, toasts, sidebar):
 
@@ -105,7 +105,7 @@ export const useUIStore = create<UIStore>((set) => ({
 }));
 ```
 
-## Form State — React Hook Form
+## Form State: React Hook Form
 
 ```ts
 import { useForm } from "react-hook-form";

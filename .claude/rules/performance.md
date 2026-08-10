@@ -1,6 +1,6 @@
 # Performance Rules
 
-## Images — Always Use next/image
+## Images: Always Use next/image
 
 ```tsx
 import Image from "next/image";
@@ -20,7 +20,7 @@ import Image from "next/image";
 - Use `priority` for above-the-fold images, lazy loading is automatic for the rest
 - Use `sizes` prop for responsive images: `sizes="(max-width: 768px) 100vw, 50vw"`
 
-## Fonts — Always Use next/font
+## Fonts: Always Use next/font
 
 ```tsx
 import { Inter } from "next/font/google";
@@ -88,7 +88,7 @@ _.debounce(fn, 300);
 import debounce from "lodash/debounce";
 debounce(fn, 300);
 
-// Best — use native equivalents when possible
+// Best: use native equivalents when possible
 ```
 
 - Regularly check bundle size: `npm run build` shows route sizes

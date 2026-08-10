@@ -13,7 +13,7 @@ Assemble the morning briefing. Pull live data, synthesize a focused daily plan. 
 date '+%A, %B %-d, %Y'
 ```
 
-## Step 2: Todoist — today's tasks + overdue
+## Step 2: Todoist: today's tasks + overdue
 
 ```bash
 # Today's tasks
@@ -27,7 +27,7 @@ curl -sf "https://api.todoist.com/rest/v2/tasks?filter=overdue" \
 
 Group by sprint label (Sprint 1-5). Priority order within each sprint (P1 first). Count total tasks.
 
-## Step 3: GitHub — PRs and issues
+## Step 3: GitHub: PRs and issues
 
 ```bash
 gh pr list --author "@me" --state open --json number,title,updatedAt,reviewDecision --limit 10

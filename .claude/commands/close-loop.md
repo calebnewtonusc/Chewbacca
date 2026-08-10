@@ -73,7 +73,7 @@ List in plain English:
 If `.claude/context/ACTIVITY_LOG.md` exists, append:
 
 ```markdown
-### {YYYY-MM-DD} — {1-line session title}
+### {YYYY-MM-DD}: {1-line session title}
 
 - {bullet of what was done}
 - {any important decisions}

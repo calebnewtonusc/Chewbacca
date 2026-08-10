@@ -1,4 +1,4 @@
-# System — Tools, Infrastructure, APIs
+# System: Tools, Infrastructure, APIs
 
 **Updated:** When new tools, credentials formats, or infrastructure changes happen.
 
@@ -29,7 +29,7 @@
 
 ## MCP Servers Active
 
-- **Composio** — GitHub, Gmail, Calendar, Todoist, Vercel, and 100+ more
+- **Composio**: GitHub, Gmail, Calendar, Todoist, Vercel, and 100+ more
   - URL: YOUR_COMPOSIO_MCP_URL
   - Get yours at: composio.dev
 
