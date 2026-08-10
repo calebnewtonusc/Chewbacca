@@ -52,7 +52,13 @@ if [ -n "$SUBPATH" ]; then
 elif [ -f "$TMP/repo/SKILL.md" ]; then
   SKILL_DIR="$TMP/repo"
 else
-  mapfile -t FOUND < <(find "$TMP/repo" -name SKILL.md -not -path "*/.git/*" | sort)
+  # No mapfile here: macOS ships bash 3.2 and mapfile is bash 4+. This kit is
+  # macOS-first, so the portable read loop is the only correct choice.
+  FOUND=()
+  while IFS= read -r line; do
+    FOUND+=("$line")
+  done < <(find "$TMP/repo" -name SKILL.md -not -path "*/.git/*" | sort)
+
   if [ "${#FOUND[@]}" -eq 0 ]; then
     echo -e "  ${RED}FAIL${NC}  no SKILL.md anywhere in this repo."
     exit 1
