@@ -74,6 +74,10 @@ From the official marketplace:
 using, which kills the failure mode where a model confidently writes an API that was renamed
 eighteen months ago.
 
+Supabase is not on that list on purpose. It is wired as an MCP server in `.mcp.json` rather than a
+plugin, because what you want from it is a live connection to your actual project, not packaged
+guidance. Same reasoning for `filesystem`, `github`, and `sequential-thinking`.
+
 ## Order of operations
 
 Reach for the lightest thing that works.
