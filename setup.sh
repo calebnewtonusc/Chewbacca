@@ -191,7 +191,20 @@ cd "$PC_DIR"
 git init -q 2>/dev/null || true
 git remote remove origin 2>/dev/null || true
 git remote add origin "https://github.com/$GITHUB_USER/$PERSONAL_REPO.git"
-git add .
+
+# This repo is private and personal. Keep OS cruft and any stray secret out of
+# it from the first commit, and stage by filename per .claude/rules/git.md
+# instead of sweeping the directory with `git add .`.
+cat > "$PC_DIR/.gitignore" << 'GITIGNORE'
+.DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.example
+*.log
+GITIGNORE
+
+git add -- .gitignore YOU.md NOW.md PEOPLE.md SYSTEM.md STACK.md
 git diff --cached --quiet || git commit -q -m "init: $USER_NAME personal context"
 git branch -M main
 git push -u origin main -q 2>/dev/null || warn "Push failed — you may need to push manually"
