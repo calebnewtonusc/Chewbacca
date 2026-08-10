@@ -242,12 +242,12 @@ The vibe coding landscape is growing fast. **[ECOSYSTEM.md](ECOSYSTEM.md)** is o
 
 ## Documentation
 
-| Doc                                        | What It Covers                                                                                        |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| [docs/METHODOLOGY.md](docs/METHODOLOGY.md) | The five principles of vibe coding, the D1 workflow loop, anti-patterns, measuring effectiveness      |
-| [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)   | D1 query patterns, migrations, Drizzle ORM, Worker routing (vanilla + Hono), D1 + KV + R2, deployment |
-| [docs/PROMPTS.md](docs/PROMPTS.md)         | 20+ real prompts for scaffolding, features, debugging, database work, UI design, deployment           |
-| [docs/INTERNALS.md](docs/INTERNALS.md)     | How Claude Code works under the hood: CLAUDE.md loading, hooks, tools, agents, context compression    |
+| Doc                                        | What It Covers                                                                                         |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| [docs/METHODOLOGY.md](docs/METHODOLOGY.md) | The five principles of vibe coding, the D1 workflow loop, anti-patterns, measuring effectiveness       |
+| [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)   | D1 query patterns, migrations, Drizzle ORM, Worker routing (vanilla + Hono), D1 + KV + R2, deployment  |
+| [docs/PROMPTS.md](docs/PROMPTS.md)         | 20+ real prompts for scaffolding, features, debugging, database work, UI design, deployment            |
+| [docs/INTERNALS.md](docs/INTERNALS.md)     | How Claude Code works under the hood: CLAUDE.md loading, hooks, tools, agents, context compression     |
 | [docs/EXTENSIONS.md](docs/EXTENSIONS.md)   | Skills, plugins, and MCP: what each layer is for, what setup.sh installs, and which to reach for first |
 
 ---
@@ -280,6 +280,26 @@ The vibe coding landscape is growing fast. **[ECOSYSTEM.md](ECOSYSTEM.md)** is o
 | [snippets/tailwind.config.ts](snippets/tailwind.config.ts) | Tailwind config with custom theme                  |
 | [snippets/prettierrc.json](snippets/prettierrc.json)       | Prettier config                                    |
 | [snippets/gitignore.txt](snippets/gitignore.txt)           | Standard .gitignore                                |
+
+---
+
+## Skills and plugins
+
+Rules and commands are only part of the setup now. Skills load deep domain knowledge on demand, so a
+40KB reference costs nothing until the task calls for it. Plugins bundle skills, MCP servers, and
+subagents behind one versioned install.
+
+`setup.sh` installs all of it. What you get:
+
+| Extension                                                                     | Layer  | What it does                                                          |
+| ----------------------------------------------------------------------------- | ------ | --------------------------------------------------------------------- |
+| [skills/graph-engineering](skills/graph-engineering)                          | Skill  | Knowledge graphs and agent task graphs, with teaching mode            |
+| [no-ai-slop](https://github.com/petergyang/no-ai-slop)                        | Skill  | Strips 20+ AI-slop patterns from a draft, or flags them without edits |
+| [Understand-Anything](https://github.com/Egonex-AI/Understand-Anything)       | Plugin | Turns a codebase into an interactive knowledge graph you can query    |
+| [context7](https://github.com/anthropics/claude-plugins-official)             | Plugin | Real library docs on demand instead of the model's training recall    |
+| serena, playwright, vercel, railway, expo, pinecone, bigquery-data-analytics  | Plugin | Code navigation, browser automation, deploys, and data tooling        |
+
+Full breakdown of which layer to reach for, and why, in [docs/EXTENSIONS.md](docs/EXTENSIONS.md).
 
 ---
 
