@@ -291,13 +291,13 @@ subagents behind one versioned install.
 
 `setup.sh` installs all of it. What you get:
 
-| Extension                                                                     | Layer  | What it does                                                          |
-| ----------------------------------------------------------------------------- | ------ | --------------------------------------------------------------------- |
-| [skills/graph-engineering](skills/graph-engineering)                          | Skill  | Knowledge graphs and agent task graphs, with teaching mode            |
-| [no-ai-slop](https://github.com/petergyang/no-ai-slop)                        | Skill  | Strips 20+ AI-slop patterns from a draft, or flags them without edits |
-| [Understand-Anything](https://github.com/Egonex-AI/Understand-Anything)       | Plugin | Turns a codebase into an interactive knowledge graph you can query    |
-| [context7](https://github.com/anthropics/claude-plugins-official)             | Plugin | Real library docs on demand instead of the model's training recall    |
-| serena, playwright, vercel, railway, expo, pinecone, bigquery-data-analytics  | Plugin | Code navigation, browser automation, deploys, and data tooling        |
+| Extension                                                                    | Layer  | What it does                                                          |
+| ---------------------------------------------------------------------------- | ------ | --------------------------------------------------------------------- |
+| [skills/graph-engineering](skills/graph-engineering)                         | Skill  | Knowledge graphs and agent task graphs, with teaching mode            |
+| [no-ai-slop](https://github.com/petergyang/no-ai-slop)                       | Skill  | Strips 20+ AI-slop patterns from a draft, or flags them without edits |
+| [Understand-Anything](https://github.com/Egonex-AI/Understand-Anything)      | Plugin | Turns a codebase into an interactive knowledge graph you can query    |
+| [context7](https://github.com/anthropics/claude-plugins-official)            | Plugin | Real library docs on demand instead of the model's training recall    |
+| serena, playwright, vercel, railway, expo, pinecone, bigquery-data-analytics | Plugin | Code navigation, browser automation, deploys, and data tooling        |
 
 Full breakdown of which layer to reach for, and why, in [docs/EXTENSIONS.md](docs/EXTENSIONS.md).
 
