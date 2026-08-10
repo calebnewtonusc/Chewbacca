@@ -488,6 +488,60 @@ log "Commands installed to ~/.claude/commands/ ($(ls "$GLOBAL_CLAUDE/commands/" 
 log "Rules installed to ~/.claude/rules/ ($(ls "$GLOBAL_CLAUDE/rules/" | wc -l | tr -d ' ') files)"
 log "CLAUDE.md installed to ~/.claude/CLAUDE.md"
 
+# ── Skills and plugins ────────────────────────────────────────────────────────
+head "Installing skills and plugins"
+
+mkdir -p "$GLOBAL_CLAUDE/skills"
+cp -R "$SCRIPT_DIR/skills/." "$GLOBAL_CLAUDE/skills/" 2>/dev/null || true
+log "Skills installed to ~/.claude/skills/"
+
+# no-ai-slop is MIT-licensed work by Peter Yang. Cloned rather than vendored so
+# it stays updatable and keeps its own LICENSE next to it.
+if [ -d "$GLOBAL_CLAUDE/skills/no-ai-slop" ]; then
+  log "no-ai-slop already present, left alone"
+else
+  TMP_SLOP="$(mktemp -d)"
+  if git clone -q --depth 1 https://github.com/petergyang/no-ai-slop "$TMP_SLOP" 2>/dev/null; then
+    cp -R "$TMP_SLOP/skills/no-ai-slop" "$GLOBAL_CLAUDE/skills/"
+    cp "$TMP_SLOP/LICENSE" "$GLOBAL_CLAUDE/skills/no-ai-slop/LICENSE" 2>/dev/null || true
+    log "no-ai-slop installed (MIT, Peter Yang)"
+  else
+    warn "Could not reach GitHub for no-ai-slop. See docs/EXTENSIONS.md to add it later."
+  fi
+  rm -rf "$TMP_SLOP"
+fi
+
+if command -v claude &>/dev/null; then
+  claude plugin marketplace add anthropics/claude-plugins-official &>/dev/null || true
+  claude plugin marketplace add Egonex-AI/Understand-Anything &>/dev/null || true
+  log "Marketplaces registered"
+
+  PLUGIN_FAILED=0
+  for p in context7@claude-plugins-official \
+    serena@claude-plugins-official \
+    playwright@claude-plugins-official \
+    vercel@claude-plugins-official \
+    railway@claude-plugins-official \
+    expo@claude-plugins-official \
+    pinecone@claude-plugins-official \
+    bigquery-data-analytics@claude-plugins-official \
+    understand-anything@understand-anything; do
+    if claude plugin install "$p" --scope user &>/dev/null; then
+      log "installed ${p%%@*}"
+    else
+      warn "could not install ${p%%@*}"
+      PLUGIN_FAILED=1
+    fi
+  done
+
+  if [ "$PLUGIN_FAILED" -eq 1 ]; then
+    warn "Some plugins failed. Retry individually: claude plugin install <name>"
+  fi
+  warn "Plugins needing OAuth (Vercel, Railway) stay inert until you run /mcp and authorize."
+else
+  warn "claude CLI not found. Plugins skipped. See docs/EXTENSIONS.md."
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 sep
