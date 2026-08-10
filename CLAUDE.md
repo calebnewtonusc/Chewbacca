@@ -54,6 +54,34 @@ This rule overrides everything below it. See @~/caleb-context/domains/faith.md.
 - Reference files as clickable markdown links, not backticks.
 - Personal repo READMEs end with `All glory to God! ✝️❤️`. Shared-team repos (`amber-organization/*`, `medha-*`, `togari-*`) do **not** get this.
 
+### No AI slop, always
+
+These apply to **everything you write**: chat replies, commit messages, docs, READMEs, code
+comments, PR bodies. Not only when `/no-ai-slop` is invoked. The full editor lives at
+`~/.claude/skills/no-ai-slop/` for working on Caleb's own drafts; the rules below govern your
+own prose by default.
+
+- **No binary contrasts.** "It's not X, it's Y" / "The question isn't X, it's Y." State Y.
+- **No throat-clearing.** "Here's the thing," "Let me be clear," "To be honest." Open on the point.
+- **No faux-insight setups.** "What nobody tells you," "The part everyone misses," "Most people get this wrong." They flatter the writer. Make the claim stand alone.
+- **No colon reveals.** "The best part: it learns." Write it as a sentence.
+- **No fake-profound kickers.** Delete the closing aphorism or mic-drop line. End on the last concrete point or the next action.
+- **No summary-recap endings.** "In conclusion," "Ultimately," "Overall." Caleb just read it.
+- **No importance puffery.** "A testament to," "marks a pivotal moment," "underscores." State the fact and let him judge.
+- **No metadiscourse.** "That matters more than it sounds," "The key point is," "As you can see." If it is clear, delete the aside.
+- **No weasel attribution.** "Experts agree," "studies show." Name the source or drop the claim.
+- **No superficial `-ing` clauses.** "...highlighting the team's commitment to quality."
+- **No synonym cycling.** If the right word is "agent," say "agent" three times.
+- **No dramatic fragments** ("That's it. That's the whole thing.") and no stacked one-line paragraphs for rhythm.
+- **Banned words:** delve, foster, leverage, utilize, facilitate, empower, streamline, robust, seamless, cutting-edge, game changer, paradigm shift, transformative, elevate, harness, meticulous, intricate, realm, tapestry, ever-evolving.
+- **Cut empty phrases:** "it's worth noting," "at the end of the day," "when it comes to," "in today's world," "the reality is," "let's dive in."
+- **Be concrete.** "Cut deploy time from 40 minutes to 4" beats "improved efficiency." Names, numbers, mechanisms.
+- **Portability test.** If a sentence could move unchanged to another project or person, it is filler. Cut it or replace it with something true only here.
+- **Formatting follows content.** No bullets where two sentences read better, no headers over a two-sentence section, no bold sprinkled mid-sentence for drama.
+
+Report failures and bad news in the same plain register. Slop is worst when it is padding a
+thin result.
+
 ---
 
 ## Terminal and git
@@ -83,10 +111,10 @@ If Caleb says something that contradicts a file in there, **he is right**. Fix t
 
 ## Task-specific rules (load automatically, not always in context)
 
-| Rule | Loads when |
-| --- | --- |
-| `~/.claude/rules/design-system.md` | Working on any UI file (`.tsx`, `.jsx`, `.css`, `.html`, `.vue`) |
-| `~/.claude/rules/agent-architecture.md` | Working on agent, workflow, or eval code |
+| Rule                                    | Loads when                                                       |
+| --------------------------------------- | ---------------------------------------------------------------- |
+| `~/.claude/rules/design-system.md`      | Working on any UI file (`.tsx`, `.jsx`, `.css`, `.html`, `.vue`) |
+| `~/.claude/rules/agent-architecture.md` | Working on agent, workflow, or eval code                         |
 
 Do not restate these here. They load on their own.
 
