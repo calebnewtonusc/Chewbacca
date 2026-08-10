@@ -210,12 +210,21 @@ referenced by path from `settings.json`. They are scripts rather than inline
 JSON commands because an inline command with seven levels of backslash escaping
 is not something anyone will debug confidently later.
 
-| Hook               | Trigger           | What it does                                                      |
-| ------------------ | ----------------- | ----------------------------------------------------------------- |
-| `session-context`  | Every new session | Loads your context, skipping unfilled template placeholders       |
-| `format-and-sync`  | After Write/Edit  | Formats with Prettier, then commits and pushes context repos      |
-| `stop-check`       | Session end       | Flags uncommitted or unpushed work, silent when there is none     |
-| `env-guard`        | Before Write      | Warns before writing a real `.env`, ignores `.env.example`        |
+| Hook              | Trigger           | What it does                                                  |
+| ----------------- | ----------------- | ------------------------------------------------------------- |
+| Session opener    | Every prompt      | Starts every response with a prayer                           |
+| `session-context` | Every new session | Loads your context, skipping unfilled template placeholders   |
+| `format-and-sync` | After Write/Edit  | Formats with Prettier, then commits and pushes context repos  |
+| `stop-check`      | Session end       | Flags uncommitted or unpushed work, silent when there is none |
+| `env-guard`       | Before Write      | Warns before writing a real `.env`, ignores `.env.example`    |
+
+**Two defaults to know about before you run `setup.sh`.** Every response opens
+with a prayer, and `permissions.defaultMode` is set to `bypassPermissions` so
+Claude writes files and runs commands without stopping to confirm. Both are
+deliberate: the kit is built around Claude acting rather than asking. Change the
+opener text under `hooks.UserPromptSubmit` in `~/.claude/settings.json`, or set
+`defaultMode` back to `default` to get the confirmation step. If you are handing
+this to someone, tell them both up front.
 
 Three details worth knowing, because each one was silently broken before:
 
