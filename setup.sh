@@ -627,6 +627,21 @@ else
   warn "claude CLI not found. Plugins skipped. See docs/EXTENSIONS.md."
 fi
 
+# ── Verify ────────────────────────────────────────────────────────────────────
+# Claiming success without checking is how this kit shipped six months of
+# silently broken hooks. Prove the install works before saying it worked.
+head "Verifying the install"
+
+if [ -x "$SCRIPT_DIR/doctor.sh" ]; then
+  if "$SCRIPT_DIR/doctor.sh"; then
+    log "All checks passed"
+  else
+    warn "Some checks failed. Fix them, then re-run: ./doctor.sh"
+  fi
+else
+  warn "doctor.sh not found or not executable, skipping verification"
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 sep
