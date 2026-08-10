@@ -26,6 +26,28 @@ The key: make it specific to the moment, not generic filler. If you use this pat
 
 ---
 
+## Always-on standards
+
+These six load into every session, about 3,700 tokens total. They apply
+regardless of language or framework, so they are imported rather than left to
+be discovered.
+
+@~/.claude/rules/git.md
+@~/.claude/rules/security.md
+@~/.claude/rules/writing.md
+@~/.claude/rules/naming.md
+@~/.claude/rules/typescript.md
+@~/.claude/rules/review-discipline.md
+
+The twelve stack-specific standards (components, api, database, deployment,
+design, performance, state, accessibility, scroll-effects, testing, ux-laws,
+audit) are **not** imported here. They live in the `stack-rules` skill and load
+only when the work touches them. Importing all eighteen would cost roughly
+16,000 tokens on every session, including sessions that never render a
+component. See [docs/EXTENSIONS.md](docs/EXTENSIONS.md).
+
+---
+
 ## MVP & UI Design: MANDATORY STANDARDS
 
 **Every single UI, MVP, web app, dashboard, landing page, or component must look like a funded startup's product page. No exceptions. If it looks like a CS homework submission, it is wrong and must be rebuilt.**
