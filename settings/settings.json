@@ -36,6 +36,24 @@
       "Bash(diff:*)",
       "Bash(basename:*)",
       "Bash(dirname:*)"
+    ],
+    "_comment_deny": "setup.sh sets defaultMode to bypassPermissions, so nothing prompts. These are the operations that stay blocked anyway: the ones with no undo, and the reads that would pull a secret into context where it can be echoed back or logged. deny beats allow.",
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf ~)",
+      "Bash(rm -rf ~/*)",
+      "Bash(sudo rm:*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard origin*)",
+      "Bash(gh repo delete:*)",
+      "Bash(dropdb:*)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.claude/.credentials.json)"
     ]
   },
   "alwaysThinkingEnabled": true,
