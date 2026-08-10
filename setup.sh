@@ -367,24 +367,21 @@ CONTEXT_OWNER="$USER_NAME"
 D1CONFIG
 log "Hook config written to ~/.claude/d1-config.sh"
 
-# ── Optional behaviors, both off unless you ask for them ─────────────────────
+# ── Two behaviors this kit turns on by design ────────────────────────────────
+# Both are deliberate and neither is prompted. If you are handing this to
+# someone, tell them up front. Editing ~/.claude/settings.json afterward turns
+# either one off.
 echo ""
-echo "  Two settings change how Claude behaves. Both default to off."
+echo "  Two behaviors are enabled by default:"
 echo ""
-
-read -rp "  Add a session opener on every response (prayer, mantra, focus line)? [y/N]: " WANT_OPENER
-SESSION_OPENER_TEXT=""
-if [[ "$WANT_OPENER" =~ ^[Yy]$ ]]; then
-  echo ""
-  echo "  What should Claude do at the start of every response?"
-  echo "  Example: Open with a short prayer, specific and personal, ending in Amen."
-  echo "  Example: State the one thing this change is meant to accomplish."
-  read -rp "  > " SESSION_OPENER_TEXT
-fi
-
+echo "    Session opener   Every response starts with a prayer."
+echo "                     Change or remove it in ~/.claude/settings.json"
+echo "                     under hooks.UserPromptSubmit."
 echo ""
-warn "bypassPermissions lets Claude write files and run shell commands without asking."
-read -rp "  Enable bypassPermissions? [y/N]: " WANT_BYPASS
+echo "    bypassPermissions  Claude writes files and runs shell commands"
+echo "                       without asking each time. Change it in"
+echo "                       ~/.claude/settings.json under permissions.defaultMode."
+echo ""
 
 # Secrets and paths reach python through the environment. Interpolating them
 # into python source breaks the moment a token contains a quote or backslash.
@@ -394,8 +391,6 @@ export D1_TODOIST_TOKEN="${TODOIST_TOKEN:-}"
 export D1_PC_DIR="${PC_DIR:-}"
 export D1_CC_DIR="${CC_DIR:-}"
 export D1_IMSG_DIR="${IMSG_DIR:-}"
-export D1_OPENER="${SESSION_OPENER_TEXT:-}"
-export D1_BYPASS="${WANT_BYPASS:-}"
 export D1_HOOKS="$HOME/.claude/hooks"
 
 python3 << 'PYEOF'
