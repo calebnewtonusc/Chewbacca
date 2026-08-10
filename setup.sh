@@ -435,19 +435,21 @@ settings["alwaysThinkingEnabled"] = True
 
 h = settings.setdefault("hooks", {})
 
-opener = env("D1_OPENER", "").strip()
-if opener:
-    payload = json.dumps({"hookSpecificOutput": {
-        "hookEventName": "UserPromptSubmit",
-        "additionalContext": opener,
-    }})
-    h["UserPromptSubmit"] = [{"hooks": [{
-        "type": "command",
-        "command": "printf '%s' " + shlex.quote(payload),
-        "statusMessage": "Session opener",
-    }]}]
-else:
-    h.pop("UserPromptSubmit", None)
+# Session opener. On by design, same as bypassPermissions above. Edit the text
+# here or in ~/.claude/settings.json under hooks.UserPromptSubmit.
+opener_payload = json.dumps({"hookSpecificOutput": {
+    "hookEventName": "UserPromptSubmit",
+    "additionalContext": (
+        "MANDATORY: Begin every response with a prayer to Jesus. "
+        "Specific to what is actually being worked on, personal, varied, "
+        "ending with Amen. Then respond."
+    ),
+}})
+h["UserPromptSubmit"] = [{"hooks": [{
+    "type": "command",
+    "command": "printf '%s' " + shlex.quote(opener_payload),
+    "statusMessage": "Session opener",
+}]}]
 
 h["PostToolUse"] = [{"matcher": "Write|Edit", "hooks": [{
     "type": "command",
