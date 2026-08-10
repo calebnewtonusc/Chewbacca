@@ -9,6 +9,7 @@
   <a href="https://github.com/calebnewtonusc/D1-Vibe-Coding/commits/main"><img src="https://img.shields.io/github/last-commit/calebnewtonusc/D1-Vibe-Coding" alt="Last Commit"></a>
   <a href=".claude/commands"><img src="https://img.shields.io/badge/slash_commands-36-indigo" alt="Commands"></a>
   <a href=".claude/rules"><img src="https://img.shields.io/badge/rules_files-18-green" alt="Rules"></a>
+  <a href="docs/EXTENSIONS.md"><img src="https://img.shields.io/badge/plugins-9-orange" alt="Plugins"></a>
 </p>
 
 <p align="center">
@@ -32,6 +33,7 @@
 - [Ecosystem](#ecosystem-and-resources)
 - [Documentation](#documentation)
 - [Templates and Snippets](#templates-and-snippets)
+- [Skills and Plugins](#skills-and-plugins)
 - [Example Project](#example-project)
 - [File Structure](#file-structure)
 - [Related Repos](#related-repos)
@@ -49,6 +51,7 @@
 | **Second brain**       | Two-repo system: public `claude-context` (operational) + private `{name}-context` (personal). Auto-syncs to GitHub                                                   |
 | **Smart hooks**        | Auto-format on save, sync context repos, warn on `.env` writes, load Todoist priorities at session start                                                             |
 | **iMessage agent**     | Optional macOS integration: read chat history, triage messages, send via AppleScript                                                                                 |
+| **Skills and plugins** | graph-engineering and no-ai-slop skills, plus Understand-Anything, context7, serena, and six more plugins |
 | **Example project**    | Working Cloudflare Worker + D1 todo app you can deploy in 60 seconds                                                                                                 |
 
 ---
@@ -86,7 +89,8 @@ The `setup.sh` script collects your name, GitHub username, and API keys, then:
 3. Optionally sets up the iMessage agent (macOS only)
 4. Writes `~/.claude/settings.json` with all hooks
 5. Installs commands and rules globally to `~/.claude/`
-6. Configures Composio MCP if you have a URL
+6. Installs skills, registers both plugin marketplaces, and installs nine plugins
+7. Configures Composio MCP if you have a URL
 
 You end up with a fully wired Claude setup. Every session starts with your full context loaded. Every edit to your context files auto-commits and auto-pushes.
 
@@ -106,6 +110,9 @@ You end up with a fully wired Claude setup. Every session starts with your full 
 | `/fix-issue`      | Fetch GitHub issue, branch, research, implement, commit        |
 | `/review-pr`      | Deep code review with inline comments                          |
 | `/review`         | Review current file or selection                               |
+| `/review-project` | Deep audit a project: bugs, incomplete work, security issues   |
+| `/triage-issues`  | Classify issues, score severity, detect duplicates, prioritize |
+| `/triage-prs`     | PR dashboard by module, review state, scope, and risk          |
 | `/daily-brief`    | Today's tasks + GitHub PRs + focused plan                      |
 | `/morning`        | Morning standup: yesterday, today, blockers                    |
 | `/close-loop`     | End-of-session: commit, push, log, set up tomorrow             |
@@ -222,7 +229,7 @@ This kit is optimized for:
 - **Vercel** (deployment)
 - **TypeScript** (strict mode)
 - **GitHub** (via `gh` CLI)
-- **Anthropic Claude** (`claude-sonnet-4-6` default)
+- **Anthropic Claude** (`claude-opus-5` default)
 
 ---
 
@@ -343,11 +350,14 @@ D1-Vibe-Coding/
 │   ├── METHODOLOGY.md           # Vibe coding philosophy and workflow
 │   ├── CLOUDFLARE.md            # D1/Workers/KV/R2 patterns and examples
 │   ├── PROMPTS.md               # Example AI prompts for every stage of dev
-│   └── INTERNALS.md             # How Claude Code works under the hood
+│   ├── INTERNALS.md             # How Claude Code works under the hood
+│   └── EXTENSIONS.md            # Skills, plugins, MCP: which layer to reach for
 ├── examples/
 │   └── todo-app/                # Working Worker + D1 example (deploy in 60s)
 ├── templates/                   # Full starter files (Worker, migration, components)
 ├── snippets/                    # Copy-paste patterns (Drizzle, wrangler, hooks)
+├── skills/
+│   └── graph-engineering/       # Knowledge graphs and agent task graphs
 ├── second-brain/
 │   ├── README.md                # Two-repo architecture explained
 │   ├── init-brain.sh            # Standalone second brain setup
