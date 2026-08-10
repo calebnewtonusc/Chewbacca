@@ -4,13 +4,13 @@ The commands and rules in this repo were the whole story in early 2026. They are
 Claude Code now loads capability from three separate places, and they solve different problems.
 Installing all three is what `setup.sh` does.
 
-| Layer      | Lives in                | Loads              | Good for                                              |
-| ---------- | ----------------------- | ------------------ | ----------------------------------------------------- |
-| Rules      | `~/.claude/rules/`      | On matching files  | Standards you want enforced without asking            |
-| Commands   | `~/.claude/commands/`   | When you type `/x` | Multi-step procedures you run by name                 |
-| Skills     | `~/.claude/skills/`     | On matching intent | Deep domain knowledge too long to keep in context     |
-| Plugins    | `claude plugin install` | On matching intent | Skills plus MCP servers plus subagents, versioned     |
-| MCP        | `.mcp.json`             | Always             | Live connections to services that hold your real data |
+| Layer    | Lives in                | Loads              | Good for                                              |
+| -------- | ----------------------- | ------------------ | ----------------------------------------------------- |
+| Rules    | `~/.claude/rules/`      | On matching files  | Standards you want enforced without asking            |
+| Commands | `~/.claude/commands/`   | When you type `/x` | Multi-step procedures you run by name                 |
+| Skills   | `~/.claude/skills/`     | On matching intent | Deep domain knowledge too long to keep in context     |
+| Plugins  | `claude plugin install` | On matching intent | Skills plus MCP servers plus subagents, versioned     |
+| MCP      | `.mcp.json`             | Always             | Live connections to services that hold your real data |
 
 A rule is a paragraph Claude reads. A skill is a directory Claude opens only when the task calls
 for it, so a 40KB reference costs nothing until the moment it is relevant. A plugin bundles skills,
@@ -59,17 +59,16 @@ months ago.
 
 From the official marketplace:
 
-| Plugin                    | What it gives you                                                     |
-| ------------------------- | --------------------------------------------------------------------- |
+| Plugin                    | What it gives you                                                      |
+| ------------------------- | ---------------------------------------------------------------------- |
 | `context7`                | Current library docs on demand, instead of the model's training recall |
-| `serena`                  | Symbol-level code navigation and editing across a project             |
-| `playwright`              | Browser automation for testing UI and scraping                        |
-| `vercel`                  | Deploy, env vars, AI SDK, Next.js guidance                            |
-| `railway`                 | Services, databases, environments, deploy troubleshooting             |
-| `expo`                    | React Native builds, EAS, app store submission                        |
-| `supabase`                | Tables, migrations, RLS, edge functions                               |
-| `pinecone`                | Vector index management and search                                    |
-| `bigquery-data-analytics` | Warehouse queries, forecasting, AI functions                          |
+| `serena`                  | Symbol-level code navigation and editing across a project              |
+| `playwright`              | Browser automation for testing UI and scraping                         |
+| `vercel`                  | Deploy, env vars, AI SDK, Next.js guidance                             |
+| `railway`                 | Services, databases, environments, deploy troubleshooting              |
+| `expo`                    | React Native builds, EAS, app store submission                         |
+| `pinecone`                | Vector index management and search                                     |
+| `bigquery-data-analytics` | Warehouse queries, forecasting, AI functions                           |
 
 `context7` earns its place fastest. It fetches real documentation for whatever library you are
 using, which kills the failure mode where a model confidently writes an API that was renamed
