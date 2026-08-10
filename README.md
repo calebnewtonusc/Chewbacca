@@ -28,6 +28,7 @@
 - [Second Brain](#the-second-brain)
 - [Design System](#the-design-system)
 - [Standards Files](#the-standards-files)
+- [Verifying the Install](#verifying-the-install)
 - [Hooks](#the-hooks)
 - [Stack](#stack-assumptions)
 - [Ecosystem](#ecosystem-and-resources)
@@ -248,6 +249,30 @@ file if you move your context repos.
 
 ---
 
+## Verifying the install
+
+```bash
+./doctor.sh
+```
+
+Every bug this kit shipped in its first six months failed silently. The 18 rules
+files installed and nothing loaded them. Prettier could not find node and exited
+0. The sync hook swallowed its own git errors. A fresh Mac with no git identity
+produced two empty repos and no complaint. In each case you got worse output and
+no signal.
+
+`doctor.sh` asserts instead of assuming. It checks the toolchain and git
+identity, formats a real file through the hook to prove Prettier works, confirms
+every `@` import in CLAUDE.md resolves to a file that exists, verifies each hook
+is installed, executable, and emitting valid JSON, and greps the installed
+commands and rules for hardcoded credentials. It exits non-zero if anything
+fails, and `setup.sh` runs it automatically at the end.
+
+Run it after install, and any time Claude starts behaving like it forgot the
+standards.
+
+---
+
 ## Stack assumptions
 
 This kit is optimized for:
@@ -369,6 +394,7 @@ D1-Vibe-Coding/
 ├── CONTRIBUTING.md              # How to contribute
 ├── LICENSE                      # MIT
 ├── setup.sh                     # One-command full infrastructure setup
+├── doctor.sh                    # Verifies the install actually works
 ├── install.sh                   # Quick project-level install
 ├── SETUP.md                     # Manual setup instructions
 ├── .github/                     # Issue templates, PR template, CI
