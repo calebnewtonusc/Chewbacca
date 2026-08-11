@@ -23,12 +23,17 @@ echo ""
 cp "$SCRIPT_DIR/CLAUDE.md" "$PROJECT_DIR/CLAUDE.md"
 echo -e "  ${GRN}✓${NC} CLAUDE.md"
 
-# Commands and hooks are project-scoped.
-mkdir -p "$PROJECT_DIR/.claude"
-cp -r "$SCRIPT_DIR/.claude/commands" "$PROJECT_DIR/.claude/"
-cp -r "$SCRIPT_DIR/.claude/hooks"    "$PROJECT_DIR/.claude/"
-cp -r "$SCRIPT_DIR/.claude/agents"   "$PROJECT_DIR/.claude/" 2>/dev/null || true
-echo -e "  ${GRN}✓${NC} .claude/commands ($(ls "$SCRIPT_DIR/.claude/commands/" | wc -l | tr -d ' ') commands)"
+# Anything settings.json points at, or CLAUDE.md imports, must sit at a fixed
+# global path or it silently resolves to nothing. Only CLAUDE.md is
+# project-scoped, so you can tune it per project.
+mkdir -p "$HOME/.claude/hooks" "$HOME/.claude/agents" "$HOME/.claude/commands"
+cp "$SCRIPT_DIR/.claude/hooks/"*.sh    "$HOME/.claude/hooks/"    2>/dev/null || true
+chmod +x "$HOME/.claude/hooks/"*.sh 2>/dev/null || true
+cp "$SCRIPT_DIR/.claude/agents/"*.md   "$HOME/.claude/agents/"   2>/dev/null || true
+cp "$SCRIPT_DIR/.claude/commands/"*.md "$HOME/.claude/commands/" 2>/dev/null || true
+echo -e "  ${GRN}✓${NC} ~/.claude/hooks ($(ls "$SCRIPT_DIR"/.claude/hooks/*.sh | wc -l | tr -d ' ') hooks)"
+echo -e "  ${GRN}✓${NC} ~/.claude/agents ($(ls "$SCRIPT_DIR/.claude/agents/" | wc -l | tr -d ' ') subagents)"
+echo -e "  ${GRN}✓${NC} ~/.claude/commands ($(ls "$SCRIPT_DIR/.claude/commands/" | wc -l | tr -d ' ') commands)"
 
 # Rules go global. CLAUDE.md imports them as @~/.claude/rules/*.md, so they have
 # to be at that path for the imports to resolve in any project.
