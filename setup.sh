@@ -542,6 +542,7 @@ os.replace(tmp_path, settings_path)
 print("Settings written.")
 PYEOF
 
+unset D1_GITHUB_PAT D1_ANTHROPIC_KEY D1_TODOIST_TOKEN
 log "~/.claude/settings.json configured"
 
 
@@ -599,6 +600,7 @@ os.replace(tmp_path, mcp_path)
 print("MCP config written.")
 PYEOF2
 
+unset D1_MCP_FILE D1_COMPOSIO_URL D1_COMPOSIO_KEY
 log ".mcp.json configured"
 
 # ── Install D1 rules globally ─────────────────────────────────────────────────
@@ -613,9 +615,9 @@ mkdir -p "$GLOBAL_CLAUDE/agents"
 cp "$SCRIPT_DIR/.claude/agents/"*.md   "$GLOBAL_CLAUDE/agents/"   2>/dev/null || true
 cp "$SCRIPT_DIR/CLAUDE.md"             "$GLOBAL_CLAUDE/CLAUDE.md" 2>/dev/null || true
 
-log "Commands installed to ~/.claude/commands/ ($(ls "$GLOBAL_CLAUDE/commands/" | wc -l | tr -d ' ') files)"
-log "Rules installed to ~/.claude/rules/ ($(ls "$GLOBAL_CLAUDE/rules/" | wc -l | tr -d ' ') files)"
-log "Subagents installed to ~/.claude/agents/ ($(ls "$GLOBAL_CLAUDE/agents/" 2>/dev/null | wc -l | tr -d ' ') agents)"
+log "Commands installed to ~/.claude/commands/ ($(ls "$SCRIPT_DIR"/.claude/commands/*.md | wc -l | tr -d ' ') files)"
+log "Rules installed to ~/.claude/rules/ ($(ls "$SCRIPT_DIR"/.claude/rules/*.md | wc -l | tr -d ' ') files)"
+log "Subagents installed to ~/.claude/agents/ ($(ls "$SCRIPT_DIR"/.claude/agents/*.md | wc -l | tr -d ' ') agents)"
 log "CLAUDE.md installed to ~/.claude/CLAUDE.md"
 
 # ── Skills and plugins ────────────────────────────────────────────────────────
