@@ -57,13 +57,69 @@ Worth knowing: the skill is for editing drafts on request. If you want the rules
 everything Claude writes by default, put the pattern list in your `CLAUDE.md` as a standing
 instruction. The skill and the standing rule do different jobs.
 
+**[conorbronsdon/avoid-ai-writing](https://github.com/conorbronsdon/avoid-ai-writing)** (MIT) is the
+deepest of the three: 61 pattern categories, a 112-entry word replacement table across three
+severity tiers, and `rewrite` / `detect` / `edit`-in-place modes with an optional voice profile. It
+also ships a deterministic Node detector (`detector/patterns.js`, `npm test`, `scripts/self-scan.js`)
+that runs with no model at all, so it can gate a docs directory in CI. Its own docs are candid that
+these patterns are signals rather than proof: published audits put commercial AI-detector
+false-positive rates above 60% on non-native English writers, so it flags and explains rather than
+convicting.
+
+**[blader/humanizer](https://github.com/blader/humanizer)** (MIT) works from a different catalogue,
+Wikipedia's "Signs of AI writing," which is why it is worth having alongside the other two rather
+than instead of them. It catches inflated symbolism, rule-of-three padding, negative parallelism,
+vague attribution, and em dash rate. It installs as a plugin, so it updates with
+`claude plugin update humanizer`.
+
+### Which of the three to reach for
+
+They overlap enough that running all three on one draft mostly wastes tokens.
+
+| Situation                                            | Use                                                                |
+| ---------------------------------------------------- | ------------------------------------------------------------------ |
+| Quick pass on your own draft, voice preserved        | `no-ai-slop`                                                       |
+| Thorough audit, or a file edited in place            | `avoid-ai-writing`                                                 |
+| Second opinion after one of the above looks clean    | `humanizer`, since its pattern list comes from a different source  |
+| Gating docs in CI with no model in the loop          | `avoid-ai-writing`'s Node detector                                 |
+
+## MCP servers you host yourself
+
+**[linshenkx/prompt-optimizer](https://github.com/linshenkx/prompt-optimizer)** (AGPL-3.0) rewrites
+and iterates on prompts, exposing `optimize-user-prompt`, `optimize-system-prompt`, and
+`iterate-prompt` over MCP. Run it as a container and point Claude Code at it:
+
+```bash
+docker run -d --name prompt-optimizer --restart unless-stopped -p 8081:80 \
+  -e VITE_OPENAI_API_KEY=your-key \
+  -e MCP_DEFAULT_MODEL_PROVIDER=openai \
+  linshen/prompt-optimizer:latest
+
+claude mcp add --transport http prompt-optimizer http://localhost:8081/mcp --scope user
+```
+
+It calls a model provider directly, so it needs its own key. Any OpenAI-compatible endpoint works,
+including a local Ollama, which makes it free to run:
+
+```bash
+  -e VITE_CUSTOM_API_KEY=ollama \
+  -e VITE_CUSTOM_API_BASE_URL=http://host.docker.internal:11434/v1 \
+  -e VITE_CUSTOM_API_MODEL=llama3.1:8b \
+  -e MCP_DEFAULT_MODEL_PROVIDER=custom
+```
+
+Two things to know. The tools go dead when the container is not running, so `--restart unless-stopped`
+is doing real work. And the license is AGPL-3.0: running it as a separate service is fine, copying its
+source into your own project is not.
+
 ## Plugins
 
-Two marketplaces cover everything below.
+Three marketplaces cover everything below.
 
 ```bash
 claude plugin marketplace add anthropics/claude-plugins-official
 claude plugin marketplace add Egonex-AI/Understand-Anything
+claude plugin marketplace add blader/humanizer
 ```
 
 **[Understand-Anything](https://github.com/Egonex-AI/Understand-Anything)** turns a codebase into an
