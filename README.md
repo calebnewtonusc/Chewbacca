@@ -354,6 +354,7 @@ subagents behind one versioned install.
 
 `setup.sh` installs all of it. What you get:
 
+<!-- BEGIN GENERATED: extensions -->
 | Extension                                                                    | Layer  | What it does                                                          |
 | ---------------------------------------------------------------------------- | ------ | --------------------------------------------------------------------- |
 | [skills/second-brain](skills/second-brain)                                   | Skill  | Reading, writing, and auditing your personal context repo              |
@@ -363,6 +364,14 @@ subagents behind one versioned install.
 | [Understand-Anything](https://github.com/Egonex-AI/Understand-Anything)      | Plugin | Turns a codebase into an interactive knowledge graph you can query    |
 | [context7](https://github.com/anthropics/claude-plugins-official)            | Plugin | Real library docs on demand instead of the model's training recall    |
 | serena, playwright, vercel, railway, expo, pinecone, bigquery-data-analytics | Plugin | Code navigation, browser automation, deploys, and data tooling        |
+<!-- END GENERATED: extensions -->
+
+That table is generated. `~/.claude/hooks/sync-to-d1.sh` reads what is actually
+installed on the author's machine and rewrites it, along with the install list in
+`setup.sh` and the manifest at [settings/toolkit.json](settings/toolkit.json). A
+skill reaches this list only if it carries a public upstream URL or ships in this
+repo, so a personal skill added locally stays local. MCP servers are opt-in by
+name for the same reason.
 
 Full breakdown of which layer to reach for, and why, in [docs/EXTENSIONS.md](docs/EXTENSIONS.md).
 
