@@ -21,7 +21,7 @@ $ARGUMENTS describes what changed. Determine:
 - Is this a new decision? Add to "Recent Decisions"
 - Is this a new project? Add to "Active Projects"
 - Is this a priority shift? Update "Current Priorities"
-- Is this academic context? Update "Academic Load"
+- Is this about current work or commitments? Update NOW.md
 - Is this a new key insight? Add note to relevant section
 
 ## Step 3: Update the file

@@ -1,9 +1,9 @@
 ---
 paths:
-  - "projects/**/*.tsx"
-  - "projects/**/*.ts"
-  - "projects/**/*.html"
-  - "projects/**/*.css"
+  - "**/*.tsx"
+  - "**/*.ts"
+  - "**/*.html"
+  - "**/*.css"
 ---
 
 # Design Rules

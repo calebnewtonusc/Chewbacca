@@ -23,13 +23,14 @@ curl -sf "https://api.todoist.com/rest/v2/tasks?filter=overdue" \
 
 ## Step 2: Parse and organize
 
-Sprint system (from memory):
+Sprint system. This is a default shape, not a law. Rename these to match how
+you actually label tasks, or delete the buckets you do not use:
 
-- Sprint 1: Morning admin / urgent (OSAS, onboarding, critical)
-- Sprint 2: Main focus (MATH or primary academic)
-- Sprint 3: Secondary academic (CSCI 170)
-- Sprint 4: Additional coursework (CSCI 103, projects)
-- Sprint 5: Evening wrap-up (calls, admin, forms)
+- Sprint 1: Morning admin and anything urgent
+- Sprint 2: Main focus block, the hardest thing of the day
+- Sprint 3: Secondary focus
+- Sprint 4: Everything else that must move today
+- Sprint 5: Evening wrap-up, calls, admin
 
 Priority sort within each sprint: P1 (api=4) first, P4 (api=1) last.
 

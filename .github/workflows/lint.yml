@@ -46,7 +46,7 @@ jobs:
           echo "Checking for hardcoded personal paths..."
           ERRORS=0
           # These patterns should never appear in committed files
-          PATTERNS="/Users/joelnewton|/home/specific-user"
+          PATTERNS="/Users/[a-z][a-z0-9._-]*|/home/[a-z][a-z0-9._-]*"
           if grep -rn "$PATTERNS" --include="*.md" --include="*.json" --include="*.sh" --include="*.ts" . | grep -v ".git/"; then
             echo "ERROR: Found hardcoded personal paths. Use variables instead."
             ERRORS=1

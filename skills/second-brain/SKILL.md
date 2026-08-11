@@ -14,17 +14,23 @@ Your job is to keep it true and to use it before guessing.
 
 ## Layout
 
+`setup.sh` creates five flat files, which is the right starting shape:
+
 ```
-core/       loaded into every session automatically
-domains/    read on demand: health, faith, money, whatever runs deep
-projects/   read on demand: one file per real project
-systems/    read on demand: infrastructure, tooling, accounts
-memory/     granular auto-memory, one fact per file, indexed by MEMORY.md
+YOU.md      identity, background, how they work
+NOW.md      current roles, active projects, priorities, what is broken
+PEOPLE.md   collaborators, family, professional network
+SYSTEM.md   hooks, commands, MCP, infrastructure
+STACK.md    tech stack and standards
 ```
 
-`core/` is small on purpose. Everything there costs tokens in every session on
-every project, so it holds only what is true regardless of what the user is
-doing: identity, current state, people. Everything else is read when relevant.
+`YOU.md` and `NOW.md` are the two the session hook loads, so keep them tight.
+`NOW.md` is the most useful file and the one most likely to be stale.
+
+Once a repo outgrows five files, the shape that scales is directories by
+volatility: a small always-loaded `core/`, then `domains/`, `projects/`, and
+`systems/` read on demand, plus `memory/` for granular one-fact-per-file notes
+indexed by a `MEMORY.md`. Do not impose that on someone with five files.
 
 ## Reading
 
@@ -36,8 +42,8 @@ were told three weeks ago is the failure this system exists to prevent.
 read that project's file. Loading everything is slow and crowds out the actual
 work.
 
-**Check `core/now.md` first for anything time-sensitive.** It is the most useful
-file and the most likely to be stale.
+**Check `NOW.md` first for anything time-sensitive.** It goes stale fastest, so
+verify it against what the user just said rather than trusting it blindly.
 
 ## Writing
 
@@ -53,7 +59,7 @@ exists, update that file. Duplicated facts are how these systems die: five
 copies in five directories, all disagreeing, all stale, none authoritative.
 
 **Volatility decides the file.** Stable facts (identity, values) go in files
-reviewed rarely. Volatile facts (current work, priorities) go in `now.md`. A
+reviewed rarely. Volatile facts (current work, priorities) go in `NOW.md`. A
 volatile fact in a stable file is how an identity file ends up lying about what
 semester it is.
 
@@ -94,7 +100,7 @@ that will not be found.
 When asked to review the context repo, check for:
 
 - Facts that contradict each other across files
-- Anything in `core/` that should have aged out into `domains/` or `projects/`
+- Anything in an always-loaded file that should have aged out into an on-demand one
 - Relative dates that were never converted
 - Projects listed as active that have not been touched in months
 - Duplicates, which mean the one-fact-one-home rule slipped

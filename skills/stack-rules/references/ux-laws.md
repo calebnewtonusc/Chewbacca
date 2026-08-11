@@ -1,8 +1,8 @@
 ---
 paths:
-  - "projects/**/*.tsx"
-  - "projects/**/*.ts"
-  - "projects/**/*.html"
+  - "**/*.tsx"
+  - "**/*.ts"
+  - "**/*.html"
 ---
 
 # Laws of UX

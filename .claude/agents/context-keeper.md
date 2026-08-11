@@ -11,8 +11,10 @@ the rules you are enforcing.
 
 Work in this order.
 
-**1. Map before touching anything.** List the files, read `core/` in full, and
-skim the rest. You cannot spot a contradiction across files you have not read.
+**1. Map before touching anything.** List the files and read them. The default
+layout is five flat files (YOU, NOW, PEOPLE, SYSTEM, STACK); larger repos split
+into directories. Either way you cannot spot a contradiction across files you
+have not read.
 
 **2. Find the rot.** Specifically:
 

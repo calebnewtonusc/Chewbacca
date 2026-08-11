@@ -10,7 +10,10 @@ A Todoist API token was previously committed to command files and has since been
 
 ### If you forked before April 2026
 
-The token `f0126e...` in older commits is the maintainer's Todoist token. It has been rotated and is no longer valid. No action needed on your part.
+The token `f0126e...` in older commits was the maintainer's Todoist token.
+Treat it as live until this line says otherwise: do not assume it is dead,
+and do not use it. It grants access to one person's task list and nothing
+in your fork depends on it. Delete it from any fork's history you control.
 
 ### For the maintainer: cleaning git history
 

@@ -72,7 +72,7 @@ end tell
 
 ## MCP bridge (advanced)
 
-For a full MCP server that wraps this into structured tools Claude can call natively, see `_System/composio-imessage-bridge/` in your D1 repo. It exposes:
+For a full MCP server that wraps this into structured tools Claude can call natively, wire it through an MCP server or a CLI you control. It exposes:
 
 - `read_messages(contact, limit)`: fetch recent messages
 - `send_message(to, body)`: send a message

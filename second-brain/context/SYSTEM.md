@@ -9,7 +9,7 @@
 - **Config:** `~/.claude/settings.json`
 - **Project config:** `.claude/settings.json` in each project
 - **MCP servers:** See `.mcp.json` in project root
-- **Hooks:** PostToolUse auto-formats, auto-syncs context to GitHub, auto-syncs commands to D1-Vibe-Coding
+- **Hooks:** ...
 
 ## Key APIs
 
@@ -36,7 +36,7 @@
 ## Hooks Active
 
 - **UserPromptSubmit:** Injects identity + Todoist priorities into every session
-- **PostToolUse (Write/Edit):** Prettier formatting, context sync, D1-Vibe-Coding sync
+- **PostToolUse (Write/Edit):** ...
 - **Notification:** `say` command announces task complete
 - **SessionStart:** Loads Todoist priorities
 

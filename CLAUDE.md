@@ -453,7 +453,7 @@ This applies to: new repos, updated READMEs, any markdown file that functions as
 
 **Every tribute page, person page, or profile site must include real photos of the actual person.**
 
-- Scan iMessage attachments for photos (`~/Library/Messages/Attachments/`)
+- Ask the user for the photos, or point at a directory they nominate
 - Check Contacts for profile photos
 - Ask the user if needed, but never ship a person's page without their face on it
 - Photo treatment: `rounded-2xl overflow-hidden border border-white/10` with gradient overlay at bottom

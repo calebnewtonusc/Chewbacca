@@ -1,9 +1,9 @@
 ---
 paths:
-  - "projects/**/*.ts"
-  - "projects/**/*.tsx"
-  - "projects/**/*.js"
-  - "projects/**/*.py"
+  - "**/*.ts"
+  - "**/*.tsx"
+  - "**/*.js"
+  - "**/*.py"
 ---
 
 # Security Rules

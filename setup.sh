@@ -7,11 +7,10 @@
 # What it creates:
 #   {name}-context      PRIVATE  Your personal second brain (projects, identity, contacts)
 #   claude-context      PUBLIC   Operational instructions (CLAUDE.md, rules, commands)
-#   imessage-agent      PRIVATE  AI iMessage agent (triage, reply, route prospects)
 #
 # What it wires:
 #   ~/.claude/settings.json     All hooks (format, sync, session context, Todoist)
-#   ~/.mcp.json or .mcp.json    Composio MCP + iMessage MCP
+#   ~/.mcp.json or .mcp.json    Composio MCP
 #
 # Usage:
 #   git clone https://github.com/calebnewtonusc/D1-Vibe-Coding
@@ -58,7 +57,6 @@ echo ""
 echo "  What you'll get:"
 echo -e "    ${CYN}{name}-context${NC}   your private second brain"
 echo -e "    ${CYN}claude-context${NC}   public operational rules (forkable)"
-echo -e "    ${CYN}imessage-agent${NC}   AI iMessage triage + reply agent"
 echo ""
 echo "  Hooks wired automatically:"
 echo "    Session context injection on every Claude session"
@@ -285,64 +283,13 @@ git branch -M main
 git push -u origin main -q 2>/dev/null || warn "Push failed — you may need to push manually"
 log "https://github.com/$GITHUB_USER/claude-context"
 
-# ── Repo 3: imessage-agent (optional, macOS only) ───────────────────────────
+# ── iMessage agent ────────────────────────────────────────────────────────────
+# Not bundled. This used to clone calebnewtonusc/imessage-agent, which does not
+# exist, so every user who said yes got a warning and nothing else. The pattern
+# is documented in second-brain/agents/imessage.md if you want to build one;
+# setup.sh will not pretend to install it.
 IMSG_DIR=""
 SETUP_IMESSAGE=0
-
-if [[ "$(uname)" == "Darwin" ]]; then
-  echo ""
-  read -rp "  Set up iMessage agent? (macOS only, requires Messages.app) [y/N]: " IMSG_CHOICE
-  if [[ "$IMSG_CHOICE" =~ ^[Yy] ]]; then
-    SETUP_IMESSAGE=1
-  fi
-else
-  warn "Skipping iMessage agent (macOS only)"
-fi
-
-if [ "$SETUP_IMESSAGE" -eq 1 ]; then
-  head "Setting up imessage-agent"
-  IMSG_DIR="$WORKSPACE_DIR/imessage-agent"
-
-  if [ -d "$IMSG_DIR/.git" ]; then
-    warn "imessage-agent already exists at $IMSG_DIR. Pulling latest."
-    cd "$IMSG_DIR" && git pull -q 2>/dev/null || true
-  else
-    echo "  Cloning imessage-agent..."
-    gh repo clone calebnewtonusc/imessage-agent "$IMSG_DIR" 2>/dev/null || \
-      git clone "https://github.com/calebnewtonusc/imessage-agent.git" "$IMSG_DIR" -q 2>/dev/null
-    if [ -d "$IMSG_DIR" ]; then
-      log "Cloned to $IMSG_DIR"
-    else
-      warn "Could not clone imessage-agent. Skipping. You can set it up manually later."
-      SETUP_IMESSAGE=0
-    fi
-  fi
-
-  if [ "$SETUP_IMESSAGE" -eq 1 ]; then
-    # Create .env with their key
-    cat > "$IMSG_DIR/.env" << ENVEOF
-ANTHROPIC_API_KEY=${ANTHROPIC_KEY}
-# Add other keys below as needed
-ENVEOF
-
-    if [ -f "$IMSG_DIR/.gitignore" ]; then
-      grep -q "^\.env" "$IMSG_DIR/.gitignore" || echo ".env" >> "$IMSG_DIR/.gitignore"
-    fi
-
-    # Install deps
-    echo "  Installing dependencies..."
-    cd "$IMSG_DIR"
-    if command -v bun &>/dev/null; then
-      bun install -q 2>/dev/null && log "Dependencies installed (bun)"
-    else
-      npm install -q 2>/dev/null && log "Dependencies installed (npm)"
-    fi
-
-    log "iMessage agent ready at $IMSG_DIR"
-  fi
-else
-  log "Skipping iMessage agent"
-fi
 
 # ── Wire ~/.claude/settings.json ─────────────────────────────────────────────
 head "Wiring ~/.claude/settings.json"
@@ -426,9 +373,12 @@ for d in (env("D1_PC_DIR", ""), env("D1_CC_DIR", ""), env("D1_IMSG_DIR", "")):
         perms["additionalDirectories"].append(d)
 
 perms.setdefault("allow", [])
-msg_read = "Read(" + os.path.expanduser("~") + "/Library/Messages/**)"
-if msg_read not in perms["allow"]:
-    perms["allow"] += [msg_read, "Bash(sqlite3:*)", "Bash(osascript:*)", "WebSearch"]
+# Deliberately NOT granted here: Read(~/Library/Messages/**), Bash(osascript:*),
+# and Bash(sqlite3:*). Under bypassPermissions those would let every future
+# session read the user's entire message history without ever asking. Add them
+# yourself if you build something that needs them.
+if "WebSearch" not in perms["allow"]:
+    perms["allow"].append("WebSearch")
 
 # Nothing prompts under bypassPermissions, so the deny list is the only brake
 # left. It covers operations with no undo, and reads that would pull a secret
@@ -654,9 +604,6 @@ echo ""
 echo -e "  ${BLD}Repos created:${NC}"
 echo -e "    ${CYN}$PERSONAL_REPO${NC}     https://github.com/$GITHUB_USER/$PERSONAL_REPO"
 echo -e "    ${CYN}claude-context${NC}   https://github.com/$GITHUB_USER/claude-context"
-if [ -n "$IMSG_DIR" ] && [ "$SETUP_IMESSAGE" -eq 1 ]; then
-  echo -e "    ${CYN}imessage-agent${NC}   $IMSG_DIR"
-fi
 echo ""
 echo -e "  ${BLD}Wired:${NC}"
 echo "    ~/.claude/settings.json   hooks, env vars, permissions"

@@ -1,8 +1,8 @@
 ---
 paths:
-  - "projects/**/*.ts"
-  - "projects/**/*.tsx"
-  - "projects/**/*.js"
+  - "**/*.ts"
+  - "**/*.tsx"
+  - "**/*.js"
   - "services/**/*.ts"
 ---
 # Review & Fix Discipline

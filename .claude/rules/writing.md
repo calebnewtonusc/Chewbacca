@@ -1,9 +1,9 @@
 ---
 paths:
-  - "projects/**/*.tsx"
-  - "projects/**/*.ts"
-  - "projects/**/*.html"
-  - "projects/**/*.md"
+  - "**/*.tsx"
+  - "**/*.ts"
+  - "**/*.html"
+  - "**/*.md"
 ---
 
 # Writing Rules
