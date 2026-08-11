@@ -7,9 +7,11 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <a href="https://github.com/calebnewtonusc/D1-Vibe-Coding/stargazers"><img src="https://img.shields.io/github/stars/calebnewtonusc/D1-Vibe-Coding?style=social" alt="Stars"></a>
   <a href="https://github.com/calebnewtonusc/D1-Vibe-Coding/commits/main"><img src="https://img.shields.io/github/last-commit/calebnewtonusc/D1-Vibe-Coding" alt="Last Commit"></a>
+  <!-- BEGIN GENERATED: badges -->
   <a href=".claude/commands"><img src="https://img.shields.io/badge/slash_commands-36-indigo" alt="Commands"></a>
   <a href=".claude/rules"><img src="https://img.shields.io/badge/always_on_rules-6-green" alt="Rules"></a>
   <a href="docs/EXTENSIONS.md"><img src="https://img.shields.io/badge/plugins-9-orange" alt="Plugins"></a>
+  <!-- END GENERATED: badges -->
 </p>
 
 <p align="center">
@@ -52,7 +54,7 @@
 | **Full design system** | Dark mode, shadcn/ui, Tailwind, scroll-aware navbar, real typography. Every UI looks like a funded startup's product page                     |
 | **Second brain**       | Two-repo system: public `claude-context` (operational) + private `{name}-context` (personal). Auto-syncs to GitHub                            |
 | **Smart hooks**        | Format on save, sync context repos, warn on `.env` writes, and flag unpushed work only when there is any                                      |
-| **4 subagents**        | context-keeper, code-reviewer, debugger, and explorer, each scoped to one job with its own tool set                                                          |
+| **4 subagents**        | context-keeper, code-reviewer, debugger, and explorer, each scoped to one job with its own tool set                                           |
 | **Skills and plugins** | graph-engineering and no-ai-slop skills, plus Understand-Anything, context7, serena, and six more plugins                                     |
 | **Example project**    | Working Cloudflare Worker + D1 todo app you can deploy in 60 seconds                                                                          |
 
@@ -257,8 +259,7 @@ file if you move your context repos.
 ```
 
 Every bug this kit shipped in its first six months failed silently. The 18 rules
-files installed and nothing loaded them. Prettier could not find node and exited
-0. The sync hook swallowed its own git errors. A fresh Mac with no git identity
+files installed and nothing loaded them. Prettier could not find node and exited 0. The sync hook swallowed its own git errors. A fresh Mac with no git identity
 produced two empty repos and no complaint. In each case you got worse output and
 no signal.
 
@@ -304,14 +305,14 @@ The vibe coding landscape is growing fast. **[ECOSYSTEM.md](ECOSYSTEM.md)** is o
 
 ## Documentation
 
-| Doc                                        | What It Covers                                                                                         |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| [docs/METHODOLOGY.md](docs/METHODOLOGY.md) | The five principles of vibe coding, the D1 workflow loop, anti-patterns, measuring effectiveness       |
-| [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)   | D1 query patterns, migrations, Drizzle ORM, Worker routing (vanilla + Hono), D1 + KV + R2, deployment  |
-| [docs/PROMPTS.md](docs/PROMPTS.md)         | 20+ real prompts for scaffolding, features, debugging, database work, UI design, deployment            |
-| [docs/INTERNALS.md](docs/INTERNALS.md)     | How Claude Code works under the hood: CLAUDE.md loading, hooks, tools, agents, context compression     |
+| Doc                                        | What It Covers                                                                                                |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| [docs/METHODOLOGY.md](docs/METHODOLOGY.md) | The five principles of vibe coding, the D1 workflow loop, anti-patterns, measuring effectiveness              |
+| [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)   | D1 query patterns, migrations, Drizzle ORM, Worker routing (vanilla + Hono), D1 + KV + R2, deployment         |
+| [docs/PROMPTS.md](docs/PROMPTS.md)         | 20+ real prompts for scaffolding, features, debugging, database work, UI design, deployment                   |
+| [docs/INTERNALS.md](docs/INTERNALS.md)     | How Claude Code works under the hood: CLAUDE.md loading, hooks, tools, agents, context compression            |
 | [docs/SKILLS.md](docs/SKILLS.md)           | What this kit ships, the four public skill registries, the licensing traps in them, and how to write your own |
-| [docs/EXTENSIONS.md](docs/EXTENSIONS.md)   | Skills, plugins, and MCP: what each layer is for, what setup.sh installs, and which to reach for first |
+| [docs/EXTENSIONS.md](docs/EXTENSIONS.md)   | Skills, plugins, and MCP: what each layer is for, what setup.sh installs, and which to reach for first        |
 
 ---
 
@@ -355,15 +356,21 @@ subagents behind one versioned install.
 `setup.sh` installs all of it. What you get:
 
 <!-- BEGIN GENERATED: extensions -->
-| Extension                                                                    | Layer  | What it does                                                          |
-| ---------------------------------------------------------------------------- | ------ | --------------------------------------------------------------------- |
-| [skills/second-brain](skills/second-brain)                                   | Skill  | Reading, writing, and auditing your personal context repo              |
-| [skills/stack-rules](skills/stack-rules)                                     | Skill  | The 12 stack-specific standards, loaded only when the work needs them |
-| [skills/graph-engineering](skills/graph-engineering)                         | Skill  | Knowledge graphs and agent task graphs, with teaching mode            |
-| [no-ai-slop](https://github.com/petergyang/no-ai-slop)                       | Skill  | Strips 20+ AI-slop patterns from a draft, or flags them without edits |
-| [Understand-Anything](https://github.com/Egonex-AI/Understand-Anything)      | Plugin | Turns a codebase into an interactive knowledge graph you can query    |
-| [context7](https://github.com/anthropics/claude-plugins-official)            | Plugin | Real library docs on demand instead of the model's training recall    |
-| serena, playwright, vercel, railway, expo, pinecone, bigquery-data-analytics | Plugin | Code navigation, browser automation, deploys, and data tooling        |
+
+| Extension                                                                           | Layer  | What it does                                                                                   |
+| ----------------------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------- |
+| [skills/graph-engineering](skills/graph-engineering)                                | Skill  | Knowledge graphs and agent task graphs, with teaching mode                                     |
+| [skills/second-brain](skills/second-brain)                                          | Skill  | Reading, writing, and auditing your personal context repo                                      |
+| [skills/stack-rules](skills/stack-rules)                                            | Skill  | The 12 stack-specific standards, loaded only when the work needs them                          |
+| [avoid-ai-writing](https://github.com/conorbronsdon/avoid-ai-writing)               | Skill  | Audit and rewrite content to remove AI writing patterns ("AI-isms").                           |
+| [no-ai-slop](https://github.com/petergyang/no-ai-slop)                              | Skill  | Edit drafts into sharper, more human writing while preserving the writer's personal voice, or… |
+| [youtube-transcripts](https://github.com/calebnewtonusc/claude-youtube-transcripts) | Skill  | Get the transcript of a YouTube video, channel, or playlist.                                   |
+| [context7](https://github.com/anthropics/claude-plugins-official)                   | Plugin | Real library docs on demand instead of the model's training recall                             |
+| [humanizer](https://github.com/blader/humanizer)                                    | Plugin | Strips the Wikipedia-catalogued signs of AI writing out of a draft                             |
+| [understand-anything](https://github.com/Egonex-AI/Understand-Anything)             | Plugin | Turns a codebase into an interactive knowledge graph you can query                             |
+| bigquery-data-analytics, expo, pinecone, playwright, railway, serena, vercel        | Plugin | Code navigation, browser automation, deploys, and data tooling                                 |
+| [prompt-optimizer](https://github.com/linshenkx/prompt-optimizer)                   | MCP    | Rewrites and iterates on prompts through three MCP tools, self-hosted                          |
+
 <!-- END GENERATED: extensions -->
 
 That table is generated. `~/.claude/hooks/sync-to-d1.sh` reads what is actually
@@ -383,8 +390,8 @@ Four agents in `.claude/agents/`, each with a narrow job and only the tools that
 job needs. Claude delegates to them when the task matches; none of them run on
 their own.
 
-| Agent            | Use it for                                                             |
-| ---------------- | ---------------------------------------------------------------------- |
+| Agent            | Use it for                                                                                          |
+| ---------------- | --------------------------------------------------------------------------------------------------- |
 | `context-keeper` | Auditing and repairing the second brain: contradictions, stale projects, duplicates, relative dates |
 | `code-reviewer`  | Reviewing a diff against the standards this kit installs, ranked blocker / should fix / consider    |
 | `debugger`       | Tracing a bug to root cause through the seven-step protocol, no guessing                            |
