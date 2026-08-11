@@ -76,12 +76,12 @@ vague attribution, and em dash rate. It installs as a plugin, so it updates with
 
 They overlap enough that running all three on one draft mostly wastes tokens.
 
-| Situation                                            | Use                                                                |
-| ---------------------------------------------------- | ------------------------------------------------------------------ |
-| Quick pass on your own draft, voice preserved        | `no-ai-slop`                                                       |
-| Thorough audit, or a file edited in place            | `avoid-ai-writing`                                                 |
-| Second opinion after one of the above looks clean    | `humanizer`, since its pattern list comes from a different source  |
-| Gating docs in CI with no model in the loop          | `avoid-ai-writing`'s Node detector                                 |
+| Situation                                         | Use                                                               |
+| ------------------------------------------------- | ----------------------------------------------------------------- |
+| Quick pass on your own draft, voice preserved     | `no-ai-slop`                                                      |
+| Thorough audit, or a file edited in place         | `avoid-ai-writing`                                                |
+| Second opinion after one of the above looks clean | `humanizer`, since its pattern list comes from a different source |
+| Gating docs in CI with no model in the loop       | `avoid-ai-writing`'s Node detector                                |
 
 ## MCP servers you host yourself
 

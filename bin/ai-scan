@@ -1,0 +1,107 @@
+#!/usr/bin/env node
+/**
+ * ai-scan: score files for AI-writing tells without calling a model.
+ *
+ * Wraps the detector that ships with the avoid-ai-writing skill. The skill's
+ * own scripts/self-scan.js only reads that repo's docs, so this exists to point
+ * the same engine at arbitrary files and directories.
+ *
+ *   ai-scan draft.md                one file
+ *   ai-scan docs/                   every .md under a directory, worst first
+ *   ai-scan draft.md --issues       list what was flagged, not just the score
+ *   ai-scan docs/ --max 40          exit 1 if any file scores above 40
+ *   ai-scan draft.md --json         machine-readable
+ *
+ * Score is 0 (clean) to 100 (heavy). Treat it as a signal, not a verdict:
+ * the same patterns fire on rushed humans and non-native English writers.
+ */
+
+const fs = require("fs");
+const path = require("path");
+
+const SKILL = path.join(
+  process.env.HOME,
+  ".claude/skills/avoid-ai-writing/detector/patterns.js",
+);
+
+if (!fs.existsSync(SKILL)) {
+  console.error(
+    "detector not found. Install it with:\n" +
+      "  git clone https://github.com/conorbronsdon/avoid-ai-writing ~/.claude/skills/avoid-ai-writing",
+  );
+  process.exit(2);
+}
+const AIDetector = require(SKILL);
+
+const args = process.argv.slice(2);
+const flag = (name) => args.includes(name);
+const valueOf = (name, fallback) => {
+  const i = args.indexOf(name);
+  return i === -1 ? fallback : args[i + 1];
+};
+const targets = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--max");
+
+if (targets.length === 0) {
+  console.error("usage: ai-scan <file|dir> [...] [--issues] [--json] [--max N]");
+  process.exit(2);
+}
+
+const EXTS = new Set([".md", ".markdown", ".txt", ".mdx"]);
+
+function collect(target) {
+  const stat = fs.statSync(target);
+  if (stat.isFile()) return [target];
+  const out = [];
+  for (const entry of fs.readdirSync(target, { withFileTypes: true })) {
+    if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+    const full = path.join(target, entry.name);
+    if (entry.isDirectory()) out.push(...collect(full));
+    else if (EXTS.has(path.extname(entry.name))) out.push(full);
+  }
+  return out;
+}
+
+const files = [];
+for (const t of targets) {
+  try {
+    files.push(...collect(t));
+  } catch (err) {
+    console.error(`cannot read ${t}: ${err.message}`);
+    process.exit(2);
+  }
+}
+
+const results = files
+  .map((f) => {
+    const text = fs.readFileSync(f, "utf8");
+    const r = AIDetector.analyzeText(text);
+    return { file: f, score: r.score, label: r.label, issues: r.issues || [] };
+  })
+  .sort((a, b) => b.score - a.score);
+
+if (flag("--json")) {
+  console.log(JSON.stringify(results, null, 2));
+} else {
+  const width = Math.max(...results.map((r) => r.file.length), 4);
+  for (const r of results) {
+    console.log(
+      `${String(r.score).padStart(3)}  ${r.file.padEnd(width)}  ${r.label}  (${r.issues.length} flagged)`,
+    );
+    if (flag("--issues")) {
+      for (const i of r.issues.slice(0, 40)) {
+        const quoted = String(i.text || "").replace(/\s+/g, " ").slice(0, 70);
+        console.log(`       ${i.severity || "-"}  ${i.type}: ${quoted}`);
+      }
+      if (r.issues.length > 40) console.log(`       ... ${r.issues.length - 40} more`);
+    }
+  }
+}
+
+const max = valueOf("--max", null);
+if (max !== null) {
+  const over = results.filter((r) => r.score > Number(max));
+  if (over.length) {
+    console.error(`\n${over.length} file(s) over ${max}: ${over.map((r) => r.file).join(", ")}`);
+    process.exit(1);
+  }
+}

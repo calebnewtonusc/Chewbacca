@@ -10,14 +10,14 @@ Install to `~/.claude/skills/<name>/` for every project, or
 
 ## What this kit ships
 
-| Skill                                                  | Loads when                                                           |
-| ------------------------------------------------------ | -------------------------------------------------------------------- |
-| [second-brain](../skills/second-brain)                 | Reading or writing the personal context repo, or auditing it for rot |
-| [stack-rules](../skills/stack-rules)                   | Writing UI, API, database, deploy, test, or accessibility code       |
-| [graph-engineering](../skills/graph-engineering)       | Building knowledge graphs, or orchestrating agents as task graphs    |
-| [no-ai-slop](https://github.com/petergyang/no-ai-slop) | Editing a draft, or checking whether prose reads as machine-written  |
+| Skill                                                                 | Loads when                                                                                 |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| [second-brain](../skills/second-brain)                                | Reading or writing the personal context repo, or auditing it for rot                       |
+| [stack-rules](../skills/stack-rules)                                  | Writing UI, API, database, deploy, test, or accessibility code                             |
+| [graph-engineering](../skills/graph-engineering)                      | Building knowledge graphs, or orchestrating agents as task graphs                          |
+| [no-ai-slop](https://github.com/petergyang/no-ai-slop)                | Editing a draft, or checking whether prose reads as machine-written                        |
 | [avoid-ai-writing](https://github.com/conorbronsdon/avoid-ai-writing) | A thorough writing audit, editing a file in place, or scanning docs with its Node detector |
-| [humanizer](https://github.com/blader/humanizer) | A second opinion on a draft, working from Wikipedia's signs-of-AI-writing catalogue |
+| [humanizer](https://github.com/blader/humanizer)                      | A second opinion on a draft, working from Wikipedia's signs-of-AI-writing catalogue        |
 
 `second-brain` is the one that does not exist anywhere else. Every registry
 below has skills for talking to APIs; none of them have a skill for keeping a
