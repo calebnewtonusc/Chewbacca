@@ -55,7 +55,7 @@
 | **Second brain**       | Two-repo system: public `claude-context` (operational) + private `{name}-context` (personal). Auto-syncs to GitHub                            |
 | **Smart hooks**        | Format on save, sync context repos, warn on `.env` writes, and flag unpushed work only when there is any                                      |
 | **4 subagents**        | context-keeper, code-reviewer, debugger, and explorer, each scoped to one job with its own tool set                                           |
-| **Skills and plugins** | 6 skills (3 shipped here, 3 cloned from upstream) plus 10 plugins across 3 marketplaces                                     |
+| **Skills and plugins** | 6 skills (3 shipped here, 3 cloned from upstream) plus 10 plugins across 3 marketplaces                                                       |
 | **Example project**    | Working Cloudflare Worker + D1 todo app you can deploy in 60 seconds                                                                          |
 
 ---

@@ -627,37 +627,57 @@ mkdir -p "$GLOBAL_CLAUDE/skills"
 cp -R "$SCRIPT_DIR/skills/." "$GLOBAL_CLAUDE/skills/" 2>/dev/null || true
 log "Skills installed to ~/.claude/skills/"
 
-# no-ai-slop is MIT-licensed work by Peter Yang. Cloned rather than vendored so
-# it stays updatable and keeps its own LICENSE next to it.
-if [ -d "$GLOBAL_CLAUDE/skills/no-ai-slop" ]; then
-  log "no-ai-slop already present, left alone"
-else
-  TMP_SLOP="$(mktemp -d)"
-  if git clone -q --depth 1 https://github.com/petergyang/no-ai-slop "$TMP_SLOP" 2>/dev/null; then
-    cp -R "$TMP_SLOP/skills/no-ai-slop" "$GLOBAL_CLAUDE/skills/" 2>/dev/null || true
-    cp "$TMP_SLOP/LICENSE" "$GLOBAL_CLAUDE/skills/no-ai-slop/LICENSE" 2>/dev/null || true
-    log "no-ai-slop installed (MIT, Peter Yang)"
-  else
-    warn "Could not reach GitHub for no-ai-slop. See docs/EXTENSIONS.md to add it later."
+# BEGIN GENERATED: extensions
+# Upstream skills are cloned rather than vendored, so each stays updatable and
+# keeps the LICENSE it shipped with. add-skill.sh does the same thing by hand.
+while IFS='|' read -r SK_NAME SK_URL SK_PATH SK_LICENSE SK_AUTHOR; do
+  [ -n "$SK_NAME" ] || continue
+  if [ -d "$GLOBAL_CLAUDE/skills/$SK_NAME" ]; then
+    log "$SK_NAME already present, left alone"
+    continue
   fi
-  rm -rf "$TMP_SLOP"
-fi
+  TMP_SK="$(mktemp -d)"
+  if git clone -q --depth 1 "$SK_URL" "$TMP_SK" 2>/dev/null; then
+    SK_SRC="$TMP_SK"
+    [ -n "$SK_PATH" ] && SK_SRC="$TMP_SK/$SK_PATH"
+    mkdir -p "$GLOBAL_CLAUDE/skills/$SK_NAME"
+    cp -R "$SK_SRC/." "$GLOBAL_CLAUDE/skills/$SK_NAME/" 2>/dev/null || true
+    rm -rf "$GLOBAL_CLAUDE/skills/$SK_NAME/.git"
+    [ -f "$TMP_SK/LICENSE" ] && cp "$TMP_SK/LICENSE" "$GLOBAL_CLAUDE/skills/$SK_NAME/LICENSE" 2>/dev/null
+    printf 'source: %s\ninstalled: %s\n' "$SK_URL" "$(date -u +%Y-%m-%d)" \
+      > "$GLOBAL_CLAUDE/skills/$SK_NAME/.source"
+    log "$SK_NAME installed ($SK_LICENSE, $SK_AUTHOR)"
+  else
+    warn "Could not reach GitHub for $SK_NAME. See docs/EXTENSIONS.md to add it later."
+  fi
+  rm -rf "$TMP_SK"
+done <<'UPSTREAM_SKILLS'
+avoid-ai-writing|https://github.com/conorbronsdon/avoid-ai-writing||MIT|conorbronsdon
+no-ai-slop|https://github.com/petergyang/no-ai-slop|skills/no-ai-slop|MIT|petergyang
+youtube-transcripts|https://github.com/calebnewtonusc/claude-youtube-transcripts|skills/youtube-transcripts|MIT|calebnewtonusc
+UPSTREAM_SKILLS
 
 if command -v claude &>/dev/null; then
-  claude plugin marketplace add anthropics/claude-plugins-official </dev/null &>/dev/null || true
-  claude plugin marketplace add Egonex-AI/Understand-Anything </dev/null &>/dev/null || true
+  for m in \
+    Egonex-AI/Understand-Anything \
+    anthropics/claude-plugins-official \
+    blader/humanizer; do
+    claude plugin marketplace add "$m" </dev/null &>/dev/null || true
+  done
   log "Marketplaces registered"
 
   PLUGIN_FAILED=0
-  for p in context7@claude-plugins-official \
-    serena@claude-plugins-official \
-    playwright@claude-plugins-official \
-    vercel@claude-plugins-official \
-    railway@claude-plugins-official \
-    expo@claude-plugins-official \
-    pinecone@claude-plugins-official \
+  for p in \
     bigquery-data-analytics@claude-plugins-official \
-    understand-anything@understand-anything; do
+    context7@claude-plugins-official \
+    expo@claude-plugins-official \
+    humanizer@humanizer \
+    pinecone@claude-plugins-official \
+    playwright@claude-plugins-official \
+    railway@claude-plugins-official \
+    serena@claude-plugins-official \
+    understand-anything@understand-anything \
+    vercel@claude-plugins-official; do
     if claude plugin install "$p" --scope user </dev/null &>/dev/null; then
       log "installed ${p%%@*}"
     else
@@ -673,6 +693,10 @@ if command -v claude &>/dev/null; then
 else
   warn "claude CLI not found. Plugins skipped. See docs/EXTENSIONS.md."
 fi
+
+# Self-hosted MCP servers. Each needs its own service running; see docs/EXTENSIONS.md.
+#   prompt-optimizer: https://github.com/linshenkx/prompt-optimizer
+# END GENERATED: extensions
 
 # ── Verify ────────────────────────────────────────────────────────────────────
 # Claiming success without checking is how this kit shipped six months of
