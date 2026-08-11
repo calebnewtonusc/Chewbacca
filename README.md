@@ -10,7 +10,7 @@
 <!-- BEGIN GENERATED: badges -->
   <a href=".claude/commands"><img src="https://img.shields.io/badge/slash_commands-36-indigo" alt="Commands"></a>
   <a href=".claude/rules"><img src="https://img.shields.io/badge/always_on_rules-6-green" alt="Rules"></a>
-  <a href="docs/EXTENSIONS.md"><img src="https://img.shields.io/badge/plugins-9-orange" alt="Plugins"></a>
+  <a href="docs/EXTENSIONS.md"><img src="https://img.shields.io/badge/plugins-10-orange" alt="Plugins"></a>
 <!-- END GENERATED: badges -->
 </p>
 
@@ -55,7 +55,7 @@
 | **Second brain**       | Two-repo system: public `claude-context` (operational) + private `{name}-context` (personal). Auto-syncs to GitHub                            |
 | **Smart hooks**        | Format on save, sync context repos, warn on `.env` writes, and flag unpushed work only when there is any                                      |
 | **4 subagents**        | context-keeper, code-reviewer, debugger, and explorer, each scoped to one job with its own tool set                                           |
-| **Skills and plugins** | graph-engineering and no-ai-slop skills, plus Understand-Anything, context7, serena, and six more plugins                                     |
+| **Skills and plugins** | 6 skills (3 shipped here, 3 cloned from upstream) plus 10 plugins across 3 marketplaces                                     |
 | **Example project**    | Working Cloudflare Worker + D1 todo app you can deploy in 60 seconds                                                                          |
 
 ---
@@ -92,7 +92,7 @@ The `setup.sh` script collects your name, GitHub username, and API keys, then:
 2. Creates `claude-context` (public GitHub repo) with operational instructions
 3. Writes `~/.claude/settings.json`, pointing at the hook scripts
 4. Installs commands, rules, subagents, and hooks into `~/.claude/`
-5. Installs skills, registers both plugin marketplaces, and installs nine plugins
+5. Installs the skills, marketplaces, and plugins listed in [settings/toolkit.json](settings/toolkit.json)
 6. Configures Composio MCP if you have a URL
 7. Runs `doctor.sh` and refuses to claim success if anything failed
 
