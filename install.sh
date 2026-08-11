@@ -53,6 +53,8 @@ SETTINGS_DEST="$HOME/.claude/settings.json"
 if [ ! -f "$SETTINGS_DEST" ]; then
   mkdir -p "$HOME/.claude"
   cp "$SCRIPT_DIR/settings/settings.json" "$SETTINGS_DEST"
+  # The next step tells the user to paste tokens in here.
+  chmod 600 "$SETTINGS_DEST"
   echo -e "  ${GRN}✓${NC} ~/.claude/settings.json (created)"
 else
   echo -e "  ${YLW}!${NC} ~/.claude/settings.json exists — merge settings/settings.json manually"

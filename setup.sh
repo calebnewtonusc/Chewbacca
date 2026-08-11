@@ -31,7 +31,7 @@ NC='\033[0m'
 log()  { echo -e "  ${GRN}✓${NC} $1"; }
 warn() { echo -e "  ${YLW}!${NC} $1"; }
 err()  { echo -e "  ${RED}✗${NC} $1"; }
-head() { echo -e "\n${BLD}${BLU}$1${NC}"; }
+section() { echo -e "\n${BLD}${BLU}$1${NC}"; }
 sep()  { echo -e "${BLD}────────────────────────────────────────────${NC}"; }
 
 # Cross-platform sed in-place (macOS uses -i '', GNU uses -i)
@@ -44,8 +44,29 @@ sedi() {
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BACKUP_DIR="$HOME/.claude/backups/d1-setup-$(date +%Y%m%d-%H%M%S)"
+BACKED_UP=0
 
-clear
+# Anyone who already uses Claude Code has a CLAUDE.md, hooks, and commands of
+# their own. This script overwrites them by name. Copy first, always, and print
+# where the copies went.
+backup() {
+  local src="$1" rel
+  [ -e "$src" ] || return 0
+  rel="${src#$HOME/.claude/}"
+  mkdir -p "$BACKUP_DIR/$(dirname "$rel")"
+  cp -R "$src" "$BACKUP_DIR/$rel" 2>/dev/null || return 0
+  BACKED_UP=1
+}
+
+# Every prompt below reads from stdin. Piped or cron-run, `read` hits EOF and
+# `set -e` kills the script with a blank screen and exit 1. Say so instead.
+if [ ! -t 0 ]; then
+  err "setup.sh needs an interactive terminal. Run it directly, not piped."
+  exit 1
+fi
+
+clear 2>/dev/null || true
 echo ""
 sep
 echo -e "  ${BLD}D1 Vibe Coding — Infrastructure Setup${NC}"
@@ -66,7 +87,7 @@ echo ""
 read -rp "  Press Enter to begin..."
 
 # ── Prerequisites ─────────────────────────────────────────────────────────────
-head "Checking prerequisites"
+section "Checking prerequisites"
 MISSING=0
 
 if ! command -v gh &>/dev/null; then
@@ -84,6 +105,17 @@ if ! command -v bun &>/dev/null && ! command -v node &>/dev/null; then
   MISSING=1
 fi
 
+if ! command -v python3 &>/dev/null; then
+  err "python3 not found. It writes settings.json and .mcp config."
+  MISSING=1
+fi
+
+if ! command -v jq &>/dev/null; then
+  err "jq not found. Every hook parses its input with jq and will silently"
+  err "  do nothing without it. Install: brew install jq"
+  MISSING=1
+fi
+
 if [ "$MISSING" -eq 1 ]; then
   echo ""
   echo "  Fix the above and re-run setup.sh."
@@ -94,6 +126,10 @@ if ! gh auth status &>/dev/null; then
   warn "Not authenticated with GitHub. Running gh auth login now..."
   gh auth login
 fi
+
+# gh auth login lets you decline git credential setup, and every remote this
+# script writes is HTTPS. Without this, push blocks on a username prompt.
+gh auth setup-git &>/dev/null || true
 
 # A clean macOS install has no git identity. Without one, every commit below
 # fails with "Author identity unknown", both repos get created and pushed empty,
@@ -122,36 +158,47 @@ GITHUB_USER=$(gh api user --jq .login 2>/dev/null)
 log "GitHub: $GITHUB_USER"
 
 # ── Collect info ──────────────────────────────────────────────────────────────
-head "About you"
+section "About you"
 echo ""
 
 read -rp "  Your first name (e.g. John): " USER_NAME
-USER_NAME_LOWER=$(echo "$USER_NAME" | tr '[:upper:]' '[:lower:]')
+USER_NAME="$(printf '%s' "$USER_NAME" | tr -cd '[:alnum:] _-' | xargs)"
+if [ -z "$USER_NAME" ]; then
+  err "A name is required. It becomes your context repo name."
+  exit 1
+fi
+# Spaces and slashes break the repo name, the remote URL, and the sed below.
+USER_NAME_LOWER=$(printf '%s' "$USER_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
 PERSONAL_REPO="${USER_NAME_LOWER}-context"
 
 echo ""
-read -rp "  Anthropic API key (sk-ant-...): " ANTHROPIC_KEY
+read -rsp "  Anthropic API key (sk-ant-...): " ANTHROPIC_KEY; echo
 echo ""
-read -rp "  GitHub Personal Access Token (repo+workflow scopes): " GITHUB_PAT
+read -rsp "  GitHub Personal Access Token (repo+workflow scopes): " GITHUB_PAT; echo
 echo ""
 read -rp "  Composio MCP URL (optional, press Enter to skip): " COMPOSIO_URL
 echo ""
-read -rp "  Composio API Key (optional, press Enter to skip): " COMPOSIO_KEY
+read -rsp "  Composio API Key (optional, press Enter to skip): " COMPOSIO_KEY; echo
 echo ""
-read -rp "  Todoist API token (optional, press Enter to skip): " TODOIST_TOKEN
+read -rsp "  Todoist API token (optional, press Enter to skip): " TODOIST_TOKEN; echo
 echo ""
 
 WORKSPACE_DIR="$HOME/dev"
 read -rp "  Where should repos live? [$WORKSPACE_DIR]: " CUSTOM_DIR
 WORKSPACE_DIR="${CUSTOM_DIR:-$WORKSPACE_DIR}"
+# Quoted input means ~ never expands, and a relative path breaks the moment the
+# script cd's into the first repo. Normalize before anything uses it.
+WORKSPACE_DIR="${WORKSPACE_DIR/#\~/$HOME}"
+case "$WORKSPACE_DIR" in /*) ;; *) WORKSPACE_DIR="$PWD/$WORKSPACE_DIR" ;; esac
 mkdir -p "$WORKSPACE_DIR"
+WORKSPACE_DIR="$(cd "$WORKSPACE_DIR" && pwd)"
 
 echo ""
 sep
 echo ""
 
 # ── Repo 1: {name}-context (private) ─────────────────────────────────────────
-head "Creating $PERSONAL_REPO (private personal brain)"
+section "Creating $PERSONAL_REPO (private personal brain)"
 
 PC_DIR="$WORKSPACE_DIR/$PERSONAL_REPO"
 mkdir -p "$PC_DIR"
@@ -173,7 +220,15 @@ echo "  Opening YOU.md in your editor. Fill in your background, goals, working s
 echo "  This is what Claude reads about you every single session."
 echo ""
 read -rp "  Press Enter to open YOU.md..."
-"${EDITOR:-nano}" "$PC_DIR/YOU.md"
+PICKED_EDITOR=""
+for e in "${EDITOR:-}" nano vi; do
+  [ -n "$e" ] && command -v "${e%% *}" &>/dev/null && PICKED_EDITOR="$e" && break
+done
+if [ -n "$PICKED_EDITOR" ]; then
+  $PICKED_EDITOR "$PC_DIR/YOU.md" || true
+else
+  warn "No usable editor found. Fill in $PC_DIR/YOU.md by hand later."
+fi
 
 if gh repo view "$GITHUB_USER/$PERSONAL_REPO" &>/dev/null; then
   warn "Repo $GITHUB_USER/$PERSONAL_REPO already exists — using existing"
@@ -182,7 +237,12 @@ else
     --private \
     --description "$USER_NAME's personal context for Claude — identity, projects, contacts" \
     2>/dev/null || true
-  log "Created github.com/$GITHUB_USER/$PERSONAL_REPO (private)"
+  if gh repo view "$GITHUB_USER/$PERSONAL_REPO" &>/dev/null; then
+    log "Created github.com/$GITHUB_USER/$PERSONAL_REPO (private)"
+  else
+    warn "Could not create $GITHUB_USER/$PERSONAL_REPO. Check your token scopes."
+    warn "  Local files are still written; create the repo and push by hand."
+  fi
 fi
 
 cd "$PC_DIR"
@@ -209,7 +269,7 @@ git push -u origin main -q 2>/dev/null || warn "Push failed — you may need to 
 log "https://github.com/$GITHUB_USER/$PERSONAL_REPO"
 
 # ── Repo 2: claude-context (public) ──────────────────────────────────────────
-head "Creating claude-context (public operational rules)"
+section "Creating claude-context (public operational rules)"
 
 CC_DIR="$WORKSPACE_DIR/claude-context"
 mkdir -p "$CC_DIR/.claude/commands" "$CC_DIR/.claude/rules" "$CC_DIR/.claude/hooks"
@@ -260,7 +320,12 @@ else
     --public \
     --description "Claude Code operational instructions — design system, rules, commands" \
     2>/dev/null || true
-  log "Created github.com/$GITHUB_USER/claude-context (public)"
+  if gh repo view "$GITHUB_USER/claude-context" &>/dev/null; then
+    log "Created github.com/$GITHUB_USER/claude-context (public)"
+  else
+    warn "Could not create $GITHUB_USER/claude-context. Check your token scopes."
+    warn "  Local files are still written; create the repo and push by hand."
+  fi
 fi
 
 cd "$CC_DIR"
@@ -292,7 +357,16 @@ IMSG_DIR=""
 SETUP_IMESSAGE=0
 
 # ── Wire ~/.claude/settings.json ─────────────────────────────────────────────
-head "Wiring ~/.claude/settings.json"
+section "Wiring ~/.claude/settings.json"
+
+for existing in "$HOME/.claude/settings.json" "$HOME/.claude/CLAUDE.md" \
+  "$HOME/.claude/commands" "$HOME/.claude/rules" "$HOME/.claude/hooks" \
+  "$HOME/.claude/agents" "$HOME/.claude/skills" "$HOME/.claude.json"; do
+  backup "$existing"
+done
+if [ "$BACKED_UP" -eq 1 ]; then
+  log "Existing config backed up to $BACKUP_DIR"
+fi
 
 SETTINGS="$HOME/.claude/settings.json"
 mkdir -p "$HOME/.claude/hooks"
@@ -332,6 +406,13 @@ echo ""
 
 # Secrets and paths reach python through the environment. Interpolating them
 # into python source breaks the moment a token contains a quote or backslash.
+# An expired or wrong-scoped PAT written into env breaks gh in every future
+# session, and confusingly, because the env var beats the keyring.
+if [ -n "${GITHUB_PAT:-}" ] && ! GH_TOKEN="$GITHUB_PAT" gh api user &>/dev/null; then
+  warn "That GitHub token failed a live check. Leaving GITHUB_TOKEN unset so it"
+  warn "  cannot break gh in every session. Add a working one later if needed."
+  GITHUB_PAT=""
+fi
 export D1_GITHUB_PAT="${GITHUB_PAT:-}"
 export D1_ANTHROPIC_KEY="${ANTHROPIC_KEY:-}"
 export D1_TODOIST_TOKEN="${TODOIST_TOKEN:-}"
@@ -390,6 +471,8 @@ for rule in [
     "Bash(git push --force*)", "Bash(git push -f*)", "Bash(git reset --hard origin*)",
     "Bash(gh repo delete:*)", "Bash(dropdb:*)",
     "Read(./.env)", "Read(./.env.*)",
+    "Read(" + settings_path + ")",
+    "Read(" + os.path.expanduser("~") + "/.claude/.credentials.json)",
     "Read(" + os.path.expanduser("~") + "/.ssh/**)",
     "Read(" + os.path.expanduser("~") + "/.aws/**)",
 ]:
@@ -448,8 +531,13 @@ h["Notification"] = [{"hooks": [{
     "async": True,
 }]}]
 
-with open(settings_path, "w") as f:
+# The file now holds an Anthropic key and a GitHub PAT. Write it atomically so
+# a crash cannot truncate it, and 0600 so it is not world-readable.
+tmp_path = settings_path + ".tmp"
+with open(tmp_path, "w") as f:
     json.dump(settings, f, indent=2)
+os.chmod(tmp_path, 0o600)
+os.replace(tmp_path, settings_path)
 
 print("Settings written.")
 PYEOF
@@ -458,9 +546,9 @@ log "~/.claude/settings.json configured"
 
 
 # ── Wire .mcp.json ────────────────────────────────────────────────────────────
-head "Wiring .mcp.json"
+section "Wiring .mcp.json"
 
-MCP_FILE="$HOME/.claude/.mcp.json"
+MCP_FILE="$HOME/.claude.json"
 
 export D1_MCP_FILE="${MCP_FILE:-}"
 export D1_COMPOSIO_URL="${COMPOSIO_URL:-}"
@@ -487,6 +575,8 @@ try:
 except Exception:
     mcp = {"mcpServers": {}}
 
+# This file carries the user's whole Claude Code state, not just MCP. Touch
+# exactly one key and write atomically; a truncated write here is expensive.
 mcp.setdefault("mcpServers", {})
 
 composio_url = env("D1_COMPOSIO_URL", "").strip()
@@ -501,8 +591,10 @@ if composio_url:
 # The iMessage agent is a CLI (bun run agent.ts --mode scan/inbox/run). It does
 # not speak MCP stdio, so Claude invokes it through Bash and it gets no entry here.
 
-with open(mcp_path, "w") as f:
+tmp_path = mcp_path + ".tmp"
+with open(tmp_path, "w") as f:
     json.dump(mcp, f, indent=2)
+os.replace(tmp_path, mcp_path)
 
 print("MCP config written.")
 PYEOF2
@@ -510,7 +602,7 @@ PYEOF2
 log ".mcp.json configured"
 
 # ── Install D1 rules globally ─────────────────────────────────────────────────
-head "Installing rules and commands globally"
+section "Installing rules and commands globally"
 
 GLOBAL_CLAUDE="$HOME/.claude"
 mkdir -p "$GLOBAL_CLAUDE/commands" "$GLOBAL_CLAUDE/rules"
@@ -527,7 +619,7 @@ log "Subagents installed to ~/.claude/agents/ ($(ls "$GLOBAL_CLAUDE/agents/" 2>/
 log "CLAUDE.md installed to ~/.claude/CLAUDE.md"
 
 # ── Skills and plugins ────────────────────────────────────────────────────────
-head "Installing skills and plugins"
+section "Installing skills and plugins"
 
 mkdir -p "$GLOBAL_CLAUDE/skills"
 cp -R "$SCRIPT_DIR/skills/." "$GLOBAL_CLAUDE/skills/" 2>/dev/null || true
@@ -540,7 +632,7 @@ if [ -d "$GLOBAL_CLAUDE/skills/no-ai-slop" ]; then
 else
   TMP_SLOP="$(mktemp -d)"
   if git clone -q --depth 1 https://github.com/petergyang/no-ai-slop "$TMP_SLOP" 2>/dev/null; then
-    cp -R "$TMP_SLOP/skills/no-ai-slop" "$GLOBAL_CLAUDE/skills/"
+    cp -R "$TMP_SLOP/skills/no-ai-slop" "$GLOBAL_CLAUDE/skills/" 2>/dev/null || true
     cp "$TMP_SLOP/LICENSE" "$GLOBAL_CLAUDE/skills/no-ai-slop/LICENSE" 2>/dev/null || true
     log "no-ai-slop installed (MIT, Peter Yang)"
   else
@@ -550,8 +642,8 @@ else
 fi
 
 if command -v claude &>/dev/null; then
-  claude plugin marketplace add anthropics/claude-plugins-official &>/dev/null || true
-  claude plugin marketplace add Egonex-AI/Understand-Anything &>/dev/null || true
+  claude plugin marketplace add anthropics/claude-plugins-official </dev/null &>/dev/null || true
+  claude plugin marketplace add Egonex-AI/Understand-Anything </dev/null &>/dev/null || true
   log "Marketplaces registered"
 
   PLUGIN_FAILED=0
@@ -564,7 +656,7 @@ if command -v claude &>/dev/null; then
     pinecone@claude-plugins-official \
     bigquery-data-analytics@claude-plugins-official \
     understand-anything@understand-anything; do
-    if claude plugin install "$p" --scope user &>/dev/null; then
+    if claude plugin install "$p" --scope user </dev/null &>/dev/null; then
       log "installed ${p%%@*}"
     else
       warn "could not install ${p%%@*}"
@@ -583,7 +675,7 @@ fi
 # ── Verify ────────────────────────────────────────────────────────────────────
 # Claiming success without checking is how this kit shipped six months of
 # silently broken hooks. Prove the install works before saying it worked.
-head "Verifying the install"
+section "Verifying the install"
 
 if [ -x "$SCRIPT_DIR/doctor.sh" ]; then
   if "$SCRIPT_DIR/doctor.sh"; then
