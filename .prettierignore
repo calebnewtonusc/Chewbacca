@@ -1,0 +1,5 @@
+# Prettier rewrites `@~/path` into `@~~/path` in markdown, which silently breaks
+# every CLAUDE.md import and makes the rules files load nothing. That exact bug
+# shipped once already. Do not format this file.
+CLAUDE.md
+CLAUDE-QUICK.md

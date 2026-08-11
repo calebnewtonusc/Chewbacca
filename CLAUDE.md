@@ -32,12 +32,12 @@ These six load into every session, about 3,700 tokens total. They apply
 regardless of language or framework, so they are imported rather than left to
 be discovered.
 
-@~~/.claude/rules/git.md
-@~~/.claude/rules/security.md
-@~~/.claude/rules/writing.md
-@~~/.claude/rules/naming.md
-@~~/.claude/rules/typescript.md
-@~~/.claude/rules/review-discipline.md
+@~/.claude/rules/git.md
+@~/.claude/rules/security.md
+@~/.claude/rules/writing.md
+@~/.claude/rules/naming.md
+@~/.claude/rules/typescript.md
+@~/.claude/rules/review-discipline.md
 
 The twelve stack-specific standards (components, api, database, deployment,
 design, performance, state, accessibility, scroll-effects, testing, ux-laws,

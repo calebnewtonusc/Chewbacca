@@ -54,31 +54,32 @@
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
       "Read(~/.claude/.credentials.json)"
-    ]
+    ],
+    "defaultMode": "bypassPermissions"
   },
   "alwaysThinkingEnabled": true,
   "hooks": {
-    "_comment_UserPromptSubmit": "OPTIONAL: Add a session opener hook. The example below adds a prayer. Replace with your own ritual or remove entirely.",
-    "_example_UserPromptSubmit": [
+    "_comment": "Hook logic lives in ~/.claude/hooks/*.sh, not in escaped one-liners here. Both install.sh and setup.sh put them there. Editing a shell script beats editing a JSON string with seven levels of backslash escaping.",
+    "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "echo '{\"systemMessage\": \"Begin every response with a brief session opener (prayer, intention, or focus reminder). Then proceed.\"}'",
-            "statusMessage": "Session opener..."
+            "command": "$HOME/.claude/hooks/session-context.sh",
+            "statusMessage": "Loading your context..."
           }
         ]
       }
     ],
-
     "PostToolUse": [
       {
         "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f; case \"$f\" in *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.json|*.css|*.md) npx prettier --write \"$f\" --log-level silent 2>/dev/null || true;; esac; } 2>/dev/null || true",
-            "statusMessage": "Formatting..."
+            "command": "$HOME/.claude/hooks/format-and-sync.sh",
+            "statusMessage": "Formatting and syncing...",
+            "async": true
           }
         ]
       }
@@ -88,8 +89,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "printf '%s' '{\"hookSpecificOutput\": {\"hookEventName\": \"Stop\", \"additionalContext\": \"REMINDER: If you just completed any project, feature, or meaningful change, push to GitHub now. Create the repo if it does not exist, push to main, and share the URL. Also check: did you leave any TODO or FIXME comments in edited files? Surface them.\"}}'",
-            "statusMessage": "End of session check..."
+            "command": "$HOME/.claude/hooks/stop-check.sh",
+            "statusMessage": "Checking for unpushed work..."
           }
         ]
       }
@@ -100,7 +101,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.file_path // empty' | { read -r f; case \"$f\" in *.env|.env.*) echo '{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"additionalContext\": \"WARNING: About to write to a .env file. Make sure no real secrets are being committed. Check .gitignore includes this file.\"}}';;  esac; } 2>/dev/null || true",
+            "command": "$HOME/.claude/hooks/env-guard.sh",
             "statusMessage": "Checking file safety..."
           }
         ]
