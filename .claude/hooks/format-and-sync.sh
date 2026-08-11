@@ -72,36 +72,35 @@ find_prettier() {
   return 1
 }
 
-# Prettier rewrites `@~/path` into `@~~/path` in markdown, which silently breaks
-# every CLAUDE.md import and makes the rules files load nothing. That bug shipped
-# once already and took a fresh-clone test to find, because the file still looks
-# fine. Never format a file that declares imports.
-if grep -q '^@[~./]' "$f" 2>/dev/null; then
-  SKIP_FORMAT=1
-else
-  SKIP_FORMAT=0
-fi
+should_format() {
+  # Prettier rewrites `@~/path` into `@~~/path` in markdown, which silently
+  # breaks every CLAUDE.md import and makes the rules files load nothing. That
+  # bug shipped once already and only a fresh-clone test caught it, because the
+  # corrupted file still looks fine. Never format a file that declares imports.
+  case "$(basename "$f")" in
+    CLAUDE.md | CLAUDE-QUICK.md) return 1 ;;
+  esac
+  grep -q '^@[~./]' "$f" 2>/dev/null && return 1
 
-case "$f" in
-  */CLAUDE.md | CLAUDE.md) SKIP_FORMAT=1 ;;
-esac
+  case "$f" in
+    *.ts | *.tsx | *.js | *.jsx | *.mjs | *.cjs | *.json | *.css | *.scss | *.html | *.md | *.yaml | *.yml)
+      return 0
+      ;;
+  esac
+  return 1
+}
 
-[ "$SKIP_FORMAT" -eq 1 ] && set -- skip-format
-
-case "${SKIP_FORMAT}:${f}" in
-  1:*) ;;
-  0:*.ts | 0:*.tsx | 0:*.js | 0:*.jsx | 0:*.mjs | 0:*.cjs | 0:*.json | 0:*.css | 0:*.scss | 0:*.html | 0:*.md | 0:*.yaml | 0:*.yml)
-    if ensure_node; then
-      if PRETTIER="$(find_prettier)"; then
-        "$PRETTIER" --write "$f" --log-level silent 2>/dev/null || true
-      else
-        # No local or global install. npx is slow, so say so once rather than
-        # silently eating seconds on every edit forever.
-        npx --yes prettier --write "$f" --log-level silent 2>/dev/null || true
-      fi
+if should_format; then
+  if ensure_node; then
+    if PRETTIER="$(find_prettier)"; then
+      "$PRETTIER" --write "$f" --log-level silent 2>/dev/null || true
+    else
+      # No local or global install, so fall back to npx even though it
+      # re-resolves the package on every write.
+      npx --yes prettier --write "$f" --log-level silent 2>/dev/null || true
     fi
-    ;;
-esac
+  fi
+fi
 
 # ── Sync context repos ────────────────────────────────────────────────────────
 sync_repo() {
