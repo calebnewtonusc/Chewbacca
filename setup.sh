@@ -378,6 +378,23 @@ cp "$SCRIPT_DIR/.claude/hooks/"*.sh "$HOME/.claude/hooks/" 2>/dev/null || true
 chmod +x "$HOME/.claude/hooks/"*.sh 2>/dev/null || true
 log "Hooks installed to ~/.claude/hooks/"
 
+# ai-scan scores prose for AI-writing tells with no model in the loop, so a
+# cheap deterministic check can run before anything spends tokens editing.
+if [ -f "$SCRIPT_DIR/bin/ai-scan" ]; then
+  mkdir -p "$HOME/.local/bin"
+  cp "$SCRIPT_DIR/bin/ai-scan" "$HOME/.local/bin/ai-scan"
+  chmod +x "$HOME/.local/bin/ai-scan"
+  if command -v node &>/dev/null; then
+    log "ai-scan installed to ~/.local/bin/"
+  else
+    warn "ai-scan installed but node is missing, so it will not run until you install node >= 18"
+  fi
+  case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) warn "~/.local/bin is not on your PATH. Add it to run ai-scan by name." ;;
+  esac
+fi
+
 # Hooks read their paths from here instead of having them baked in by string
 # substitution. Edit this file to move your context repos later.
 cat > "$HOME/.claude/d1-config.sh" << D1CONFIG
