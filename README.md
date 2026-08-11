@@ -7,7 +7,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <a href="https://github.com/calebnewtonusc/D1-Vibe-Coding/stargazers"><img src="https://img.shields.io/github/stars/calebnewtonusc/D1-Vibe-Coding?style=social" alt="Stars"></a>
   <a href="https://github.com/calebnewtonusc/D1-Vibe-Coding/commits/main"><img src="https://img.shields.io/github/last-commit/calebnewtonusc/D1-Vibe-Coding" alt="Last Commit"></a>
-  <!-- BEGIN GENERATED: badges -->
+<!-- BEGIN GENERATED: badges -->
   <a href=".claude/commands"><img src="https://img.shields.io/badge/slash_commands-36-indigo" alt="Commands"></a>
   <a href=".claude/rules"><img src="https://img.shields.io/badge/always_on_rules-6-green" alt="Rules"></a>
   <a href="docs/EXTENSIONS.md"><img src="https://img.shields.io/badge/plugins-9-orange" alt="Plugins"></a>
