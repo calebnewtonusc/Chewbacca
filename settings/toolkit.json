@@ -26,6 +26,69 @@
       }
     ]
   },
+  "packs": [
+    {
+      "name": "agent-scripts",
+      "url": "https://github.com/steipete/agent-scripts",
+      "count": 54,
+      "skills": [
+        "agent-transcript",
+        "beeper",
+        "browser-use",
+        "clawsweeper-status",
+        "clickclack",
+        "cloudflare-registrar",
+        "codex-debugging",
+        "codex-huge-context",
+        "codexbar",
+        "create-cli",
+        "discord-clawd",
+        "domain-dns-ops",
+        "fleet-maintenance",
+        "frontend-design",
+        "github-author-context",
+        "github-cache-hygiene",
+        "github-deep-review",
+        "github-project-triage",
+        "hopper-debugger",
+        "instruments-profiling",
+        "mac-maintenance",
+        "maintainer-orchestrator",
+        "markdown-converter",
+        "nano-banana-pro",
+        "native-app-performance",
+        "notcrawl",
+        "npm",
+        "obsidian",
+        "openai-image-gen",
+        "openclaw-relay",
+        "oracle",
+        "peekaboo",
+        "project-structure",
+        "release-mac-app",
+        "release-tweets",
+        "reminders",
+        "remote-mac",
+        "skill-cleaner",
+        "sonos",
+        "speaking",
+        "ssh-doctor",
+        "swift-concurrency-expert",
+        "swiftui-liquid-glass",
+        "swiftui-performance-audit",
+        "swiftui-view-refactor",
+        "telecrawl",
+        "things-todo",
+        "twilio-sms",
+        "video-transcript-downloader",
+        "vm-lab",
+        "whatsapp",
+        "wrangler",
+        "xcode-sync",
+        "xurl"
+      ]
+    }
+  ],
   "marketplaces": [
     "Egonex-AI/Understand-Anything",
     "anthropics/claude-plugins-official",
@@ -48,6 +111,38 @@
       "name": "prompt-optimizer",
       "url": "https://github.com/linshenkx/prompt-optimizer",
       "description": "Rewrites and iterates on prompts through three MCP tools, self-hosted"
+    }
+  ],
+  "cli": [
+    {
+      "display": "gog",
+      "url": "https://github.com/openclaw/gogcli",
+      "install": "brew install openclaw/tap/gogcli",
+      "description": "Gmail, Calendar, and Drive from the terminal, after one OAuth login"
+    },
+    {
+      "display": "Maccy",
+      "url": "https://github.com/p0deje/Maccy",
+      "install": "brew install --cask maccy",
+      "description": "Clipboard history, so a value scrolled past is still recoverable"
+    },
+    {
+      "display": "mac-use",
+      "url": "https://github.com/browser-use/macOS-use",
+      "install": "see docs/MACOS-TOOLS.md (clone plus a uv venv, no formula)",
+      "description": "Natural-language agent that drives any Mac app through Accessibility"
+    },
+    {
+      "display": "peekaboo",
+      "url": "https://github.com/openclaw/Peekaboo",
+      "install": "brew install openclaw/tap/peekaboo",
+      "description": "Screenshots, UI inspection, and click/type automation for any macOS app"
+    },
+    {
+      "display": "summarize",
+      "url": "https://github.com/steipete/summarize",
+      "install": "brew install steipete/tap/summarize",
+      "description": "Gist of any URL, YouTube video, podcast, or local file"
     }
   ]
 }

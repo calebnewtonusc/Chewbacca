@@ -418,7 +418,10 @@ echo "                     under hooks.UserPromptSubmit."
 echo ""
 echo "    bypassPermissions  Claude writes files and runs shell commands"
 echo "                       without asking each time. Change it in"
-echo "                       ~/.claude/settings.json under permissions.defaultMode."
+echo "                       ~/.claude/settings.json under permissions.defaultMode,"
+echo "                       and in your editor under"
+echo "                       claudeCode.initialPermissionMode. Both, or the"
+echo "                       editor keeps prompting."
 echo ""
 
 # Secrets and paths reach python through the environment. Interpolating them
@@ -561,6 +564,132 @@ PYEOF
 
 unset D1_GITHUB_PAT D1_ANTHROPIC_KEY D1_TODOIST_TOKEN
 log "~/.claude/settings.json configured"
+
+
+# ── Wire the editor extension ─────────────────────────────────────────────────
+# permissions.defaultMode above is only half of it. The VS Code extension gates
+# bypass mode behind its own setting, so with the CLI configured and the editor
+# not, you still get prompted inside the editor. This merges the keys from
+# settings/vscode-settings.json into whichever editors are installed.
+section "Wiring editor settings"
+
+export D1_EDITOR_TEMPLATE="$SCRIPT_DIR/settings/vscode-settings.json"
+
+python3 << 'PYEDITOR'
+import json, os, re, shutil
+
+template_path = os.environ.get("D1_EDITOR_TEMPLATE", "")
+try:
+    with open(template_path) as f:
+        template = json.load(f)
+except Exception:
+    print("  ! settings/vscode-settings.json not readable, skipping editors")
+    raise SystemExit(0)
+
+# Keys starting with _comment document the template. They are not settings.
+desired = {k: v for k, v in template.items() if not k.startswith("_comment")}
+
+home = os.path.expanduser("~")
+if os.name == "nt":
+    base = os.path.join(os.environ.get("APPDATA", ""), "")
+elif os.uname().sysname == "Darwin":
+    base = os.path.join(home, "Library", "Application Support")
+else:
+    base = os.path.join(home, ".config")
+
+editors = [
+    ("VS Code", "Code"),
+    ("VS Code Insiders", "Code - Insiders"),
+    ("Cursor", "Cursor"),
+    ("VSCodium", "VSCodium"),
+    ("Windsurf", "Windsurf"),
+]
+
+def strip_jsonc(text):
+    # VS Code writes real JSON but accepts JSONC, and people hand-edit these
+    # files with comments in them. Strip // and /* */ outside strings, then
+    # trailing commas, so a commented file is updated instead of clobbered.
+    out, i, n = [], 0, len(text)
+    in_str = escaped = False
+    while i < n:
+        c = text[i]
+        if in_str:
+            out.append(c)
+            if escaped:
+                escaped = False
+            elif c == "\\":
+                escaped = True
+            elif c == '"':
+                in_str = False
+            i += 1
+            continue
+        if c == '"':
+            in_str = True
+            out.append(c)
+            i += 1
+        elif text.startswith("//", i):
+            while i < n and text[i] != "\n":
+                i += 1
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = n if end == -1 else end + 2
+        else:
+            out.append(c)
+            i += 1
+    return re.sub(r",(\s*[}\]])", r"\1", "".join(out))
+
+touched = 0
+for label, dirname in editors:
+    user_dir = os.path.join(base, dirname, "User")
+    if not os.path.isdir(user_dir):
+        continue
+    path = os.path.join(user_dir, "settings.json")
+
+    current = {}
+    if os.path.exists(path):
+        with open(path) as f:
+            raw = f.read()
+        for candidate in (raw, strip_jsonc(raw)):
+            try:
+                parsed = json.loads(candidate) if candidate.strip() else {}
+            except Exception:
+                continue
+            if isinstance(parsed, dict):
+                current = parsed
+                break
+        else:
+            # Unparseable. Adding keys blind would destroy real settings.
+            print("  ! " + label + " settings.json could not be parsed. Left alone.")
+            print("    Add these by hand: claudeCode.allowDangerouslySkipPermissions,")
+            print("    claudeCode.initialPermissionMode")
+            continue
+        shutil.copy2(path, path + ".d1-backup")
+
+    # The user's own choices win, except for the two keys that are the whole
+    # point of this step. Reruns of setup.sh should not undo a deliberate
+    # "actually, prompt me" decision on the cosmetic keys.
+    forced = {"claudeCode.allowDangerouslySkipPermissions",
+              "claudeCode.initialPermissionMode"}
+    for key, value in desired.items():
+        if key in forced or key not in current:
+            current[key] = value
+
+    os.makedirs(user_dir, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(current, f, indent=2)
+    os.replace(tmp, path)
+    print("  " + label + " configured")
+    touched += 1
+
+if touched == 0:
+    print("  No supported editor found. Nothing to do.")
+else:
+    print("  Restart the editor for the change to take effect.")
+PYEDITOR
+
+unset D1_EDITOR_TEMPLATE
+log "Editor settings configured"
 
 
 # ── Wire .mcp.json ────────────────────────────────────────────────────────────
@@ -714,6 +843,15 @@ fi
 # Self-hosted MCP servers. Each needs its own service running; see docs/EXTENSIONS.md.
 #   prompt-optimizer: https://github.com/linshenkx/prompt-optimizer
 # END GENERATED: extensions
+
+# ── macOS tools ───────────────────────────────────────────────────────────────
+# Screen control, Google Workspace, summarization, clipboard history, and the
+# agent-scripts skill pack. Everything here is optional: a failure warns and the
+# install continues.
+section "Installing macOS tools"
+
+# BEGIN GENERATED: cli
+# END GENERATED: cli
 
 # ── Verify ────────────────────────────────────────────────────────────────────
 # Claiming success without checking is how this kit shipped six months of

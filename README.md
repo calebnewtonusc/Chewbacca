@@ -55,7 +55,7 @@
 | **Second brain**       | Two-repo system: public `claude-context` (operational) + private `{name}-context` (personal). Auto-syncs to GitHub                            |
 | **Smart hooks**        | Format on save, sync context repos, warn on `.env` writes, and flag unpushed work only when there is any                                      |
 | **4 subagents**        | context-keeper, code-reviewer, debugger, and explorer, each scoped to one job with its own tool set                                           |
-| **Skills and plugins** | 6 skills (3 shipped here, 3 cloned from upstream) plus 10 plugins across 3 marketplaces                                                       |
+| **Skills and plugins** | 60 skills (3 shipped here, 3 cloned from upstream, 54 from 1 skill pack) plus 10 plugins across 3 marketplaces                                |
 | **Example project**    | Working Cloudflare Worker + D1 todo app you can deploy in 60 seconds                                                                          |
 
 ---
@@ -230,6 +230,22 @@ opener text under `hooks.UserPromptSubmit` in `~/.claude/settings.json`, or set
 `defaultMode` back to `default` to get the confirmation step. If you are handing
 this to someone, tell them both up front.
 
+**Turning off prompts takes two files, not one.** `permissions.defaultMode` in
+`~/.claude/settings.json` covers the CLI. The VS Code extension gates bypass
+mode behind its own switch, `claudeCode.allowDangerouslySkipPermissions`, and
+ignores the CLI setting until that switch is on, which is why people set
+`defaultMode` and keep getting prompted anyway. `setup.sh` now merges both keys
+plus `claudeCode.initialPermissionMode` into your editor's user `settings.json`,
+from the template in [`settings/vscode-settings.json`](settings/vscode-settings.json).
+VS Code, VS Code Insiders, Cursor, VSCodium, and Windsurf are all handled, and
+only the editors actually installed are touched. Restart the editor afterward.
+
+Existing settings are merged, not replaced: a comment-laden `settings.json` is
+parsed as JSONC, the original is copied to `settings.json.d1-backup` first, and
+a file too broken to parse is left alone with instructions printed instead. Your
+own values win on every key except the two that do the bypassing, so re-running
+`setup.sh` will not undo a deliberate choice you made about the cosmetic ones.
+
 Three details worth knowing, because each one was silently broken before:
 
 **Prettier needs node on PATH.** Hooks do not inherit an nvm-managed PATH, and
@@ -305,15 +321,16 @@ The vibe coding landscape is growing fast. **[ECOSYSTEM.md](ECOSYSTEM.md)** is o
 
 ## Documentation
 
-| Doc                                        | What It Covers                                                                                                |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| [docs/METHODOLOGY.md](docs/METHODOLOGY.md) | The five principles of vibe coding, the D1 workflow loop, anti-patterns, measuring effectiveness              |
-| [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)   | D1 query patterns, migrations, Drizzle ORM, Worker routing (vanilla + Hono), D1 + KV + R2, deployment         |
-| [docs/PROMPTS.md](docs/PROMPTS.md)         | 20+ real prompts for scaffolding, features, debugging, database work, UI design, deployment                   |
-| [docs/SYSTEM-PROMPTS.md](docs/SYSTEM-PROMPTS.md) | Six techniques from leaked production system prompts: priority order, confidence thresholds, format contracts |
-| [docs/INTERNALS.md](docs/INTERNALS.md)     | How Claude Code works under the hood: CLAUDE.md loading, hooks, tools, agents, context compression            |
-| [docs/SKILLS.md](docs/SKILLS.md)           | What this kit ships, the four public skill registries, the licensing traps in them, and how to write your own |
-| [docs/EXTENSIONS.md](docs/EXTENSIONS.md)   | Skills, plugins, and MCP: what each layer is for, what setup.sh installs, and which to reach for first        |
+| Doc                                                        | What It Covers                                                                                                |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| [docs/METHODOLOGY.md](docs/METHODOLOGY.md)                 | The five principles of vibe coding, the D1 workflow loop, anti-patterns, measuring effectiveness              |
+| [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)                   | D1 query patterns, migrations, Drizzle ORM, Worker routing (vanilla + Hono), D1 + KV + R2, deployment         |
+| [docs/PROMPTS.md](docs/PROMPTS.md)                         | 20+ real prompts for scaffolding, features, debugging, database work, UI design, deployment                   |
+| [docs/SYSTEM-PROMPTS.md](docs/SYSTEM-PROMPTS.md)           | Six techniques from leaked production system prompts: priority order, confidence thresholds, format contracts |
+| [docs/INTERNALS.md](docs/INTERNALS.md)                     | How Claude Code works under the hood: CLAUDE.md loading, hooks, tools, agents, context compression            |
+| [docs/SKILLS.md](docs/SKILLS.md)                           | What this kit ships, the four public skill registries, the licensing traps in them, and how to write your own |
+| [docs/EXTENSIONS.md](docs/EXTENSIONS.md)                   | Skills, plugins, and MCP: what each layer is for, what setup.sh installs, and which to reach for first        |
+| [docs/SWIFT-MACOS-PORTING.md](docs/SWIFT-MACOS-PORTING.md) | Running a Swift app below its declared macOS floor: availability gating, weak linking, verifying with otool   |
 
 ---
 
@@ -366,6 +383,7 @@ subagents behind one versioned install.
 | [avoid-ai-writing](https://github.com/conorbronsdon/avoid-ai-writing)               | Skill  | Audit and rewrite content to remove AI writing patterns ("AI-isms").                           |
 | [no-ai-slop](https://github.com/petergyang/no-ai-slop)                              | Skill  | Edit drafts into sharper, more human writing while preserving the writer's personal voice, or… |
 | [youtube-transcripts](https://github.com/calebnewtonusc/claude-youtube-transcripts) | Skill  | Get the transcript of a YouTube video, channel, or playlist.                                   |
+| [agent-scripts](https://github.com/steipete/agent-scripts) (54)                     | Pack   | Peter Steinberger's shared agent skills: macOS, Swift, GitHub, release ops                     |
 | [context7](https://github.com/anthropics/claude-plugins-official)                   | Plugin | Real library docs on demand instead of the model's training recall                             |
 | [humanizer](https://github.com/blader/humanizer)                                    | Plugin | Strips the Wikipedia-catalogued signs of AI writing out of a draft                             |
 | [understand-anything](https://github.com/Egonex-AI/Understand-Anything)             | Plugin | Turns a codebase into an interactive knowledge graph you can query                             |
@@ -382,6 +400,27 @@ repo, so a personal skill added locally stays local. MCP servers are opt-in by
 name for the same reason.
 
 Full breakdown of which layer to reach for, and why, in [docs/EXTENSIONS.md](docs/EXTENSIONS.md).
+
+---
+
+## macOS tools
+
+Claude can read and write files all day and still be blind to the rest of the
+machine. These five close that gap: screen and UI control, Google Workspace,
+long-form reading, and a clipboard that remembers. All are third-party and
+installed alongside the kit, not vendored into it.
+
+<!-- BEGIN GENERATED: cli -->
+<!-- END GENERATED: cli -->
+
+`peekaboo` needs Screen Recording and Accessibility granted once in System
+Settings. `gog` needs one OAuth login. `summarize` and `mac-use` each need a
+provider API key. Setup, permissions, and the failure modes are in
+[docs/MACOS-TOOLS.md](docs/MACOS-TOOLS.md).
+
+That table is generated the same way the extension table is: a tool appears only
+once the generator finds it on the machine, so an entry here is proof of an
+install rather than an intention.
 
 ---
 
@@ -466,7 +505,8 @@ D1-Vibe-Coding/
 │   ├── PROMPTS.md               # Example AI prompts for every stage of dev
 │   ├── SYSTEM-PROMPTS.md        # How to write the prompt that governs an agent
 │   ├── INTERNALS.md             # How Claude Code works under the hood
-│   └── EXTENSIONS.md            # Skills, plugins, MCP: which layer to reach for
+│   ├── EXTENSIONS.md            # Skills, plugins, MCP: which layer to reach for
+│   └── SWIFT-MACOS-PORTING.md   # Running a Swift app below its declared macOS floor
 ├── examples/
 │   └── todo-app/                # Working Worker + D1 example (deploy in 60s)
 ├── templates/                   # Full starter files (Worker, migration, components)
