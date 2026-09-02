@@ -51,11 +51,11 @@ Your `CLAUDE.md` probably already does this implicitly. Making the order explici
 
 Cluely replaces the adjective with numbers, and uses a different one for each decision:
 
-| Decision                             | Threshold | Why                        |
-| ------------------------------------ | --------- | -------------------------- |
-| Treat a garbled utterance as a question | 50%    | Answering a non-question is cheap |
-| Infer a speaker from context         | 70%       | Plus a stated fallback direction |
-| Admit it does not know what you want | 90%       | Bailing out is expensive   |
+| Decision                                | Threshold | Why                               |
+| --------------------------------------- | --------- | --------------------------------- |
+| Treat a garbled utterance as a question | 50%       | Answering a non-question is cheap |
+| Infer a speaker from context            | 70%       | Plus a stated fallback direction  |
+| Admit it does not know what you want    | 90%       | Bailing out is expensive          |
 
 The asymmetry is the technique. A single uniform threshold makes the agent either useless or reckless.
 
