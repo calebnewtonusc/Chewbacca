@@ -348,6 +348,27 @@ else
   warn "coursework not on PATH, so /due, /week, and /attendance have no data source"
 fi
 
+# ── Commit attribution ────────────────────────────────────────────────────────
+# Off by default here on purpose. Catching this after a hundred commits means
+# rewriting every one of them and force-pushing a public branch.
+section "Commit attribution"
+
+CO_AUTH=$(python3 -c "
+import json, pathlib
+p = pathlib.Path.home() / '.claude/settings.json'
+try:
+    print(json.loads(p.read_text()).get('includeCoAuthoredBy', 'unset'))
+except Exception:
+    print('unreadable')
+" 2>/dev/null)
+
+case "$CO_AUTH" in
+  False) ok "commits are attributed to you alone" ;;
+  unset) warn "includeCoAuthoredBy is unset, so commits get a Co-Authored-By: Claude trailer" ;;
+  *) bad "Claude is co-authoring your commits (includeCoAuthoredBy=$CO_AUTH)" \
+    "set \"includeCoAuthoredBy\": false in ~/.claude/settings.json" ;;
+esac
+
 # ── Secrets ───────────────────────────────────────────────────────────────────
 section "Secrets"
 
