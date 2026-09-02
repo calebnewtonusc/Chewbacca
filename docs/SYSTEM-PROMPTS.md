@@ -1,6 +1,8 @@
 # Writing System Prompts
 
-Six techniques taken from production system prompts that leaked: Cluely (both the general assistant and the live-meeting copilot), Claude 4 Opus, Meta.ai / Llama 4, and Google Assistant.
+Eight techniques for the prompt that governs an agent across every session.
+
+Six come from production system prompts that leaked: Cluely (both the general assistant and the live-meeting copilot), Claude 4 Opus, Meta.ai / Llama 4, and Google Assistant. The last two come from Anthropic's current model guidance, and they are about deleting instructions rather than writing them.
 
 [docs/PROMPTS.md](PROMPTS.md) is about the prompts you type into a session. This file is about the prompt that governs an agent across every session: a `CLAUDE.md`, a rules file, a subagent definition, an API system prompt.
 
@@ -132,6 +134,74 @@ You can grep an output for a header or count words in a bullet. "Did it sound li
 
 ---
 
+## 7. Delete what the model already does
+
+The six techniques above are about what to write. This one is about what to
+remove, and on current models it is worth more.
+
+Prompts written for 2024 models carry instructions that now fight the model
+instead of steering it. Anthropic's own migration guidance for Claude Opus 5 is
+mostly a list of deletions:
+
+| Delete                                                    | Why                                                                                                         |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| "Include a final verification step"                       | The model verifies without being told. Removing it "reduces wasted tokens with no loss in quality."         |
+| "Double-check your answer", "re-verify before responding" | Compounds with self-correction the model already performs. Adds cost, finds nothing.                        |
+| "CRITICAL: You MUST use this tool when..."                | Written to fix under-triggering. Now causes over-triggering. Use plain "Use this tool when...".             |
+| "If in doubt, use [tool]"                                 | Named specifically as an over-trigger.                                                                      |
+| "Default to using [tool]"                                 | Replace with "Use [tool] when it would enhance your understanding of the problem."                          |
+| Anti-laziness and thoroughness prompting                  | Newer models already explore aggressively. If it still overshoots, lower `effort` rather than adding words. |
+| Any rule telling the model not to think                   | Increases leakage of internal tags into visible output.                                                     |
+
+Two are no longer judgment calls. **Response prefilling** returns a 400 error
+from Claude 4.6 onward: migrate format-forcing to Structured Outputs or a tool
+enum. **`budget_tokens`** returns a 400 error on Claude 4.7 and later: use the
+`effort` setting, or `max_tokens` with adaptive thinking.
+
+And `effort` is now the primary cost and latency control, not a fallback. Start
+at the default, sweep it against your own evals, and use `low` and `medium`
+liberally wherever quality holds. Thinking enabled at `low` effort generally
+beats thinking disabled at similar cost.
+
+The pattern underneath all of these: **every emphatic instruction you write is
+tuned to a specific model's failure mode, and it outlives that failure mode.**
+Prompts accumulate corrections for problems that no longer exist. Re-read yours
+when you change models, and delete before you add.
+
+---
+
+## 8. Context is the other half, and it is the bigger half
+
+A system prompt is one input into the context window. Everything else in that
+window (tool definitions, retrieved files, message history, tool output)
+competes with it for the same finite attention.
+
+Anthropic frames this as a resource problem: context has diminishing marginal
+returns, and recall degrades as the window fills, which they call _context rot_.
+The discipline is finding the smallest set of high-signal tokens.
+
+Four techniques that matter more than prompt wording:
+
+- **Right altitude.** Aim the system prompt between brittle hardcoded logic and
+  vague high-level guidance: specific enough to steer, flexible enough to be a
+  heuristic. Both extremes fail, in opposite directions.
+- **Tool design is prompt design.** Tools should be self-contained and
+  unambiguous, with descriptive parameters and no overlapping responsibilities.
+  The test: if a human engineer cannot say which tool applies in a given
+  situation, the model cannot either.
+- **Curate examples, do not accumulate them.** A set of diverse canonical
+  examples beats a laundry list of edge cases.
+- **Manage the long horizon.** Compaction that keeps decisions and open problems
+  while dropping redundant tool output; external note files the agent maintains
+  and re-reads; subagents that return a distilled summary rather than their
+  whole transcript.
+
+This is why most of this kit is not prompts. `CLAUDE.md`, the conditional rule
+loading behind the stack-rules skill, the hooks, and the second brain are all
+context engineering. The prompt is the small part.
+
+---
+
 ## A checklist
 
 Before shipping a system prompt:
@@ -143,6 +213,10 @@ Before shipping a system prompt:
 - [ ] Every banned behavior expressed as banned strings where possible
 - [ ] Output format specified in counts and structures, not adjectives
 - [ ] More length on boundaries than on the task description
+- [ ] No verification, double-check, or thoroughness instructions left in it
+- [ ] No emphatic capitals pushing tool use
+- [ ] No prefill and no `budget_tokens` anywhere in the calling code
+- [ ] `effort` swept against your own evals rather than inherited from an older model
 
 That last one is the tell. If your prompt is mostly task description, you have written a prompt-library entry, not a system prompt.
 

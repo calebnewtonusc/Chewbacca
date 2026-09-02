@@ -433,19 +433,19 @@ The vibe coding landscape is growing fast. **[ECOSYSTEM.md](ECOSYSTEM.md)** is o
 
 ## Documentation
 
-| Doc                                                        | What It Covers                                                                                                          |
-| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| [docs/METHODOLOGY.md](docs/METHODOLOGY.md)                 | The five principles of vibe coding, the D1 workflow loop, anti-patterns, measuring effectiveness                        |
-| [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)                   | D1 query patterns, migrations, Drizzle ORM, Worker routing (vanilla + Hono), D1 + KV + R2, deployment                   |
-| [docs/PROMPTS.md](docs/PROMPTS.md)                         | 20+ real prompts for scaffolding, features, debugging, database work, UI design, deployment                             |
-| [docs/SCHOOL.md](docs/SCHOOL.md)                           | Running a semester: the coursework ledger, the CLI, the three skills, and the per-course AI policy gate                 |
-| [docs/SYSTEM-PROMPTS.md](docs/SYSTEM-PROMPTS.md)           | Six techniques from leaked production system prompts: priority order, confidence thresholds, format contracts           |
-| [docs/INTERNALS.md](docs/INTERNALS.md)                     | How Claude Code works under the hood: CLAUDE.md loading, hooks, tools, agents, context compression                      |
-| [docs/SKILLS.md](docs/SKILLS.md)                           | What this kit ships, the four public skill registries, the licensing traps in them, and how to write your own           |
-| [docs/EXTENSIONS.md](docs/EXTENSIONS.md)                   | Skills, plugins, and MCP: what each layer is for, what setup.sh installs, and which to reach for first                  |
-| [docs/MACOS-TOOLS.md](docs/MACOS-TOOLS.md)                 | The five macOS tools setup.sh installs: permissions, auth, usage, and the agent-scripts skill pack                      |
-| [docs/SWIFT-MACOS-PORTING.md](docs/SWIFT-MACOS-PORTING.md) | Running a Swift app below its declared macOS floor: availability gating, weak linking, verifying with otool             |
-| [docs/MACOS-APP-CONTROL.md](docs/MACOS-APP-CONTROL.md)     | Driving Calendar, Contacts, Mail, Messages, and Notes from an agent: the TCC model, the JSON contract, where it is weak |
+| Doc                                                        | What It Covers                                                                                                            |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| [docs/METHODOLOGY.md](docs/METHODOLOGY.md)                 | The five principles of vibe coding, the D1 workflow loop, anti-patterns, measuring effectiveness                          |
+| [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)                   | D1 query patterns, migrations, Drizzle ORM, Worker routing (vanilla + Hono), D1 + KV + R2, deployment                     |
+| [docs/PROMPTS.md](docs/PROMPTS.md)                         | 20+ real prompts for scaffolding, features, debugging, database work, UI design, deployment                               |
+| [docs/SCHOOL.md](docs/SCHOOL.md)                           | Running a semester: the coursework ledger, the CLI, the three skills, and the per-course AI policy gate                   |
+| [docs/SYSTEM-PROMPTS.md](docs/SYSTEM-PROMPTS.md)           | Eight techniques for agent-governing prompts: priority order, confidence thresholds, format contracts, and what to delete |
+| [docs/INTERNALS.md](docs/INTERNALS.md)                     | How Claude Code works under the hood: CLAUDE.md loading, hooks, tools, agents, context compression                        |
+| [docs/SKILLS.md](docs/SKILLS.md)                           | What this kit ships, the four public skill registries, the licensing traps in them, and how to write your own             |
+| [docs/EXTENSIONS.md](docs/EXTENSIONS.md)                   | Skills, plugins, and MCP: what each layer is for, what setup.sh installs, and which to reach for first                    |
+| [docs/MACOS-TOOLS.md](docs/MACOS-TOOLS.md)                 | The five macOS tools setup.sh installs: permissions, auth, usage, and the agent-scripts skill pack                        |
+| [docs/SWIFT-MACOS-PORTING.md](docs/SWIFT-MACOS-PORTING.md) | Running a Swift app below its declared macOS floor: availability gating, weak linking, verifying with otool               |
+| [docs/MACOS-APP-CONTROL.md](docs/MACOS-APP-CONTROL.md)     | Driving Calendar, Contacts, Mail, Messages, and Notes from an agent: the TCC model, the JSON contract, where it is weak   |
 
 ---
 
@@ -485,6 +485,25 @@ The vibe coding landscape is growing fast. **[ECOSYSTEM.md](ECOSYSTEM.md)** is o
 Rules and commands are only part of the setup now. Skills load deep domain knowledge on demand, so a
 40KB reference costs nothing until the task calls for it. Plugins bundle skills, MCP servers, and
 subagents behind one versioned install.
+
+**Score them before you trust them.** `skill-scan` reads every skill on disk and
+grades it on five dimensions with no model in the loop: whether the description
+is precise enough to route, whether the skill executes code or asks the model to
+guess, whether the core file stays lean, whether it does one job, and whether its
+scripts do anything surprising.
+
+```bash
+skill-scan                  # every skill in ~/.claude/skills, worst first
+skill-scan --issues         # what actually lost points
+skill-scan path/to/skill    # one skill
+skill-scan --min 60         # exit 1 if any skill scores below 60, for CI
+```
+
+The dimension to read with judgment is determinism. A skill whose whole job is
+prose is correct to have no scripts and will score low there by design. Read it
+as a question rather than a defect: could code have done that step instead of
+the model? The one thing the score cannot see is how often a skill actually
+fires, which is the thing that matters most.
 
 `setup.sh` installs all of it. What you get:
 
@@ -681,6 +700,7 @@ D1-Vibe-Coding/
 │   └── MACOS-APP-CONTROL.md     # Native macOS apps as JSON, for agents
 ├── bin/
 │   ├── ai-scan                  # Scores prose for AI-writing tells, no model
+│   ├── skill-scan               # Scores skills on whether they will fire, no model
 │   ├── coursework               # Reads the semester ledger: due, attendance, grades, ics
 │   ├── mac-use                  # CLI for macOS-use, which ships none upstream
 │   ├── mac_use_claude.py        # Runs mac-use on the Claude CLI, no API key

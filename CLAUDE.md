@@ -59,7 +59,7 @@ component. See [docs/EXTENSIONS.md](docs/EXTENSIONS.md).
 ### React / Next.js projects
 
 - Tailwind CSS (always)
-- shadcn/ui components (always — never build raw buttons, inputs, dialogs from scratch)
+- shadcn/ui components (always, never build raw buttons, inputs, dialogs from scratch)
 - Lucide React icons (always)
 - `next/font` with Geist or Inter (always)
 - Framer Motion for animations when there's interactivity
@@ -69,7 +69,7 @@ component. See [docs/EXTENSIONS.md](docs/EXTENSIONS.md).
 - Tailwind CDN (`<script src="https://cdn.tailwindcss.com"></script>`)
 - Google Fonts: Inter (`<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">`)
 - Lucide CDN for icons
-- Never write raw CSS for layout — Tailwind only
+- Never write raw CSS for layout: Tailwind only
 
 ### Vue / Nuxt
 
@@ -82,15 +82,15 @@ component. See [docs/EXTENSIONS.md](docs/EXTENSIONS.md).
 ### Color
 
 - **Default palette**: slate/zinc/gray neutrals + one vibrant accent (indigo, violet, blue, emerald, or rose)
-- Background: `#0a0a0a` or `zinc-950` — never pure `#000000` or `#ffffff`
+- Background: `#0a0a0a` or `zinc-950`, never pure `#000000` or `#ffffff`
 - Text primary: `white` or `zinc-50`
 - Text muted: `zinc-400` or `zinc-500`
-- Accent: `indigo-500` / `indigo-600` as default — change to match brand
+- Accent: `indigo-500` / `indigo-600` as default, change to match brand
 - Never use default browser blue links
 
 ### Typography
 
-- Font: Inter or Geist — NEVER system fonts, NEVER Times New Roman
+- Font: Inter or Geist, never system fonts, never Times New Roman
 - Hero headline: `text-5xl md:text-7xl font-bold tracking-tight`
 - Section heading: `text-3xl md:text-4xl font-semibold tracking-tight`
 - Body: `text-base text-zinc-300 leading-relaxed`
@@ -111,7 +111,7 @@ component. See [docs/EXTENSIONS.md](docs/EXTENSIONS.md).
 - Use `max-w-7xl mx-auto px-4 sm:px-6 lg:px-8` for page containers
 - Section padding: `py-20 md:py-32`
 - Card padding: `p-6` or `p-8`
-- Consistent gap: `gap-4`, `gap-6`, `gap-8` — never arbitrary values
+- Consistent gap: `gap-4`, `gap-6`, `gap-8`, never arbitrary values
 - Grid layouts: `grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6`
 
 ### Cards & Surfaces
@@ -162,7 +162,7 @@ px-4 py-2 rounded-lg transition-all duration-200 cursor-pointer
 - Hides again when the user scrolls within ~200px of the bottom of the page
 - Smooth `transition: transform 0.3s ease, opacity 0.3s ease`
 
-**Logic (useScrollNav hook — copy this pattern every time):**
+**Logic (useScrollNav hook, copy this pattern every time):**
 
 ```tsx
 "use client";
@@ -204,7 +204,7 @@ const visible = useScrollNav();
 
 **Never use a static always-visible sticky navbar.** This pattern is mandatory on every project.
 
-**Vanilla HTML equivalent (no React — use this for plain HTML projects):**
+**Vanilla HTML equivalent (no React, use this for plain HTML projects):**
 
 ```html
 <nav
@@ -256,16 +256,16 @@ text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20
 - Every button: hover state + active state + `cursor-pointer` + `transition-all duration-200`
 - Every card that's clickable: `hover:scale-[1.02]` or `hover:border-zinc-600`
 - Every link: color change on hover
-- Loading states: skeleton loaders (animate-pulse) — never blank white space
-- Empty states: illustrated message with CTA — never just "No data"
-- Error states: friendly message with retry — never raw error strings
+- Loading states: skeleton loaders (animate-pulse), never blank white space
+- Empty states: illustrated message with CTA, never just "No data"
+- Error states: friendly message with retry, never raw error strings
 - Smooth page transitions where applicable
 
 ---
 
 ## ICONS: ALWAYS REAL ICONS
 
-- Use Lucide React / Lucide CDN — always
+- Use Lucide React / Lucide CDN, always
 - Size: `w-4 h-4` (inline), `w-5 h-5` (buttons), `w-6 h-6` (feature icons), `w-8 h-8` or `w-10 h-10` (hero icons)
 - Feature icons: wrap in colored rounded square: `p-2.5 bg-indigo-500/10 rounded-xl text-indigo-400`
 - Never use emoji as functional icons
@@ -359,9 +359,25 @@ whileTap={{ scale: 0.98 }}
 
 ---
 
-## AI SLOP CHECK -- MANDATORY SELF-AUDIT BEFORE SHIPPING
+## AI SLOP CHECK: RUN THE SCANNER, THEN READ WHAT IT FLAGS
 
-Before shipping any output (UI, code, copy, documentation), run this self-check:
+Before shipping any output (UI, code, copy, documentation), run the deterministic
+check first, then use the human checklist on whatever it surfaces:
+
+```bash
+ai-scan docs/            # score every .md, worst first
+ai-scan draft.md --issues # what actually fired
+ai-scan docs/ --max 40   # exit 1, for a CI gate
+```
+
+A file scoring under 10 does not need an editing pass. Spend the model's
+attention on the ones that score high. Asking a model to audit its own prose is
+the weakest version of this check: the scanner runs the same pattern list with
+no tokens and no self-assessment, so let it do the finding and reserve judgment
+for the rewrite.
+
+The checklist below is what to do with a flagged file, not a substitute for
+running the scanner:
 
 ### What is AI slop?
 
@@ -418,7 +434,7 @@ If any box is unchecked -- fix it before continuing to the next section.
 
 Before shipping any UI, ask: **"Does this look like it could be a real YC-backed startup's product page or a polished Dribbble shot?"**
 
-If the answer is no — redesign it. The bar is Base44 quality at minimum, ideally better.
+If the answer is no, redesign it. The bar is Base44 quality at minimum, ideally better.
 
 ---
 
@@ -436,7 +452,7 @@ Run your session opener (see the SESSION OPENER section at the top of this file)
 
 <!--
   CUSTOMIZATION POINT: Replace with your own signature footer, or remove entirely.
-  The author uses "All glory to God!" — you should use whatever represents you.
+  The author uses "All glory to God!", you should use whatever represents you.
 -->
 
 Every README file created or edited should end with a consistent signature footer. Example:
@@ -475,7 +491,7 @@ Before writing any component, name what the content IS and pick a design that di
 - iMessage quotes → iMessage bubble UI
 - Stats/numbers → massive bold gradient typography
 - Timeline → editorial magazine spread, not alternating card template
-- Tribute site → photo-first, emotional, personal — not SaaS landing page
+- Tribute site → photo-first, emotional, personal, not SaaS landing page
 
 ---
 
@@ -485,14 +501,14 @@ These MCP servers are mandatory for D1-level vibe coding. Each one eliminates a 
 
 | Server                  | Package                                            | Why It Matters                                                      |
 | ----------------------- | -------------------------------------------------- | ------------------------------------------------------------------- |
-| **filesystem**          | `@modelcontextprotocol/server-filesystem`          | Read/write local files directly — no copy-paste needed              |
-| **github**              | `@modelcontextprotocol/server-github`              | Create repos, PRs, issues, read code — all from chat                |
+| **filesystem**          | `@modelcontextprotocol/server-filesystem`          | Read/write local files directly, no copy-paste needed              |
+| **github**              | `@modelcontextprotocol/server-github`              | Create repos, PRs, issues, read code, all from chat                |
 | **postgres**            | `@modelcontextprotocol/server-postgres`            | Query production DB directly to debug data issues                   |
 | **puppeteer**           | `@modelcontextprotocol/server-puppeteer`           | Screenshot any URL, test UI, scrape data                            |
-| **memory**              | `@modelcontextprotocol/server-memory`              | Persist facts across sessions — no re-explaining context            |
+| **memory**              | `@modelcontextprotocol/server-memory`              | Persist facts across sessions, no re-explaining context            |
 | **supabase**            | `mcp-server-supabase`                              | Manage tables, run migrations, check RLS from chat                  |
 | **sequential-thinking** | `@modelcontextprotocol/server-sequential-thinking` | Force step-by-step reasoning on complex multi-step problems         |
-| **composio**            | Composio MCP URL                                   | GitHub, Gmail, Google Calendar, Todoist, Vercel, Slack — 100+ tools |
+| **composio**            | Composio MCP URL                                   | GitHub, Gmail, Google Calendar, Todoist, Vercel, Slack: 100+ tools |
 
 Config lives at your project root `.mcp.json` or `~/.claude/.mcp.json`.
 
@@ -580,14 +596,33 @@ Full walkthrough: [docs/SCHOOL.md](docs/SCHOOL.md).
 
 ---
 
-## AGENTIC WORKFLOW: PARALLEL EXECUTION ALWAYS
+## AGENTIC WORKFLOW: PARALLEL EXECUTION, WITH A CEILING
 
-When a task can be split into independent sub-tasks, always parallelize. Never work sequentially when parallel is possible.
+Independent tool calls go in one message. Never run them sequentially when
+parallel works: that part has not changed and is close to free.
 
-### When to use sub-agents
+Delegation to subagents is the part that changed. Current models delegate more
+readily than the ones this section was written for, and delegation multiplies
+cost and wall-clock time when it is applied to small work. So the rule is no
+longer "always split."
+
+**Delegate when** the tracks are genuinely independent and each is large: a wide
+multi-file investigation, a refactor across unrelated modules, research that
+runs while unrelated code gets written.
+
+**Do not delegate** work you could finish in a handful of tool calls, and never
+spawn a subagent to verify or double-check your own work. If one subagent can do
+it, use one rather than several.
+
+If your harness is Claude Code or the Agent SDK, set the deterministic ceilings
+rather than relying on the instruction alone:
+`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`, `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`,
+and the SDK's `max_budget_usd`. A cap in the harness beats a request in a prompt.
+
+### Good candidates for a split
 
 - **Research + Build**: one agent researches the codebase while another writes boilerplate
-- **Multi-file refactors**: split files across agents
+- **Multi-file refactors**: split files across agents, when the files do not interact
 - **Build + Test**: one agent builds, one writes tests simultaneously
 - **Data + UI**: fetch data shape while building the component
 
@@ -601,13 +636,19 @@ claude-squad --agents 3 --task "implement feature X"
 ### Headless vs interactive mode
 
 - **Interactive** (default): for tasks that need your judgment mid-way
-- **Headless** (`--headless`): for well-defined tasks that can run to completion unattended — use for scaffolding, test writing, docs
+- **Headless** (`--headless`): for well-defined tasks that can run to completion unattended, use for scaffolding, test writing, docs
 
 ### Sub-agent patterns
 
 - Give each agent a tight scope: one file, one feature, one concern
-- Always merge back to main context and verify before shipping
+- Merge back to the main context before shipping
 - Use worktrees (`git worktree add`) for truly isolated parallel work
+
+Note that there is no "and verify" in that list any more. Current models check
+their own work without being asked, and an explicit verification step compounds
+with behavior the model already has: it burns tokens and finds nothing. If you
+want verification, make it a real gate that runs code (`npm run build`, the
+deploy checklist, `ai-scan`), not an instruction asking the model to look twice.
 
 ---
 
@@ -695,7 +736,7 @@ const result = streamText({
 
 When something breaks, follow this exact sequence. Do not skip steps.
 
-1. **Read the error exactly.** Copy the full error message. Every word matters — "cannot read property of undefined" and "cannot read property of null" are different bugs.
+1. **Read the error exactly.** Copy the full error message. Every word matters, "cannot read property of undefined" and "cannot read property of null" are different bugs.
 
 2. **Identify the file and line number.** Stack traces are maps. Go to the exact line before doing anything else.
 
@@ -720,7 +761,7 @@ When something breaks, follow this exact sequence. Do not skip steps.
 ```
 PRE-DEPLOY
 [ ] npm run build passes locally (zero errors, zero warnings)
-[ ] npm run lint passes (zero warnings — not just zero errors)
+[ ] npm run lint passes (zero warnings, not just zero errors)
 [ ] npm run typecheck passes (tsc --noEmit clean)
 [ ] No .env files staged in git
 [ ] No hardcoded localhost URLs (grep -r "localhost" src/)

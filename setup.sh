@@ -1,5 +1,5 @@
 #!/bin/bash
-# D1 Vibe Coding — Full Infrastructure Setup
+# D1 Vibe Coding: Full Infrastructure Setup
 #
 # Run this ONCE from the D1-Vibe-Coding repo.
 # It builds your entire Claude Code infrastructure in ~5 minutes.
@@ -69,7 +69,7 @@ fi
 clear 2>/dev/null || true
 echo ""
 sep
-echo -e "  ${BLD}D1 Vibe Coding — Infrastructure Setup${NC}"
+echo -e "  ${BLD}D1 Vibe Coding: Infrastructure Setup${NC}"
 sep
 echo ""
 echo "  This sets up your complete Claude Code infrastructure."
@@ -232,11 +232,11 @@ else
 fi
 
 if gh repo view "$GITHUB_USER/$PERSONAL_REPO" &>/dev/null; then
-  warn "Repo $GITHUB_USER/$PERSONAL_REPO already exists — using existing"
+  warn "Repo $GITHUB_USER/$PERSONAL_REPO already exists, using existing"
 else
   gh repo create "$GITHUB_USER/$PERSONAL_REPO" \
     --private \
-    --description "$USER_NAME's personal context for Claude — identity, projects, contacts" \
+    --description "$USER_NAME's personal context for Claude, identity, projects, contacts" \
     2>/dev/null || true
   if gh repo view "$GITHUB_USER/$PERSONAL_REPO" &>/dev/null; then
     log "Created github.com/$GITHUB_USER/$PERSONAL_REPO (private)"
@@ -266,7 +266,7 @@ GITIGNORE
 git add -- .gitignore YOU.md NOW.md PEOPLE.md SYSTEM.md STACK.md SCHOOL.md
 git diff --cached --quiet || git commit -q -m "init: $USER_NAME personal context"
 git branch -M main
-git push -u origin main -q 2>/dev/null || warn "Push failed — you may need to push manually"
+git push -u origin main -q 2>/dev/null || warn "Push failed, you may need to push manually"
 log "https://github.com/$GITHUB_USER/$PERSONAL_REPO"
 
 # ── Repo 2: claude-context (public) ──────────────────────────────────────────
@@ -289,10 +289,10 @@ Forked from [D1-Vibe-Coding](https://github.com/calebnewtonusc/D1-Vibe-Coding).
 
 ## What's here
 
-- \`CLAUDE.md\` — full design system, behavioral rules, coding standards
-- \`.claude/commands/\` — 48 slash commands covering the dev lifecycle, coursework, and the weekly review
-- \`.claude/rules/\` — 6 always-on standards, imported by CLAUDE.md
-- \`.claude/hooks/\` — PostToolUse formatters and linters
+- \`CLAUDE.md\`, full design system, behavioral rules, coding standards
+- \`.claude/commands/\`: 48 slash commands covering the dev lifecycle, coursework, and the weekly review
+- \`.claude/rules/\`: 6 always-on standards, imported by CLAUDE.md
+- \`.claude/hooks/\`: PostToolUse formatters and linters
 
 ## How to use
 
@@ -315,11 +315,11 @@ Built and maintained at [D1-Vibe-Coding](https://github.com/calebnewtonusc/D1-Vi
 READMEOF
 
 if gh repo view "$GITHUB_USER/claude-context" &>/dev/null; then
-  warn "Repo $GITHUB_USER/claude-context already exists — using existing"
+  warn "Repo $GITHUB_USER/claude-context already exists, using existing"
 else
   gh repo create "$GITHUB_USER/claude-context" \
     --public \
-    --description "Claude Code operational instructions — design system, rules, commands" \
+    --description "Claude Code operational instructions, design system, rules, commands" \
     2>/dev/null || true
   if gh repo view "$GITHUB_USER/claude-context" &>/dev/null; then
     log "Created github.com/$GITHUB_USER/claude-context (public)"
@@ -346,7 +346,7 @@ GITIGNORE
 git add -- .gitignore CLAUDE.md README.md .claude
 git diff --cached --quiet || git commit -q -m "init: claude-context from D1-Vibe-Coding"
 git branch -M main
-git push -u origin main -q 2>/dev/null || warn "Push failed — you may need to push manually"
+git push -u origin main -q 2>/dev/null || warn "Push failed, you may need to push manually"
 log "https://github.com/$GITHUB_USER/claude-context"
 
 # ── iMessage agent ────────────────────────────────────────────────────────────
@@ -379,22 +379,30 @@ cp "$SCRIPT_DIR/.claude/hooks/"*.sh "$HOME/.claude/hooks/" 2>/dev/null || true
 chmod +x "$HOME/.claude/hooks/"*.sh 2>/dev/null || true
 log "Hooks installed to ~/.claude/hooks/"
 
-# ai-scan scores prose for AI-writing tells with no model in the loop, so a
-# cheap deterministic check can run before anything spends tokens editing.
-if [ -f "$SCRIPT_DIR/bin/ai-scan" ]; then
-  mkdir -p "$HOME/.local/bin"
-  cp "$SCRIPT_DIR/bin/ai-scan" "$HOME/.local/bin/ai-scan"
-  chmod +x "$HOME/.local/bin/ai-scan"
+# Both scanners score something with no model in the loop, so a cheap
+# deterministic check can run before anything spends tokens. ai-scan reads prose
+# for AI-writing tells; skill-scan reads skills for whether they will fire.
+_installed_scanners=""
+for _tool in ai-scan skill-scan; do
+  if [ -f "$SCRIPT_DIR/bin/$_tool" ]; then
+    mkdir -p "$HOME/.local/bin"
+    cp "$SCRIPT_DIR/bin/$_tool" "$HOME/.local/bin/$_tool"
+    chmod +x "$HOME/.local/bin/$_tool"
+    _installed_scanners="$_installed_scanners $_tool"
+  fi
+done
+if [ -n "$_installed_scanners" ]; then
   if command -v node &>/dev/null; then
-    log "ai-scan installed to ~/.local/bin/"
+    log "Installed to ~/.local/bin/:$_installed_scanners"
   else
-    warn "ai-scan installed but node is missing, so it will not run until you install node >= 18"
+    warn "Installed$_installed_scanners but node is missing, so they will not run until you install node >= 18"
   fi
   case ":$PATH:" in
     *":$HOME/.local/bin:"*) ;;
-    *) warn "~/.local/bin is not on your PATH. Add it to run ai-scan by name." ;;
+    *) warn "~/.local/bin is not on your PATH. Add it to run$_installed_scanners by name." ;;
   esac
 fi
+unset _tool _installed_scanners
 
 # coursework reads a semester ledger built from your syllabi: what is due, what
 # an absence costs, what each course allows you to use AI for. Deterministic, so
@@ -1116,7 +1124,7 @@ fi
 echo ""
 echo -e "  ${BLD}Next steps:${NC}"
 echo "    1. Fill in the rest of $PC_DIR/NOW.md, PEOPLE.md, SYSTEM.md"
-echo "    2. Open a new Claude Code session — your context loads automatically"
+echo "    2. Open a new Claude Code session, your context loads automatically"
 echo "    3. Try: /sprint, /daily-brief, /inbox"
 if [ -z "$COMPOSIO_URL" ]; then
   echo ""

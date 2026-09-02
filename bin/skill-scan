@@ -19,6 +19,11 @@
  *   Reusability        15   one job, not a grab bag
  *   Safety posture     10   scoped tools, no surprising side effects
  *
+ * Determinism is the one dimension to read with judgment. A guidance skill whose
+ * whole job is prose (a style guide, a review checklist) is correct to have no
+ * scripts, and will score low here by design. Read a low determinism score as a
+ * question, not a defect: could code have done this step instead of the model?
+ *
  * Treat it as a signal, not a verdict. A short prose skill that fires reliably
  * beats a high scorer nobody ever invokes. The one thing this cannot measure is
  * invocation frequency, which is the thing that matters most.
@@ -36,6 +41,15 @@ const valueOf = (n, d) => {
 const targets = args.filter((a) => !a.startsWith("--") && !/^\d+$/.test(a));
 
 const DEFAULT_ROOT = path.join(process.env.HOME, ".claude/skills");
+
+// Skills are frequently symlinked into place, so resolve through links.
+function isDir(p) {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
 
 // ---------- frontmatter ----------
 
@@ -68,14 +82,14 @@ function findSkills(root) {
     } catch {
       return;
     }
-    if (entries.some((e) => e.isFile() && e.name === "SKILL.md")) {
+    if (fs.existsSync(path.join(dir, "SKILL.md"))) {
       out.push(dir);
       return;
     }
     for (const e of entries) {
-      if (e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules") {
-        walk(path.join(dir, e.name), depth + 1);
-      }
+      if (e.name.startsWith(".") || e.name === "node_modules") continue;
+      const p = path.join(dir, e.name);
+      if (isDir(p)) walk(p, depth + 1);
     }
   };
   if (fs.existsSync(path.join(root, "SKILL.md"))) return [root];
@@ -95,7 +109,7 @@ function listFiles(dir) {
     }
     for (const e of entries) {
       const p = path.join(d, e.name);
-      if (e.isDirectory()) {
+      if (isDir(p)) {
         if (!e.name.startsWith(".") && e.name !== "node_modules") walk(p, depth + 1);
       } else {
         out.push(p);
@@ -231,9 +245,9 @@ function scoreSkill(dir) {
   reuse = Math.max(0, reuse);
 
   // --- 5. safety posture (10) ---
-  let safety = 0;
-  if (data["allowed-tools"]) safety += 5;
-  else issues.push(["safety", "no allowed-tools in frontmatter: the skill runs with the full tool surface"]);
+  // Skills have no allowed-tools field, so there is nothing to score on scoping.
+  // A skill with no scripts has no execution surface and keeps full marks.
+  let safety = 10;
 
   let netHit = null;
   let destrHit = null;
@@ -247,10 +261,15 @@ function scoreSkill(dir) {
     if (!netHit && NET_CALL.test(s)) netHit = path.relative(dir, f);
     if (!destrHit && DESTRUCTIVE.test(s)) destrHit = path.relative(dir, f);
   }
-  if (destrHit) issues.push(["safety", `destructive or privileged shell in ${destrHit}, audit before trusting`]);
-  else safety += 3;
-  if (netHit) issues.push(["safety", `network call in ${netHit}, confirm the endpoint is expected`]);
-  else safety += 2;
+  if (destrHit) {
+    safety -= 6;
+    issues.push(["safety", `destructive or privileged shell in ${destrHit}, audit before trusting`]);
+  }
+  if (netHit) {
+    safety -= 2;
+    issues.push(["safety", `network call in ${netHit}, confirm the endpoint is expected`]);
+  }
+  safety = Math.max(0, safety);
 
   const total = trigger + determinism + economy + reuse + safety;
   return {
@@ -325,6 +344,7 @@ if (flag("--json")) {
     `\n${n} skills, mean ${avg.toFixed(1)}/100, ${failing} below 55 (${((failing / n) * 100).toFixed(0)}%)`,
   );
   console.log("columns: trg trigger/25  det determinism/25  eco economy/25  reu reuse/15  saf safety/10");
+  console.log("low det on a pure guidance skill is by design, not a defect. see the header.");
 }
 
 const min = parseInt(valueOf("--min", "0"), 10);
