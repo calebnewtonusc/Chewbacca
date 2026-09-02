@@ -878,6 +878,34 @@ else
   warn "Homebrew not found. macOS tools skipped: see docs/MACOS-TOOLS.md"
 fi
 
+# mac: Calendar, Reminders, Contacts, Mail, Messages, Notes, and Finder as JSON
+if [ "$(uname -s)" != "Darwin" ]; then
+  :
+elif command -v mac &>/dev/null; then
+  log "mac-cli already installed"
+elif ! command -v swift &>/dev/null; then
+  warn "swift not found, skipping mac-cli. Run: xcode-select --install"
+else
+  MC_DIR="$HOME/Projects/mac-cli"
+  [ -d "$MC_DIR/.git" ] || git clone -q --depth 1 \
+    https://github.com/31Carlton7/mac-cli.git "$MC_DIR" 2>/dev/null || true
+  if [ -d "$MC_DIR" ]; then
+    # SwiftPM caches dependencies as bare repos, which a global
+    # safe.bareRepository=explicit forbids it from reading. Override the
+    # setting for this one build rather than changing it machine-wide.
+    if (cd "$MC_DIR" && GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.bareRepository \
+        GIT_CONFIG_VALUE_0=all swift build -c release &>/dev/null); then
+      mkdir -p "$HOME/.local/bin"
+      install "$MC_DIR/.build/release/mac" "$HOME/.local/bin/mac"
+      log "mac-cli installed. Run: mac doctor  (grants are per-terminal)"
+    else
+      warn "mac-cli build failed. Retry: cd $MC_DIR && swift build -c release"
+    fi
+  else
+    warn "could not clone mac-cli"
+  fi
+fi
+
 # mac-use: Natural-language agent that drives any Mac app through Accessibility
 if command -v mac-use &>/dev/null; then
   log "mac-use already installed"
@@ -900,6 +928,18 @@ else
     fi
   else
     warn "could not clone macOS-use"
+  fi
+fi
+
+# peekaboo speaks MCP too. Registered at user scope so it is available in
+# every project, not just this one.
+if command -v claude &>/dev/null && command -v peekaboo &>/dev/null; then
+  if claude mcp list 2>/dev/null | grep -q "^peekaboo:"; then
+    log "peekaboo MCP already registered"
+  elif claude mcp add peekaboo --scope user -- peekaboo mcp serve &>/dev/null; then
+    log "peekaboo MCP registered"
+  else
+    warn "could not register the peekaboo MCP server"
   fi
 fi
 
@@ -931,6 +971,21 @@ if [ -d "$PACK_DIR/skills" ]; then
   log "agent-scripts: $PACK_N skills linked"
 fi
 # END GENERATED: cli
+
+# ── Plynn ─────────────────────────────────────────────────────────────────────
+# On-device dictation by Carlton Aikins (github.com/31Carlton7/plynn, MIT).
+# Hold fn, talk, release, and clean text lands wherever the cursor is. Speech
+# recognition and cleanup both run on the Mac, nothing is uploaded.
+#
+# Deliberately outside the GENERATED regions above: this is a hand-written step
+# and d1-inventory.py would overwrite it.
+section "Installing Plynn (on-device dictation)"
+
+if [ -x "$SCRIPT_DIR/bin/install-plynn.sh" ]; then
+  "$SCRIPT_DIR/bin/install-plynn.sh" || warn "Plynn install returned non-zero, continuing"
+else
+  warn "bin/install-plynn.sh missing, skipping Plynn"
+fi
 
 # ── Verify ────────────────────────────────────────────────────────────────────
 # Claiming success without checking is how this kit shipped six months of

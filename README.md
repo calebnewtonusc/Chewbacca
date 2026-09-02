@@ -47,16 +47,18 @@
 
 ## What you get
 
-| Feature                | Details                                                                                                                                       |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| **36 slash commands**  | Full dev lifecycle: scaffold, push, deploy, audit, PR review, sprint tracking, debugging                                                      |
-| **18 standards files** | 6 universal ones imported into every session (~3.7k tokens); 12 stack-specific ones behind a skill that loads only when the work touches them |
-| **Full design system** | Dark mode, shadcn/ui, Tailwind, scroll-aware navbar, real typography. Every UI looks like a funded startup's product page                     |
-| **Second brain**       | Two-repo system: public `claude-context` (operational) + private `{name}-context` (personal). Auto-syncs to GitHub                            |
-| **Smart hooks**        | Format on save, sync context repos, warn on `.env` writes, and flag unpushed work only when there is any                                      |
-| **4 subagents**        | context-keeper, code-reviewer, debugger, and explorer, each scoped to one job with its own tool set                                           |
-| **Skills and plugins** | 60 skills (3 shipped here, 3 cloned from upstream, 54 from 1 skill pack) plus 10 plugins across 3 marketplaces                                |
-| **Example project**    | Working Cloudflare Worker + D1 todo app you can deploy in 60 seconds                                                                          |
+| Feature                 | Details                                                                                                                                            |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **36 slash commands**   | Full dev lifecycle: scaffold, push, deploy, audit, PR review, sprint tracking, debugging                                                           |
+| **18 standards files**  | 6 universal ones imported into every session (~3.7k tokens); 12 stack-specific ones behind a skill that loads only when the work touches them      |
+| **Full design system**  | Dark mode, shadcn/ui, Tailwind, scroll-aware navbar, real typography. Every UI looks like a funded startup's product page                          |
+| **Second brain**        | Two-repo system: public `claude-context` (operational) + private `{name}-context` (personal). Auto-syncs to GitHub                                 |
+| **Smart hooks**         | Format on save, sync context repos, warn on `.env` writes, and flag unpushed work only when there is any                                           |
+| **4 subagents**         | context-keeper, code-reviewer, debugger, and explorer, each scoped to one job with its own tool set                                                |
+| **Skills and plugins**  | 60 skills (3 shipped here, 3 cloned from upstream, 54 from 1 skill pack) plus 10 plugins across 3 marketplaces                                     |
+| **5 macOS tools**       | Screen capture and UI control, Google Workspace, summarization, app automation, clipboard history                                                  |
+| **On-device dictation** | Installs [Plynn](https://github.com/31Carlton7/plynn): hold fn, talk, and clean text appears. Speech and cleanup run on your Mac, nothing uploaded |
+| **Example project**     | Working Cloudflare Worker + D1 todo app you can deploy in 60 seconds                                                                               |
 
 ---
 
@@ -321,16 +323,18 @@ The vibe coding landscape is growing fast. **[ECOSYSTEM.md](ECOSYSTEM.md)** is o
 
 ## Documentation
 
-| Doc                                                        | What It Covers                                                                                                |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| [docs/METHODOLOGY.md](docs/METHODOLOGY.md)                 | The five principles of vibe coding, the D1 workflow loop, anti-patterns, measuring effectiveness              |
-| [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)                   | D1 query patterns, migrations, Drizzle ORM, Worker routing (vanilla + Hono), D1 + KV + R2, deployment         |
-| [docs/PROMPTS.md](docs/PROMPTS.md)                         | 20+ real prompts for scaffolding, features, debugging, database work, UI design, deployment                   |
-| [docs/SYSTEM-PROMPTS.md](docs/SYSTEM-PROMPTS.md)           | Six techniques from leaked production system prompts: priority order, confidence thresholds, format contracts |
-| [docs/INTERNALS.md](docs/INTERNALS.md)                     | How Claude Code works under the hood: CLAUDE.md loading, hooks, tools, agents, context compression            |
-| [docs/SKILLS.md](docs/SKILLS.md)                           | What this kit ships, the four public skill registries, the licensing traps in them, and how to write your own |
-| [docs/EXTENSIONS.md](docs/EXTENSIONS.md)                   | Skills, plugins, and MCP: what each layer is for, what setup.sh installs, and which to reach for first        |
-| [docs/SWIFT-MACOS-PORTING.md](docs/SWIFT-MACOS-PORTING.md) | Running a Swift app below its declared macOS floor: availability gating, weak linking, verifying with otool   |
+| Doc                                                        | What It Covers                                                                                                          |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| [docs/METHODOLOGY.md](docs/METHODOLOGY.md)                 | The five principles of vibe coding, the D1 workflow loop, anti-patterns, measuring effectiveness                        |
+| [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)                   | D1 query patterns, migrations, Drizzle ORM, Worker routing (vanilla + Hono), D1 + KV + R2, deployment                   |
+| [docs/PROMPTS.md](docs/PROMPTS.md)                         | 20+ real prompts for scaffolding, features, debugging, database work, UI design, deployment                             |
+| [docs/SYSTEM-PROMPTS.md](docs/SYSTEM-PROMPTS.md)           | Six techniques from leaked production system prompts: priority order, confidence thresholds, format contracts           |
+| [docs/INTERNALS.md](docs/INTERNALS.md)                     | How Claude Code works under the hood: CLAUDE.md loading, hooks, tools, agents, context compression                      |
+| [docs/SKILLS.md](docs/SKILLS.md)                           | What this kit ships, the four public skill registries, the licensing traps in them, and how to write your own           |
+| [docs/EXTENSIONS.md](docs/EXTENSIONS.md)                   | Skills, plugins, and MCP: what each layer is for, what setup.sh installs, and which to reach for first                  |
+| [docs/MACOS-TOOLS.md](docs/MACOS-TOOLS.md)                 | The five macOS tools setup.sh installs: permissions, auth, usage, and the agent-scripts skill pack                      |
+| [docs/SWIFT-MACOS-PORTING.md](docs/SWIFT-MACOS-PORTING.md) | Running a Swift app below its declared macOS floor: availability gating, weak linking, verifying with otool             |
+| [docs/MACOS-APP-CONTROL.md](docs/MACOS-APP-CONTROL.md)     | Driving Calendar, Contacts, Mail, Messages, and Notes from an agent: the TCC model, the JSON contract, where it is weak |
 
 ---
 
@@ -412,13 +416,14 @@ installed alongside the kit, not vendored into it.
 
 <!-- BEGIN GENERATED: cli -->
 
-| Tool                                                | Install                                                    | What it does                                                            |
-| --------------------------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------- |
-| [gog](https://github.com/openclaw/gogcli)           | `brew install openclaw/tap/gogcli`                         | Gmail, Calendar, and Drive from the terminal, after one OAuth login     |
-| [Maccy](https://github.com/p0deje/Maccy)            | `brew install --cask maccy`                                | Clipboard history, so a value scrolled past is still recoverable        |
-| [mac-use](https://github.com/browser-use/macOS-use) | see docs/MACOS-TOOLS.md (clone plus a uv venv, no formula) | Natural-language agent that drives any Mac app through Accessibility    |
-| [peekaboo](https://github.com/openclaw/Peekaboo)    | `brew install openclaw/tap/peekaboo`                       | Screenshots, UI inspection, and click/type automation for any macOS app |
-| [summarize](https://github.com/steipete/summarize)  | `brew install steipete/tap/summarize`                      | Gist of any URL, YouTube video, podcast, or local file                  |
+| Tool                                                | Install                                                                | What it does                                                             |
+| --------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| [gog](https://github.com/openclaw/gogcli)           | `brew install openclaw/tap/gogcli`                                     | Gmail, Calendar, and Drive from the terminal, after one OAuth login      |
+| [mac](https://github.com/31Carlton7/mac-cli)        | see docs/MACOS-APP-CONTROL.md (clone plus swift build, no formula yet) | Calendar, Reminders, Contacts, Mail, Messages, Notes, and Finder as JSON |
+| [Maccy](https://github.com/p0deje/Maccy)            | `brew install --cask maccy`                                            | Clipboard history, so a value scrolled past is still recoverable         |
+| [mac-use](https://github.com/browser-use/macOS-use) | see docs/MACOS-TOOLS.md (clone plus a uv venv, no formula)             | Natural-language agent that drives any Mac app through Accessibility     |
+| [peekaboo](https://github.com/openclaw/Peekaboo)    | `brew install openclaw/tap/peekaboo`                                   | Screenshots, UI inspection, and click/type automation for any macOS app  |
+| [summarize](https://github.com/steipete/summarize)  | `brew install steipete/tap/summarize`                                  | Gist of any URL, YouTube video, podcast, or local file                   |
 
 <!-- END GENERATED: cli -->
 
@@ -430,6 +435,38 @@ provider API key. Setup, permissions, and the failure modes are in
 That table is generated the same way the extension table is: a tool appears only
 once the generator finds it on the machine, so an entry here is proof of an
 install rather than an intention.
+
+### Plynn: on-device dictation
+
+Setup also installs [Plynn](https://github.com/31Carlton7/plynn) by Carlton
+Aikins (MIT). Hold the fn key, talk, release, and cleaned-up text lands wherever
+your cursor is. Speech recognition, AI cleanup, your dictionary, and your history
+all run on your Mac. There is no account and no transcript upload.
+
+Talking is faster than typing, and a prompt you dictate tends to carry more
+context than one you type. That is the whole reason it is in a Claude Code kit.
+
+It needs Apple Silicon. Which path setup takes depends on your macOS version:
+
+| Your macOS          | What happens                                                       |
+| ------------------- | ------------------------------------------------------------------ |
+| 26 (Tahoe) or newer | Downloads Carlton's notarized release. Fast, nothing to build.     |
+| 15 (Sequoia)        | Skipped by default. Upstream targets 26, so it has to be compiled. |
+
+On macOS 15 it does run, it just has to be built with a compatibility patch
+(about 20 minutes, needs Xcode 26):
+
+```bash
+PLYNN_BUILD_FROM_SOURCE=1 ./bin/install-plynn.sh
+```
+
+What that patch does and what the fallbacks cost is in
+[patches/README.md](patches/README.md). The general technique, for any Swift app
+whose declared macOS floor is higher than it needs to be, is in
+[docs/SWIFT-MACOS-PORTING.md](docs/SWIFT-MACOS-PORTING.md).
+
+Plynn is installed from Carlton's repository and releases, never vendored into
+this one. `PLYNN_FORCE=1` reinstalls over an existing copy.
 
 ---
 
@@ -515,9 +552,16 @@ D1-Vibe-Coding/
 │   ├── SYSTEM-PROMPTS.md        # How to write the prompt that governs an agent
 │   ├── INTERNALS.md             # How Claude Code works under the hood
 │   ├── EXTENSIONS.md            # Skills, plugins, MCP: which layer to reach for
-│   └── SWIFT-MACOS-PORTING.md   # Running a Swift app below its declared macOS floor
+│   ├── MACOS-TOOLS.md           # Screen control, Workspace, summarization, clipboard
+│   ├── SWIFT-MACOS-PORTING.md   # Running a Swift app below its declared macOS floor
+│   └── MACOS-APP-CONTROL.md     # Native macOS apps as JSON, for agents
+├── bin/
+│   ├── ai-scan                  # Scores prose for AI-writing tells, no model
+│   ├── mac-use                  # CLI for macOS-use, which ships none upstream
+│   └── mac_use_cli.py           # The agent loop behind mac-use
 ├── examples/
 │   └── todo-app/                # Working Worker + D1 example (deploy in 60s)
+├── patches/                     # plynn-macos15.patch, applied to upstream at install
 ├── templates/                   # Full starter files (Worker, migration, components)
 ├── snippets/                    # Copy-paste patterns (Drizzle, wrangler, hooks)
 ├── skills/

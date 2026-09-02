@@ -1,0 +1,378 @@
+diff --git a/Package.swift b/Package.swift
+index a109f2f..23ef70a 100644
+--- a/Package.swift
++++ b/Package.swift
+@@ -3,7 +3,10 @@ import PackageDescription
+ 
+ let package = Package(
+     name: "Plynn",
+-    platforms: [.macOS("26.0")],
++    // macOS 15 is the real floor: every dependency supports 14 or lower, and the
++    // 26-only pieces (Apple Intelligence polish, SpeechAnalyzer, Liquid Glass)
++    // are all behind @available checks with working fallbacks.
++    platforms: [.macOS("15.0")],
+     dependencies: [
+         .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.15.5"),
+         .package(url: "https://github.com/ml-explore/mlx-swift-examples.git", from: "2.29.1"),
+diff --git a/Sources/PlynnKit/AppleFMFormatter.swift b/Sources/PlynnKit/AppleFMFormatter.swift
+index 8d91216..f70d820 100644
+--- a/Sources/PlynnKit/AppleFMFormatter.swift
++++ b/Sources/PlynnKit/AppleFMFormatter.swift
+@@ -4,6 +4,9 @@ import FoundationModels
+ /// AI polish on Apple's on-device Foundation Model (Apple Intelligence).
+ /// The default polish engine — no download, Apple-tuned for the hardware.
+ /// Falls back to the input text on every failure mode, like all polish paths.
++/// FoundationModels ships in macOS 26; below that `TranscriptFormatter` never
++/// constructs this and the local Qwen model carries the polish path.
++@available(macOS 26, *)
+ public actor AppleFMFormatter {
+     public init() {}
+ 
+diff --git a/Sources/PlynnKit/AppleSpeechEngine.swift b/Sources/PlynnKit/AppleSpeechEngine.swift
+index e310658..3fa1d5d 100644
+--- a/Sources/PlynnKit/AppleSpeechEngine.swift
++++ b/Sources/PlynnKit/AppleSpeechEngine.swift
+@@ -4,6 +4,9 @@ import Speech
+ /// Zero-download dictation engine backed by macOS 26's SpeechAnalyzer /
+ /// SpeechTranscriber. Model assets are OS-managed; quality is Whisper-small
+ /// class — used while Parakeet downloads, or when the user prefers it.
++/// SpeechAnalyzer is macOS 26 only; `EngineManager` substitutes
++/// `UnavailableSpeechEngine` below that and forces the Parakeet path.
++@available(macOS 26, *)
+ public actor AppleSpeechEngine: DictationEngine {
+     public enum EngineError: Error { case assetUnavailable, notStarted }
+ 
+diff --git a/Sources/PlynnKit/EngineManager.swift b/Sources/PlynnKit/EngineManager.swift
+index d07e250..811bf46 100644
+--- a/Sources/PlynnKit/EngineManager.swift
++++ b/Sources/PlynnKit/EngineManager.swift
+@@ -4,8 +4,20 @@ import Foundation
+ public enum EngineChoice: String, CaseIterable, Sendable {
+     case auto, parakeet, apple
+ 
+-    /// Pure selection: preferred engine when usable, Apple otherwise.
+-    public static func select(preferred: EngineChoice, parakeetReady: Bool) -> EngineChoice {
++    /// Whether this OS ships SpeechAnalyzer, which backs the Apple engine.
++    public static var appleEngineAvailable: Bool {
++        if #available(macOS 26, *) { return true }
++        return false
++    }
++
++    /// Pure selection: preferred engine when usable, Apple otherwise. When the
++    /// OS has no Apple engine there is nothing to fall back to, so Parakeet is
++    /// the only choice and the caller waits on its download.
++    public static func select(
++        preferred: EngineChoice, parakeetReady: Bool,
++        appleAvailable: Bool = EngineChoice.appleEngineAvailable
++    ) -> EngineChoice {
++        guard appleAvailable else { return .parakeet }
+         switch preferred {
+         case .apple: return .apple
+         case .parakeet, .auto: return parakeetReady ? .parakeet : .apple
+@@ -69,7 +81,13 @@ public final class EngineManager {
+     ) {
+         let injectedParakeet = parakeet != nil
+         self.parakeet = parakeet ?? StreamingTranscriber()
+-        self.apple = apple ?? AppleSpeechEngine()
++        if let apple {
++            self.apple = apple
++        } else if #available(macOS 26, *) {
++            self.apple = AppleSpeechEngine()
++        } else {
++            self.apple = UnavailableSpeechEngine()
++        }
+         self.warmUpTimeoutSeconds = max(0, warmUpTimeoutSeconds)
+         self.preferred = preferred
+             ?? (EngineChoice(
+diff --git a/Sources/PlynnKit/IndicatorView.swift b/Sources/PlynnKit/IndicatorView.swift
+index ec9dc7a..5e10b5e 100644
+--- a/Sources/PlynnKit/IndicatorView.swift
++++ b/Sources/PlynnKit/IndicatorView.swift
+@@ -23,6 +23,36 @@ enum IndicatorMetrics {
+     static let bottomMargin: CGFloat = 14
+ }
+ 
++/// Liquid Glass arrived in macOS 26. Below it the capsule uses a translucent
++/// material, which reads close enough under the rim light and sheen overlays.
++private struct GlassContainer<Content: View>: View {
++    private let content: Content
++
++    init(@ViewBuilder content: () -> Content) { self.content = content() }
++
++    var body: some View {
++        if #available(macOS 26, *) {
++            GlassEffectContainer { content }
++        } else {
++            content
++        }
++    }
++}
++
++private struct CapsuleGlass: ViewModifier {
++    let namespace: Namespace.ID
++
++    func body(content: Content) -> some View {
++        if #available(macOS 26, *) {
++            content
++                .glassEffect(.regular.tint(.black.opacity(0.18)).interactive(), in: .capsule)
++                .glassEffectID("capsule", in: namespace)
++        } else {
++            content.background(.ultraThinMaterial, in: Capsule())
++        }
++    }
++}
++
+ /// The floating capsule: Liquid Glass surface whose bottom third is a live
+ /// waveform blended into the glass, centered text that fades up and slides
+ /// as it overflows, and a close-in checkmark on success.
+@@ -33,7 +63,7 @@ struct IndicatorView: View {
+     private var isCompact: Bool { model.phase == .done }
+ 
+     var body: some View {
+-        GlassEffectContainer {
++        GlassContainer {
+             ZStack {
+                 // TimelineView is removed while the panel is hidden or
+                 // polishing. Opacity alone would leave its Canvas ticking.
+@@ -51,8 +81,7 @@ struct IndicatorView: View {
+                 width: isCompact ? IndicatorMetrics.compactWidth : IndicatorMetrics.width,
+                 height: IndicatorMetrics.height)
+             .clipShape(Capsule())
+-            .glassEffect(.regular.tint(.black.opacity(0.18)).interactive(), in: .capsule)
+-            .glassEffectID("capsule", in: glassNS)
++            .modifier(CapsuleGlass(namespace: glassNS))
+             // Explicit glass character — a bright rim light along the top edge
+             // and a soft specular sheen, visible on any background.
+             .overlay(
+diff --git a/Sources/PlynnKit/TranscriptFormatter.swift b/Sources/PlynnKit/TranscriptFormatter.swift
+index c001dbc..be1d025 100644
+--- a/Sources/PlynnKit/TranscriptFormatter.swift
++++ b/Sources/PlynnKit/TranscriptFormatter.swift
+@@ -10,7 +10,10 @@ public struct FormatResult: Equatable, Sendable {
+ /// correction, then optional LLM polish. Every path returns something
+ /// pasteable; LLM problems degrade to the deterministic output.
+ public actor TranscriptFormatter {
+-    private let appleFM = AppleFMFormatter()
++    /// `AppleFMFormatter` needs macOS 26, so it is stored type-erased and only
++    /// reached through the helpers below. Nil on macOS 15, where every polish
++    /// call falls through to the local Qwen model.
++    private let appleFMBox: Any?
+     private let llm = LLMFormatter()  // fallback when Apple Intelligence is off
+     /// Reloaded per call so Settings edits apply immediately.
+     private let personalization: @Sendable () -> (
+@@ -23,12 +26,49 @@ public actor TranscriptFormatter {
+         ) = { ([], []) }
+     ) {
+         self.personalization = personalization
++        if #available(macOS 26, *) {
++            appleFMBox = AppleFMFormatter()
++        } else {
++            appleFMBox = nil
++        }
++    }
++
++    // MARK: - Apple Intelligence, behind availability
++
++    private var appleFMReady: Bool {
++        if #available(macOS 26, *), let fm = appleFMBox as? AppleFMFormatter {
++            return fm.ready
++        }
++        return false
++    }
++
++    private func appleFMComplete(_ prompt: String) async -> String? {
++        if #available(macOS 26, *), let fm = appleFMBox as? AppleFMFormatter {
++            return await fm.complete(prompt)
++        }
++        return nil
++    }
++
++    private func appleFMFormat(
++        _ text: String, tone: Tone, technical: Bool, preferredSpellings: [String]
++    ) async -> String {
++        if #available(macOS 26, *), let fm = appleFMBox as? AppleFMFormatter {
++            return await fm.format(
++                text, tone: tone, technical: technical, preferredSpellings: preferredSpellings)
++        }
++        return text
++    }
++
++    private func appleFMWarm() async {
++        if #available(macOS 26, *), let fm = appleFMBox as? AppleFMFormatter {
++            await fm.warm()
++        }
+     }
+ 
+     /// Which polish engine is live, for status display. Nil = rules only.
+     public var polishEngine: String? {
+         get async {
+-            if appleFM.ready { return "Apple Intelligence" }
++            if appleFMReady { return "Apple Intelligence" }
+             if await llm.ready { return "Qwen3-4B (local)" }
+             return nil
+         }
+@@ -36,13 +76,16 @@ public actor TranscriptFormatter {
+ 
+     /// Why Apple's model isn't in use (nil when it is).
+     public var appleFMStatus: String? {
+-        appleFM.ready ? nil : appleFM.availabilityDescription
++        if #available(macOS 26, *), let fm = appleFMBox as? AppleFMFormatter {
++            return fm.ready ? nil : fm.availabilityDescription
++        }
++        return "Apple Intelligence needs macOS 26 — polishing with the local model"
+     }
+ 
+     /// Raw completion on whichever polish engine is live — the summarizer's
+     /// backend. Nil when no engine is available.
+     public func complete(_ prompt: String) async -> String? {
+-        if appleFM.ready { return await appleFM.complete(prompt) }
++        if appleFMReady { return await appleFMComplete(prompt) }
+         if await llm.ready { return await llm.complete(prompt) }
+         return nil
+     }
+@@ -52,8 +95,8 @@ public actor TranscriptFormatter {
+     public func transform(selection: String, instruction: String) async -> String? {
+         let prompt = TransformPrompt.build(selectedText: selection, instruction: instruction)
+         let raw: String?
+-        if appleFM.ready {
+-            raw = await appleFM.complete(prompt)
++        if appleFMReady {
++            raw = await appleFMComplete(prompt)
+         } else if await llm.ready {
+             raw = await llm.complete(prompt)
+         } else {
+@@ -66,8 +109,8 @@ public actor TranscriptFormatter {
+     /// Warm the polish path: Apple's on-device model when available,
+     /// otherwise the bundled-model fallback (downloads on first use).
+     public func warmLLM() async {
+-        if appleFM.ready {
+-            await appleFM.warm()
++        if appleFMReady {
++            await appleFMWarm()
+         } else {
+             try? await llm.ensureLoaded()
+         }
+@@ -90,8 +133,8 @@ public actor TranscriptFormatter {
+         // runs when there are fillers/backtracks/lists to fix or it's long.
+         if aiPolish, !text.isEmpty, PolishGate.needsPolish(text) {
+             let spellings = DictionaryCorrector.relevantTerms(for: text, terms: terms)
+-            if appleFM.ready {
+-                text = await appleFM.format(
++            if appleFMReady {
++                text = await appleFMFormat(
+                     text, tone: profile.tone, technical: profile.isTechnical,
+                     preferredSpellings: spellings)
+             } else if await llm.ready {
+diff --git a/Sources/PlynnKit/UnavailableSpeechEngine.swift b/Sources/PlynnKit/UnavailableSpeechEngine.swift
+new file mode 100644
+index 0000000..e573e57
+--- /dev/null
++++ b/Sources/PlynnKit/UnavailableSpeechEngine.swift
+@@ -0,0 +1,18 @@
++import Foundation
++
++/// Stands in for `AppleSpeechEngine` on macOS versions without SpeechAnalyzer.
++/// It never becomes the active engine (`EngineChoice.select` forces Parakeet
++/// when Apple's engine is unavailable), but `EngineManager` still needs a
++/// concrete value for its `apple` slot.
++public actor UnavailableSpeechEngine: DictationEngine {
++    public enum EngineError: Error { case requiresMacOS26 }
++
++    public nonisolated let displayName = "Apple (needs macOS 26)"
++
++    public init() {}
++
++    public func start() async throws { throw EngineError.requiresMacOS26 }
++    public func setPartialCallback(_ callback: @escaping @Sendable (String) -> Void) {}
++    public func append(samples: [Float]) async throws { throw EngineError.requiresMacOS26 }
++    public func finish() async throws -> String { "" }
++}
+diff --git a/Tests/PlynnKitTests/AppleSpeechEngineTests.swift b/Tests/PlynnKitTests/AppleSpeechEngineTests.swift
+index 688cf74..d8c21e3 100644
+--- a/Tests/PlynnKitTests/AppleSpeechEngineTests.swift
++++ b/Tests/PlynnKitTests/AppleSpeechEngineTests.swift
+@@ -7,6 +7,9 @@ final class AppleSpeechEngineTests: XCTestCase {
+     }
+ 
+     func testTranscribesFixtureWithPartials() async throws {
++        guard #available(macOS 26, *) else {
++            throw XCTSkip("SpeechAnalyzer requires macOS 26")
++        }
+         let engine = AppleSpeechEngine()
+         do { try await engine.start() } catch AppleSpeechEngine.EngineError.assetUnavailable {
+             throw XCTSkip("English speech asset unavailable on this machine")
+@@ -23,6 +26,9 @@ final class AppleSpeechEngineTests: XCTestCase {
+     }
+ 
+     func testReuseAcrossSessions() async throws {
++        guard #available(macOS 26, *) else {
++            throw XCTSkip("SpeechAnalyzer requires macOS 26")
++        }
+         let engine = AppleSpeechEngine()
+         do { try await engine.start() } catch AppleSpeechEngine.EngineError.assetUnavailable {
+             throw XCTSkip("English speech asset unavailable on this machine")
+diff --git a/Tests/PlynnKitTests/EngineManagerTests.swift b/Tests/PlynnKitTests/EngineManagerTests.swift
+index 1e7696d..02678e3 100644
+--- a/Tests/PlynnKitTests/EngineManagerTests.swift
++++ b/Tests/PlynnKitTests/EngineManagerTests.swift
+@@ -2,13 +2,32 @@ import XCTest
+ @testable import PlynnKit
+ 
+ final class EngineManagerTests: XCTestCase {
++    /// `appleAvailable` is passed explicitly so the selection logic is tested
++    /// the same way on every OS, not just whichever one runs the suite.
+     func testSelection() {
+-        XCTAssertEqual(EngineChoice.select(preferred: .auto, parakeetReady: false), .apple)
+-        XCTAssertEqual(EngineChoice.select(preferred: .auto, parakeetReady: true), .parakeet)
+-        XCTAssertEqual(EngineChoice.select(preferred: .parakeet, parakeetReady: false), .apple)
+-        XCTAssertEqual(EngineChoice.select(preferred: .parakeet, parakeetReady: true), .parakeet)
+-        XCTAssertEqual(EngineChoice.select(preferred: .apple, parakeetReady: true), .apple)
+-        XCTAssertEqual(EngineChoice.select(preferred: .apple, parakeetReady: false), .apple)
++        let select = { (preferred: EngineChoice, ready: Bool) in
++            EngineChoice.select(preferred: preferred, parakeetReady: ready, appleAvailable: true)
++        }
++        XCTAssertEqual(select(.auto, false), .apple)
++        XCTAssertEqual(select(.auto, true), .parakeet)
++        XCTAssertEqual(select(.parakeet, false), .apple)
++        XCTAssertEqual(select(.parakeet, true), .parakeet)
++        XCTAssertEqual(select(.apple, true), .apple)
++        XCTAssertEqual(select(.apple, false), .apple)
++    }
++
++    /// Below macOS 26 there is no Apple engine to fall back to, so Parakeet is
++    /// the only choice even when the user asked for Apple or it isn't ready yet.
++    func testSelectionWithoutAppleEngine() {
++        for preferred in EngineChoice.allCases {
++            for ready in [true, false] {
++                XCTAssertEqual(
++                    EngineChoice.select(
++                        preferred: preferred, parakeetReady: ready, appleAvailable: false),
++                    .parakeet,
++                    "preferred=\(preferred) parakeetReady=\(ready)")
++            }
++        }
+     }
+ 
+     func testParakeetModelsAbsentInEmptyDir() {
+diff --git a/scripts/Info.plist b/scripts/Info.plist
+index 2cf873f..167fce3 100644
+--- a/scripts/Info.plist
++++ b/scripts/Info.plist
+@@ -30,11 +30,16 @@
+ 	<key>CFBundleVersion</key>
+ 	<string>10</string>
+ 	<key>LSMinimumSystemVersion</key>
+-	<string>26.0</string>
++	<string>15.0</string>
+ 	<key>LSUIElement</key>
+ 	<true/>
+ 	<key>NSMicrophoneUsageDescription</key>
+ 	<string>Plynn records your voice while you hold the fn key to transcribe it on-device.</string>
++	<!-- Upstream releases are built for macOS 26 and will not launch here, so
++	     background update checks are off on this branch. The Check for Updates
++	     menu item still works if you deliberately want an upstream build. -->
++	<key>SUEnableAutomaticChecks</key>
++	<false/>
+ 	<key>SUFeedURL</key>
+ 	<string>https://github.com/31Carlton7/plynn/releases/latest/download/appcast.xml</string>
+ 	<key>SUPublicEDKey</key>
