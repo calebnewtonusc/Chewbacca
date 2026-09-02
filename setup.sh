@@ -562,6 +562,15 @@ h["Stop"] = [{"hooks": [{
     "type": "command",
     "command": hooks_dir + "/stop-check.sh",
     "statusMessage": "Checking for unpushed work...",
+}]}, {"hooks": [{
+    # The writing rules live in CLAUDE.md, which is a user message competing
+    # with everything else in a long session. By hour three the drama beats
+    # come back. This reads what Claude actually wrote and refuses the turn,
+    # deterministically and with no model call, so the rule cannot decay.
+    "type": "command",
+    "command": hooks_dir + "/slop-guard.sh",
+    "timeout": 15,
+    "statusMessage": "Checking the reply against the writing rules...",
 }]}]
 
 h["PreToolUse"] = [{"matcher": "Write", "hooks": [{
@@ -956,7 +965,7 @@ section "Installing macOS tools"
 #   peekaboo: forces local execution, see docs/MACOS-TOOLS.md
 #   chrome-js: reads and clicks a Chrome tab through JavaScript
 mkdir -p "$HOME/.local/bin"
-for HELPER in peekaboo chrome-js; do
+for HELPER in peekaboo chrome-js slop-check; do
   if [ -f "$SCRIPT_DIR/bin/$HELPER" ]; then
     cp "$SCRIPT_DIR/bin/$HELPER" "$HOME/.local/bin/$HELPER"
     chmod +x "$HOME/.local/bin/$HELPER"
@@ -1038,6 +1047,24 @@ else
   else
     warn "could not clone macOS-use"
   fi
+fi
+
+# yt-transcript: Transcript of any YouTube video, channel, or playlist, read without asking
+if command -v yt-transcript &>/dev/null; then
+  log "yt-transcript already installed"
+else
+  YT_DIR="$(mktemp -d)"
+  if git clone -q --depth 1 https://github.com/calebnewtonusc/claude-youtube-transcripts \
+      "$YT_DIR" 2>/dev/null && [ -x "$YT_DIR/install.sh" ]; then
+    if (cd "$YT_DIR" && ./install.sh &>/dev/null); then
+      log "yt-transcript installed"
+    else
+      warn "youtube-transcripts installer failed. Run it by hand: $YT_DIR/install.sh"
+    fi
+  else
+    warn "could not clone claude-youtube-transcripts"
+  fi
+  rm -rf "$YT_DIR"
 fi
 
 # peekaboo speaks MCP too. Registered at user scope so it is available in

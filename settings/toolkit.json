@@ -151,6 +151,12 @@
       "url": "https://github.com/steipete/summarize",
       "install": "brew install steipete/tap/summarize",
       "description": "Gist of any URL, YouTube video, podcast, or local file"
+    },
+    {
+      "display": "yt-transcript",
+      "url": "https://github.com/calebnewtonusc/claude-youtube-transcripts",
+      "install": "see docs/MACOS-TOOLS.md (its own installer, no formula)",
+      "description": "Transcript of any YouTube video, channel, or playlist, read without asking"
     }
   ]
 }
