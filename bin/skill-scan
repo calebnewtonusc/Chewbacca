@@ -148,8 +148,13 @@ const VAGUE_ONLY = [
 const CODE_EXT = new Set([".py", ".js", ".mjs", ".sh", ".ts", ".rb", ".pl"]);
 const DATA_EXT = new Set([".json", ".csv", ".yaml", ".yml", ".txt", ".md"]);
 
-const NET_CALL = /\b(curl|wget|fetch\(|requests\.(get|post)|urllib|axios|http\.request|nc\s)/;
-const DESTRUCTIVE = /\brm\s+-rf\b|\bsudo\b|\bchmod\s+777\b|\bdd\s+if=|>\s*\/dev\/sd/;
+// Deliberately narrow. urllib.parse is string handling, not networking, and
+// `rm -rf dist` is a build clean. Only flag what could actually surprise you:
+// a fetch to somewhere, or a delete that can escape the working directory.
+const NET_CALL =
+  /\b(curl\s|wget\s|fetch\(|requests\.(get|post|put|delete)|urllib\.request|urlopen\(|axios\.|http\.request|nc\s+-)/;
+const DESTRUCTIVE =
+  /\brm\s+-rf\s+(\/|~|\$HOME|\$\{?HOME|"\$|'\$|\*)|\bsudo\b|\bchmod\s+777\b|\bdd\s+if=|>\s*\/dev\/sd/;
 
 function scoreSkill(dir) {
   const skillPath = path.join(dir, "SKILL.md");
