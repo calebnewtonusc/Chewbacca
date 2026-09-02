@@ -576,6 +576,12 @@ h["Notification"] = [{"hooks": [{
     "async": True,
 }]}]
 
+# Your commits are yours. Claude Code appends a Co-Authored-By trailer and a
+# "Generated with Claude Code" line to pull requests by default, and stripping
+# those out of a history later means rewriting every commit and force-pushing.
+# Turn it off before the first commit instead of after the hundredth.
+settings["includeCoAuthoredBy"] = False
+
 # The file now holds an Anthropic key and a GitHub PAT. Write it atomically so
 # a crash cannot truncate it, and 0600 so it is not world-readable.
 tmp_path = settings_path + ".tmp"

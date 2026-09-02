@@ -28,17 +28,18 @@
 
 ## Table of Contents
 
+- [What It Does](#what-it-does)
 - [The Idea](#the-idea)
-- [What You Get](#what-you-get)
+- [What Gets Installed](#what-gets-installed)
 - [Quick Start](#quick-start)
 - [Full Infrastructure Setup](#full-infrastructure-setup)
-- [Slash Commands](#the-slash-commands)
 - [Classes and Life](#classes-and-life)
 - [Second Brain](#the-second-brain)
 - [Design System](#the-design-system)
 - [Standards Files](#the-standards-files)
 - [Verifying the Install](#verifying-the-install)
 - [Hooks](#the-hooks)
+- [Slash Commands](#the-slash-commands)
 - [Stack](#stack-assumptions)
 - [Ecosystem](#ecosystem-and-resources)
 - [Documentation](#documentation)
@@ -49,6 +50,29 @@
 - [File Structure](#file-structure)
 - [Related Repos](#related-repos)
 - [Contributing](#contributing)
+
+---
+
+## What it does
+
+You talk to it normally. It figures out which part of itself to use.
+
+| You say                                       | What happens                                                           |
+| --------------------------------------------- | ---------------------------------------------------------------------- |
+| "what did this video actually say"            | Pulls the transcript and summarizes it. Works on articles and PDFs too |
+| "what's on my calendar Thursday"              | Reads Calendar. Same for Contacts, Mail, Notes, and Reminders          |
+| "text Mom I'm running late"                   | Drafts it, sends it through Messages, reads the thread back to confirm |
+| "look at my screen and tell me what's broken" | Takes a screenshot, inspects the window, can click and type in it      |
+| "what's due this week"                        | Reads the ledger built from your syllabi, with attendance math         |
+| "remember that I hate em dashes"              | Writes it to your notes so every future session already knows          |
+| "clean up this draft"                         | Returns the rewritten text, keeps your voice, strips the AI tells      |
+| "why is this page slow"                       | The full engineering setup: standards, review, debugging, deploy       |
+
+Nothing in that table is a command you have to look up. You describe what you
+want and the right skill loads itself.
+
+Hold `fn` and talk instead of typing, if you prefer. Dictation runs on your Mac,
+and nothing is uploaded.
 
 ---
 
@@ -77,45 +101,59 @@ handed to an agent rather than to you: see
 
 ---
 
-## What you get
+## What gets installed
 
-| Feature                 | Details                                                                                                                                                 |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **48 slash commands**   | Full dev lifecycle: scaffold, push, deploy, audit, PR review, sprint tracking, debugging, plus 12 for coursework and the weekly review                  |
-| **18 standards files**  | 6 universal ones imported into every session (~3.7k tokens); 12 stack-specific ones behind a skill that loads only when the work touches them           |
-| **Full design system**  | Dark mode, shadcn/ui, Tailwind, scroll-aware navbar, real typography. Every UI looks like a funded startup's product page                               |
-| **Second brain**        | Two-repo system: public `claude-context` (operational) + private `{name}-context` (personal). Auto-syncs to GitHub                                      |
-| **Smart hooks**         | Format on save, sync context repos, warn on `.env` writes, and flag unpushed work only when there is any                                                |
-| **4 subagents**         | context-keeper, code-reviewer, debugger, and explorer, each scoped to one job with its own tool set                                                     |
-| **Skills and plugins**  | 64 skills (7 shipped here, 3 cloned from upstream, 54 from 1 skill pack) plus 10 plugins across 3 marketplaces                                          |
-| **macOS tools**         | 5 installed alongside the kit: mac, Maccy, mac-use, peekaboo, summarize                                                                                 |
-| **On-device dictation** | Installs [Plynn](https://github.com/31Carlton7/plynn): hold fn, talk, and clean text appears. Speech and cleanup run on your Mac, nothing uploaded      |
-| **Coursework ledger**   | `coursework` CLI plus 3 skills: your syllabi become deadlines, attendance budgets, and a per-course AI policy Claude checks before touching graded work |
-| **Example project**     | Working Cloudflare Worker + D1 todo app you can deploy in 60 seconds                                                                                    |
+| Piece                   | Details                                                                                                                                            |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **macOS tools**         | 5 installed alongside the kit: mac, Maccy, mac-use, peekaboo, summarize                                                                            |
+| **Skills and plugins**  | 64 skills (7 shipped here, 3 cloned from upstream, 54 from 1 skill pack) plus 10 plugins across 3 marketplaces                                     |
+| **Second brain**        | A private notes repo Claude reads at the start of every session and writes to as things change. Syncs to GitHub                                    |
+| **Coursework ledger**   | Your syllabi become deadlines, attendance budgets, and a per-course AI policy Claude checks before touching graded work                            |
+| **On-device dictation** | Installs [Plynn](https://github.com/31Carlton7/plynn): hold fn, talk, and clean text appears. Speech and cleanup run on your Mac, nothing uploaded |
+| **Smart hooks**         | Format on save, sync your notes, warn on `.env` writes, and flag unpushed work only when there is any                                              |
+| **4 subagents**         | context-keeper, code-reviewer, debugger, and explorer, each scoped to one job with its own tool set                                                |
+| **Output styles**       | Drop the software-engineering instructions entirely when the work is notes or prose                                                                |
+| **18 standards files**  | 6 loaded every session; 12 stack-specific ones that load only when the work touches them                                                           |
+| **Full design system**  | Dark mode, shadcn/ui, Tailwind, scroll-aware navbar, real typography, for when you are building something                                          |
+| **48 slash commands**   | For when you want a specific routine on purpose. You never need one to get the rows above                                                          |
 
 ---
 
 ## Quick Start
 
-**Option A: Just want CLAUDE.md + commands + rules in an existing project:**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/install.sh | bash
-```
-
-**Option B: Want the full quick-start CLAUDE.md (50 lines, essential patterns only):**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/CLAUDE-QUICK.md > CLAUDE.md
-```
-
-**Option C: Want everything (second brain, hooks, MCP, full context system):**
+Everything, in one command. This is the one you want:
 
 ```bash
 git clone https://github.com/calebnewtonusc/Chewbacca
 cd Chewbacca
 chmod +x setup.sh && ./setup.sh
 ```
+
+It asks a few questions, installs the tools, and verifies itself when it is
+done. Anything it cannot finish alone, like a macOS permission checkbox, it
+hands to Claude rather than to you:
+
+```bash
+claude "run the agent-setup skill and finish whatever doctor.sh says is missing"
+```
+
+<details>
+<summary>Already a developer with your own setup?</summary>
+
+Drop the standards and commands into one existing project without touching your
+global config:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/install.sh | bash
+```
+
+Or take the 50-line quick-start standards file alone:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/CLAUDE-QUICK.md > CLAUDE.md
+```
+
+</details>
 
 ---
 
@@ -132,66 +170,6 @@ The `setup.sh` script collects your name, GitHub username, and API keys, then:
 7. Runs `doctor.sh` and refuses to claim success if anything failed
 
 You end up with a fully wired Claude setup. Every session starts with your full context loaded. Every edit to your context files auto-commits and auto-pushes.
-
----
-
-## The slash commands
-
-| Command           | What it does                                                   |
-| ----------------- | -------------------------------------------------------------- |
-| `/new-project`    | Scaffold Next.js + shadcn/ui + Tailwind + all deps in one shot |
-| `/push`           | Secret scan, smart commit message, push                        |
-| `/deploy`         | Quality gate + Vercel deploy                                   |
-| `/ship`           | Typecheck + lint + tests before any merge                      |
-| `/audit`          | Security scan + code quality + design quality                  |
-| `/pr-shepherd`    | Full PR lifecycle: review, fix, CI, merge                      |
-| `/respond-pr`     | Read all review comments, implement fixes, reply with SHAs     |
-| `/fix-issue`      | Fetch GitHub issue, branch, research, implement, commit        |
-| `/review-pr`      | Deep code review with inline comments                          |
-| `/review`         | Review current file or selection                               |
-| `/review-project` | Deep audit a project: bugs, incomplete work, security issues   |
-| `/triage-issues`  | Classify issues, score severity, detect duplicates, prioritize |
-| `/triage-prs`     | PR dashboard by module, review state, scope, and risk          |
-| `/daily-brief`    | Today's tasks + GitHub PRs + focused plan                      |
-| `/morning`        | Morning standup: yesterday, today, blockers                    |
-| `/close-loop`     | End-of-session: commit, push, log, set up tomorrow             |
-| `/standup`        | Generate standup from git log                                  |
-| `/changelog`      | Changelog from git log since last tag                          |
-| `/cleanup`        | Remove dead code, console.logs, unused imports                 |
-| `/deps`           | Check outdated, unused, vulnerable dependencies                |
-| `/env-check`      | Compare `.env.example` vs `.env` to find gaps                  |
-| `/sprint`         | Today's task breakdown by priority                             |
-| `/todo`           | Add a task from natural language                               |
-| `/done`           | Mark a task complete                                           |
-| `/inbox`          | Process all open tasks + emails + PRs                          |
-| `/build`          | Run build checks and fix errors                                |
-| `/test`           | Write or run tests for the current feature                     |
-| `/debug`          | Systematic debug protocol: read error, trace, fix              |
-| `/trace`          | Trace a bug to its root cause                                  |
-| `/refactor`       | Refactor selected code cleanly                                 |
-| `/design`         | Design review against the D1 design system                     |
-| `/api`            | Scaffold a new API route with validation                       |
-| `/database`       | Scaffold migration, types, and query functions                 |
-| `/context-update` | Manually trigger context file sync                             |
-| `/scratchpad`     | Capture quick ideas                                            |
-| `/imovie`         | AirDrop-to-iMovie automation (macOS)                           |
-
-Classes and life:
-
-| Command       | What it does                                                       |
-| ------------- | ------------------------------------------------------------------ |
-| `/syllabus`   | Read a syllabus end to end into the ledger, every date sourced     |
-| `/due`        | What is due, soonest first, and the one thing to start now         |
-| `/week`       | The week ahead: classes, deadlines, and whether the load fits      |
-| `/class-prep` | Next session: what is due, what to read, what to bring             |
-| `/study`      | A study plan built backwards from the exam date and material range |
-| `/quiz`       | Active recall drill, one question at a time, graded honestly       |
-| `/lecture`    | Notes or slides into retrieval questions, cards, and confusions    |
-| `/reading`    | Work an assigned reading against the prompt that will grade it     |
-| `/postmortem` | After a graded exam, sort every wrong answer by cause              |
-| `/grades`     | Where the grade stands and what the remaining work has to do       |
-| `/attendance` | Absence budget, what the next one costs, how to buy it back        |
-| `/life`       | Weekly review: what shipped, what is stuck, what got dropped       |
 
 ---
 
@@ -431,6 +409,72 @@ fails, and `setup.sh` runs it automatically at the end.
 
 Run it after install, and any time Claude starts behaving like it forgot the
 standards.
+
+---
+
+## The slash commands
+
+You do not need these. Ask for what you want in plain words and the right thing
+loads itself. They exist for the times you want one specific routine, run the
+same way every time, without describing it again.
+
+Skim once, forget them, and come back if you ever want one.
+
+| Command           | What it does                                                   |
+| ----------------- | -------------------------------------------------------------- |
+| `/new-project`    | Scaffold Next.js + shadcn/ui + Tailwind + all deps in one shot |
+| `/push`           | Secret scan, smart commit message, push                        |
+| `/deploy`         | Quality gate + Vercel deploy                                   |
+| `/ship`           | Typecheck + lint + tests before any merge                      |
+| `/audit`          | Security scan + code quality + design quality                  |
+| `/pr-shepherd`    | Full PR lifecycle: review, fix, CI, merge                      |
+| `/respond-pr`     | Read all review comments, implement fixes, reply with SHAs     |
+| `/fix-issue`      | Fetch GitHub issue, branch, research, implement, commit        |
+| `/review-pr`      | Deep code review with inline comments                          |
+| `/review`         | Review current file or selection                               |
+| `/review-project` | Deep audit a project: bugs, incomplete work, security issues   |
+| `/triage-issues`  | Classify issues, score severity, detect duplicates, prioritize |
+| `/triage-prs`     | PR dashboard by module, review state, scope, and risk          |
+| `/daily-brief`    | Today's tasks + GitHub PRs + focused plan                      |
+| `/morning`        | Morning standup: yesterday, today, blockers                    |
+| `/close-loop`     | End-of-session: commit, push, log, set up tomorrow             |
+| `/standup`        | Generate standup from git log                                  |
+| `/changelog`      | Changelog from git log since last tag                          |
+| `/cleanup`        | Remove dead code, console.logs, unused imports                 |
+| `/deps`           | Check outdated, unused, vulnerable dependencies                |
+| `/env-check`      | Compare `.env.example` vs `.env` to find gaps                  |
+| `/sprint`         | Today's task breakdown by priority                             |
+| `/todo`           | Add a task from natural language                               |
+| `/done`           | Mark a task complete                                           |
+| `/inbox`          | Process all open tasks + emails + PRs                          |
+| `/build`          | Run build checks and fix errors                                |
+| `/test`           | Write or run tests for the current feature                     |
+| `/debug`          | Systematic debug protocol: read error, trace, fix              |
+| `/trace`          | Trace a bug to its root cause                                  |
+| `/refactor`       | Refactor selected code cleanly                                 |
+| `/design`         | Design review against the D1 design system                     |
+| `/api`            | Scaffold a new API route with validation                       |
+| `/database`       | Scaffold migration, types, and query functions                 |
+| `/context-update` | Manually trigger context file sync                             |
+| `/scratchpad`     | Capture quick ideas                                            |
+| `/imovie`         | AirDrop-to-iMovie automation (macOS)                           |
+
+Classes and life:
+
+| Command       | What it does                                                       |
+| ------------- | ------------------------------------------------------------------ |
+| `/syllabus`   | Read a syllabus end to end into the ledger, every date sourced     |
+| `/due`        | What is due, soonest first, and the one thing to start now         |
+| `/week`       | The week ahead: classes, deadlines, and whether the load fits      |
+| `/class-prep` | Next session: what is due, what to read, what to bring             |
+| `/study`      | A study plan built backwards from the exam date and material range |
+| `/quiz`       | Active recall drill, one question at a time, graded honestly       |
+| `/lecture`    | Notes or slides into retrieval questions, cards, and confusions    |
+| `/reading`    | Work an assigned reading against the prompt that will grade it     |
+| `/postmortem` | After a graded exam, sort every wrong answer by cause              |
+| `/grades`     | Where the grade stands and what the remaining work has to do       |
+| `/attendance` | Absence budget, what the next one costs, how to buy it back        |
+| `/life`       | Weekly review: what shipped, what is stuck, what got dropped       |
 
 ---
 
