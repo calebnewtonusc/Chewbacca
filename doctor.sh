@@ -301,6 +301,10 @@ else
     warn "mac missing, no Calendar/Contacts/Messages/Notes access"
   fi
 
+  [ -d "/Applications/Plynn.app" ] &&
+    ok "Plynn installed (hold fn to dictate)" ||
+    warn "Plynn missing, no on-device dictation (bin/install-plynn.sh)"
+
   [ -d "/Applications/Maccy.app" ] &&
     ok "Maccy installed" ||
     warn "Maccy missing (brew install --cask maccy)"
