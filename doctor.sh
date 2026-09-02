@@ -89,14 +89,33 @@ else
   bad "no ~/.claude/settings.json" "run setup.sh"
 fi
 
-for h in session-context format-and-sync stop-check env-guard; do
+# Check the behavior, not the filename. This used to require the kit's own
+# script for each role and failed anyone who wired the same behavior inline in
+# settings.json, which is a legitimate setup and was the author's own. A check
+# that fails a working install teaches people to ignore the checker.
+for pair in \
+  "session-context:SessionStart" \
+  "format-and-sync:PostToolUse" \
+  "stop-check:Stop" \
+  "env-guard:PreToolUse"; do
+  h="${pair%%:*}"
+  event="${pair##*:}"
   f="$CLAUDE_DIR/hooks/$h.sh"
-  if [ ! -f "$f" ]; then
-    bad "hook missing: $h.sh" "run setup.sh, or copy .claude/hooks/ to ~/.claude/hooks/"
-  elif [ ! -x "$f" ]; then
+  if [ -f "$f" ] && [ ! -x "$f" ]; then
     bad "hook not executable: $h.sh" "chmod +x $f"
-  else
+  elif [ -x "$f" ]; then
     ok "hook installed: $h.sh"
+  elif python3 -c "
+import json, sys, pathlib
+try:
+    d = json.loads((pathlib.Path.home() / '.claude/settings.json').read_text())
+except Exception:
+    sys.exit(1)
+sys.exit(0 if d.get('hooks', {}).get('$event') else 1)
+" 2>/dev/null; then
+    ok "$event wired (not via $h.sh)"
+  else
+    bad "nothing wired for $event" "run setup.sh, or copy .claude/hooks/ to ~/.claude/hooks/"
   fi
 done
 
