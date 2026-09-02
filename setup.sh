@@ -1021,6 +1021,11 @@ done
 # macOS command-line tools. Skipped without Homebrew, and skipped one by
 # one if already present, so this is safe to re-run.
 if command -v brew &>/dev/null; then
+  if command -v Anki &>/dev/null; then
+    log "Anki already installed"
+  else
+    brew install --cask anki &>/dev/null && log "Anki installed" || warn "could not install Anki"
+  fi
   if command -v bd &>/dev/null; then
     log "bd already installed"
   else
