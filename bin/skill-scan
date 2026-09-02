@@ -182,11 +182,17 @@ function scoreSkill(dir) {
     if (TRIGGER_CUES.some((c) => lower.includes(c))) trigger += 9;
     else issues.push(["trigger", 'no explicit trigger clause ("Use when...") in the description']);
 
-    // concrete routing nouns: quoted terms, slash commands, file globs, proper tools
+    // Concrete routing signal. Anything that gives the router something specific
+    // to match on: quoted or backticked terms, filenames, slash commands, named
+    // tools and formats (PDF, Figma, BigQuery), and parenthesised enumerations,
+    // which are how a description says "specifically these cases".
     const concrete =
       (desc.match(/[`"'][^`"']{2,}[`"']/g) || []).length +
-      (desc.match(/\b[a-z0-9_-]+\.(md|json|py|js|ts|sh|csv|pdf)\b/gi) || []).length +
-      (desc.match(/\/[a-z][a-z0-9-]+/g) || []).length;
+      (desc.match(/\b[a-z0-9_-]+\.(md|json|py|js|ts|sh|csv|pdf|ya?ml)\b/gi) || []).length +
+      (desc.match(/\/[a-z][a-z0-9-]+/g) || []).length +
+      (desc.match(/\b[A-Z]{2,}\b/g) || []).length +
+      (desc.match(/\([^)]{12,}\)/g) || []).length +
+      (desc.match(/(?<=[a-z,] )[A-Z][a-zA-Z]{2,}/g) || []).length;
     if (concrete >= 2) trigger += 7;
     else if (concrete === 1) trigger += 4;
     else issues.push(["trigger", "description names no concrete artifacts, commands, or file types"]);
