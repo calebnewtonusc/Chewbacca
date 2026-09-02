@@ -275,9 +275,17 @@ else
   fi
 
   if command -v gog >/dev/null 2>&1; then
-    gog auth status 2>/dev/null | grep -q "config_exists\ttrue" &&
-      ok "gog authenticated" ||
-      warn "gog installed but not logged in (gog auth login)"
+    # Three states, not two. Credentials stored with no token means the OAuth
+    # client exists and only the consent click is left, which is most of the
+    # work done: reporting that as "not logged in" hides real progress.
+    if gog auth list 2>/dev/null | grep -qv "No tokens stored" &&
+      [ -n "$(gog auth list --plain 2>/dev/null)" ]; then
+      ok "gog authorized"
+    elif gog auth credentials list 2>/dev/null | grep -q "^default"; then
+      warn "gog has OAuth credentials but no token yet (gog auth add <your-account>)"
+    else
+      warn "gog installed but has no OAuth client (see skills/agent-setup)"
+    fi
   else
     warn "gog missing, no Gmail/Calendar/Drive from the terminal"
   fi

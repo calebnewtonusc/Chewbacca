@@ -36,6 +36,14 @@ Screen Recording and Accessibility are granted once in System Settings under
 Privacy and Security. Until both are on, capture returns an empty image and
 clicks do nothing, with no error worth reading.
 
+**If permissions read Granted and capture still fails**, it is not TCC. Peekaboo
+prefers a remote Bridge host (Peekaboo.app, Claude.app, Clawdis.app) over
+running in-process, and when one of those is open without its own grants, every
+capture fails with "Screen recording permission is required" while the calling
+process holds both. Nothing in `~/.peekaboo/config.json` controls this, so the
+kit installs a wrapper at `~/.local/bin/peekaboo` that appends `--no-remote`.
+Set `PEEKABOO_ALLOW_REMOTE=1` to opt back in.
+
 ```bash
 peekaboo image --app Safari --path /tmp/shot.png   # capture one app
 peekaboo list apps                                  # what is running
@@ -144,9 +152,25 @@ cp bin/mac_use_cli.py ~/Projects/macOS-use/mac_use_cli.py
 cp bin/mac-use ~/.local/bin/mac-use && chmod +x ~/.local/bin/mac-use
 ```
 
-It needs one of `GEMINI_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` and
-picks the first it finds, in that order. Without one it prints which variables
-it looked for and exits 2. `MACOS_USE_HOME` overrides the clone location.
+### It does not need an API key either
+
+With no key set, it falls back to the Claude CLI already on the machine, the
+same way `summarize` does. `bin/mac_use_claude.py` implements the LangChain
+model that macOS-use expects, including the `with_structured_output` contract
+its agent loop depends on, by asking for JSON and parsing it back.
+
+```bash
+mac-use --provider claude-cli "open Calculator"   # force it
+```
+
+Two costs to know before running a long task. Each agent step is a full Claude
+CLI session, so it re-caches your `~/.claude/CLAUDE.md` every time: about ten
+cents a step here, which a 25-step task turns into real money. And because the
+CLI loads those instructions, anything telling Claude to always open a certain
+way appears in its reply, so the JSON is found inside the response rather than
+being the whole of it. Set `GEMINI_API_KEY`, `OPENAI_API_KEY`, or
+`ANTHROPIC_API_KEY` to skip both problems; the first one found wins, in that
+order. `MACOS_USE_HOME` overrides the clone location.
 
 Upstream turns on PostHog telemetry by default. The wrapper sets
 `ANONYMIZED_TELEMETRY=false` unless you export it yourself.
@@ -273,6 +297,45 @@ anything you removed.
 
 ---
 
+## chrome-js
+
+Some setup steps live behind a web console with no API. `chrome-js` reads and
+clicks those pages through JavaScript, which beats screenshot-and-click: it is
+deterministic, it survives the window moving, and it never captures the screen.
+That last point matters on a machine someone is using, where a screenshot can
+catch a password field.
+
+```bash
+chrome-js --check                                   # which profiles allow JS
+chrome-js --list                                    # every tab Chrome exposes
+chrome-js --open "<url>" --profile Default --match "<url-part>" --text
+chrome-js --match "<url-part>" --click "Next"
+chrome-js --match "<url-part>" --eval "document.title"
+```
+
+Two things will waste your afternoon if you do not know them:
+
+- **"Allow JavaScript from Apple Events" is per profile, not per browser.** A
+  window in a profile without it fails every call with the same opaque error.
+  `chrome-js --check` prints the state of each profile and the account on it.
+- **Chrome exposes one AppleScript-visible instance.** Windows in other profiles
+  or other user-data-dirs are invisible to it, so `--open` takes `--profile`,
+  and `--list` is worth running before assuming a tab is there.
+
+## Letting Claude finish the setup
+
+The steps above that need a browser or a permission dialog are what the
+[agent-setup](../skills/agent-setup) skill is for. After `setup.sh`:
+
+```bash
+claude "run the agent-setup skill and finish whatever doctor.sh says is missing"
+```
+
+It checks what is actually missing, does the CLI and console work itself, and
+stops at the two things that are genuinely yours: a TCC checkbox, and the
+consent screen granting access to your own Google account. It also checks
+whether you are mid-task before touching the GUI.
+
 ## Verifying
 
 ```bash
@@ -281,6 +344,7 @@ gog auth status                       # config_exists true
 summarize "https://example.com" --cli claude
 mac-use --help
 mac doctor
+chrome-js --check
 ls /Applications/Maccy.app
 ls ~/.claude/skills | wc -l
 ```

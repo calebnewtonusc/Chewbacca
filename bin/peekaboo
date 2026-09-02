@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# peekaboo wrapper: force local execution.
+#
+# Peekaboo prefers a remote Bridge host (Peekaboo.app, Claude.app, Clawdis.app)
+# over running in-process, and falls back to local only when none is found. When
+# one of those apps is running WITHOUT Screen Recording and Accessibility grants,
+# every capture fails with "Screen recording permission is required" even though
+# the calling process holds both. `--no-remote` pins execution to the caller.
+#
+# Nothing in ~/.peekaboo/config.json controls this, so it lives here. Set
+# PEEKABOO_ALLOW_REMOTE=1 to opt back into the bridge.
+set -euo pipefail
+
+REAL="/opt/homebrew/bin/peekaboo"
+[ -x "$REAL" ] || REAL="$(command -v -p peekaboo 2>/dev/null || true)"
+if [ -z "$REAL" ] || [ ! -x "$REAL" ]; then
+  echo "peekaboo: real binary not found (brew install openclaw/tap/peekaboo)" >&2
+  exit 127
+fi
+
+if [ -n "${PEEKABOO_ALLOW_REMOTE:-}" ]; then
+  exec "$REAL" "$@"
+fi
+
+# Appending is safe: --no-remote is a global runtime flag, accepted anywhere.
+exec "$REAL" "$@" --no-remote

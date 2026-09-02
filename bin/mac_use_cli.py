@@ -8,6 +8,7 @@ same Agent loop as one non-interactive command.
 import argparse
 import asyncio
 import os
+import shutil
 import sys
 
 from pydantic import SecretStr
@@ -23,8 +24,22 @@ PROVIDERS = (
     ("ANTHROPIC_API_KEY", "anthropic", "claude-sonnet-4-20250514"),
 )
 
+# The key-free fallback. Claude Code is already installed and already logged in,
+# so the agent can run with no provider account at all. It is slower and costs
+# more per step than a direct API call, which is why a real key still wins.
+CLI_PROVIDER = "claude-cli"
+
+
+def build_claude_cli(model="sonnet"):
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from mac_use_claude import ClaudeCLIChatModel
+
+    return ClaudeCLIChatModel(model=model)
+
 
 def build_llm(preferred=None):
+    if preferred == CLI_PROVIDER:
+        return build_claude_cli(), CLI_PROVIDER
     for env, name, model in PROVIDERS:
         if preferred and name != preferred:
             continue
@@ -42,6 +57,11 @@ def build_llm(preferred=None):
         from langchain_anthropic import ChatAnthropic
 
         return ChatAnthropic(model=model, api_key=SecretStr(key)), name
+    if preferred:
+        return None, None
+    # No key anywhere. Fall back to the CLI rather than refusing to run.
+    if shutil.which(os.environ.get("CLAUDE_PATH", "claude")):
+        return build_claude_cli(), CLI_PROVIDER
     return None, None
 
 
@@ -59,15 +79,18 @@ def main():
     p.add_argument("--vision", action="store_true", help="send screenshots to the model")
     p.add_argument(
         "--provider",
-        choices=[name for _, name, _ in PROVIDERS],
-        help="force a provider instead of first key found",
+        choices=[name for _, name, _ in PROVIDERS] + [CLI_PROVIDER],
+        help="force a provider instead of first key found, then the Claude CLI",
     )
     args = p.parse_args()
 
     llm, provider = build_llm(args.provider)
     if llm is None:
         names = ", ".join(env for env, _, _ in PROVIDERS)
-        print(f"mac-use: no API key found. Set one of: {names}", file=sys.stderr)
+        print(
+            f"mac-use: no API key ({names}) and no claude CLI on PATH.",
+            file=sys.stderr,
+        )
         return 2
 
     task = " ".join(args.task)

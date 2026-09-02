@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# chrome-js: run JavaScript in a Chrome tab and print the result.
+#
+# Built for agent-driven setup, where a step lives behind a web console that has
+# no API. Reading and clicking through JS beats screenshot-and-click: it is
+# deterministic, it survives the window moving, and it never captures the
+# screen (which on a machine someone is using can catch a password field).
+#
+#   chrome-js --open "https://console.cloud.google.com/..." --profile Default
+#   chrome-js --match "console.cloud" --file /tmp/step.js
+#   chrome-js --match "console.cloud" --text            # innerText of the page
+#   chrome-js --match "console.cloud" --click "Next"    # click a button by label
+#   chrome-js --list                                    # every tab Chrome exposes
+#
+# Requires: View > Developer > Allow JavaScript from Apple Events, in Chrome.
+#
+# Two traps this exists to avoid:
+#   1. Chrome runs one AppleScript-visible instance. Windows belonging to other
+#      profiles or other user-data-dirs are invisible to it, so --open takes a
+#      --profile and you should confirm with --list before assuming a tab exists.
+#   2. Quoting JS through shell into AppleScript into the page mangles it. The
+#      script always goes through a file, never through an argument string.
+set -euo pipefail
+
+MATCH=""; JSFILE=""; OPEN_URL=""; PROFILE=""; MODE="js"; CLICK_TEXT=""; INLINE=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --match)   MATCH="$2"; shift 2 ;;
+    --file)    JSFILE="$2"; shift 2 ;;
+    --eval)    INLINE="$2"; shift 2 ;;
+    --open)    OPEN_URL="$2"; shift 2 ;;
+    --profile) PROFILE="$2"; shift 2 ;;
+    --click)   MODE="click"; CLICK_TEXT="$2"; shift 2 ;;
+    --text)    MODE="text"; shift ;;
+    --list)    MODE="list"; shift ;;
+    --check)   MODE="check"; shift ;;
+    -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "chrome-js: unknown argument $1" >&2; exit 2 ;;
+  esac
+done
+
+TMP_JS="$(mktemp /tmp/chrome-js.XXXXXX.js)"
+trap 'rm -f "$TMP_JS"' EXIT
+
+if [ "$MODE" = "check" ]; then
+  # "Allow JavaScript from Apple Events" is per PROFILE, not per browser, and a
+  # profile without it fails every --eval with the same opaque error. Report the
+  # state of each profile rather than making someone guess which one is live.
+  python3 - <<'PY'
+import json, pathlib
+root = pathlib.Path.home() / "Library/Application Support/Google/Chrome"
+state = root / "Local State"
+names = {}
+if state.is_file():
+    try:
+        for k, v in json.loads(state.read_text())["profile"]["info_cache"].items():
+            names[k] = v.get("user_name") or v.get("name") or ""
+    except Exception:
+        pass
+found = False
+for prefs in sorted(root.glob("*/Preferences")):
+    prof = prefs.parent.name
+    try:
+        d = json.loads(prefs.read_text())
+    except Exception:
+        continue
+    ok = bool(d.get("browser", {}).get("allow_javascript_apple_events"))
+    found = True
+    print(("enabled " if ok else "DISABLED") + "  " + prof + "  " + names.get(prof, ""))
+if not found:
+    print("no Chrome profiles found")
+print("")
+print("Enable a disabled profile: open a window in it, then")
+print("View > Developer > Allow JavaScript from Apple Events.")
+PY
+  exit 0
+fi
+
+if [ "$MODE" = "list" ]; then
+  osascript <<'AS'
+tell application "Google Chrome"
+  set out to ""
+  repeat with w in windows
+    repeat with t in tabs of w
+      set out to out & (URL of t) & linefeed
+    end repeat
+  end repeat
+  return out
+end tell
+AS
+  exit 0
+fi
+
+if [ -n "$OPEN_URL" ]; then
+  # A named profile needs its own instance argument; Chrome ignores the profile
+  # when it just reuses an existing window.
+  if [ -n "$PROFILE" ]; then
+    open -na "Google Chrome" --args --profile-directory="$PROFILE" --new-window "$OPEN_URL"
+  else
+    open -a "Google Chrome" "$OPEN_URL"
+  fi
+  # Give the console app time to render past its own loading spinner. Chrome
+  # reports loading=false well before an Angular console has painted a form.
+  sleep "${CHROME_JS_SETTLE:-12}"
+  [ -n "$MATCH" ] || exit 0
+fi
+
+if [ -z "$MATCH" ]; then
+  echo "chrome-js: --match <url-substring> is required" >&2
+  exit 2
+fi
+
+case "$MODE" in
+  text)
+    cat > "$TMP_JS" <<'JS'
+document.body.innerText.replace(/\n{2,}/g, '\n').slice(0, 4000)
+JS
+    ;;
+  click)
+    # Exact label match on a visible, enabled button. Substring matching picks
+    # the wrong control on consoles that show "Next" and "Next steps".
+    cat > "$TMP_JS" <<JS
+(function(){
+  var want = $(printf '%s' "$CLICK_TEXT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))');
+  var els = document.querySelectorAll('button,[role="button"],a');
+  for (var i = 0; i < els.length; i++) {
+    var e = els[i];
+    if (e.offsetParent === null || e.disabled) continue;
+    if (e.innerText.trim() === want) { e.click(); return 'clicked:' + want; }
+  }
+  return 'NOT_CLICKABLE:' + want;
+})()
+JS
+    ;;
+  js)
+    if [ -n "$INLINE" ]; then
+      printf '%s' "$INLINE" > "$TMP_JS"
+    elif [ -n "$JSFILE" ]; then
+      cp "$JSFILE" "$TMP_JS"
+    else
+      cat > "$TMP_JS"   # read the script from stdin
+    fi
+    ;;
+esac
+
+# `|| true`: osascript exits non-zero when the page rejects the script, and
+# set -e would abort here before the diagnosis below ever prints.
+RESULT="$(osascript <<AS 2>&1 || true
+set js to (read POSIX file "$TMP_JS" as «class utf8»)
+tell application "Google Chrome"
+  repeat with w in windows
+    repeat with t in tabs of w
+      if (URL of t) contains "$MATCH" then
+        return execute t javascript js
+      end if
+    end repeat
+  end repeat
+  return "NO_TAB_MATCHING: $MATCH"
+end tell
+AS
+)"
+if printf '%s' "$RESULT" | grep -q "Executing JavaScript through AppleScript is turned off"; then
+  echo "chrome-js: this Chrome profile has JS-from-Apple-Events turned off." >&2
+  echo "           Run: chrome-js --check     (shows which profiles are enabled)" >&2
+  exit 3
+fi
+printf '%s\n' "$RESULT"
