@@ -111,9 +111,13 @@ RULES = [
         8,
         "banned word",
         re.compile(
+            # "harness" and "realm" are banned as marketing verbs and filler, not
+            # as the ordinary nouns. An agent harness is a real thing with that
+            # name, and flagging it trains people to ignore the scanner.
             r"\b(?:delve|foster|leverage|utilize|facilitate|empower|streamline|robust"
             r"|seamless|cutting-edge|game changer|paradigm shift|transformative|elevate"
-            r"|harness|meticulous|intricate|realm|tapestry|ever-evolving)\b",
+            r"|harness(?:es|ing)?\s+the\b|meticulous|intricate|tapestry|ever-evolving"
+            r"|realm\s+of)\b",
             re.I,
         ),
     ),

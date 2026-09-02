@@ -19,6 +19,22 @@ echo ""
 echo "Installing to: $PROJECT_DIR"
 echo ""
 
+# React Doctor is per project, not per machine: it scans a codebase and installs
+# a skill teaching the agent the issues it found there. Only offered when this
+# actually is a React project, because installing a React linter into a Python
+# repo is noise. Deterministic and model-free, same as ai-scan and slop-check.
+if [ -f "$PROJECT_DIR/package.json" ] &&
+  grep -qE '"(react|next)"' "$PROJECT_DIR/package.json" 2>/dev/null; then
+  if command -v npx >/dev/null 2>&1; then
+    echo "  React project detected. Installing the react-doctor skill..."
+    if (cd "$PROJECT_DIR" && npx -y react-doctor@latest install >/dev/null 2>&1); then
+      echo -e "  ${GRN}✓${NC} react-doctor skill (run: npx react-doctor)"
+    else
+      echo -e "  ${YLW}!${NC} react-doctor install failed, skipping"
+    fi
+  fi
+fi
+
 # Copy CLAUDE.md
 cp "$SCRIPT_DIR/CLAUDE.md" "$PROJECT_DIR/CLAUDE.md"
 echo -e "  ${GRN}✓${NC} CLAUDE.md"
