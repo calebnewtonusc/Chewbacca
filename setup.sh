@@ -955,11 +955,6 @@ done
 # macOS command-line tools. Skipped without Homebrew, and skipped one by
 # one if already present, so this is safe to re-run.
 if command -v brew &>/dev/null; then
-  if command -v gog &>/dev/null; then
-    log "gog already installed"
-  else
-    brew install openclaw/tap/gogcli &>/dev/null && log "gog installed" || warn "could not install gog"
-  fi
   if [ -d "/Applications/Maccy.app" ]; then
     log "Maccy already installed"
   else

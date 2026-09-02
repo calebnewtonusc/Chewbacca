@@ -123,12 +123,6 @@
   ],
   "cli": [
     {
-      "display": "gog",
-      "url": "https://github.com/openclaw/gogcli",
-      "install": "brew install openclaw/tap/gogcli",
-      "description": "Gmail, Calendar, and Drive from the terminal, after one OAuth login"
-    },
-    {
       "display": "mac",
       "url": "https://github.com/31Carlton7/mac-cli",
       "install": "see docs/MACOS-APP-CONTROL.md (clone plus swift build, no formula yet)",
