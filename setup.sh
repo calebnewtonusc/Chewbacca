@@ -932,6 +932,18 @@ fi
 section "Installing macOS tools"
 
 # BEGIN GENERATED: cli
+# Kit-owned helpers that sit in front of the installed tools.
+#   peekaboo: forces local execution, see docs/MACOS-TOOLS.md
+#   chrome-js: reads and clicks a Chrome tab through JavaScript
+mkdir -p "$HOME/.local/bin"
+for HELPER in peekaboo chrome-js; do
+  if [ -f "$SCRIPT_DIR/bin/$HELPER" ]; then
+    cp "$SCRIPT_DIR/bin/$HELPER" "$HOME/.local/bin/$HELPER"
+    chmod +x "$HOME/.local/bin/$HELPER"
+    log "$HELPER installed to ~/.local/bin/"
+  fi
+done
+
 # macOS command-line tools. Skipped without Homebrew, and skipped one by
 # one if already present, so this is safe to re-run.
 if command -v brew &>/dev/null; then
@@ -945,7 +957,7 @@ if command -v brew &>/dev/null; then
   else
     brew install --cask maccy &>/dev/null && log "Maccy installed" || warn "could not install Maccy"
   fi
-  if command -v peekaboo &>/dev/null; then
+  if [ -x /opt/homebrew/bin/peekaboo ]; then
     log "peekaboo already installed"
   else
     brew install openclaw/tap/peekaboo &>/dev/null && log "peekaboo installed" || warn "could not install peekaboo"
@@ -998,6 +1010,7 @@ else
     https://github.com/browser-use/macOS-use.git "$MU_DIR" 2>/dev/null || true
   if [ -d "$MU_DIR" ]; then
     cp "$SCRIPT_DIR/bin/mac_use_cli.py" "$MU_DIR/mac_use_cli.py"
+    cp "$SCRIPT_DIR/bin/mac_use_claude.py" "$MU_DIR/mac_use_claude.py"
     mkdir -p "$HOME/.local/bin"
     cp "$SCRIPT_DIR/bin/mac-use" "$HOME/.local/bin/mac-use"
     chmod +x "$HOME/.local/bin/mac-use"

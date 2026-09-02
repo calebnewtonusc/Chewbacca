@@ -56,7 +56,7 @@
 | **Second brain**        | Two-repo system: public `claude-context` (operational) + private `{name}-context` (personal). Auto-syncs to GitHub                                      |
 | **Smart hooks**         | Format on save, sync context repos, warn on `.env` writes, and flag unpushed work only when there is any                                                |
 | **4 subagents**         | context-keeper, code-reviewer, debugger, and explorer, each scoped to one job with its own tool set                                                     |
-| **Skills and plugins**  | 63 skills (6 shipped here, 3 cloned from upstream, 54 from 1 skill pack) plus 10 plugins across 3 marketplaces                                          |
+| **Skills and plugins**  | 64 skills (7 shipped here, 3 cloned from upstream, 54 from 1 skill pack) plus 10 plugins across 3 marketplaces                                          |
 | **5 macOS tools**       | Screen capture and UI control, Google Workspace, summarization, app automation, clipboard history                                                       |
 | **On-device dictation** | Installs [Plynn](https://github.com/31Carlton7/plynn): hold fn, talk, and clean text appears. Speech and cleanup run on your Mac, nothing uploaded      |
 | **Coursework ledger**   | `coursework` CLI plus 3 skills: your syllabi become deadlines, attendance budgets, and a per-course AI policy Claude checks before touching graded work |
@@ -492,6 +492,7 @@ subagents behind one versioned install.
 
 | Extension                                                                           | Layer  | What it does                                                                                   |
 | ----------------------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------- |
+| [skills/agent-setup](skills/agent-setup)                                            | Skill  | Finishing the install steps that need a browser or a permission dialog                         |
 | [skills/coursework](skills/coursework)                                              | Skill  | Your syllabi as a ledger: deadlines, attendance math, per-course AI policy                     |
 | [skills/graph-engineering](skills/graph-engineering)                                | Skill  | Knowledge graphs and agent task graphs, with teaching mode                                     |
 | [skills/life-ops](skills/life-ops)                                                  | Skill  | The weekly review, life admin with real deadlines, and what to cut                             |
@@ -541,10 +542,18 @@ installed alongside the kit, not vendored into it.
 
 <!-- END GENERATED: cli -->
 
-`peekaboo` needs Screen Recording and Accessibility granted once in System
-Settings. `gog` needs one OAuth login. `summarize` and `mac-use` each need a
-provider API key. Setup, permissions, and the failure modes are in
-[docs/MACOS-TOOLS.md](docs/MACOS-TOOLS.md).
+`summarize` and `mac-use` both run on the Claude CLI you already have, so
+neither needs an API key. `peekaboo` needs Screen Recording and Accessibility
+granted once, and `gog` needs one Google OAuth login. Those last two are what
+the [agent-setup](skills/agent-setup) skill exists for: after `setup.sh`, run
+
+```bash
+claude "run the agent-setup skill and finish whatever doctor.sh says is missing"
+```
+
+and Claude does the console and CLI work itself, stopping only at the checkbox
+and the consent screen that are genuinely yours to click. Setup, permissions,
+and the failure modes are in [docs/MACOS-TOOLS.md](docs/MACOS-TOOLS.md).
 
 That table is generated the same way the extension table is: a tool appears only
 once the generator finds it on the machine, so an entry here is proof of an
@@ -674,6 +683,9 @@ D1-Vibe-Coding/
 │   ├── ai-scan                  # Scores prose for AI-writing tells, no model
 │   ├── coursework               # Reads the semester ledger: due, attendance, grades, ics
 │   ├── mac-use                  # CLI for macOS-use, which ships none upstream
+│   ├── mac_use_claude.py        # Runs mac-use on the Claude CLI, no API key
+│   ├── peekaboo                 # Forces local execution, skips the broken Bridge
+│   ├── chrome-js                # Read and click a Chrome tab through JavaScript
 │   └── mac_use_cli.py           # The agent loop behind mac-use
 ├── examples/
 │   └── todo-app/                # Working Worker + D1 example (deploy in 60s)
