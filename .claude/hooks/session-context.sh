@@ -27,6 +27,15 @@ export PERSONAL_CONTEXT_DIR="${PERSONAL_CONTEXT_DIR:-}"
 export CONTEXT_OWNER="${CONTEXT_OWNER:-}"
 export TODOIST_API_TOKEN="${TODOIST_API_TOKEN:-}"
 
+# The coursework ledger, if there is one. Deadlines are the context most worth
+# having before the first question, and asking for them costs a round trip.
+# Silent when the CLI is missing or the ledger is empty.
+COURSEWORK_JSON=""
+if command -v coursework >/dev/null 2>&1; then
+  COURSEWORK_JSON="$(coursework due --days 7 --json 2>/dev/null || true)"
+fi
+export COURSEWORK_JSON
+
 # Values reach python through the environment, never by string interpolation.
 # A token containing a quote or a backslash would otherwise break the script.
 python3 <<'PY'
@@ -134,7 +143,25 @@ if token:
     except Exception:
         tasks = ""
 
+due_line = ""
+raw = os.environ.get("COURSEWORK_JSON", "")
+if raw.strip():
+    try:
+        data = json.loads(raw)
+        bits = []
+        for d in data.get("overdue", [])[:3]:
+            bits.append(f"OVERDUE {d['course']} {d['name']}")
+        for d in data.get("upcoming", [])[:4]:
+            when = d.get("date") or ""
+            bits.append(f"{d['course']} {d['name']} due {when}")
+        if bits:
+            due_line = "Coursework: " + "; ".join(bits) + "."
+    except Exception:
+        due_line = ""
+
 chunks = []
+if due_line:
+    chunks.append(due_line)
 if tasks:
     chunks.append(f"Today's priorities: {tasks}.")
 if context:

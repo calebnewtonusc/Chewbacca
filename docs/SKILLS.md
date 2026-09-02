@@ -10,14 +10,22 @@ Install to `~/.claude/skills/<name>/` for every project, or
 
 ## What this kit ships
 
-| Skill                                                                 | Loads when                                                                                 |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| [second-brain](../skills/second-brain)                                | Reading or writing the personal context repo, or auditing it for rot                       |
-| [stack-rules](../skills/stack-rules)                                  | Writing UI, API, database, deploy, test, or accessibility code                             |
-| [graph-engineering](../skills/graph-engineering)                      | Building knowledge graphs, or orchestrating agents as task graphs                          |
-| [no-ai-slop](https://github.com/petergyang/no-ai-slop)                | Editing a draft, or checking whether prose reads as machine-written                        |
-| [avoid-ai-writing](https://github.com/conorbronsdon/avoid-ai-writing) | A thorough writing audit, editing a file in place, or scanning docs with its Node detector |
-| [humanizer](https://github.com/blader/humanizer)                      | A second opinion on a draft, working from Wikipedia's signs-of-AI-writing catalogue        |
+| Skill                                                                 | Loads when                                                                                   |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| [second-brain](../skills/second-brain)                                | Reading or writing the personal context repo, or auditing it for rot                         |
+| [stack-rules](../skills/stack-rules)                                  | Writing UI, API, database, deploy, test, or accessibility code                               |
+| [graph-engineering](../skills/graph-engineering)                      | Building knowledge graphs, or orchestrating agents as task graphs                            |
+| [coursework](../skills/coursework)                                    | Anything school-shaped: a syllabus, a deadline, an exam, attendance, a grade, or graded work |
+| [study-system](../skills/study-system)                                | Studying, processing a lecture, an assigned reading, or a postmortem on a returned exam      |
+| [life-ops](../skills/life-ops)                                        | Planning a week, a non-academic deadline, an overloaded week, or the weekly review           |
+| [no-ai-slop](https://github.com/petergyang/no-ai-slop)                | Editing a draft, or checking whether prose reads as machine-written                          |
+| [avoid-ai-writing](https://github.com/conorbronsdon/avoid-ai-writing) | A thorough writing audit, editing a file in place, or scanning docs with its Node detector   |
+| [humanizer](https://github.com/blader/humanizer)                      | A second opinion on a draft, working from Wikipedia's signs-of-AI-writing catalogue          |
+
+`coursework` is the one with a program behind it. The skill handles judgment;
+`bin/coursework` answers the factual questions off a ledger built from the
+syllabi, so a deadline costs a shell call rather than a re-read of a PDF. See
+[SCHOOL.md](SCHOOL.md).
 
 `second-brain` is the one that does not exist anywhere else. Every registry
 below has skills for talking to APIs; none of them have a skill for keeping a

@@ -329,6 +329,33 @@ else
   fi
 fi
 
+# ── Coursework ────────────────────────────────────────────────────────────────
+section "Coursework"
+
+COURSEWORK_HOME="${COURSEWORK_DIR:-$HOME/coursework}"
+if command -v coursework >/dev/null 2>&1; then
+  ok "coursework CLI on PATH"
+  if [ -d "$COURSEWORK_HOME" ]; then
+    CW_COURSES="$(ls "$COURSEWORK_HOME"/courses/*.yml 2>/dev/null | wc -l | tr -d ' ')"
+    if [ "$CW_COURSES" -gt 0 ]; then
+      ok "$CW_COURSES course file(s) in $COURSEWORK_HOME/courses"
+      # `coursework check` exits non-zero on a ledger that parses but lies by
+      # omission: a deadline with no source, a course with no AI policy.
+      if coursework check >/dev/null 2>&1; then
+        ok "ledger validates"
+      else
+        warn "ledger has gaps. Run: coursework check"
+      fi
+    else
+      warn "no course files yet. Run /syllabus on a syllabus PDF."
+    fi
+  else
+    warn "no ledger at $COURSEWORK_HOME. Run setup.sh, or mkdir -p $COURSEWORK_HOME/courses"
+  fi
+else
+  warn "coursework not on PATH, so /due, /week, and /attendance have no data source"
+fi
+
 # ── Secrets ───────────────────────────────────────────────────────────────────
 section "Secrets"
 

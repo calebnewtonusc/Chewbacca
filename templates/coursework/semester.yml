@@ -1,0 +1,38 @@
+# semester.yml: the term itself. Lives at $COURSEWORK_DIR/semester.yml
+# (default ~/coursework/semester.yml).
+#
+# Every date is YYYY-MM-DD and local. Copy them from the registrar's calendar,
+# which is usually printed in the back of a syllabus, and cite where you got
+# them. A date nobody can trace is a date nobody should trust.
+
+term: Fall 2026
+school: Example University
+starts: 2026-08-24
+ends: 2026-12-04
+source: "registrar academic calendar, printed on the ACAD 324g syllabus p19"
+
+finals:
+  starts: 2026-12-09
+  ends: 2026-12-16
+
+# The deadlines that cost money or a transcript mark. These are the ones worth
+# a calendar alarm, because none of them are negotiable after the fact.
+milestones:
+  - {
+      name: "Last day to drop without a W, or change to P/NP",
+      date: 2026-09-11,
+    }
+  - { name: "Last day to drop without a W on the transcript", date: 2026-10-09 }
+  - { name: "Last day to withdraw with a W", date: 2026-11-13 }
+
+# No class on these days. The CLI does not skip meetings on them yet; they are
+# here so you and Claude both stop planning work into a closed campus.
+breaks:
+  - { name: "Labor Day", starts: 2026-09-07, ends: 2026-09-07 }
+  - { name: "Fall recess", starts: 2026-10-08, ends: 2026-10-09 }
+  - { name: "Veterans Day", starts: 2026-11-11, ends: 2026-11-11 }
+  - { name: "Thanksgiving", starts: 2026-11-25, ends: 2026-11-29 }
+
+# Optional. Courses can live here as a list instead of in courses/*.yml, but one
+# file per course is easier to edit and much easier to diff.
+# courses: []

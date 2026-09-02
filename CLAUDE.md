@@ -540,6 +540,46 @@ The `mac` JSON contract and its limits: [docs/MACOS-APP-CONTROL.md](docs/MACOS-A
 
 ---
 
+## CLASSES AND LIFE: READ THE LEDGER, NEVER GUESS A DATE
+
+If a coursework ledger exists (`~/coursework`, or `$COURSEWORK_DIR`), it is the
+source of truth for anything school-shaped. The `coursework` CLI reads it.
+
+| Question                        | Command                          |
+| ------------------------------- | -------------------------------- |
+| What is due?                    | `coursework due --days 14`       |
+| What is today?                  | `coursework today`               |
+| Does the week fit?              | `coursework week`                |
+| Can I miss Wednesday?           | `coursework attendance <course>` |
+| Where does the grade stand?     | `coursework grade <course>`      |
+| What is this class's AI policy? | `coursework policy <course> ai`  |
+
+Rules that apply to every session, not just school ones:
+
+- **Never state a deadline you did not read.** A confidently wrong date is worse
+  than "I do not know", because the user stops checking. Run the CLI or cite the
+  syllabus page. Every date in the ledger carries a `source` for exactly this.
+- **Check the AI policy before helping with anything graded.** One term can carry
+  three different rules: banned outright, allowed with mandatory prompt
+  disclosure, allowed for ideation but not the submitted artifact. Say which one
+  applies, in a line, before doing the work. An unrecorded policy is a ban.
+- **Run the CLI instead of parsing the YAML.** It is deterministic and costs no
+  reasoning. Add `--json` when you need values rather than display.
+- **Update the ledger in the same turn.** A date announced in class, an absence
+  taken, an assignment finished, a score posted. Nobody remembers `absences.used`
+  in November, and it is the field that decides a grade step.
+- **Do not do the learning for them.** The goal is the version of the user who
+  can do it unaided in the exam room. Quiz, explain, find the broken step, build
+  the plan. In a course that permits it, still say when a request would skip the
+  part that matters, once, then respect the answer.
+- **Plan against real capacity.** A week built for someone with no bad days fails
+  on Tuesday and then feels like a character flaw. Count the fixed hours first.
+
+Load the `coursework`, `study-system`, and `life-ops` skills for the detail.
+Full walkthrough: [docs/SCHOOL.md](docs/SCHOOL.md).
+
+---
+
 ## AGENTIC WORKFLOW: PARALLEL EXECUTION ALWAYS
 
 When a task can be split into independent sub-tasks, always parallelize. Never work sequentially when parallel is possible.
@@ -729,6 +769,7 @@ This relies on the second brain system created by `setup.sh`. See [second-brain/
 | Life event or major identity shift                     | `{name}-context/YOU.md`                                  |
 | New API key, service credential, or endpoint           | `{name}-context/SYSTEM.md`                               |
 | Stack preference changes                               | `{name}-context/STACK.md`                                |
+| Term starts, grade posts, deadline moves, absence taken | Ledger in `~/coursework`, plus `{name}-context/SCHOOL.md` |
 | New person in your network or collaborator context     | `{name}-context/PEOPLE.md`                               |
 
 > Replace `{name}` with your name from `setup.sh` (e.g., `john-context`).
@@ -748,6 +789,7 @@ This relies on the second brain system created by `setup.sh`. See [second-brain/
 | `PEOPLE.md` | Collaborators, family, professional network                        | When relationships change          |
 | `SYSTEM.md` | Hooks, commands, MCP, APIs, infrastructure                         | When infrastructure changes        |
 | `STACK.md`  | Tech stack, design system, code standards                          | When stack preferences change      |
+| `SCHOOL.md` | The term, what each course demands, AI policy per course, what is at risk | When a term starts or standing changes |
 
 ### Granular session memory (`.claude/projects/.../memory/`)
 

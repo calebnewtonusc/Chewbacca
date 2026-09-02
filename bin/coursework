@@ -1,0 +1,966 @@
+#!/usr/bin/env node
+/**
+ * coursework: read a semester ledger and answer the questions a syllabus
+ * already answered, without spending a model call to re-read the PDF.
+ *
+ *   coursework due [--days 14]        what is due, soonest first
+ *   coursework today                  today's classes and today's deadlines
+ *   coursework week                   the next seven days, day by day
+ *   coursework attendance [course]    absences used against the budget
+ *   coursework grade [course]         weighted standing and what is left
+ *   coursework policy <course> [key]  ai | late | attendance | exams | grading
+ *   coursework ics [--out file.ics]   every deadline as a calendar file
+ *   coursework check                  validate the ledger, loudly
+ *
+ * Add --json to any read command for machine output.
+ *
+ * The ledger lives in $COURSEWORK_DIR (default ~/coursework):
+ *
+ *   semester.yml        term name, start, end, finals window, breaks
+ *   courses/*.yml       one file per course
+ *
+ * This tool never writes to the ledger. Deadlines and grades are facts copied
+ * from a syllabus, and a program that rewrites them can silently disagree with
+ * the source. Claude and you edit the files; this only reads them. The one
+ * exception is `ics`, which writes a calendar file somewhere else entirely.
+ */
+
+"use strict";
+
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
+
+const DIR = process.env.COURSEWORK_DIR || path.join(os.homedir(), "coursework");
+const TTY = process.stdout.isTTY;
+const c = {
+  dim: (s) => (TTY ? `\x1b[2m${s}\x1b[0m` : s),
+  bold: (s) => (TTY ? `\x1b[1m${s}\x1b[0m` : s),
+  red: (s) => (TTY ? `\x1b[31m${s}\x1b[0m` : s),
+  yellow: (s) => (TTY ? `\x1b[33m${s}\x1b[0m` : s),
+  green: (s) => (TTY ? `\x1b[32m${s}\x1b[0m` : s),
+};
+
+// ── A deliberately small YAML subset ─────────────────────────────────────────
+// Maps, lists, scalars, inline {a: 1, b: 2} and [a, b], comments, quotes.
+// Not anchors, not multi-document, not block scalars. A ledger that needs
+// those is a ledger that has stopped being a ledger. Parse errors carry the
+// line number, because a silent misparse is how a deadline goes missing.
+
+let RAW_LINES = [];
+
+function parseYaml(text, file) {
+  const lines = text.split("\n");
+  RAW_LINES = lines;
+  const rows = [];
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const stripped = stripComment(raw);
+    if (!stripped.trim()) continue;
+    const indent = stripped.length - stripped.trimStart().length;
+    rows.push({ indent, text: stripped.trim(), line: i + 1 });
+  }
+  const [value] = parseBlock(
+    rows,
+    0,
+    rows.length,
+    rows.length ? rows[0].indent : 0,
+    file,
+  );
+  return value;
+}
+
+function stripComment(s) {
+  let out = "";
+  let quote = null;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (quote) {
+      out += ch;
+      if (ch === quote && s[i - 1] !== "\\") quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      out += ch;
+      continue;
+    }
+    if (ch === "#" && (i === 0 || /\s/.test(s[i - 1]))) break;
+    out += ch;
+  }
+  return out.replace(/\s+$/, "");
+}
+
+function parseBlock(rows, start, end, indent, file) {
+  if (start >= end) return [null, start];
+  if (rows[start].text.startsWith("- ") || rows[start].text === "-") {
+    return parseList(rows, start, end, indent, file);
+  }
+  return parseMap(rows, start, end, indent, file);
+}
+
+function parseMap(rows, start, end, indent, file) {
+  const map = {};
+  let i = start;
+  while (i < end && rows[i].indent >= indent) {
+    if (rows[i].indent > indent) {
+      throw err(file, rows[i].line, "unexpected indentation");
+    }
+    const { text, line } = rows[i];
+    const m = text.match(/^([A-Za-z0-9_.\- ]+):(?:\s+(.*))?$/);
+    if (!m) throw err(file, line, `expected "key: value", got "${text}"`);
+    const key = m[1].trim();
+    const inline = (m[2] || "").trim();
+    // Block scalars: "key: >-" folds the indented lines below into one string,
+    // "key: |" keeps the line breaks. Policy text is prose and belongs in a
+    // block, so this is not an optional nicety.
+    const block = inline.match(/^([>|])([-+]?)$/);
+    if (block) {
+      const [text, lastLine] = readBlock(
+        rows[i].line,
+        indent,
+        block[1] === ">",
+        block[2] !== "+",
+      );
+      map[key] = text;
+      i++;
+      while (i < end && rows[i].line <= lastLine) i++;
+      continue;
+    }
+    if (inline) {
+      map[key] = scalar(inline, file, line);
+      i++;
+      continue;
+    }
+    // Block value: everything indented deeper, plus list items at the same
+    // indent, which is how "key:\n- a\n- b" is written in the wild.
+    let j = i + 1;
+    while (
+      j < end &&
+      (rows[j].indent > indent ||
+        (rows[j].indent === indent && rows[j].text.startsWith("-")))
+    ) {
+      j++;
+    }
+    if (j === i + 1) {
+      map[key] = null;
+    } else {
+      const [value] = parseBlock(rows, i + 1, j, rows[i + 1].indent, file);
+      map[key] = value;
+    }
+    i = j;
+  }
+  return [map, i];
+}
+
+// Reads raw lines, not the comment-stripped rows: a "#" inside prose is a
+// hash, not a comment, and stripping it would silently truncate a policy.
+function readBlock(afterLine, parentIndent, folded, chomp) {
+  const out = [];
+  let last = afterLine;
+  let blockIndent = null;
+  for (let i = afterLine; i < RAW_LINES.length; i++) {
+    const raw = RAW_LINES[i];
+    if (!raw.trim()) {
+      if (blockIndent === null) continue;
+      out.push("");
+      last = i + 1;
+      continue;
+    }
+    const ind = raw.length - raw.trimStart().length;
+    if (ind <= parentIndent) break;
+    if (blockIndent === null) blockIndent = ind;
+    out.push(raw.slice(blockIndent));
+    last = i + 1;
+  }
+  let text;
+  if (folded) {
+    const paras = [];
+    let cur = [];
+    for (const line of out) {
+      if (!line.trim()) {
+        if (cur.length) paras.push(cur.join(" "));
+        cur = [];
+      } else cur.push(line.trim());
+    }
+    if (cur.length) paras.push(cur.join(" "));
+    text = paras.join("\n\n");
+  } else {
+    text = out.join("\n");
+  }
+  if (chomp) text = text.replace(/\n+$/, "");
+  return [text, last];
+}
+
+function parseList(rows, start, end, indent, file) {
+  const list = [];
+  let i = start;
+  while (i < end && rows[i].indent === indent && rows[i].text.startsWith("-")) {
+    const { text, line } = rows[i];
+    const rest = text === "-" ? "" : text.slice(2).trim();
+    let j = i + 1;
+    while (j < end && rows[j].indent > indent) j++;
+    if (
+      rest &&
+      /^[A-Za-z0-9_.\- ]+:(\s|$)/.test(rest) &&
+      !rest.startsWith("{")
+    ) {
+      // "- key: value" plus any deeper lines belong to one map.
+      const sub = [{ indent: indent + 2, text: rest, line }];
+      for (let k = i + 1; k < j; k++) sub.push(rows[k]);
+      const [value] = parseMap(sub, 0, sub.length, indent + 2, file);
+      list.push(value);
+    } else if (rest) {
+      list.push(scalar(rest, file, line));
+    } else if (j > i + 1) {
+      const [value] = parseBlock(rows, i + 1, j, rows[i + 1].indent, file);
+      list.push(value);
+    } else {
+      list.push(null);
+    }
+    i = j;
+  }
+  return [list, i];
+}
+
+function scalar(s, file, line) {
+  if (s.startsWith("{") && s.endsWith("}")) {
+    const map = {};
+    for (const part of splitTop(s.slice(1, -1))) {
+      if (!part.trim()) continue;
+      const idx = part.indexOf(":");
+      if (idx === -1)
+        throw err(file, line, `bad inline map near "${part.trim()}"`);
+      map[part.slice(0, idx).trim()] = scalar(
+        part.slice(idx + 1).trim(),
+        file,
+        line,
+      );
+    }
+    return map;
+  }
+  if (s.startsWith("[") && s.endsWith("]")) {
+    return splitTop(s.slice(1, -1))
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .map((p) => scalar(p, file, line));
+  }
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    return s.slice(1, -1).replace(/\\"/g, '"');
+  }
+  if (/^(true|yes)$/i.test(s)) return true;
+  if (/^(false|no)$/i.test(s)) return false;
+  if (/^(null|~|)$/i.test(s)) return null;
+  if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
+  return s;
+}
+
+function splitTop(s) {
+  const out = [];
+  let depth = 0;
+  let quote = null;
+  let cur = "";
+  for (const ch of s) {
+    if (quote) {
+      cur += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") quote = ch;
+    if (ch === "{" || ch === "[") depth++;
+    if (ch === "}" || ch === "]") depth--;
+    if (ch === "," && depth === 0) {
+      out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur.trim()) out.push(cur);
+  return out;
+}
+
+function err(file, line, msg) {
+  const e = new Error(`${path.basename(file)}:${line}: ${msg}`);
+  e.ledger = true;
+  return e;
+}
+
+// ── Loading ──────────────────────────────────────────────────────────────────
+
+function loadLedger() {
+  if (!fs.existsSync(DIR)) {
+    fail(
+      `no ledger at ${DIR}\n` +
+        `Create one:  mkdir -p ${DIR}/courses\n` +
+        `Then ask Claude to run /syllabus on a syllabus PDF, or copy\n` +
+        `templates/course.yml from the kit into ${DIR}/courses/.`,
+    );
+  }
+  const semesterFile = path.join(DIR, "semester.yml");
+  let semester = {};
+  if (fs.existsSync(semesterFile)) {
+    semester = read(semesterFile) || {};
+  }
+  const courses = [];
+  const inline = Array.isArray(semester.courses) ? semester.courses : [];
+  for (const course of inline) courses.push({ ...course, _file: semesterFile });
+
+  const dir = path.join(DIR, "courses");
+  if (fs.existsSync(dir)) {
+    for (const name of fs.readdirSync(dir).sort()) {
+      if (!/\.(ya?ml)$/i.test(name)) continue;
+      const file = path.join(dir, name);
+      const doc = read(file);
+      if (!doc) continue;
+      if (Array.isArray(doc))
+        doc.forEach((d) => courses.push({ ...d, _file: file }));
+      else courses.push({ ...doc, _file: file });
+    }
+  }
+  return { semester, courses };
+}
+
+function read(file) {
+  try {
+    return parseYaml(fs.readFileSync(file, "utf8"), file);
+  } catch (e) {
+    if (e.ledger) fail(e.message);
+    throw e;
+  }
+}
+
+function fail(msg) {
+  console.error(msg);
+  process.exit(1);
+}
+
+// ── Dates ────────────────────────────────────────────────────────────────────
+// Everything is local midnight. A deadline is a calendar fact, not an instant,
+// and treating it as UTC is how "due Friday" renders as Thursday in California.
+
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function parseDate(v) {
+  if (v == null) return null;
+  if (v instanceof Date) return v;
+  const s = String(v).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+function today() {
+  const n = new Date();
+  return new Date(n.getFullYear(), n.getMonth(), n.getDate());
+}
+
+function daysBetween(a, b) {
+  return Math.round((b - a) / 86400000);
+}
+
+function fmt(d) {
+  return `${DAYS[d.getDay()]} ${d.toLocaleString("en-US", { month: "short" })} ${d.getDate()}`;
+}
+
+function iso(d) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+// ── Model ────────────────────────────────────────────────────────────────────
+
+function deliverables(courses) {
+  const out = [];
+  for (const course of courses) {
+    const list = course.deliverables || course.assignments || [];
+    if (!Array.isArray(list)) continue;
+    for (const d of list) {
+      if (!d || typeof d !== "object") continue;
+      const due = parseDate(d.due);
+      out.push({
+        course: course.code || course.title || "?",
+        name: d.name || "(unnamed)",
+        due,
+        // JSON consumers read `date`, not `due`. A Date serializes to UTC, and
+        // a local-midnight deadline lands on the previous day east of Greenwich.
+        date: due ? iso(due) : null,
+        at: d.at || null,
+        type: d.type || "assignment",
+        weight:
+          d.weight != null ? d.weight : d.points != null ? d.points : null,
+        status: (d.status || "todo").toLowerCase(),
+        notes: d.notes || null,
+        file: course._file,
+      });
+    }
+  }
+  return out.sort((a, b) => (a.due || 0) - (b.due || 0));
+}
+
+function meetingsOn(courses, date) {
+  const day = DAYS[date.getDay()];
+  const out = [];
+  for (const course of courses) {
+    const meets = normalizeMeets(course.meets);
+    for (const m of meets) {
+      const days = (Array.isArray(m.days) ? m.days : [m.days]).map(String);
+      if (!days.some((d) => d.slice(0, 3).toLowerCase() === day.toLowerCase()))
+        continue;
+      out.push({
+        course: course.code || course.title || "?",
+        start: m.start || "",
+        end: m.end || "",
+        room: m.room || m.location || "",
+        label: m.label || "",
+      });
+    }
+  }
+  return out.sort((a, b) => String(a.start).localeCompare(String(b.start)));
+}
+
+function normalizeMeets(meets) {
+  if (!meets) return [];
+  if (Array.isArray(meets))
+    return meets.filter((m) => m && typeof m === "object");
+  if (typeof meets === "object") return [meets];
+  return [];
+}
+
+function findCourse(courses, query) {
+  if (!query) return null;
+  // "ACAD 324g", "acad-324", "acad324" and "ACAD324G" are the same course. Any
+  // separator a person types is noise, so strip everything but alphanumerics.
+  const norm = (s) =>
+    String(s || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  const q = norm(query);
+  if (!q) return null;
+  return (
+    courses.find((c) => norm(c.code) === q) ||
+    courses.find((c) => norm(c.code).startsWith(q)) ||
+    courses.find((c) => norm(c.code).includes(q)) ||
+    courses.find((c) =>
+      String(c.title || "")
+        .toLowerCase()
+        .includes(query.toLowerCase()),
+    ) ||
+    null
+  );
+}
+
+// ── Commands ─────────────────────────────────────────────────────────────────
+
+function cmdDue(args) {
+  const { courses } = loadLedger();
+  const days = numFlag(args, "--days", 14);
+  const now = today();
+  const all = deliverables(courses).filter((d) => d.status !== "done");
+  const overdue = all.filter((d) => d.due && d.due < now);
+  const upcoming = all.filter(
+    (d) => d.due && d.due >= now && daysBetween(now, d.due) <= days,
+  );
+  const undated = all.filter((d) => !d.due);
+
+  if (args.includes("--json")) {
+    return say(JSON.stringify({ overdue, upcoming, undated }, null, 2));
+  }
+  if (!overdue.length && !upcoming.length) {
+    return say(`Nothing due in the next ${days} days.`);
+  }
+  if (overdue.length) {
+    say(c.red(`OVERDUE (${overdue.length})`));
+    for (const d of overdue) {
+      say(
+        `  ${pad(d.course, 12)} ${d.name}  ${c.dim(fmt(d.due) + `, ${-daysBetween(now, d.due)}d ago`)}`,
+      );
+    }
+    say("");
+  }
+  say(c.bold(`DUE IN ${days} DAYS (${upcoming.length})`));
+  for (const d of upcoming) {
+    const left = daysBetween(now, d.due);
+    const when = left === 0 ? "today" : left === 1 ? "tomorrow" : `${left}d`;
+    const tint = left <= 1 ? c.red : left <= 3 ? c.yellow : (s) => s;
+    const weight = d.weight != null ? c.dim(`  ${d.weight}`) : "";
+    say(
+      `  ${pad(d.course, 12)} ${pad(d.name, 38)} ${tint(pad(when, 9))} ${c.dim(fmt(d.due))}${weight}`,
+    );
+  }
+  if (undated.length) {
+    say("");
+    say(
+      c.dim(
+        `${undated.length} deliverable(s) with no due date. Run "coursework check".`,
+      ),
+    );
+  }
+}
+
+function cmdToday(args) {
+  const { courses } = loadLedger();
+  const now = today();
+  const classes = meetingsOn(courses, now);
+  const due = deliverables(courses).filter(
+    (d) => d.status !== "done" && d.due && +d.due === +now,
+  );
+  if (args.includes("--json")) {
+    return say(JSON.stringify({ date: iso(now), classes, due }, null, 2));
+  }
+  say(c.bold(fmt(now)));
+  say("");
+  if (classes.length) {
+    for (const m of classes) {
+      say(
+        `  ${pad(m.start + (m.end ? `-${m.end}` : ""), 14)} ${pad(m.course, 12)} ${c.dim(m.room)} ${m.label ? c.dim(m.label) : ""}`,
+      );
+    }
+  } else {
+    say("  no classes today");
+  }
+  say("");
+  if (due.length) {
+    say(c.bold("DUE TODAY"));
+    for (const d of due)
+      say(`  ${pad(d.course, 12)} ${d.name}${d.at ? c.dim("  " + d.at) : ""}`);
+  } else {
+    say("  nothing due today");
+  }
+}
+
+function cmdWeek(args) {
+  const { courses } = loadLedger();
+  const now = today();
+  const span = numFlag(args, "--days", 7);
+  const due = deliverables(courses).filter((d) => d.status !== "done");
+  const out = [];
+  for (let i = 0; i < span; i++) {
+    const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
+    out.push({
+      date: iso(date),
+      classes: meetingsOn(courses, date),
+      due: due.filter((d) => d.due && +d.due === +date),
+    });
+  }
+  if (args.includes("--json")) return say(JSON.stringify(out, null, 2));
+  for (const day of out) {
+    const date = parseDate(day.date);
+    const head = fmt(date) + (+date === +now ? c.dim("  (today)") : "");
+    say(c.bold(head));
+    for (const m of day.classes) {
+      say(`  ${pad(m.start, 8)} ${pad(m.course, 12)} ${c.dim(m.room)}`);
+    }
+    for (const d of day.due) {
+      say(`  ${c.yellow("DUE")}      ${pad(d.course, 12)} ${d.name}`);
+    }
+    if (!day.classes.length && !day.due.length) say(c.dim("  clear"));
+    say("");
+  }
+}
+
+function cmdAttendance(args) {
+  const { courses } = loadLedger();
+  const target = findCourse(
+    courses,
+    args.find((a) => !a.startsWith("-")),
+  );
+  const list = target ? [target] : courses;
+  const rows = list.map((course) => {
+    const a = course.absences || {};
+    const allowed = a.allowed != null ? a.allowed : null;
+    const used = a.used != null ? a.used : 0;
+    return {
+      course: course.code || course.title,
+      allowed,
+      used,
+      left: allowed == null ? null : allowed - used,
+      penalty: a.penalty || null,
+      tardy: a.tardy_rule || null,
+      makeup: a.makeup || null,
+    };
+  });
+  if (args.includes("--json")) return say(JSON.stringify(rows, null, 2));
+  for (const r of rows) {
+    const budget =
+      r.allowed == null
+        ? c.dim("no budget recorded")
+        : r.left > 0
+          ? c.green(`${r.left} left of ${r.allowed}`)
+          : c.red(`${r.used} used, ${r.allowed} allowed`);
+    say(`${c.bold(pad(r.course, 14))} ${budget}`);
+    if (r.penalty) say(`  next absence  ${r.penalty}`);
+    if (r.tardy) say(`  tardy         ${r.tardy}`);
+    if (r.makeup) say(`  make-up       ${r.makeup}`);
+    say("");
+  }
+}
+
+function cmdGrade(args) {
+  const { courses } = loadLedger();
+  const target = findCourse(
+    courses,
+    args.find((a) => !a.startsWith("-")),
+  );
+  const list = target ? [target] : courses;
+  const want = numFlag(args, "--target", null);
+  const rows = list.map((course) => project(course, want));
+  if (args.includes("--json")) return say(JSON.stringify(rows, null, 2));
+  for (const r of rows) {
+    say(c.bold(r.course));
+    if (r.model === "contract") {
+      say(
+        `  contract-graded. ${r.note || "The CLI does not model contracts; read the policy."}`,
+      );
+      say("");
+      continue;
+    }
+    if (!r.graded) {
+      say(c.dim("  nothing graded yet"));
+      say("");
+      continue;
+    }
+    say(
+      `  standing      ${r.standing.toFixed(1)}%  ${c.dim(`(${r.gradedWeight.toFixed(0)}% of the grade is in)`)}`,
+    );
+    say(
+      `  earned        ${r.earned.toFixed(1)} of ${r.gradedWeight.toFixed(0)} possible so far`,
+    );
+    say(`  remaining     ${r.remaining.toFixed(0)}% ungraded`);
+    if (r.needed != null) {
+      const line = `  for a ${want}%   average ${r.needed.toFixed(1)}% on everything left`;
+      say(r.needed > 100 ? c.red(line + "  (not reachable)") : line);
+    }
+    say("");
+  }
+}
+
+function project(course, want) {
+  const model = (course.grading_model || "").toLowerCase();
+  if (model === "contract") {
+    return {
+      course: course.code || course.title,
+      model: "contract",
+      note: course.contract_note || null,
+    };
+  }
+  const parts = Array.isArray(course.grading) ? course.grading : [];
+  const totalPoints = parts.reduce((s, p) => s + (p.points || 0), 0);
+  let earned = 0;
+  let gradedWeight = 0;
+  let remaining = 0;
+  let graded = 0;
+  for (const p of parts) {
+    const weight =
+      p.weight != null
+        ? p.weight
+        : totalPoints
+          ? ((p.points || 0) / totalPoints) * 100
+          : 0;
+    // score is a percentage unless you give max, in which case it is raw
+    // points out of max. Anything cleverer guesses, and a guess about a grade
+    // is worse than asking for one more field.
+    const pct =
+      p.score == null
+        ? null
+        : p.max != null
+          ? (p.score / p.max) * 100
+          : p.score;
+    if (pct == null) {
+      remaining += weight;
+    } else {
+      earned += (weight * pct) / 100;
+      gradedWeight += weight;
+      graded++;
+    }
+  }
+  const standing = gradedWeight ? (earned / gradedWeight) * 100 : 0;
+  const needed =
+    want != null && remaining > 0 ? ((want - earned) / remaining) * 100 : null;
+  return {
+    course: course.code || course.title,
+    model: "weighted",
+    graded,
+    earned,
+    gradedWeight,
+    remaining,
+    standing,
+    needed,
+  };
+}
+
+function cmdPolicy(args) {
+  const { courses } = loadLedger();
+  const positional = args.filter((a) => !a.startsWith("-"));
+  const course = findCourse(courses, positional[0]);
+  if (!course) {
+    const codes = courses.map((c) => c.code || c.title).join(", ");
+    fail(
+      `no course matching "${positional[0] || ""}". Courses in the ledger: ${codes}`,
+    );
+  }
+  const key = positional[1];
+  const p = course.policies || {};
+  if (args.includes("--json"))
+    return say(JSON.stringify(key ? { [key]: p[key] } : p, null, 2));
+  if (key) {
+    if (p[key] == null)
+      fail(
+        `no "${key}" policy recorded for ${course.code}. Keys: ${Object.keys(p).join(", ") || "none"}`,
+      );
+    return say(String(p[key]));
+  }
+  say(c.bold(`${course.code}  ${course.title || ""}`));
+  for (const [k, v] of Object.entries(p)) {
+    say(`\n${c.bold(k)}\n  ${wrap(String(v), 76)}`);
+  }
+}
+
+function cmdIcs(args) {
+  const { courses, semester } = loadLedger();
+  const out =
+    flagValue(args, "--out") || path.join(process.cwd(), "coursework.ics");
+  const items = deliverables(courses).filter((d) => d.due);
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//D1 Vibe Coding//coursework//EN",
+    "CALSCALE:GREGORIAN",
+    `X-WR-CALNAME:${escapeIcs(semester.term || "Coursework")}`,
+  ];
+  const stamp = new Date()
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}/, "");
+  for (const d of items) {
+    const uid = `${slug(d.course)}-${slug(d.name)}-${iso(d.due)}@coursework`;
+    lines.push("BEGIN:VEVENT");
+    lines.push(`UID:${uid}`);
+    lines.push(`DTSTAMP:${stamp}`);
+    if (d.at && /^\d{1,2}:\d{2}/.test(String(d.at))) {
+      const [h, min] = String(d.at).split(":");
+      const p = (n) => String(n).padStart(2, "0");
+      const local = `${iso(d.due).replace(/-/g, "")}T${p(h)}${p(parseInt(min, 10))}00`;
+      lines.push(`DTSTART:${local}`);
+      lines.push(`DTEND:${local}`);
+    } else {
+      const next = new Date(
+        d.due.getFullYear(),
+        d.due.getMonth(),
+        d.due.getDate() + 1,
+      );
+      lines.push(`DTSTART;VALUE=DATE:${iso(d.due).replace(/-/g, "")}`);
+      lines.push(`DTEND;VALUE=DATE:${iso(next).replace(/-/g, "")}`);
+    }
+    lines.push(`SUMMARY:${escapeIcs(`${d.course}: ${d.name}`)}`);
+    const desc = [
+      d.type,
+      d.weight != null ? `weight ${d.weight}` : null,
+      d.notes,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+    if (desc) lines.push(`DESCRIPTION:${escapeIcs(desc)}`);
+    lines.push("END:VEVENT");
+  }
+  lines.push("END:VCALENDAR");
+  fs.writeFileSync(out, lines.map(foldIcs).join("\r\n") + "\r\n");
+  say(`${items.length} deadlines written to ${out}`);
+  say(
+    c.dim(
+      "Import it once. Re-run and re-import after the ledger changes; the UIDs are stable, so events update rather than duplicate.",
+    ),
+  );
+}
+
+function cmdCheck() {
+  const { courses, semester } = loadLedger();
+  let problems = 0;
+  const note = (msg) => {
+    problems++;
+    say(`  ${c.yellow("!")} ${msg}`);
+  };
+  say(c.bold(`Ledger: ${DIR}`));
+  say(
+    `  ${courses.length} course(s), ${deliverables(courses).length} deliverable(s)`,
+  );
+  say("");
+  if (!semester.term) note("semester.yml has no term name");
+  if (!parseDate(semester.ends))
+    note(
+      "semester.yml has no end date, so nothing can warn you about the last day to drop",
+    );
+
+  const now = today();
+  for (const course of courses) {
+    const where = path.basename(course._file || "?");
+    const name = course.code || course.title || where;
+    if (!course.code) note(`${where}: no course code`);
+    if (!normalizeMeets(course.meets).length)
+      note(`${name}: no meeting times, so "today" and "week" will not show it`);
+    if (!course.policies || !course.policies.ai) {
+      note(
+        `${name}: no AI policy recorded. This is the one field that changes what help is allowed.`,
+      );
+    }
+    if (!course.absences || course.absences.allowed == null) {
+      note(`${name}: no attendance budget recorded`);
+    }
+    const parts = Array.isArray(course.grading) ? course.grading : [];
+    const model = (course.grading_model || "").toLowerCase();
+    if (!parts.length && model !== "contract")
+      note(`${name}: no grading breakdown`);
+    const weightSum = parts.reduce((s, p) => s + (p.weight || 0), 0);
+    if (weightSum && Math.abs(weightSum - 100) > 1) {
+      note(`${name}: grading weights sum to ${weightSum}, not 100`);
+    }
+    const list = course.deliverables || [];
+    for (const d of Array.isArray(list) ? list : []) {
+      if (!d || typeof d !== "object") continue;
+      if (!d.due) note(`${name}: "${d.name || "(unnamed)"}" has no due date`);
+      else if (!parseDate(d.due))
+        note(`${name}: "${d.name}" due "${d.due}" is not YYYY-MM-DD`);
+      else if (parseDate(d.due) < now && (d.status || "todo") === "todo") {
+        note(
+          `${name}: "${d.name}" was due ${fmt(parseDate(d.due))} and is still marked todo`,
+        );
+      }
+      if (!d.source) {
+        note(
+          `${name}: "${d.name || "(unnamed)"}" has no source. Every date should cite the syllabus page it came from.`,
+        );
+      }
+    }
+  }
+  say("");
+  if (problems === 0) {
+    say(c.green("ledger is clean"));
+    return;
+  }
+  say(
+    `${problems} thing(s) to fix. None of them stop the CLI; all of them make it lie by omission.`,
+  );
+  process.exitCode = 1;
+}
+
+// ── Plumbing ─────────────────────────────────────────────────────────────────
+
+function pad(s, n) {
+  s = String(s == null ? "" : s);
+  return s.length >= n ? s.slice(0, n) : s + " ".repeat(n - s.length);
+}
+
+function wrap(s, n) {
+  const words = String(s).split(/\s+/);
+  const lines = [];
+  let cur = "";
+  for (const w of words) {
+    if ((cur + " " + w).trim().length > n) {
+      lines.push(cur.trim());
+      cur = w;
+    } else cur += " " + w;
+  }
+  if (cur.trim()) lines.push(cur.trim());
+  return lines.join("\n  ");
+}
+
+function numFlag(args, name, fallback) {
+  const i = args.indexOf(name);
+  if (i === -1 || i === args.length - 1) return fallback;
+  const n = Number(args[i + 1]);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function flagValue(args, name) {
+  const i = args.indexOf(name);
+  return i === -1 || i === args.length - 1 ? null : args[i + 1];
+}
+
+function slug(s) {
+  return String(s)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function escapeIcs(s) {
+  return String(s)
+    .replace(/\\/g, "\\\\")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,")
+    .replace(/\r?\n/g, "\\n");
+}
+
+// RFC 5545 caps a content line at 75 octets and continues with a leading
+// space. Apple Calendar forgives a long line; Google drops the event.
+function foldIcs(line) {
+  if (Buffer.byteLength(line, "utf8") <= 75) return line;
+  const out = [];
+  let cur = "";
+  for (const ch of line) {
+    const limit = out.length === 0 ? 75 : 74;
+    if (Buffer.byteLength(cur + ch, "utf8") > limit) {
+      out.push(cur);
+      cur = ch;
+    } else cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out.join("\r\n ");
+}
+
+function say(s) {
+  console.log(s);
+}
+
+const USAGE = `coursework: read your semester ledger
+
+  coursework due [--days 14]        what is due, soonest first
+  coursework today                  today's classes and today's deadlines
+  coursework week [--days 7]        the days ahead, one block each
+  coursework attendance [course]    absences used against the budget
+  coursework grade [course] [--target 90]
+  coursework policy <course> [ai|late|attendance|exams|grading]
+  coursework ics [--out file.ics]   deadlines as a calendar file
+  coursework check                  validate the ledger
+
+Add --json to any read command. Ledger: ${DIR} (set COURSEWORK_DIR to move it).
+This tool never edits the ledger.`;
+
+function main() {
+  const [cmd, ...args] = process.argv.slice(2);
+  switch (cmd) {
+    case "due":
+      return cmdDue(args);
+    case "today":
+      return cmdToday(args);
+    case "week":
+      return cmdWeek(args);
+    case "attendance":
+      return cmdAttendance(args);
+    case "grade":
+    case "grades":
+      return cmdGrade(args);
+    case "policy":
+    case "policies":
+      return cmdPolicy(args);
+    case "ics":
+    case "calendar":
+      return cmdIcs(args);
+    case "check":
+    case "doctor":
+      return cmdCheck();
+    case "-h":
+    case "--help":
+    case "help":
+    case undefined:
+      return say(USAGE);
+    default:
+      console.error(`unknown command "${cmd}"\n\n${USAGE}`);
+      process.exit(1);
+  }
+}
+
+main();
