@@ -1,5 +1,5 @@
 #!/bin/bash
-# D1 Vibe Coding: verify the install actually works.
+# Mac Claude Maxing: verify the install actually works.
 #
 # Every bug this kit shipped in its first six months failed silently. The 18
 # rules files installed and were never loaded by anything. Prettier could not

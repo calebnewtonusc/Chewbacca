@@ -1,7 +1,7 @@
 {
-  "name": "d1-vibe-coding",
+  "name": "mac-claude-maxing",
   "private": true,
-  "description": "The complete Claude Code setup for developers who ship",
+  "description": "Turn a Mac and a Claude subscription into a superpower. Nothing to remember, nothing to type.",
   "scripts": {
     "format": "prettier --write '**/*.{ts,tsx,js,jsx,json,css,md}' --ignore-path .gitignore",
     "format:check": "prettier --check '**/*.{ts,tsx,js,jsx,json,css,md}' --ignore-path .gitignore"

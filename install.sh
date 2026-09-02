@@ -1,5 +1,5 @@
 #!/bin/bash
-# D1 Vibe Coding: Quick install
+# Mac Claude Maxing: Quick install
 # Copies CLAUDE.md + .claude/ into the current project directory.
 # For full infrastructure setup (second brain, iMessage agent, MCP), run setup.sh instead.
 
@@ -13,7 +13,7 @@ PROJECT_DIR="${1:-$(pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo ""
-echo "D1 Vibe Coding: Project Install"
+echo "Mac Claude Maxing: Project Install"
 echo "================================="
 echo ""
 echo "Installing to: $PROJECT_DIR"

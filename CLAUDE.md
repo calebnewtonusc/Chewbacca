@@ -458,7 +458,7 @@ Run your session opener (see the SESSION OPENER section at the top of this file)
 Every README file created or edited should end with a consistent signature footer. Example:
 
 ```
-Built with D1 Vibe Coding
+Built with Mac Claude Maxing
 ```
 
 This applies to: new repos, updated READMEs, any markdown file that functions as a README.

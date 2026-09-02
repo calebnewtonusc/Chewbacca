@@ -1,12 +1,12 @@
 <p align="center">
-  <h1 align="center">D1 Vibe Coding</h1>
-  <p align="center">The complete Claude Code setup for developers who ship.</p>
+  <h1 align="center">Mac Claude Maxing</h1>
+  <p align="center">Turn a Mac and a Claude subscription into a superpower. Nothing to remember, nothing to type.</p>
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
-  <a href="https://github.com/calebnewtonusc/D1-Vibe-Coding/stargazers"><img src="https://img.shields.io/github/stars/calebnewtonusc/D1-Vibe-Coding?style=social" alt="Stars"></a>
-  <a href="https://github.com/calebnewtonusc/D1-Vibe-Coding/commits/main"><img src="https://img.shields.io/github/last-commit/calebnewtonusc/D1-Vibe-Coding" alt="Last Commit"></a>
+  <a href="https://github.com/calebnewtonusc/Mac-Claude-Maxing/stargazers"><img src="https://img.shields.io/github/stars/calebnewtonusc/Mac-Claude-Maxing?style=social" alt="Stars"></a>
+  <a href="https://github.com/calebnewtonusc/Mac-Claude-Maxing/commits/main"><img src="https://img.shields.io/github/last-commit/calebnewtonusc/Mac-Claude-Maxing" alt="Last Commit"></a>
 <!-- BEGIN GENERATED: badges -->
   <a href=".claude/commands"><img src="https://img.shields.io/badge/slash_commands-48-indigo" alt="Commands"></a>
   <a href=".claude/rules"><img src="https://img.shields.io/badge/always_on_rules-6-green" alt="Rules"></a>
@@ -15,14 +15,20 @@
 </p>
 
 <p align="center">
-  Drop it in and your AI pair programmer immediately writes better code, builds better UIs, and follows consistent patterns.<br>
-  One command to wire up your entire development infrastructure: second brain, hooks, MCP, and context sync.
+  One command installs the whole thing: standards, skills, subagents, hooks, MCP servers,<br>
+  and the macOS tools that let Claude see your screen, drive your apps, and read anything you point it at.
+</p>
+
+<p align="center">
+  <b>You should never have to remember a slash command.</b> Standards load themselves, skills fire on<br>
+  what you asked for, hooks run on their own, and the install finishes itself.
 </p>
 
 ---
 
 ## Table of Contents
 
+- [The Idea](#the-idea)
 - [What You Get](#what-you-get)
 - [Quick Start](#quick-start)
 - [Full Infrastructure Setup](#full-infrastructure-setup)
@@ -43,6 +49,29 @@
 - [File Structure](#file-structure)
 - [Related Repos](#related-repos)
 - [Contributing](#contributing)
+
+---
+
+## The idea
+
+A slash command you have to remember is a slash command you will not use. Every
+layer here is chosen for whether it fires on its own:
+
+| Layer          | Fires when                                         | You type |
+| -------------- | -------------------------------------------------- | -------- |
+| Standards      | Every session, or when the work touches that stack | Nothing  |
+| Skills         | Your request matches what the skill is for         | Nothing  |
+| Subagents      | The task matches the agent's job                   | Nothing  |
+| Hooks          | You save a file, start a session, or end one       | Nothing  |
+| macOS tools    | Claude needs to see a window or read a link        | Nothing  |
+| Slash commands | You want a specific routine on purpose             | `/name`  |
+
+Slash commands are last on that list for a reason. They are there when you want
+them, and nothing depends on you remembering one.
+
+Anything the installer cannot finish by itself, like a permission checkbox, is
+handed to an agent rather than to you: see
+[agent-setup](skills/agent-setup).
 
 ---
 
@@ -69,20 +98,20 @@
 **Option A: Just want CLAUDE.md + commands + rules in an existing project:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/D1-Vibe-Coding/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Mac-Claude-Maxing/main/install.sh | bash
 ```
 
 **Option B: Want the full quick-start CLAUDE.md (50 lines, essential patterns only):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/D1-Vibe-Coding/main/CLAUDE-QUICK.md > CLAUDE.md
+curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Mac-Claude-Maxing/main/CLAUDE-QUICK.md > CLAUDE.md
 ```
 
 **Option C: Want everything (second brain, hooks, MCP, full context system):**
 
 ```bash
-git clone https://github.com/calebnewtonusc/D1-Vibe-Coding
-cd D1-Vibe-Coding
+git clone https://github.com/calebnewtonusc/Mac-Claude-Maxing
+cd Mac-Claude-Maxing
 chmod +x setup.sh && ./setup.sh
 ```
 
@@ -669,7 +698,7 @@ See [examples/todo-app/README.md](examples/todo-app/README.md) for full details.
 ## File structure
 
 ```
-D1-Vibe-Coding/
+Mac-Claude-Maxing/
 ├── CLAUDE.md                    # Full design system (700 lines)
 ├── CLAUDE-QUICK.md              # Quick-start version (50 lines)
 ├── ECOSYSTEM.md                 # Curated vibe coding landscape map

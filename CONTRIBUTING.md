@@ -1,4 +1,4 @@
-# Contributing to D1 Vibe Coding
+# Contributing to Mac Claude Maxing
 
 Thank you for your interest in contributing. This project aims to be the definitive Claude Code setup for developers who ship. Contributions that raise the bar are welcome.
 

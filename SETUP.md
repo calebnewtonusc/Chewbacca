@@ -11,8 +11,8 @@
 ## Option A: One-command install
 
 ```bash
-git clone https://github.com/calebnewtonusc/D1-Vibe-Coding
-cd D1-Vibe-Coding
+git clone https://github.com/calebnewtonusc/Mac-Claude-Maxing
+cd Mac-Claude-Maxing
 chmod +x install.sh && ./install.sh
 ```
 
