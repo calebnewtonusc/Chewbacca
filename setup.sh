@@ -208,6 +208,7 @@ cp "$SCRIPT_DIR/second-brain/context/NOW.md"    "$PC_DIR/NOW.md"
 cp "$SCRIPT_DIR/second-brain/context/PEOPLE.md" "$PC_DIR/PEOPLE.md"
 cp "$SCRIPT_DIR/second-brain/context/SYSTEM.md" "$PC_DIR/SYSTEM.md"
 cp "$SCRIPT_DIR/second-brain/context/STACK.md"  "$PC_DIR/STACK.md"
+cp "$SCRIPT_DIR/second-brain/context/SCHOOL.md" "$PC_DIR/SCHOOL.md"
 
 # Pre-fill the name placeholder
 sedi "s/YOUR_NAME/$USER_NAME/g" "$PC_DIR/YOU.md"
@@ -262,7 +263,7 @@ Thumbs.db
 *.log
 GITIGNORE
 
-git add -- .gitignore YOU.md NOW.md PEOPLE.md SYSTEM.md STACK.md
+git add -- .gitignore YOU.md NOW.md PEOPLE.md SYSTEM.md STACK.md SCHOOL.md
 git diff --cached --quiet || git commit -q -m "init: $USER_NAME personal context"
 git branch -M main
 git push -u origin main -q 2>/dev/null || warn "Push failed — you may need to push manually"
@@ -289,7 +290,7 @@ Forked from [D1-Vibe-Coding](https://github.com/calebnewtonusc/D1-Vibe-Coding).
 ## What's here
 
 - \`CLAUDE.md\` — full design system, behavioral rules, coding standards
-- \`.claude/commands/\` — 36 slash commands covering the full dev lifecycle
+- \`.claude/commands/\` — 48 slash commands covering the dev lifecycle, coursework, and the weekly review
 - \`.claude/rules/\` — 6 always-on standards, imported by CLAUDE.md
 - \`.claude/hooks/\` — PostToolUse formatters and linters
 
@@ -393,6 +394,20 @@ if [ -f "$SCRIPT_DIR/bin/ai-scan" ]; then
     *":$HOME/.local/bin:"*) ;;
     *) warn "~/.local/bin is not on your PATH. Add it to run ai-scan by name." ;;
   esac
+fi
+
+# coursework reads a semester ledger built from your syllabi: what is due, what
+# an absence costs, what each course allows you to use AI for. Deterministic, so
+# Claude spends its tokens on judgment instead of re-reading a PDF.
+if [ -f "$SCRIPT_DIR/bin/coursework" ]; then
+  mkdir -p "$HOME/.local/bin"
+  cp "$SCRIPT_DIR/bin/coursework" "$HOME/.local/bin/coursework"
+  chmod +x "$HOME/.local/bin/coursework"
+  COURSEWORK_HOME="${COURSEWORK_DIR:-$HOME/coursework}"
+  mkdir -p "$COURSEWORK_HOME/courses" "$COURSEWORK_HOME/syllabi" "$COURSEWORK_HOME/templates"
+  cp "$SCRIPT_DIR/templates/coursework/"*.yml "$COURSEWORK_HOME/templates/" 2>/dev/null || true
+  log "coursework installed to ~/.local/bin/, ledger at $COURSEWORK_HOME"
+  echo "    Next: run /syllabus on a syllabus PDF to fill the ledger."
 fi
 
 # Hooks read their paths from here instead of having them baked in by string

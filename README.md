@@ -8,7 +8,7 @@
   <a href="https://github.com/calebnewtonusc/D1-Vibe-Coding/stargazers"><img src="https://img.shields.io/github/stars/calebnewtonusc/D1-Vibe-Coding?style=social" alt="Stars"></a>
   <a href="https://github.com/calebnewtonusc/D1-Vibe-Coding/commits/main"><img src="https://img.shields.io/github/last-commit/calebnewtonusc/D1-Vibe-Coding" alt="Last Commit"></a>
 <!-- BEGIN GENERATED: badges -->
-  <a href=".claude/commands"><img src="https://img.shields.io/badge/slash_commands-36-indigo" alt="Commands"></a>
+  <a href=".claude/commands"><img src="https://img.shields.io/badge/slash_commands-48-indigo" alt="Commands"></a>
   <a href=".claude/rules"><img src="https://img.shields.io/badge/always_on_rules-6-green" alt="Rules"></a>
   <a href="docs/EXTENSIONS.md"><img src="https://img.shields.io/badge/plugins-10-orange" alt="Plugins"></a>
 <!-- END GENERATED: badges -->
@@ -27,6 +27,7 @@
 - [Quick Start](#quick-start)
 - [Full Infrastructure Setup](#full-infrastructure-setup)
 - [Slash Commands](#the-slash-commands)
+- [Classes and Life](#classes-and-life)
 - [Second Brain](#the-second-brain)
 - [Design System](#the-design-system)
 - [Standards Files](#the-standards-files)
@@ -47,18 +48,19 @@
 
 ## What you get
 
-| Feature                 | Details                                                                                                                                            |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **36 slash commands**   | Full dev lifecycle: scaffold, push, deploy, audit, PR review, sprint tracking, debugging                                                           |
-| **18 standards files**  | 6 universal ones imported into every session (~3.7k tokens); 12 stack-specific ones behind a skill that loads only when the work touches them      |
-| **Full design system**  | Dark mode, shadcn/ui, Tailwind, scroll-aware navbar, real typography. Every UI looks like a funded startup's product page                          |
-| **Second brain**        | Two-repo system: public `claude-context` (operational) + private `{name}-context` (personal). Auto-syncs to GitHub                                 |
-| **Smart hooks**         | Format on save, sync context repos, warn on `.env` writes, and flag unpushed work only when there is any                                           |
-| **4 subagents**         | context-keeper, code-reviewer, debugger, and explorer, each scoped to one job with its own tool set                                                |
-| **Skills and plugins**  | 60 skills (3 shipped here, 3 cloned from upstream, 54 from 1 skill pack) plus 10 plugins across 3 marketplaces                                     |
-| **5 macOS tools**       | Screen capture and UI control, Google Workspace, summarization, app automation, clipboard history                                                  |
-| **On-device dictation** | Installs [Plynn](https://github.com/31Carlton7/plynn): hold fn, talk, and clean text appears. Speech and cleanup run on your Mac, nothing uploaded |
-| **Example project**     | Working Cloudflare Worker + D1 todo app you can deploy in 60 seconds                                                                               |
+| Feature                 | Details                                                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **48 slash commands**   | Full dev lifecycle: scaffold, push, deploy, audit, PR review, sprint tracking, debugging, plus 12 for coursework and the weekly review                  |
+| **18 standards files**  | 6 universal ones imported into every session (~3.7k tokens); 12 stack-specific ones behind a skill that loads only when the work touches them           |
+| **Full design system**  | Dark mode, shadcn/ui, Tailwind, scroll-aware navbar, real typography. Every UI looks like a funded startup's product page                               |
+| **Second brain**        | Two-repo system: public `claude-context` (operational) + private `{name}-context` (personal). Auto-syncs to GitHub                                      |
+| **Smart hooks**         | Format on save, sync context repos, warn on `.env` writes, and flag unpushed work only when there is any                                                |
+| **4 subagents**         | context-keeper, code-reviewer, debugger, and explorer, each scoped to one job with its own tool set                                                     |
+| **Skills and plugins**  | 63 skills (6 shipped here, 3 cloned from upstream, 54 from 1 skill pack) plus 10 plugins across 3 marketplaces                                          |
+| **5 macOS tools**       | Screen capture and UI control, Google Workspace, summarization, app automation, clipboard history                                                       |
+| **On-device dictation** | Installs [Plynn](https://github.com/31Carlton7/plynn): hold fn, talk, and clean text appears. Speech and cleanup run on your Mac, nothing uploaded      |
+| **Coursework ledger**   | `coursework` CLI plus 3 skills: your syllabi become deadlines, attendance budgets, and a per-course AI policy Claude checks before touching graded work |
+| **Example project**     | Working Cloudflare Worker + D1 todo app you can deploy in 60 seconds                                                                                    |
 
 ---
 
@@ -142,6 +144,98 @@ You end up with a fully wired Claude setup. Every session starts with your full 
 | `/context-update` | Manually trigger context file sync                             |
 | `/scratchpad`     | Capture quick ideas                                            |
 | `/imovie`         | AirDrop-to-iMovie automation (macOS)                           |
+
+Classes and life:
+
+| Command       | What it does                                                       |
+| ------------- | ------------------------------------------------------------------ |
+| `/syllabus`   | Read a syllabus end to end into the ledger, every date sourced     |
+| `/due`        | What is due, soonest first, and the one thing to start now         |
+| `/week`       | The week ahead: classes, deadlines, and whether the load fits      |
+| `/class-prep` | Next session: what is due, what to read, what to bring             |
+| `/study`      | A study plan built backwards from the exam date and material range |
+| `/quiz`       | Active recall drill, one question at a time, graded honestly       |
+| `/lecture`    | Notes or slides into retrieval questions, cards, and confusions    |
+| `/reading`    | Work an assigned reading against the prompt that will grade it     |
+| `/postmortem` | After a graded exam, sort every wrong answer by cause              |
+| `/grades`     | Where the grade stands and what the remaining work has to do       |
+| `/attendance` | Absence budget, what the next one costs, how to buy it back        |
+| `/life`       | Weekly review: what shipped, what is stuck, what got dropped       |
+
+---
+
+## Classes and life
+
+The kit was a coding toolkit for its first six months, which meant it had
+nothing to say about the other half of the week. A syllabus is the most
+structured document a student is ever handed: every date they will be judged on,
+the exact cost of an absence, and a written statement of what help is allowed.
+Almost nobody reads it twice, and Claude was re-reading the PDF every time it was
+asked a question the PDF already answered.
+
+So the syllabus becomes a ledger, once, and everything else reads from it.
+
+### The ledger
+
+```
+~/coursework/
+  semester.yml        term dates, drop deadlines, breaks
+  courses/*.yml       one file per course
+  syllabi/            the source PDFs, so any claim can be re-checked
+```
+
+Build it with `/syllabus path/to/syllabus.pdf`. Set `COURSEWORK_DIR` to put it
+somewhere else. It is plain YAML, so it belongs in a private repo next to your
+personal context, and it is yours: nothing in this public repo knows what
+classes you are taking.
+
+### The CLI
+
+```bash
+coursework due --days 14      # what is due, soonest first
+coursework today              # today's classes and today's deadlines
+coursework week               # the days ahead, one block each
+coursework attendance         # absences used against the budget
+coursework grade BISC --target 90
+coursework policy WRIT ai     # what this course allows
+coursework ics --out ~/Desktop/semester.ics
+coursework check              # validate the ledger, loudly
+```
+
+Deterministic, dependency-free, and `--json` on every read command. Claude runs
+it instead of parsing YAML by hand, which means deadline questions cost a shell
+call rather than a page of reasoning. The SessionStart hook runs `due` and puts
+the next few deadlines in context before the first question.
+
+**It never writes to the ledger.** Deadlines are facts copied from a document,
+and a program that rewrites them can quietly disagree with the source. Claude
+and you edit the files; the tool only reads them.
+
+`coursework check` is the part that earns its place. It reports deadlines with no
+`source`, courses with no AI policy recorded, grading weights that do not sum to
+100, and past-due items still marked `todo`. None of those stop the CLI. All of
+them make it lie by omission.
+
+### The AI policy gate
+
+Three courses in one term can have three different rules: banned outright,
+allowed with mandatory prompt disclosure, allowed for ideation but not for the
+submitted artifact. Getting that wrong is an academic integrity referral, not a
+style problem.
+
+So `policies.ai` is a required field, quoted verbatim from the syllabus, and the
+`coursework` skill says out loud what a course permits before helping with
+anything graded. An unrecorded policy is treated as a ban.
+
+### The three skills
+
+| Skill          | Covers                                                                                      |
+| -------------- | ------------------------------------------------------------------------------------------- |
+| `coursework`   | The ledger, syllabus intake, grading models including labor contracts, integrity rules      |
+| `study-system` | Retrieval practice over rereading, cards, exam run-ups, and the four-cause postmortem       |
+| `life-ops`     | The weekly review, life admin with real deadlines, and what to cut when a week does not fit |
+
+Full walkthrough: [docs/SCHOOL.md](docs/SCHOOL.md).
 
 ---
 
@@ -344,6 +438,7 @@ The vibe coding landscape is growing fast. **[ECOSYSTEM.md](ECOSYSTEM.md)** is o
 | [docs/METHODOLOGY.md](docs/METHODOLOGY.md)                 | The five principles of vibe coding, the D1 workflow loop, anti-patterns, measuring effectiveness                        |
 | [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)                   | D1 query patterns, migrations, Drizzle ORM, Worker routing (vanilla + Hono), D1 + KV + R2, deployment                   |
 | [docs/PROMPTS.md](docs/PROMPTS.md)                         | 20+ real prompts for scaffolding, features, debugging, database work, UI design, deployment                             |
+| [docs/SCHOOL.md](docs/SCHOOL.md)                           | Running a semester: the coursework ledger, the CLI, the three skills, and the per-course AI policy gate                 |
 | [docs/SYSTEM-PROMPTS.md](docs/SYSTEM-PROMPTS.md)           | Six techniques from leaked production system prompts: priority order, confidence thresholds, format contracts           |
 | [docs/INTERNALS.md](docs/INTERNALS.md)                     | How Claude Code works under the hood: CLAUDE.md loading, hooks, tools, agents, context compression                      |
 | [docs/SKILLS.md](docs/SKILLS.md)                           | What this kit ships, the four public skill registries, the licensing traps in them, and how to write your own           |
@@ -397,9 +492,12 @@ subagents behind one versioned install.
 
 | Extension                                                                           | Layer  | What it does                                                                                   |
 | ----------------------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------- |
+| [skills/coursework](skills/coursework)                                              | Skill  | Your syllabi as a ledger: deadlines, attendance math, per-course AI policy                     |
 | [skills/graph-engineering](skills/graph-engineering)                                | Skill  | Knowledge graphs and agent task graphs, with teaching mode                                     |
+| [skills/life-ops](skills/life-ops)                                                  | Skill  | The weekly review, life admin with real deadlines, and what to cut                             |
 | [skills/second-brain](skills/second-brain)                                          | Skill  | Reading, writing, and auditing your personal context repo                                      |
 | [skills/stack-rules](skills/stack-rules)                                            | Skill  | The 12 stack-specific standards, loaded only when the work needs them                          |
+| [skills/study-system](skills/study-system)                                          | Skill  | Retrieval practice over rereading, exam run-ups, and the four-cause postmortem                 |
 | [avoid-ai-writing](https://github.com/conorbronsdon/avoid-ai-writing)               | Skill  | Audit and rewrite content to remove AI writing patterns ("AI-isms").                           |
 | [no-ai-slop](https://github.com/petergyang/no-ai-slop)                              | Skill  | Edit drafts into sharper, more human writing while preserving the writer's personal voice, or… |
 | [youtube-transcripts](https://github.com/calebnewtonusc/claude-youtube-transcripts) | Skill  | Get the transcript of a YouTube video, channel, or playlist.                                   |
@@ -557,7 +655,7 @@ D1-Vibe-Coding/
 ├── SETUP.md                     # Manual setup instructions
 ├── .github/                     # Issue templates, PR template, CI
 ├── .claude/
-│   ├── commands/                # 36 slash commands
+│   ├── commands/                # 48 slash commands, dev plus coursework and life
 │   ├── rules/                   # 6 always-on standards, imported by CLAUDE.md
 │   ├── hooks/                   # Hook scripts (format, sync, session, stop, env guard)
 │   └── agents/                  # 4 subagents (context-keeper, reviewer, debugger, explorer)
@@ -566,6 +664,7 @@ D1-Vibe-Coding/
 │   ├── CLOUDFLARE.md            # D1/Workers/KV/R2 patterns and examples
 │   ├── PROMPTS.md               # Example AI prompts for every stage of dev
 │   ├── SYSTEM-PROMPTS.md        # How to write the prompt that governs an agent
+│   ├── SCHOOL.md                # Running a semester: ledger, CLI, skills, AI policy gate
 │   ├── INTERNALS.md             # How Claude Code works under the hood
 │   ├── EXTENSIONS.md            # Skills, plugins, MCP: which layer to reach for
 │   ├── MACOS-TOOLS.md           # Screen control, Workspace, summarization, clipboard
@@ -573,17 +672,22 @@ D1-Vibe-Coding/
 │   └── MACOS-APP-CONTROL.md     # Native macOS apps as JSON, for agents
 ├── bin/
 │   ├── ai-scan                  # Scores prose for AI-writing tells, no model
+│   ├── coursework               # Reads the semester ledger: due, attendance, grades, ics
 │   ├── mac-use                  # CLI for macOS-use, which ships none upstream
 │   └── mac_use_cli.py           # The agent loop behind mac-use
 ├── examples/
 │   └── todo-app/                # Working Worker + D1 example (deploy in 60s)
 ├── patches/                     # plynn-macos15.patch, applied to upstream at install
 ├── templates/                   # Full starter files (Worker, migration, components)
+│   └── coursework/              # semester.yml and course.yml, the ledger shape
 ├── snippets/                    # Copy-paste patterns (Drizzle, wrangler, hooks)
 ├── skills/
 │   ├── second-brain/            # Operating the personal context repo
 │   ├── graph-engineering/       # Knowledge graphs and agent task graphs
-│   └── stack-rules/             # 12 stack standards, loaded on demand
+│   ├── stack-rules/             # 12 stack standards, loaded on demand
+│   ├── coursework/              # Syllabus intake, grading models, integrity
+│   ├── study-system/            # Retrieval practice, exam prep, reading
+│   └── life-ops/                # Weekly review, capacity, what to cut
 ├── second-brain/
 │   ├── README.md                # Two-repo architecture explained
 │   ├── init-brain.sh            # Standalone second brain setup
