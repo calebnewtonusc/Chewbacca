@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# mac-use: one-shot macOS UI agent, backed by browser-use/macOS-use (mlx_use).
+#
+# The upstream repo ships examples, not a CLI. This wraps the Agent loop so a
+# task can be run from anywhere without activating a venv or editing a script.
+#
+#   mac-use "open Calculator and compute 5 x 4"
+#   mac-use --steps 40 --vision "read the frontmost Safari tab title"
+#
+# Needs one of GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY, and
+# Accessibility permission for the terminal running it.
+set -euo pipefail
+
+# mlx_use ships PostHog telemetry on by default. Off unless asked for.
+export ANONYMIZED_TELEMETRY="${ANONYMIZED_TELEMETRY:-false}"
+
+REPO="${MACOS_USE_HOME:-$HOME/Projects/macOS-use}"
+PY="$REPO/.venv/bin/python"
+
+if [ ! -x "$PY" ]; then
+  echo "mac-use: macOS-use venv missing at $REPO/.venv" >&2
+  echo "  git clone https://github.com/browser-use/macOS-use.git $REPO" >&2
+  echo "  cd $REPO && uv venv --python 3.11 && uv pip install --editable ." >&2
+  exit 1
+fi
+
+exec "$PY" "$REPO/mac_use_cli.py" "$@"

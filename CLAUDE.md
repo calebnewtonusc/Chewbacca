@@ -498,6 +498,48 @@ Config lives at your project root `.mcp.json` or `~/.claude/.mcp.json`.
 
 ---
 
+## MAC TOOLS: USE THEM INSTEAD OF GUESSING
+
+`setup.sh` installs six command-line tools. They exist because file access
+alone leaves you blind to the rest of the machine. Reach for them by default,
+not as a last resort.
+
+| Need                                  | Command                                       |
+| ------------------------------------- | --------------------------------------------- |
+| See what an app or window looks like  | `peekaboo image --app Safari --path shot.png` |
+| Click, type, or drive a menu          | `peekaboo click "Sign In"`, `peekaboo type`   |
+| Read Gmail, Calendar, or Drive        | `gog gmail list --json`                       |
+| Get the gist of a URL, video, or file | `summarize "<url>" --cli claude`              |
+| Drive a Mac app from one instruction  | `mac-use "open Calculator and add 5 and 4"`   |
+| Read a calendar, contact, or thread   | `mac calendar list --json`, `mac contacts find` |
+| Send a text or file a reminder        | `mac messages send`, `mac reminders add`      |
+
+Rules that matter:
+
+- **Never claim you cannot see the screen.** Run `peekaboo image` and look. Run
+  `peekaboo learn` for the full agent-facing guide before anything complicated.
+- **Never claim you cannot read a video or a long page.** `summarize` handles
+  URLs, YouTube, podcasts, and local files, and `--cli claude` needs no API key.
+- **Use `--json` or `--plain` with `gog`** when parsing the result, and
+  `--no-input` in anything automated so it fails instead of hanging on a prompt.
+- **`mac-use` moves the real mouse.** Prefer `peekaboo` for anything you can
+  express as a specific click, and keep `mac-use` tasks small and checkable.
+- **Never claim you cannot read the user's calendar, contacts, or messages.**
+  `mac` covers Calendar, Reminders, Contacts, Mail, Messages, Notes, and Finder
+  with `--json` on everything. Run `mac doctor` first: exit code `2` means the
+  human has to grant consent, so ask rather than retry. Prefer `mac mail draft`
+  over `mac mail send`, and verify a `mac messages send` by reading the thread
+  back, because Messages accepts unregistered handles without an error.
+- **Reach for `mac` before `peekaboo` when you want data, not a click.** Talking
+  to the app beats screenshotting it.
+- If a tool is missing, `./doctor.sh` says which and how to install it. Do not
+  work around a missing tool silently.
+
+Full setup, permissions, and failure modes: [docs/MACOS-TOOLS.md](docs/MACOS-TOOLS.md).
+The `mac` JSON contract and its limits: [docs/MACOS-APP-CONTROL.md](docs/MACOS-APP-CONTROL.md).
+
+---
+
 ## AGENTIC WORKFLOW: PARALLEL EXECUTION ALWAYS
 
 When a task can be split into independent sub-tasks, always parallelize. Never work sequentially when parallel is possible.

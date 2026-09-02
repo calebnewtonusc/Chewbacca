@@ -207,6 +207,86 @@ CMD_COUNT="$(ls "$CLAUDE_DIR"/commands/*.md 2>/dev/null | wc -l | tr -d ' ')"
   ok "$CMD_COUNT slash commands installed" ||
   warn "no commands in ~/.claude/commands/"
 
+# ── macOS tools ───────────────────────────────────────────────────────────────
+# These are optional add-ons, so a missing one warns rather than fails. A tool
+# that is installed but unusable does fail: a granted-looking peekaboo that
+# cannot capture is worse than no peekaboo, because Claude will keep trying.
+section "macOS tools"
+
+if [ "$(uname)" != "Darwin" ]; then
+  warn "not macOS, skipping tool checks"
+else
+  if command -v peekaboo >/dev/null 2>&1; then
+    if peekaboo permissions 2>/dev/null | grep -q "Denied"; then
+      bad "peekaboo installed but missing permissions" \
+        "System Settings > Privacy & Security > grant Screen Recording and Accessibility"
+    else
+      ok "peekaboo present and permitted"
+    fi
+    if command -v claude >/dev/null 2>&1; then
+      claude mcp list 2>/dev/null | grep -q "^peekaboo:" &&
+        ok "peekaboo MCP registered" ||
+        warn "peekaboo MCP not registered (claude mcp add peekaboo --scope user -- peekaboo mcp serve)"
+    fi
+  else
+    warn "peekaboo missing, Claude cannot see or drive the screen" 
+  fi
+
+  if command -v gog >/dev/null 2>&1; then
+    gog auth status 2>/dev/null | grep -q "config_exists\ttrue" &&
+      ok "gog authenticated" ||
+      warn "gog installed but not logged in (gog auth login)"
+  else
+    warn "gog missing, no Gmail/Calendar/Drive from the terminal"
+  fi
+
+  command -v summarize >/dev/null 2>&1 &&
+    ok "summarize present" ||
+    warn "summarize missing (brew install steipete/tap/summarize)"
+
+  if command -v mac-use >/dev/null 2>&1; then
+    if [ -x "$HOME/Projects/macOS-use/.venv/bin/python" ]; then
+      ok "mac-use present"
+    else
+      bad "mac-use on PATH but its venv is missing, every run will exit 1" \
+        "cd ~/Projects/macOS-use && uv venv --python 3.11 && uv pip install -e ."
+    fi
+  else
+    warn "mac-use missing, no natural-language app automation"
+  fi
+
+  # Consent is granted to the terminal, not the binary, so a `mac` that works in
+  # one terminal warns in another. That is worth reporting, not fixing here.
+  if command -v mac >/dev/null 2>&1; then
+    if mac doctor 2>/dev/null | grep -q ": granted"; then
+      ok "mac present and permitted"
+    else
+      warn "mac installed but no capability granted yet (mac doctor)"
+    fi
+  else
+    warn "mac missing, no Calendar/Contacts/Messages/Notes access"
+  fi
+
+  [ -d "/Applications/Maccy.app" ] &&
+    ok "Maccy installed" ||
+    warn "Maccy missing (brew install --cask maccy)"
+
+  # No `case` here: macOS ships bash 3.2, which mis-parses a case pattern's
+  # closing paren inside $( ).
+  PACK_LINKS=$(find "$CLAUDE_DIR/skills" -maxdepth 1 -type l -exec readlink {} \; 2>/dev/null |
+    grep -c "agent-scripts")
+  if [ "$PACK_LINKS" -gt 0 ]; then
+    ok "agent-scripts pack linked ($PACK_LINKS skills)"
+    BROKEN=$(find "$CLAUDE_DIR/skills" -maxdepth 1 -type l ! -exec test -e {} \; -print 2>/dev/null | wc -l | tr -d ' ')
+    [ "$BROKEN" -eq 0 ] &&
+      ok "no dangling skill links" ||
+      bad "$BROKEN dangling skill links in ~/.claude/skills" \
+        "find ~/.claude/skills -maxdepth 1 -type l ! -exec test -e {} \\; -print"
+  else
+    warn "agent-scripts pack not linked (re-run setup.sh)"
+  fi
+fi
+
 # ── Secrets ───────────────────────────────────────────────────────────────────
 section "Secrets"
 

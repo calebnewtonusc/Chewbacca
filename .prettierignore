@@ -3,3 +3,8 @@
 # shipped once already. Do not format this file.
 CLAUDE.md
 CLAUDE-QUICK.md
+
+# d1-inventory.py owns this file and writes deterministic JSON. Prettier
+# collapses its short arrays onto one line, the generator expands them again,
+# and the two rewrite each other forever: a commit every session, no change.
+settings/toolkit.json
