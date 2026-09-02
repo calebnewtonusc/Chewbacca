@@ -1,7 +1,7 @@
 {
-  "name": "mac-claude-maxing",
+  "name": "chewbacca",
   "private": true,
-  "description": "Turn a Mac and a Claude subscription into a superpower. Nothing to remember, nothing to type.",
+  "description": "Turns Claude into the world's best sidekick. Nothing to remember, nothing to type.",
   "scripts": {
     "format": "prettier --write '**/*.{ts,tsx,js,jsx,json,css,md}' --ignore-path .gitignore",
     "format:check": "prettier --check '**/*.{ts,tsx,js,jsx,json,css,md}' --ignore-path .gitignore"

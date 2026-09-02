@@ -11,8 +11,8 @@
 ## Option A: One-command install
 
 ```bash
-git clone https://github.com/calebnewtonusc/Mac-Claude-Maxing
-cd Mac-Claude-Maxing
+git clone https://github.com/calebnewtonusc/Chewbacca
+cd Chewbacca
 chmod +x install.sh && ./install.sh
 ```
 

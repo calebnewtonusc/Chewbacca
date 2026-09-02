@@ -1,5 +1,5 @@
 #!/bin/bash
-# Mac Claude Maxing: Quick install
+# Chewbacca: Quick install
 # Copies CLAUDE.md + .claude/ into the current project directory.
 # For full infrastructure setup (second brain, iMessage agent, MCP), run setup.sh instead.
 
@@ -13,7 +13,7 @@ PROJECT_DIR="${1:-$(pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo ""
-echo "Mac Claude Maxing: Project Install"
+echo "Chewbacca: Project Install"
 echo "================================="
 echo ""
 echo "Installing to: $PROJECT_DIR"

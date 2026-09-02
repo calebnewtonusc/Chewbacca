@@ -1,12 +1,12 @@
 <p align="center">
-  <h1 align="center">Mac Claude Maxing</h1>
-  <p align="center">Turn a Mac and a Claude subscription into a superpower. Nothing to remember, nothing to type.</p>
+  <h1 align="center">Chewbacca</h1>
+  <p align="center">Turns Claude into the world's best sidekick. Nothing to remember, nothing to type.</p>
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
-  <a href="https://github.com/calebnewtonusc/Mac-Claude-Maxing/stargazers"><img src="https://img.shields.io/github/stars/calebnewtonusc/Mac-Claude-Maxing?style=social" alt="Stars"></a>
-  <a href="https://github.com/calebnewtonusc/Mac-Claude-Maxing/commits/main"><img src="https://img.shields.io/github/last-commit/calebnewtonusc/Mac-Claude-Maxing" alt="Last Commit"></a>
+  <a href="https://github.com/calebnewtonusc/Chewbacca/stargazers"><img src="https://img.shields.io/github/stars/calebnewtonusc/Chewbacca?style=social" alt="Stars"></a>
+  <a href="https://github.com/calebnewtonusc/Chewbacca/commits/main"><img src="https://img.shields.io/github/last-commit/calebnewtonusc/Chewbacca" alt="Last Commit"></a>
 <!-- BEGIN GENERATED: badges -->
   <a href=".claude/commands"><img src="https://img.shields.io/badge/slash_commands-48-indigo" alt="Commands"></a>
   <a href=".claude/rules"><img src="https://img.shields.io/badge/always_on_rules-6-green" alt="Rules"></a>
@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <b>You should never have to remember a slash command.</b> Standards load themselves, skills fire on<br>
+  <b>A sidekick you have to instruct is not a sidekick.</b> Standards load themselves, skills fire on<br>
   what you asked for, hooks run on their own, and the install finishes itself.
 </p>
 
@@ -54,8 +54,10 @@
 
 ## The idea
 
-A slash command you have to remember is a slash command you will not use. Every
-layer here is chosen for whether it fires on its own:
+A good sidekick already knows the ship. You should not have to tell yours where
+the standards are, which skill applies, or that it is allowed to look at your
+screen. A slash command you have to remember is a slash command you will not
+use, so every layer here is chosen for whether it fires on its own:
 
 | Layer          | Fires when                                         | You type |
 | -------------- | -------------------------------------------------- | -------- |
@@ -98,20 +100,20 @@ handed to an agent rather than to you: see
 **Option A: Just want CLAUDE.md + commands + rules in an existing project:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Mac-Claude-Maxing/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/install.sh | bash
 ```
 
 **Option B: Want the full quick-start CLAUDE.md (50 lines, essential patterns only):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Mac-Claude-Maxing/main/CLAUDE-QUICK.md > CLAUDE.md
+curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/CLAUDE-QUICK.md > CLAUDE.md
 ```
 
 **Option C: Want everything (second brain, hooks, MCP, full context system):**
 
 ```bash
-git clone https://github.com/calebnewtonusc/Mac-Claude-Maxing
-cd Mac-Claude-Maxing
+git clone https://github.com/calebnewtonusc/Chewbacca
+cd Chewbacca
 chmod +x setup.sh && ./setup.sh
 ```
 
@@ -698,7 +700,7 @@ See [examples/todo-app/README.md](examples/todo-app/README.md) for full details.
 ## File structure
 
 ```
-Mac-Claude-Maxing/
+Chewbacca/
 ├── CLAUDE.md                    # Full design system (700 lines)
 ├── CLAUDE-QUICK.md              # Quick-start version (50 lines)
 ├── ECOSYSTEM.md                 # Curated vibe coding landscape map

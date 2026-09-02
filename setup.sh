@@ -1,7 +1,7 @@
 #!/bin/bash
-# Mac Claude Maxing: Full Infrastructure Setup
+# Chewbacca: Full Infrastructure Setup
 #
-# Run this ONCE from the Mac-Claude-Maxing repo.
+# Run this ONCE from the Chewbacca repo.
 # It builds your entire Claude Code infrastructure in ~5 minutes.
 #
 # What it creates:
@@ -13,8 +13,8 @@
 #   ~/.mcp.json or .mcp.json    Composio MCP
 #
 # Usage:
-#   git clone https://github.com/calebnewtonusc/Mac-Claude-Maxing
-#   cd Mac-Claude-Maxing
+#   git clone https://github.com/calebnewtonusc/Chewbacca
+#   cd Chewbacca
 #   chmod +x setup.sh && ./setup.sh
 
 set -e
@@ -69,7 +69,7 @@ fi
 clear 2>/dev/null || true
 echo ""
 sep
-echo -e "  ${BLD}Mac Claude Maxing: Infrastructure Setup${NC}"
+echo -e "  ${BLD}Chewbacca: Infrastructure Setup${NC}"
 sep
 echo ""
 echo "  This sets up your complete Claude Code infrastructure."
@@ -285,7 +285,7 @@ cat > "$CC_DIR/README.md" << READMEOF
 
 Operational instructions for Claude Code: design system, coding standards, slash commands, and hooks.
 
-Forked from [Mac-Claude-Maxing](https://github.com/calebnewtonusc/Mac-Claude-Maxing).
+Forked from [Chewbacca](https://github.com/calebnewtonusc/Chewbacca).
 
 ## What's here
 
@@ -311,7 +311,7 @@ cp CLAUDE.md ~/.claude/CLAUDE.md
 
 ## Source
 
-Built and maintained at [Mac-Claude-Maxing](https://github.com/calebnewtonusc/Mac-Claude-Maxing).
+Built and maintained at [Chewbacca](https://github.com/calebnewtonusc/Chewbacca).
 READMEOF
 
 if gh repo view "$GITHUB_USER/claude-context" &>/dev/null; then
@@ -344,7 +344,7 @@ Thumbs.db
 GITIGNORE
 
 git add -- .gitignore CLAUDE.md README.md .claude
-git diff --cached --quiet || git commit -q -m "init: claude-context from Mac-Claude-Maxing"
+git diff --cached --quiet || git commit -q -m "init: claude-context from Chewbacca"
 git branch -M main
 git push -u origin main -q 2>/dev/null || warn "Push failed, you may need to push manually"
 log "https://github.com/$GITHUB_USER/claude-context"
@@ -421,7 +421,7 @@ fi
 # Hooks read their paths from here instead of having them baked in by string
 # substitution. Edit this file to move your context repos later.
 cat > "$HOME/.claude/d1-config.sh" << D1CONFIG
-# Written by Mac-Claude-Maxing setup.sh. Safe to edit by hand.
+# Written by Chewbacca setup.sh. Safe to edit by hand.
 PERSONAL_CONTEXT_DIR="$PC_DIR"
 PUBLIC_CONTEXT_DIR="$CC_DIR"
 CONTEXT_OWNER="$USER_NAME"

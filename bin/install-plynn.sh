@@ -98,7 +98,7 @@ if git apply --check "$PATCH" 2>/dev/null; then
 elif git apply --reverse --check "$PATCH" 2>/dev/null; then
   log "patch already applied"
 else
-  err "patch does not apply, upstream has moved. Open an issue on Mac-Claude-Maxing."
+  err "patch does not apply, upstream has moved. Open an issue on Chewbacca."
   exit 0
 fi
 

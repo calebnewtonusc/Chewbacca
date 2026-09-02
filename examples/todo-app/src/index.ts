@@ -192,7 +192,7 @@ export default {
       if (pathname === "/") {
         return withCors(
           json({
-            name: "Todo App (Mac Claude Maxing Example)",
+            name: "Todo App (Chewbacca Example)",
             endpoints: [
               "GET    /health",
               "GET    /api/todos?page=1&limit=20&completed=true|false",

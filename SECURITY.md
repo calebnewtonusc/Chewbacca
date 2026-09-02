@@ -24,16 +24,16 @@ To fully remove the token from history, run BFG Repo Cleaner:
 brew install bfg
 
 # Clone a bare copy
-git clone --mirror https://github.com/calebnewtonusc/Mac-Claude-Maxing.git
+git clone --mirror https://github.com/calebnewtonusc/Chewbacca.git
 
 # Create a file with the secret to remove
 echo "<the-leaked-token-string>" > secrets.txt
 
 # Run BFG
-bfg --replace-text secrets.txt Mac-Claude-Maxing.git
+bfg --replace-text secrets.txt Chewbacca.git
 
 # Clean up and push
-cd Mac-Claude-Maxing.git
+cd Chewbacca.git
 git reflog expire --expire=now --all
 git gc --prune=now --aggressive
 git push
