@@ -878,6 +878,31 @@ else
   warn "Homebrew not found. macOS tools skipped: see docs/MACOS-TOOLS.md"
 fi
 
+# mac-use: Natural-language agent that drives any Mac app through Accessibility
+if command -v mac-use &>/dev/null; then
+  log "mac-use already installed"
+elif ! command -v uv &>/dev/null; then
+  warn "uv not found, skipping macOS-use. See docs/MACOS-TOOLS.md"
+else
+  MU_DIR="$HOME/Projects/macOS-use"
+  [ -d "$MU_DIR/.git" ] || git clone -q --depth 1 \
+    https://github.com/browser-use/macOS-use.git "$MU_DIR" 2>/dev/null || true
+  if [ -d "$MU_DIR" ]; then
+    cp "$SCRIPT_DIR/bin/mac_use_cli.py" "$MU_DIR/mac_use_cli.py"
+    mkdir -p "$HOME/.local/bin"
+    cp "$SCRIPT_DIR/bin/mac-use" "$HOME/.local/bin/mac-use"
+    chmod +x "$HOME/.local/bin/mac-use"
+    if (cd "$MU_DIR" && uv venv --python 3.11 &>/dev/null \
+        && uv pip install --python .venv/bin/python --editable . &>/dev/null); then
+      log "mac-use installed"
+    else
+      warn "macOS-use deps failed. Retry: cd $MU_DIR && uv pip install -e ."
+    fi
+  else
+    warn "could not clone macOS-use"
+  fi
+fi
+
 # Skill pack: agent-scripts. Linked per skill, not copied, so `git pull` in
 # the clone updates every skill at once.
 #
