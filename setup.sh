@@ -201,6 +201,7 @@ echo ""
 section "Creating $PERSONAL_REPO (private personal brain)"
 
 PC_DIR="$WORKSPACE_DIR/$PERSONAL_REPO"
+export D1_PC_DIR="$PC_DIR"
 mkdir -p "$PC_DIR"
 
 cp "$SCRIPT_DIR/second-brain/context/YOU.md"    "$PC_DIR/YOU.md"
@@ -573,6 +574,14 @@ h["Stop"] = [{"hooks": [{
     "statusMessage": "Checking the reply against the writing rules...",
 }]}]
 
+# Coursework context loads when a prompt mentions a class, so the ledger is in
+# context before Claude answers rather than after it guesses.
+h.setdefault("UserPromptSubmit", []).append({"hooks": [{
+    "type": "command",
+    "command": hooks_dir + "/coursework-context.sh",
+    "timeout": 10,
+}]})
+
 h["PreToolUse"] = [{"matcher": "Write", "hooks": [{
     "type": "command",
     "command": hooks_dir + "/env-guard.sh",
@@ -590,6 +599,16 @@ h["Notification"] = [{"hooks": [{
 # those out of a history later means rewriting every commit and force-pushing.
 # Turn it off before the first commit instead of after the hundredth.
 settings["includeCoAuthoredBy"] = False
+
+# Auto-memory writes into the private context repo instead of a directory
+# nobody ever reads. Without this key Claude's own learnings land somewhere
+# outside the brain and never get committed with the rest of it.
+_pc = env("D1_PC_DIR") or ""
+if _pc:
+    settings["autoMemoryDirectory"] = os.path.join(_pc, "memory")
+
+# One status line: model, directory, branch, context used, session cost.
+settings["statusLine"] = {"type": "command", "command": hooks_dir + "/statusline.sh"}
 
 # The file now holds an Anthropic key and a GitHub PAT. Write it atomically so
 # a crash cannot truncate it, and 0600 so it is not world-readable.
@@ -832,6 +851,19 @@ mcp.setdefault("mcpServers", {})
 
 composio_url = env("D1_COMPOSIO_URL", "").strip()
 composio_key = env("D1_COMPOSIO_KEY", "").strip()
+
+# Two servers that need no account, no key, and no running service, so they can
+# be wired unconditionally. setdefault, so an existing entry is never clobbered.
+# Everything else is left to the user: ~/.claude.json is where client hostnames
+# and API keys live.
+mcp["mcpServers"].setdefault("filesystem", {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", os.path.expanduser("~")],
+})
+mcp["mcpServers"].setdefault("sequential-thinking", {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+})
 
 if composio_url:
     mcp["mcpServers"]["composio"] = {
