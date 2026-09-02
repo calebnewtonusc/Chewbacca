@@ -130,6 +130,12 @@
   ],
   "cli": [
     {
+      "display": "Anki",
+      "url": "https://github.com/ankitects/anki",
+      "install": "brew install --cask anki",
+      "description": "Spaced repetition, where the flashcards the study skills write actually live"
+    },
+    {
       "display": "bd",
       "url": "https://github.com/gastownhall/beads",
       "install": "brew install beads",
