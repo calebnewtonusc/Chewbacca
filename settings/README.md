@@ -14,6 +14,8 @@ Copy `settings.json` into one of these locations depending on your scope:
 | `.claude/settings.json`       | Project               | Yes             | Team-wide settings             |
 | `.claude/settings.local.json` | Project-local         | No (gitignored) | Personal overrides per project |
 
+`defaultMode` is the exception to that table. See the tier rule below: the two project files cannot set it to `bypassPermissions`.
+
 ---
 
 ## `permissions.defaultMode`
@@ -34,6 +36,29 @@ Controls whether Claude prompts you before taking actions.
 | `"plan"`              | Plan-only mode, no execution              |
 
 **Recommendation**: Use `"bypassPermissions"` for solo projects where you trust the work. Use `"default"` in team settings.
+
+### `bypassPermissions` only counts from the user tier
+
+`bypassPermissions`, `auto`, and `dontAsk` are ignored when they come from a project file. Put them in `.claude/settings.json` or `.claude/settings.local.json` and the resolver drops them with a log line saying repo-committed settings cannot default to that mode, then falls back to `default`. Nothing in the UI tells you this happened.
+
+The reason is worth understanding rather than working around: cloning a repo would otherwise be enough to turn off someone's permission prompts, so the mode has to be a decision the machine's owner made. `~/.claude/settings.json` is the only place it counts. `setup.sh` writes it there.
+
+An organization can also switch it off entirely with `permissions.disableBypassPermissionsMode` in managed settings (`/Library/Application Support/ClaudeCode/managed-settings.json` on macOS). Only the managed tier is honored for that key, and when it is set, nothing on this page will help. `doctor.sh` reports it.
+
+---
+
+## Three places prompts come from
+
+Turning prompts off is not one setting. Which ones you need depends on how you run Claude:
+
+| How you run it                              | What to set                                                              |
+| ------------------------------------------- | ------------------------------------------------------------------------ |
+| Terminal CLI                                | `permissions.defaultMode` in `~/.claude/settings.json`                   |
+| VS Code, Cursor, VSCodium, Windsurf         | the same, plus the two `claudeCode.*` keys below                         |
+| Claude desktop app, chat and code sessions  | the same, nothing extra                                                  |
+| Claude desktop app, dispatched coding tasks | the same, plus `dispatchCodeTasksPermissionMode` in the app's own config |
+
+`setup.sh` writes all four. The sections below say what each one is, so you can undo any of them.
 
 ---
 
@@ -62,6 +87,32 @@ Where that file lives:
 The rest of the template turns off VS Code's own confirmation dialogs: workspace trust, delete and drag confirmations, the terminal close prompt. Those are not Claude prompts, but they break the same flow. `setup.sh` only writes those where you have no value set, so your own preferences survive a re-run.
 
 Both keys are `scope: machine`, so they belong in user settings. Putting them in a committed `.vscode/settings.json` will not work.
+
+---
+
+## The desktop app half: `dispatchCodeTasksPermissionMode`
+
+The Claude desktop app runs its own bundled copy of the CLI and reads `~/.claude/settings.json`, so `defaultMode` already covers its chat and code sessions. It has no equivalent of the VS Code gate.
+
+Coding tasks dispatched from the app are the exception. They read a separate preference that ships set to `acceptEdits`, so file edits go through and bash commands still stop and ask:
+
+```json
+"dispatchCodeTasksPermissionMode": "bypassPermissions"
+```
+
+It lives in the app's own config store, not in `settings.json`:
+
+| OS      | Path                                               |
+| ------- | -------------------------------------------------- |
+| macOS   | `~/Library/Application Support/Claude/config.json` |
+| Linux   | `~/.config/Claude/config.json`                     |
+| Windows | `%APPDATA%\Claude\config.json`                     |
+
+Accepted values are `default`, `acceptEdits`, `plan`, `auto`, and `bypassPermissions`. Anything else fails the app's schema check, and it responds by renaming the whole file to `config.json.corrupt-<timestamp>` and starting over, so do not hand-edit it loosely.
+
+**Quit Claude before `setup.sh` touches this.** The app holds the config in memory and writes the whole file back, so a change made while it is running is dropped the next time it saves. `setup.sh` warns when it sees the app running. You can also just set it in the app's own settings instead.
+
+The app keeps two other lists that cause prompts, `dispatchTrustedCodeWorkspaces` and `localAgentModeTrustedFolders`. Those are folder-trust grants, specific to paths on your machine, so `setup.sh` leaves them alone. Answer the trust prompt once per folder and it stops asking.
 
 ---
 

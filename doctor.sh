@@ -159,6 +159,48 @@ PYDOC
 done
 [ "$EDITOR_FOUND" -eq 1 ] || ok "no VS Code style editor installed, nothing to configure"
 
+# The desktop app reads ~/.claude/settings.json like the CLI, so defaultMode
+# covers it. Dispatched coding tasks are the one surface with a preference of
+# their own, and it ships as acceptEdits.
+CLAUDE_APP_DIR="$HOME/Library/Application Support/Claude"
+[ -d "$CLAUDE_APP_DIR" ] || CLAUDE_APP_DIR="$HOME/.config/Claude"
+if [ -f "$CLAUDE_APP_DIR/config.json" ]; then
+  APP_MODE="$(python3 -c "
+import json,sys
+try: print(json.load(open(sys.argv[1])).get('dispatchCodeTasksPermissionMode','acceptEdits'))
+except Exception: print('unreadable')" "$CLAUDE_APP_DIR/config.json" 2>/dev/null || echo unreadable)"
+  case "$APP_MODE" in
+    bypassPermissions) ok "Claude desktop app dispatches coding tasks without prompting" ;;
+    unreadable)        warn "Claude desktop app config.json could not be parsed" ;;
+    *)                 warn "Claude desktop app dispatchCodeTasksPermissionMode is $APP_MODE, so dispatched coding tasks still prompt" ;;
+  esac
+else
+  ok "Claude desktop app not installed, nothing to configure"
+fi
+
+# bypassPermissions is ignored when it comes from a repo-committed file. Someone
+# who put it in a project settings file gets no error, just prompts.
+for f in .claude/settings.json .claude/settings.local.json; do
+  [ -f "$f" ] || continue
+  if python3 -c "
+import json,sys
+try: m = json.load(open(sys.argv[1])).get('permissions',{}).get('defaultMode')
+except Exception: sys.exit(1)
+sys.exit(0 if m in ('bypassPermissions','auto','dontAsk') else 1)" "$f" 2>/dev/null; then
+    warn "$f sets defaultMode to a mode only the user tier can set. It is being ignored; move it to ~/.claude/settings.json"
+  fi
+done
+
+# A managed policy beats everything above and is silent about it.
+MANAGED="/Library/Application Support/ClaudeCode/managed-settings.json"
+if [ -f "$MANAGED" ] && python3 -c "
+import json,sys
+try: v = json.load(open(sys.argv[1])).get('permissions',{}).get('disableBypassPermissionsMode')
+except Exception: sys.exit(1)
+sys.exit(0 if v == 'disable' else 1)" "$MANAGED" 2>/dev/null; then
+  warn "managed settings set disableBypassPermissionsMode, which overrides every setting above"
+fi
+
 # ── Standards actually loading ────────────────────────────────────────────────
 section "Standards"
 

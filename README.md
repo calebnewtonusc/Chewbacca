@@ -248,6 +248,22 @@ a file too broken to parse is left alone with instructions printed instead. Your
 own values win on every key except the two that do the bypassing, so re-running
 `setup.sh` will not undo a deliberate choice you made about the cosmetic ones.
 
+**The Claude desktop app needs a third file.** It runs its own bundled copy of
+the CLI and reads `~/.claude/settings.json`, so `defaultMode` covers its chat
+and code sessions with nothing extra. Coding tasks dispatched from the app are
+the exception: they read `dispatchCodeTasksPermissionMode` from the app's own
+config store, which ships as `acceptEdits`, so edits go through and bash
+commands still stop and ask. `setup.sh` sets it to `bypassPermissions`. Quit
+Claude first. The app holds that config in memory and writes the whole file back
+when it saves, so a change made while it is running gets dropped.
+
+**`bypassPermissions` only counts from `~/.claude/settings.json`.** Put it in a
+project's `.claude/settings.json` or `.claude/settings.local.json` and the
+resolver discards it, because otherwise cloning a repo would be enough to turn
+off someone else's permission prompts. There is no error in the UI, just
+prompts you thought you had turned off. `doctor.sh` checks for it, along with
+the managed-settings policy that can disable bypass mode outright.
+
 Three details worth knowing, because each one was silently broken before:
 
 **Prettier needs node on PATH.** Hooks do not inherit an nvm-managed PATH, and

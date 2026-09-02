@@ -417,11 +417,13 @@ echo "                     Change or remove it in ~/.claude/settings.json"
 echo "                     under hooks.UserPromptSubmit."
 echo ""
 echo "    bypassPermissions  Claude writes files and runs shell commands"
-echo "                       without asking each time. Change it in"
-echo "                       ~/.claude/settings.json under permissions.defaultMode,"
-echo "                       and in your editor under"
-echo "                       claudeCode.initialPermissionMode. Both, or the"
-echo "                       editor keeps prompting."
+echo "                       without asking each time. It is set in three"
+echo "                       places, because there are three ways to run"
+echo "                       Claude and each has its own switch:"
+echo "                         permissions.defaultMode in ~/.claude/settings.json"
+echo "                         claudeCode.* in your editor user settings"
+echo "                         dispatchCodeTasksPermissionMode in the desktop app"
+echo "                       Undo any one of them and that surface asks again."
 echo ""
 
 # Secrets and paths reach python through the environment. Interpolating them
@@ -690,6 +692,70 @@ PYEDITOR
 
 unset D1_EDITOR_TEMPLATE
 log "Editor settings configured"
+
+# ── Wire the Claude desktop app ───────────────────────────────────────────────
+# The desktop app runs its own copy of the CLI and reads ~/.claude/settings.json,
+# so permissions.defaultMode above already covers its chat and code sessions.
+# What it does NOT cover is coding tasks dispatched from the app, which have a
+# separate preference of their own that ships defaulting to "acceptEdits", so
+# bash commands still stop and ask. That preference lives in the app's own
+# config store, not in settings.json.
+section "Wiring the Claude desktop app"
+
+if pgrep -x "Claude" >/dev/null 2>&1; then
+  warn "Claude is running. It rewrites its config on quit, which would drop this"
+  warn "  change. Quit Claude, then rerun setup.sh, or set Code tasks to bypass"
+  warn "  from the app's own settings."
+fi
+
+python3 << 'PYDESKTOP'
+import json, os, shutil
+
+home = os.path.expanduser("~")
+if os.name == "nt":
+    appdata = os.environ.get("APPDATA", "")
+    base = os.path.join(appdata, "Claude") if appdata else ""
+elif os.uname().sysname == "Darwin":
+    base = os.path.join(home, "Library", "Application Support", "Claude")
+else:
+    base = os.path.join(home, ".config", "Claude")
+
+if not base or not os.path.isdir(base):
+    print("  Claude desktop app not installed. Nothing to do.")
+    raise SystemExit(0)
+
+path = os.path.join(base, "config.json")
+config = {}
+if os.path.exists(path):
+    try:
+        with open(path) as f:
+            config = json.load(f)
+    except Exception:
+        # The app renames an unparseable config to .corrupt-<ts> and starts
+        # fresh. Writing over it here would throw away whatever it could still
+        # recover, and the app will rebuild it anyway.
+        print("  ! config.json is not valid JSON. Left alone; the app will rebuild it.")
+        raise SystemExit(0)
+    if not isinstance(config, dict):
+        print("  ! config.json is not an object. Left alone.")
+        raise SystemExit(0)
+    shutil.copy2(path, path + ".d1-backup")
+
+# Enum the app accepts: default, acceptEdits, plan, auto, bypassPermissions.
+# Anything else fails its schema check and the app discards the whole file.
+config["dispatchCodeTasksPermissionMode"] = "bypassPermissions"
+
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(config, f, indent=2)
+# The store holds account identifiers. Keep it owner-only, the way the app
+# writes it, instead of inheriting the umask.
+os.chmod(tmp, 0o600)
+os.replace(tmp, path)
+print("  Code tasks set to bypassPermissions")
+PYDESKTOP
+
+log "Claude desktop app configured"
 
 
 # ── Wire .mcp.json ────────────────────────────────────────────────────────────
