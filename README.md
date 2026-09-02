@@ -411,6 +411,15 @@ long-form reading, and a clipboard that remembers. All are third-party and
 installed alongside the kit, not vendored into it.
 
 <!-- BEGIN GENERATED: cli -->
+
+| Tool                                                | Install                                                    | What it does                                                            |
+| --------------------------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------- |
+| [gog](https://github.com/openclaw/gogcli)           | `brew install openclaw/tap/gogcli`                         | Gmail, Calendar, and Drive from the terminal, after one OAuth login     |
+| [Maccy](https://github.com/p0deje/Maccy)            | `brew install --cask maccy`                                | Clipboard history, so a value scrolled past is still recoverable        |
+| [mac-use](https://github.com/browser-use/macOS-use) | see docs/MACOS-TOOLS.md (clone plus a uv venv, no formula) | Natural-language agent that drives any Mac app through Accessibility    |
+| [peekaboo](https://github.com/openclaw/Peekaboo)    | `brew install openclaw/tap/peekaboo`                       | Screenshots, UI inspection, and click/type automation for any macOS app |
+| [summarize](https://github.com/steipete/summarize)  | `brew install steipete/tap/summarize`                      | Gist of any URL, YouTube video, podcast, or local file                  |
+
 <!-- END GENERATED: cli -->
 
 `peekaboo` needs Screen Recording and Accessibility granted once in System
