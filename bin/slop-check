@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""slop-check: score prose against the house writing rules, with no model.
+
+ai-scan wraps the avoid-ai-writing detector, which reads vocabulary: delve,
+testament to, ever-evolving. It scores clean on a paragraph that opens with a
+bolded fragment for drama, reveals its point after a colon, and stacks
+one-liners for rhythm. Those are structural tells, they are the ones the house
+rules actually ban, and they are what survives an editing pass that only looks
+for banned words.
+
+    slop-check draft.md              score one file
+    slop-check --stdin               score text on stdin
+    slop-check draft.md --issues     show what fired, with line numbers
+    slop-check draft.md --max 20     exit 1 above that score
+    slop-check draft.md --json       machine-readable
+
+Score is 0 to 100. Code blocks and inline code are stripped before scanning,
+so a banned word inside a snippet is not a finding.
+"""
+
+import argparse
+import json
+import re
+import sys
+
+# (id, weight, explanation, compiled pattern). Weight is how much one hit costs.
+# Anything absolute (an em dash, an emoji) is weighted to fail a file alone.
+RULES = [
+    ("em-dash", 40, "em dash: use a colon, period, or comma", re.compile(r"—")),
+    (
+        "emoji",
+        40,
+        "emoji",
+        re.compile(
+            "[\U0001f300-\U0001faff\U00002600-\U000027bf\U0001f1e6-\U0001f1ff]"
+        ),
+    ),
+    (
+        "bold-fragment-header",
+        8,
+        "bolded fragment used as a drama beat: write it as a sentence",
+        re.compile(r"^\*\*[A-Z][^*\n]{0,70}[.!]\*\*", re.M),
+    ),
+    (
+        "colon-reveal",
+        10,
+        "colon reveal: state it as a sentence",
+        re.compile(r"^[A-Z][A-Za-z ]{2,28}: [a-z]", re.M),
+    ),
+    (
+        "binary-contrast",
+        12,
+        "binary contrast: state the second half only",
+        re.compile(
+            r"\b(?:it'?s not|is not|isn'?t|not)\s+[^,.\n]{3,45},\s+(?:it'?s|it is|but|rather)\b",
+            re.I,
+        ),
+    ),
+    (
+        "throat-clearing",
+        12,
+        "throat-clearing: open on the point",
+        re.compile(
+            r"\b(?:here'?s the thing|let me be clear|to be honest|the truth is|look,)",
+            re.I,
+        ),
+    ),
+    (
+        "faux-insight",
+        14,
+        "faux-insight setup: make the claim stand alone",
+        re.compile(
+            r"\b(?:what nobody tells you|the part everyone misses|most people get this wrong"
+            r"|here'?s what (?:most|nobody))",
+            re.I,
+        ),
+    ),
+    (
+        "recap-ending",
+        12,
+        "summary-recap opener: they just read it",
+        re.compile(r"^(?:In conclusion|Ultimately|Overall|In summary|All in all)\b", re.M),
+    ),
+    (
+        "metadiscourse",
+        8,
+        "metadiscourse: if it is clear, delete the aside",
+        re.compile(
+            r"\b(?:it'?s worth noting|the key point is|as you can see"
+            r"|that matters more than it sounds|importantly,)",
+            re.I,
+        ),
+    ),
+    (
+        "weasel-attribution",
+        10,
+        "weasel attribution: name the source or drop the claim",
+        re.compile(r"\b(?:experts agree|studies show|research shows|it is widely)", re.I),
+    ),
+    (
+        "importance-puffery",
+        10,
+        "puffery: state the fact and let them judge",
+        re.compile(
+            r"\b(?:a testament to|marks a pivotal|underscores the|highlights the importance)",
+            re.I,
+        ),
+    ),
+    (
+        "banned-word",
+        8,
+        "banned word",
+        re.compile(
+            r"\b(?:delve|foster|leverage|utilize|facilitate|empower|streamline|robust"
+            r"|seamless|cutting-edge|game changer|paradigm shift|transformative|elevate"
+            r"|harness|meticulous|intricate|realm|tapestry|ever-evolving)\b",
+            re.I,
+        ),
+    ),
+    (
+        "empty-phrase",
+        6,
+        "empty phrase",
+        re.compile(
+            r"\b(?:at the end of the day|when it comes to|in today'?s world"
+            r"|let'?s dive in|needless to say)\b",
+            re.I,
+        ),
+    ),
+    (
+        "trailing-ing-clause",
+        6,
+        "superficial -ing clause tacked onto a sentence",
+        re.compile(r",\s+(?:highlight|showcas|underscor|demonstrat|reflect|emphasiz)ing\b", re.I),
+    ),
+]
+
+
+def strip_code(text):
+    """Blank out code so a snippet's contents never count as prose.
+
+    Replaced with newlines rather than deleted, so reported line numbers still
+    point at the right line of the original file.
+    """
+
+    def blank(m):
+        return "\n" * m.group(0).count("\n")
+
+    text = re.sub(r"```.*?```", blank, text, flags=re.S)
+    text = re.sub(r"^ {4,}\S.*$", "", text, flags=re.M)
+    text = re.sub(r"`[^`\n]*`", "", text)
+    return text
+
+
+def stacked_fragments(text):
+    """Three or more consecutive one-line paragraphs used for rhythm."""
+    paras = [p.strip() for p in re.split(r"\n\s*\n", text)]
+    hits, run = [], 0
+    for p in paras:
+        short = p and "\n" not in p and len(p) < 90 and not p.startswith(("|", "-", "#", ">"))
+        run = run + 1 if short else 0
+        if run == 3:
+            hits.append(p[:60])
+    return hits
+
+
+def scan(text, chat=False):
+    """Score, with diminishing returns per rule.
+
+    A reference doc that opens ten paragraphs with a bolded lead-in has one
+    habit, not ten problems. Charging full weight for every repeat pinned every
+    long document at 100 and made the score useless for ranking. Distinct rules
+    firing is the real signal, so repeats of one rule are worth steadily less.
+    """
+    prose = strip_code(text)
+    findings, per_rule = [], {}
+    for rid, weight, why, pattern in RULES:
+        for m in pattern.finditer(prose):
+            line = prose[: m.start()].count("\n") + 1
+            findings.append(
+                {"rule": rid, "line": line, "why": why, "text": m.group(0)[:70].strip()}
+            )
+            per_rule.setdefault(rid, [weight, 0])[1] += 1
+    for frag in stacked_fragments(prose):
+        findings.append(
+            {
+                "rule": "stacked-fragments",
+                "line": 0,
+                "why": "stacked one-line paragraphs for rhythm",
+                "text": frag,
+            }
+        )
+        per_rule.setdefault("stacked-fragments", [10, 0])[1] += 1
+
+    if chat:
+        score = sum(w * c for w, c in per_rule.values())
+        return min(int(score), 100), findings
+
+    score = 0
+    for weight, count in per_rule.values():
+        # Full weight for the first, half for the second, a third for the third,
+        # and nothing past that.
+        score += weight * sum(1 / n for n in range(1, min(count, 3) + 1))
+    return min(int(round(score)), 100), findings
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="slop-check")
+    ap.add_argument("files", nargs="*")
+    ap.add_argument("--stdin", action="store_true")
+    ap.add_argument("--issues", action="store_true")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--max", type=int)
+    ap.add_argument(
+        "--chat",
+        action="store_true",
+        help="score a chat reply: no diminishing returns, since a reply is short "
+        "and one drama beat in four paragraphs is the whole problem",
+    )
+    a = ap.parse_args()
+
+    targets = []
+    if a.stdin or not a.files:
+        targets.append(("<stdin>", sys.stdin.read()))
+    for f in a.files:
+        try:
+            targets.append((f, open(f, encoding="utf-8", errors="replace").read()))
+        except OSError as e:
+            print(f"slop-check: {e}", file=sys.stderr)
+            return 2
+
+    worst, out = 0, []
+    for name, text in targets:
+        score, findings = scan(text, chat=a.chat)
+        worst = max(worst, score)
+        out.append({"file": name, "score": score, "findings": findings})
+
+    if a.json:
+        print(json.dumps(out, indent=2))
+    else:
+        for r in sorted(out, key=lambda x: -x["score"]):
+            label = "clean" if r["score"] == 0 else "rewrite" if r["score"] >= 20 else "minor"
+            print(f"{r['score']:>3}  {r['file']}  {label}  ({len(r['findings'])} flagged)")
+            if a.issues:
+                for f in r["findings"]:
+                    where = f"L{f['line']}" if f["line"] else "  "
+                    print(f"     {where:>5}  {f['rule']}: {f['why']}")
+                    print(f"            > {f['text']}")
+
+    if a.max is not None and worst > a.max:
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

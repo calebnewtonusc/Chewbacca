@@ -369,6 +369,27 @@ case "$CO_AUTH" in
     "set \"includeCoAuthoredBy\": false in ~/.claude/settings.json" ;;
 esac
 
+# ── Writing rules ─────────────────────────────────────────────────────────────
+# The rules are only real if something checks them. A CLAUDE.md section that
+# nobody enforces is a suggestion.
+section "Writing rules"
+
+if command -v slop-check >/dev/null 2>&1; then
+  ok "slop-check on PATH"
+  if [ -x "$CLAUDE_DIR/hooks/slop-guard.sh" ]; then
+    if grep -q "slop-guard" "$CLAUDE_DIR/settings.json" 2>/dev/null; then
+      ok "slop guard wired to the Stop hook"
+    else
+      bad "slop-guard.sh installed but not wired to any hook" \
+        "re-run setup.sh, or add it to hooks.Stop in ~/.claude/settings.json"
+    fi
+  else
+    warn "slop-guard.sh missing, so nothing checks what Claude writes"
+  fi
+else
+  warn "slop-check missing (re-run setup.sh)"
+fi
+
 # ── Secrets ───────────────────────────────────────────────────────────────────
 section "Secrets"
 

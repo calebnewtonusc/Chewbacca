@@ -364,11 +364,24 @@ whileTap={{ scale: 0.98 }}
 Before shipping any output (UI, code, copy, documentation), run the deterministic
 check first, then use the human checklist on whatever it surfaces:
 
+Two scanners, because they catch different things and one alone is not enough.
+
 ```bash
-ai-scan docs/            # score every .md, worst first
-ai-scan draft.md --issues # what actually fired
-ai-scan docs/ --max 40   # exit 1, for a CI gate
+ai-scan docs/              # vocabulary tells: delve, testament to, ever-evolving
+slop-check docs/ --issues  # structural tells, with line numbers
+slop-check draft.md --max 20   # exit 1, for a CI gate
 ```
+
+`ai-scan` wraps the avoid-ai-writing detector and reads word choice. It scores
+clean on a paragraph that opens with a bolded fragment for drama, reveals its
+point after a colon, and stacks one-liners for rhythm, because none of those
+use a flagged word. Those are the tells that survive an editing pass aimed at
+vocabulary, and `slop-check` is the one that catches them.
+
+**This is enforced, not suggested.** A Stop hook runs `slop-check --chat` over
+every reply Claude writes and refuses the turn above a score of 10. The rules
+below are the same list the scanner implements, so read them as the spec rather
+than as advice.
 
 A file scoring under 10 does not need an editing pass. Spend the model's
 attention on the ones that score high. Asking a model to audit its own prose is
