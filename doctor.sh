@@ -320,6 +320,10 @@ else
     warn "mac missing, no Calendar/Contacts/Messages/Notes access"
   fi
 
+  [ -d "/Applications/Anki.app" ] &&
+    ok "Anki installed (the study skills write cards for it)" ||
+    warn "Anki missing, so generated flashcards have nowhere to go"
+
   [ -d "/Applications/Plynn.app" ] &&
     ok "Plynn installed (hold fn to dictate)" ||
     warn "Plynn missing, no on-device dictation (bin/install-plynn.sh)"
