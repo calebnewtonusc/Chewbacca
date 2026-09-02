@@ -962,13 +962,21 @@ if command -v claude &>/dev/null; then
   PLUGIN_FAILED=0
   for p in \
     bigquery-data-analytics@claude-plugins-official \
+    claude-md-management@claude-plugins-official \
     context7@claude-plugins-official \
     expo@claude-plugins-official \
+    feature-dev@claude-plugins-official \
+    frontend-design@claude-plugins-official \
+    hookify@claude-plugins-official \
     humanizer@humanizer \
     pinecone@claude-plugins-official \
     playwright@claude-plugins-official \
+    pyright-lsp@claude-plugins-official \
     railway@claude-plugins-official \
+    security-guidance@claude-plugins-official \
     serena@claude-plugins-official \
+    session-report@claude-plugins-official \
+    typescript-lsp@claude-plugins-official \
     understand-anything@understand-anything \
     vercel@claude-plugins-official; do
     if claude plugin install "$p" --scope user </dev/null &>/dev/null; then
@@ -1128,7 +1136,7 @@ fi
 # pack's AGENTS.MD, which would replace your global instructions. Do not run
 # it. The loop below does the linking and touches nothing else.
 PACK_DIR="$HOME/Projects/agent-scripts"
-PACK_SKIP="codex-first"
+PACK_SKIP="codex-first frontend-design"
 if [ -d "$PACK_DIR/.git" ]; then
   log "agent-scripts already cloned, left alone"
 elif git clone -q --depth 1 "https://github.com/steipete/agent-scripts.git" "$PACK_DIR" 2>/dev/null; then

@@ -38,7 +38,7 @@
     {
       "name": "agent-scripts",
       "url": "https://github.com/steipete/agent-scripts",
-      "count": 54,
+      "count": 53,
       "skills": [
         "agent-transcript",
         "beeper",
@@ -53,7 +53,6 @@
         "discord-clawd",
         "domain-dns-ops",
         "fleet-maintenance",
-        "frontend-design",
         "github-author-context",
         "github-cache-hygiene",
         "github-deep-review",
@@ -104,13 +103,21 @@
   ],
   "plugins": [
     "bigquery-data-analytics@claude-plugins-official",
+    "claude-md-management@claude-plugins-official",
     "context7@claude-plugins-official",
     "expo@claude-plugins-official",
+    "feature-dev@claude-plugins-official",
+    "frontend-design@claude-plugins-official",
+    "hookify@claude-plugins-official",
     "humanizer@humanizer",
     "pinecone@claude-plugins-official",
     "playwright@claude-plugins-official",
+    "pyright-lsp@claude-plugins-official",
     "railway@claude-plugins-official",
+    "security-guidance@claude-plugins-official",
     "serena@claude-plugins-official",
+    "session-report@claude-plugins-official",
+    "typescript-lsp@claude-plugins-official",
     "understand-anything@understand-anything",
     "vercel@claude-plugins-official"
   ],

@@ -10,7 +10,7 @@
 <!-- BEGIN GENERATED: badges -->
   <a href=".claude/commands"><img src="https://img.shields.io/badge/slash_commands-48-indigo" alt="Commands"></a>
   <a href=".claude/rules"><img src="https://img.shields.io/badge/always_on_rules-6-green" alt="Rules"></a>
-  <a href="docs/EXTENSIONS.md"><img src="https://img.shields.io/badge/plugins-10-orange" alt="Plugins"></a>
+  <a href="docs/EXTENSIONS.md"><img src="https://img.shields.io/badge/plugins-18-orange" alt="Plugins"></a>
 <!-- END GENERATED: badges -->
 </p>
 
@@ -105,8 +105,8 @@ handed to an agent rather than to you: see
 
 | Piece                   | Details                                                                                                                                            |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **macOS tools**         | 7 installed alongside the kit: bd, mac, Maccy, mac-use, peekaboo, summarize, yt-transcript                                                                            |
-| **Skills and plugins**  | 64 skills (7 shipped here, 3 cloned from upstream, 54 from 1 skill pack) plus 10 plugins across 3 marketplaces                                     |
+| **macOS tools**         | 7 installed alongside the kit: bd, mac, Maccy, mac-use, peekaboo, summarize, yt-transcript                                                         |
+| **Skills and plugins**  | 63 skills (7 shipped here, 3 cloned from upstream, 53 from 1 skill pack) plus 18 plugins across 3 marketplaces                                     |
 | **Second brain**        | A private notes repo Claude reads at the start of every session and writes to as things change. Syncs to GitHub                                    |
 | **Coursework ledger**   | Your syllabi become deadlines, attendance budgets, and a per-course AI policy Claude checks before touching graded work                            |
 | **On-device dictation** | Installs [Plynn](https://github.com/31Carlton7/plynn): hold fn, talk, and clean text appears. Speech and cleanup run on your Mac, nothing uploaded |
@@ -584,24 +584,30 @@ fires, which is the thing that matters most.
 
 <!-- BEGIN GENERATED: extensions -->
 
-| Extension                                                                           | Layer  | What it does                                                                                   |
-| ----------------------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------- |
-| [skills/agent-setup](skills/agent-setup)                                            | Skill  | Finishing the install steps that need a browser or a permission dialog                         |
-| [skills/coursework](skills/coursework)                                              | Skill  | Your syllabi as a ledger: deadlines, attendance math, per-course AI policy                     |
-| [skills/graph-engineering](skills/graph-engineering)                                | Skill  | Knowledge graphs and agent task graphs, with teaching mode                                     |
-| [skills/life-ops](skills/life-ops)                                                  | Skill  | The weekly review, life admin with real deadlines, and what to cut                             |
-| [skills/second-brain](skills/second-brain)                                          | Skill  | Reading, writing, and auditing your personal context repo                                      |
-| [skills/stack-rules](skills/stack-rules)                                            | Skill  | The 12 stack-specific standards, loaded only when the work needs them                          |
-| [skills/study-system](skills/study-system)                                          | Skill  | Retrieval practice over rereading, exam run-ups, and the four-cause postmortem                 |
-| [avoid-ai-writing](https://github.com/conorbronsdon/avoid-ai-writing)               | Skill  | Audit and rewrite content to remove AI writing patterns ("AI-isms").                           |
-| [no-ai-slop](https://github.com/petergyang/no-ai-slop)                              | Skill  | Edit drafts into sharper, more human writing while preserving the writer's personal voice, or… |
-| [youtube-transcripts](https://github.com/calebnewtonusc/claude-youtube-transcripts) | Skill  | Get the transcript of a YouTube video, channel, or playlist.                                   |
-| [agent-scripts](https://github.com/steipete/agent-scripts) (54)                     | Pack   | Peter Steinberger's shared agent skills: macOS, Swift, GitHub, release ops                     |
-| [context7](https://github.com/anthropics/claude-plugins-official)                   | Plugin | Real library docs on demand instead of the model's training recall                             |
-| [humanizer](https://github.com/blader/humanizer)                                    | Plugin | Strips the Wikipedia-catalogued signs of AI writing out of a draft                             |
-| [understand-anything](https://github.com/Egonex-AI/Understand-Anything)             | Plugin | Turns a codebase into an interactive knowledge graph you can query                             |
-| bigquery-data-analytics, expo, pinecone, playwright, railway, serena, vercel        | Plugin | Code navigation, browser automation, deploys, and data tooling                                 |
-| [prompt-optimizer](https://github.com/linshenkx/prompt-optimizer)                   | MCP    | Rewrites and iterates on prompts through three MCP tools, self-hosted                          |
+| Extension                                                                                                 | Layer  | What it does                                                                                   |
+| --------------------------------------------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------- |
+| [skills/agent-setup](skills/agent-setup)                                                                  | Skill  | Finishing the install steps that need a browser or a permission dialog                         |
+| [skills/coursework](skills/coursework)                                                                    | Skill  | Your syllabi as a ledger: deadlines, attendance math, per-course AI policy                     |
+| [skills/graph-engineering](skills/graph-engineering)                                                      | Skill  | Knowledge graphs and agent task graphs, with teaching mode                                     |
+| [skills/life-ops](skills/life-ops)                                                                        | Skill  | The weekly review, life admin with real deadlines, and what to cut                             |
+| [skills/second-brain](skills/second-brain)                                                                | Skill  | Reading, writing, and auditing your personal context repo                                      |
+| [skills/stack-rules](skills/stack-rules)                                                                  | Skill  | The 12 stack-specific standards, loaded only when the work needs them                          |
+| [skills/study-system](skills/study-system)                                                                | Skill  | Retrieval practice over rereading, exam run-ups, and the four-cause postmortem                 |
+| [avoid-ai-writing](https://github.com/conorbronsdon/avoid-ai-writing)                                     | Skill  | Audit and rewrite content to remove AI writing patterns ("AI-isms").                           |
+| [no-ai-slop](https://github.com/petergyang/no-ai-slop)                                                    | Skill  | Edit drafts into sharper, more human writing while preserving the writer's personal voice, or… |
+| [youtube-transcripts](https://github.com/calebnewtonusc/claude-youtube-transcripts)                       | Skill  | Get the transcript of a YouTube video, channel, or playlist.                                   |
+| [agent-scripts](https://github.com/steipete/agent-scripts) (53)                                           | Pack   | Peter Steinberger's shared agent skills: macOS, Swift, GitHub, release ops                     |
+| [claude-md-management](https://github.com/anthropics/claude-plugins-official)                             | Plugin | Audits the standards file this kit installs, so it does not rot                                |
+| [context7](https://github.com/anthropics/claude-plugins-official)                                         | Plugin | Real library docs on demand instead of the model's training recall                             |
+| [feature-dev](https://github.com/anthropics/claude-plugins-official)                                      | Plugin | A seven-phase build: requirements, architecture, tests, review, docs                           |
+| [frontend-design](https://github.com/anthropics/claude-plugins-official)                                  | Plugin | Design judgment, so a generated UI is not three cards on a gradient                            |
+| [hookify](https://github.com/anthropics/claude-plugins-official)                                          | Plugin | Reads a session and writes the hook that stops the thing that annoyed you                      |
+| [humanizer](https://github.com/blader/humanizer)                                                          | Plugin | Strips the Wikipedia-catalogued signs of AI writing out of a draft                             |
+| [security-guidance](https://github.com/anthropics/claude-plugins-official)                                | Plugin | Warns on the edit, not in review, when a change looks unsafe                                   |
+| [session-report](https://github.com/anthropics/claude-plugins-official)                                   | Plugin | An explorable report of what a session actually cost and did                                   |
+| [understand-anything](https://github.com/Egonex-AI/Understand-Anything)                                   | Plugin | Turns a codebase into an interactive knowledge graph you can query                             |
+| bigquery-data-analytics, expo, pinecone, playwright, pyright-lsp, railway, serena, typescript-lsp, vercel | Plugin | Language servers, browser automation, deploys, and data tooling                                |
+| [prompt-optimizer](https://github.com/linshenkx/prompt-optimizer)                                         | MCP    | Rewrites and iterates on prompts through three MCP tools, self-hosted                          |
 
 <!-- END GENERATED: extensions -->
 
