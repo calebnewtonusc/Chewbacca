@@ -865,6 +865,11 @@ mcp["mcpServers"].setdefault("sequential-thinking", {
     "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
 })
 
+# Blender only when Blender is actually installed. Registering it otherwise
+# gives a server that fails every call, which reads as a broken kit.
+if os.path.isdir("/Applications/Blender.app"):
+    mcp["mcpServers"].setdefault("blender", {"command": "uvx", "args": ["blender-mcp"]})
+
 if composio_url:
     mcp["mcpServers"]["composio"] = {
         "url": composio_url,
@@ -1008,6 +1013,11 @@ done
 # macOS command-line tools. Skipped without Homebrew, and skipped one by
 # one if already present, so this is safe to re-run.
 if command -v brew &>/dev/null; then
+  if command -v bd &>/dev/null; then
+    log "bd already installed"
+  else
+    brew install beads &>/dev/null && log "bd installed" || warn "could not install bd"
+  fi
   if [ -d "/Applications/Maccy.app" ]; then
     log "Maccy already installed"
   else

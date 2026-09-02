@@ -105,7 +105,7 @@ handed to an agent rather than to you: see
 
 | Piece                   | Details                                                                                                                                            |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **macOS tools**         | 6 installed alongside the kit: mac, Maccy, mac-use, peekaboo, summarize, yt-transcript                                                                            |
+| **macOS tools**         | 7 installed alongside the kit: bd, mac, Maccy, mac-use, peekaboo, summarize, yt-transcript                                                                            |
 | **Skills and plugins**  | 64 skills (7 shipped here, 3 cloned from upstream, 54 from 1 skill pack) plus 10 plugins across 3 marketplaces                                     |
 | **Second brain**        | A private notes repo Claude reads at the start of every session and writes to as things change. Syncs to GitHub                                    |
 | **Coursework ledger**   | Your syllabi become deadlines, attendance budgets, and a per-course AI policy Claude checks before touching graded work                            |
@@ -625,14 +625,15 @@ installed alongside the kit, not vendored into it.
 
 <!-- BEGIN GENERATED: cli -->
 
-| Tool                                                                          | Install                                                                | What it does                                                               |
-| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| [mac](https://github.com/31Carlton7/mac-cli)                                  | see docs/MACOS-APP-CONTROL.md (clone plus swift build, no formula yet) | Calendar, Reminders, Contacts, Mail, Messages, Notes, and Finder as JSON   |
-| [Maccy](https://github.com/p0deje/Maccy)                                      | `brew install --cask maccy`                                            | Clipboard history, so a value scrolled past is still recoverable           |
-| [mac-use](https://github.com/browser-use/macOS-use)                           | see docs/MACOS-TOOLS.md (clone plus a uv venv, no formula)             | Natural-language agent that drives any Mac app through Accessibility       |
-| [peekaboo](https://github.com/openclaw/Peekaboo)                              | `brew install openclaw/tap/peekaboo`                                   | Screenshots, UI inspection, and click/type automation for any macOS app    |
-| [summarize](https://github.com/steipete/summarize)                            | `brew install steipete/tap/summarize`                                  | Gist of any URL, YouTube video, podcast, or local file                     |
-| [yt-transcript](https://github.com/calebnewtonusc/claude-youtube-transcripts) | see docs/MACOS-TOOLS.md (its own installer, no formula)                | Transcript of any YouTube video, channel, or playlist, read without asking |
+| Tool                                                                          | Install                                                                | What it does                                                                |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| [bd](https://github.com/gastownhall/beads)                                    | `brew install beads`                                                   | Issue tracker your agent reads and writes, so work survives a context reset |
+| [mac](https://github.com/31Carlton7/mac-cli)                                  | see docs/MACOS-APP-CONTROL.md (clone plus swift build, no formula yet) | Calendar, Reminders, Contacts, Mail, Messages, Notes, and Finder as JSON    |
+| [Maccy](https://github.com/p0deje/Maccy)                                      | `brew install --cask maccy`                                            | Clipboard history, so a value scrolled past is still recoverable            |
+| [mac-use](https://github.com/browser-use/macOS-use)                           | see docs/MACOS-TOOLS.md (clone plus a uv venv, no formula)             | Natural-language agent that drives any Mac app through Accessibility        |
+| [peekaboo](https://github.com/openclaw/Peekaboo)                              | `brew install openclaw/tap/peekaboo`                                   | Screenshots, UI inspection, and click/type automation for any macOS app     |
+| [summarize](https://github.com/steipete/summarize)                            | `brew install steipete/tap/summarize`                                  | Gist of any URL, YouTube video, podcast, or local file                      |
+| [yt-transcript](https://github.com/calebnewtonusc/claude-youtube-transcripts) | see docs/MACOS-TOOLS.md (its own installer, no formula)                | Transcript of any YouTube video, channel, or playlist, read without asking  |
 
 <!-- END GENERATED: cli -->
 
