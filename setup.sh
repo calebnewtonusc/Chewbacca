@@ -851,6 +851,60 @@ fi
 section "Installing macOS tools"
 
 # BEGIN GENERATED: cli
+# macOS command-line tools. Skipped without Homebrew, and skipped one by
+# one if already present, so this is safe to re-run.
+if command -v brew &>/dev/null; then
+  if command -v gog &>/dev/null; then
+    log "gog already installed"
+  else
+    brew install openclaw/tap/gogcli &>/dev/null && log "gog installed" || warn "could not install gog"
+  fi
+  if [ -d "/Applications/Maccy.app" ]; then
+    log "Maccy already installed"
+  else
+    brew install --cask maccy &>/dev/null && log "Maccy installed" || warn "could not install Maccy"
+  fi
+  if command -v peekaboo &>/dev/null; then
+    log "peekaboo already installed"
+  else
+    brew install openclaw/tap/peekaboo &>/dev/null && log "peekaboo installed" || warn "could not install peekaboo"
+  fi
+  if command -v summarize &>/dev/null; then
+    log "summarize already installed"
+  else
+    brew install steipete/tap/summarize &>/dev/null && log "summarize installed" || warn "could not install summarize"
+  fi
+else
+  warn "Homebrew not found. macOS tools skipped: see docs/MACOS-TOOLS.md"
+fi
+
+# Skill pack: agent-scripts. Linked per skill, not copied, so `git pull` in
+# the clone updates every skill at once.
+#
+# Its own installer (scripts/sync-skills) repoints ~/.claude/CLAUDE.md at the
+# pack's AGENTS.MD, which would replace your global instructions. Do not run
+# it. The loop below does the linking and touches nothing else.
+PACK_DIR="$HOME/Projects/agent-scripts"
+PACK_SKIP="codex-first"
+if [ -d "$PACK_DIR/.git" ]; then
+  log "agent-scripts already cloned, left alone"
+elif git clone -q --depth 1 "https://github.com/steipete/agent-scripts.git" "$PACK_DIR" 2>/dev/null; then
+  log "agent-scripts cloned"
+else
+  warn "could not clone agent-scripts"
+fi
+if [ -d "$PACK_DIR/skills" ]; then
+  PACK_N=0
+  for SK in "$PACK_DIR"/skills/*/; do
+    SK_NAME="$(basename "$SK")"
+    [ -f "$SK/SKILL.md" ] || continue
+    case " $PACK_SKIP " in *" $SK_NAME "*) continue;; esac
+    [ -e "$GLOBAL_CLAUDE/skills/$SK_NAME" ] && continue
+    ln -s "$SK" "$GLOBAL_CLAUDE/skills/$SK_NAME"
+    PACK_N=$((PACK_N+1))
+  done
+  log "agent-scripts: $PACK_N skills linked"
+fi
 # END GENERATED: cli
 
 # ── Verify ────────────────────────────────────────────────────────────────────

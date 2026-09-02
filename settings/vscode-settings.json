@@ -1,0 +1,24 @@
+{
+  "_comment": "Editor half of the no-prompts setup. permissions.defaultMode in ~/.claude/settings.json is not enough on its own: the VS Code extension gates bypass mode behind claudeCode.allowDangerouslySkipPermissions, so without the first key below the CLI setting is ignored and you still get prompted. setup.sh merges these into your editor's user settings.json. Works in VS Code, VS Code Insiders, Cursor, VSCodium, and Windsurf.",
+
+  "claudeCode.allowDangerouslySkipPermissions": true,
+  "claudeCode.initialPermissionMode": "bypassPermissions",
+  "claudeCode.autosave": true,
+
+  "_comment_editor": "The rest are VS Code's own confirmation dialogs. They are not Claude prompts, but they interrupt the same flow: workspace trust on every new folder, a modal before deleting a file, one before closing a terminal Claude is using.",
+
+  "security.workspace.trust.enabled": false,
+  "security.workspace.trust.untrustedFiles": "open",
+  "explorer.confirmDelete": false,
+  "explorer.confirmDragAndDrop": false,
+  "git.confirmSync": false,
+  "git.confirmEmptyCommits": false,
+  "git.confirmForcePush": false,
+  "git.confirmNoVerifyCommit": false,
+  "git.allowNoVerifyCommit": true,
+  "terminal.integrated.confirmOnExit": "never",
+  "terminal.integrated.confirmOnKill": "never",
+  "debug.confirmOnExit": "never",
+  "task.allowAutomaticTasks": "on",
+  "task.problemMatchers.neverPrompt": true
+}

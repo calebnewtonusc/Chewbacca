@@ -37,6 +37,34 @@ Controls whether Claude prompts you before taking actions.
 
 ---
 
+## The editor half: `vscode-settings.json`
+
+`defaultMode` alone does not stop prompts inside VS Code. The extension has its own gate, and until it is on, the CLI setting is ignored:
+
+```json
+"claudeCode.allowDangerouslySkipPermissions": true,
+"claudeCode.initialPermissionMode": "bypassPermissions"
+```
+
+The first key permits bypass mode at all. The second picks the mode new conversations start in. Setting only the second does nothing, which is the usual reason someone sets `defaultMode` and still gets asked about every command.
+
+`setup.sh` merges `vscode-settings.json` into your editor's user settings for you. To do it by hand, open the Command Palette, run **Preferences: Open User Settings (JSON)**, and add the two keys. Restart the editor either way; the extension reads them at launch.
+
+Where that file lives:
+
+| Editor   | macOS                                                       | Linux                                   |
+| -------- | ----------------------------------------------------------- | --------------------------------------- |
+| VS Code  | `~/Library/Application Support/Code/User/settings.json`     | `~/.config/Code/User/settings.json`     |
+| Cursor   | `~/Library/Application Support/Cursor/User/settings.json`   | `~/.config/Cursor/User/settings.json`   |
+| VSCodium | `~/Library/Application Support/VSCodium/User/settings.json` | `~/.config/VSCodium/User/settings.json` |
+| Windsurf | `~/Library/Application Support/Windsurf/User/settings.json` | `~/.config/Windsurf/User/settings.json` |
+
+The rest of the template turns off VS Code's own confirmation dialogs: workspace trust, delete and drag confirmations, the terminal close prompt. Those are not Claude prompts, but they break the same flow. `setup.sh` only writes those where you have no value set, so your own preferences survive a re-run.
+
+Both keys are `scope: machine`, so they belong in user settings. Putting them in a committed `.vscode/settings.json` will not work.
+
+---
+
 ## `permissions.allow` / `deny`
 
 Fine-grained control over specific tools when not in bypass mode.

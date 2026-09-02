@@ -129,6 +129,36 @@ else
   warn "no d1-config.sh, context syncing is off"
 fi
 
+# The CLI half and the editor half are separate switches. defaultMode alone
+# leaves you prompted inside VS Code, which is the most common way this kit
+# looks broken when it is not.
+EDITOR_BASE="$HOME/Library/Application Support"
+[ -d "$EDITOR_BASE" ] || EDITOR_BASE="$HOME/.config"
+EDITOR_FOUND=0
+for ed in "Code" "Code - Insiders" "Cursor" "VSCodium" "Windsurf"; do
+  f="$EDITOR_BASE/$ed/User/settings.json"
+  [ -f "$f" ] || continue
+  EDITOR_FOUND=1
+  RESULT="$(python3 - "$f" << 'PYDOC' 2>/dev/null || echo unreadable
+import json, sys
+try:
+    s = json.load(open(sys.argv[1]))
+except Exception:
+    print("unreadable"); raise SystemExit(0)
+gate = s.get("claudeCode.allowDangerouslySkipPermissions") is True
+mode = s.get("claudeCode.initialPermissionMode") == "bypassPermissions"
+print("ok" if gate and mode else ("gate" if not gate else "mode"))
+PYDOC
+)"
+  case "$RESULT" in
+    ok)   ok "$ed will not prompt for permissions" ;;
+    gate) warn "$ed: claudeCode.allowDangerouslySkipPermissions is not true, so bypass mode is ignored" ;;
+    mode) warn "$ed: claudeCode.initialPermissionMode is not bypassPermissions" ;;
+    *)    warn "$ed: settings.json could not be parsed" ;;
+  esac
+done
+[ "$EDITOR_FOUND" -eq 1 ] || ok "no VS Code style editor installed, nothing to configure"
+
 # ── Standards actually loading ────────────────────────────────────────────────
 section "Standards"
 
