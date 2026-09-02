@@ -1,0 +1,331 @@
+#!/usr/bin/env node
+/**
+ * skill-scan: score Claude Skills on whether they will actually fire and behave,
+ * without calling a model.
+ *
+ *   skill-scan                       every skill in ~/.claude/skills, worst first
+ *   skill-scan path/to/skill         one skill directory
+ *   skill-scan skills/               every skill under a directory
+ *   skill-scan --issues              show what lost points, not just the score
+ *   skill-scan --min 60              exit 1 if any skill scores below 60
+ *   skill-scan --json                machine-readable
+ *
+ * Five dimensions, 100 points. The rubric is from a public review of 100 skills
+ * that reported roughly 70% failing it; the weights and thresholds here are ours.
+ *
+ *   Trigger precision  25   will the description route to this skill at all
+ *   Determinism        25   does it execute code or ask the model to guess
+ *   Token economy      25   lean core file, detail deferred to references
+ *   Reusability        15   one job, not a grab bag
+ *   Safety posture     10   scoped tools, no surprising side effects
+ *
+ * Treat it as a signal, not a verdict. A short prose skill that fires reliably
+ * beats a high scorer nobody ever invokes. The one thing this cannot measure is
+ * invocation frequency, which is the thing that matters most.
+ */
+
+const fs = require("fs");
+const path = require("path");
+
+const args = process.argv.slice(2);
+const flag = (n) => args.includes(n);
+const valueOf = (n, d) => {
+  const i = args.indexOf(n);
+  return i === -1 ? d : args[i + 1];
+};
+const targets = args.filter((a) => !a.startsWith("--") && !/^\d+$/.test(a));
+
+const DEFAULT_ROOT = path.join(process.env.HOME, ".claude/skills");
+
+// ---------- frontmatter ----------
+
+function parseFrontmatter(src) {
+  const m = src.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!m) return { data: {}, body: src };
+  const data = {};
+  let key = null;
+  for (const line of m[1].split(/\r?\n/)) {
+    const kv = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+    if (kv) {
+      key = kv[1];
+      data[key] = kv[2].trim();
+    } else if (key && /^\s+/.test(line)) {
+      data[key] = (data[key] + " " + line.trim()).trim();
+    }
+  }
+  return { data, body: src.slice(m[0].length) };
+}
+
+// ---------- discovery ----------
+
+function findSkills(root) {
+  const out = [];
+  const walk = (dir, depth) => {
+    if (depth > 3) return;
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    if (entries.some((e) => e.isFile() && e.name === "SKILL.md")) {
+      out.push(dir);
+      return;
+    }
+    for (const e of entries) {
+      if (e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules") {
+        walk(path.join(dir, e.name), depth + 1);
+      }
+    }
+  };
+  if (fs.existsSync(path.join(root, "SKILL.md"))) return [root];
+  walk(root, 0);
+  return out;
+}
+
+function listFiles(dir) {
+  const out = [];
+  const walk = (d, depth) => {
+    if (depth > 4) return;
+    let entries;
+    try {
+      entries = fs.readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) {
+        if (!e.name.startsWith(".") && e.name !== "node_modules") walk(p, depth + 1);
+      } else {
+        out.push(p);
+      }
+    }
+  };
+  walk(dir, 0);
+  return out;
+}
+
+// ---------- scoring ----------
+
+const TRIGGER_CUES = [
+  "use when",
+  "use this when",
+  "use this skill when",
+  "when the user",
+  "triggers on",
+  "invoke when",
+  "call this when",
+  "reach for this when",
+  "use for",
+  "use before",
+  "use after",
+];
+
+const VAGUE_ONLY = [
+  "helps you",
+  "assists with",
+  "makes it easy",
+  "a tool for",
+  "utility for",
+  "helper for",
+];
+
+const CODE_EXT = new Set([".py", ".js", ".mjs", ".sh", ".ts", ".rb", ".pl"]);
+const DATA_EXT = new Set([".json", ".csv", ".yaml", ".yml", ".txt", ".md"]);
+
+const NET_CALL = /\b(curl|wget|fetch\(|requests\.(get|post)|urllib|axios|http\.request|nc\s)/;
+const DESTRUCTIVE = /\brm\s+-rf\b|\bsudo\b|\bchmod\s+777\b|\bdd\s+if=|>\s*\/dev\/sd/;
+
+function scoreSkill(dir) {
+  const skillPath = path.join(dir, "SKILL.md");
+  const src = fs.readFileSync(skillPath, "utf8");
+  const { data, body } = parseFrontmatter(src);
+  const name = data.name || path.basename(dir);
+  const issues = [];
+
+  const files = listFiles(dir).filter((f) => f !== skillPath);
+  const codeFiles = files.filter((f) => CODE_EXT.has(path.extname(f)));
+  const refFiles = files.filter(
+    (f) => DATA_EXT.has(path.extname(f)) && /references?|assets?|data|templates?/i.test(f),
+  );
+  const bytes = Buffer.byteLength(src, "utf8");
+  const lines = src.split(/\r?\n/).length;
+
+  // --- 1. trigger precision (25) ---
+  let trigger = 0;
+  const desc = (data.description || "").trim();
+  const dl = desc.length;
+  if (!desc) {
+    issues.push(["trigger", "no description: the model has nothing to route on"]);
+  } else {
+    if (dl >= 60 && dl <= 500) trigger += 9;
+    else if (dl >= 40) trigger += 5;
+    else issues.push(["trigger", `description is ${dl} chars, too thin to route reliably`]);
+    if (dl > 500) issues.push(["trigger", `description is ${dl} chars, long enough to blur its own trigger`]);
+
+    const lower = desc.toLowerCase();
+    if (TRIGGER_CUES.some((c) => lower.includes(c))) trigger += 9;
+    else issues.push(["trigger", 'no explicit trigger clause ("Use when...") in the description']);
+
+    // concrete routing nouns: quoted terms, slash commands, file globs, proper tools
+    const concrete =
+      (desc.match(/[`"'][^`"']{2,}[`"']/g) || []).length +
+      (desc.match(/\b[a-z0-9_-]+\.(md|json|py|js|ts|sh|csv|pdf)\b/gi) || []).length +
+      (desc.match(/\/[a-z][a-z0-9-]+/g) || []).length;
+    if (concrete >= 2) trigger += 7;
+    else if (concrete === 1) trigger += 4;
+    else issues.push(["trigger", "description names no concrete artifacts, commands, or file types"]);
+
+    if (VAGUE_ONLY.some((v) => lower.includes(v)) && concrete === 0) {
+      trigger = Math.max(0, trigger - 4);
+      issues.push(["trigger", "description leans on filler verbs with nothing concrete behind them"]);
+    }
+  }
+
+  // --- 2. determinism (25) ---
+  let determinism = 0;
+  if (codeFiles.length > 0) {
+    determinism += 15;
+    if (codeFiles.length >= 2) determinism += 3;
+  } else {
+    issues.push(["determinism", "no scripts: every step is the model guessing rather than executing"]);
+  }
+  if (/```(bash|sh|console|shell)/.test(body) || /^\s*(python3?|node|bash|\.\/)\s/m.test(body)) {
+    determinism += 5;
+  } else if (codeFiles.length === 0) {
+    issues.push(["determinism", "no runnable command anywhere in the body"]);
+  }
+  if (refFiles.length > 0) determinism += 2;
+  determinism = Math.min(25, determinism);
+
+  // --- 3. token economy (25) ---
+  let economy = 0;
+  if (bytes <= 5500) economy += 14;
+  else if (bytes <= 12000) economy += 9;
+  else if (bytes <= 25000) economy += 4;
+  else issues.push(["economy", `SKILL.md is ${(bytes / 1024).toFixed(0)}KB, loaded in full on every invocation`]);
+
+  if (refFiles.length > 0 || codeFiles.length > 0) economy += 8;
+  else if (bytes > 5500)
+    issues.push(["economy", "everything lives in SKILL.md with no references/ to defer detail to"]);
+
+  if (lines <= 200) economy += 3;
+  economy = Math.min(25, economy);
+
+  // --- 4. reusability (15) ---
+  let reuse = 15;
+  const h2 = (body.match(/^##\s+/gm) || []).length;
+  if (h2 > 14) {
+    reuse -= 6;
+    issues.push(["reusability", `${h2} top-level sections: this reads as several skills in one`]);
+  } else if (h2 > 9) {
+    reuse -= 3;
+    issues.push(["reusability", `${h2} top-level sections, scope is drifting wide`]);
+  }
+  const ands = (desc.toLowerCase().match(/\band\b/g) || []).length;
+  if (ands >= 4) {
+    reuse -= 4;
+    issues.push(["reusability", "description chains four or more responsibilities together"]);
+  }
+  reuse = Math.max(0, reuse);
+
+  // --- 5. safety posture (10) ---
+  let safety = 0;
+  if (data["allowed-tools"]) safety += 5;
+  else issues.push(["safety", "no allowed-tools in frontmatter: the skill runs with the full tool surface"]);
+
+  let netHit = null;
+  let destrHit = null;
+  for (const f of codeFiles) {
+    let s = "";
+    try {
+      s = fs.readFileSync(f, "utf8");
+    } catch {
+      continue;
+    }
+    if (!netHit && NET_CALL.test(s)) netHit = path.relative(dir, f);
+    if (!destrHit && DESTRUCTIVE.test(s)) destrHit = path.relative(dir, f);
+  }
+  if (destrHit) issues.push(["safety", `destructive or privileged shell in ${destrHit}, audit before trusting`]);
+  else safety += 3;
+  if (netHit) issues.push(["safety", `network call in ${netHit}, confirm the endpoint is expected`]);
+  else safety += 2;
+
+  const total = trigger + determinism + economy + reuse + safety;
+  return {
+    name,
+    dir,
+    total,
+    parts: { trigger, determinism, economy, reuse, safety },
+    bytes,
+    scripts: codeFiles.length,
+    refs: refFiles.length,
+    issues,
+  };
+}
+
+// ---------- report ----------
+
+const roots = targets.length ? targets : [DEFAULT_ROOT];
+let dirs = [];
+for (const r of roots) {
+  if (!fs.existsSync(r)) {
+    console.error(`not found: ${r}`);
+    process.exit(2);
+  }
+  dirs = dirs.concat(findSkills(path.resolve(r)));
+}
+dirs = [...new Set(dirs)];
+
+if (!dirs.length) {
+  console.error(`no SKILL.md found under: ${roots.join(", ")}`);
+  process.exit(2);
+}
+
+const results = dirs
+  .map((d) => {
+    try {
+      return scoreSkill(d);
+    } catch (e) {
+      return { name: path.basename(d), dir: d, error: e.message, total: 0, issues: [], parts: {} };
+    }
+  })
+  .sort((a, b) => a.total - b.total);
+
+if (flag("--json")) {
+  console.log(JSON.stringify(results, null, 2));
+} else {
+  const band = (n) => (n >= 75 ? "solid" : n >= 55 ? "workable" : n >= 35 ? "weak" : "will not fire");
+  const w = Math.max(...results.map((r) => r.name.length), 4);
+  console.log(
+    `${"score".padStart(5)}  ${"skill".padEnd(w)}  ${"trg".padStart(3)} ${"det".padStart(3)} ${"eco".padStart(3)} ${"reu".padStart(3)} ${"saf".padStart(3)}  verdict`,
+  );
+  console.log("-".repeat(5 + 2 + w + 2 + 23 + 2 + 14));
+  for (const r of results) {
+    if (r.error) {
+      console.log(`${"err".padStart(5)}  ${r.name.padEnd(w)}  ${r.error}`);
+      continue;
+    }
+    const p = r.parts;
+    console.log(
+      `${String(r.total).padStart(5)}  ${r.name.padEnd(w)}  ` +
+        `${String(p.trigger).padStart(3)} ${String(p.determinism).padStart(3)} ${String(p.economy).padStart(3)} ` +
+        `${String(p.reuse).padStart(3)} ${String(p.safety).padStart(3)}  ${band(r.total)}`,
+    );
+    if (flag("--issues")) {
+      for (const [dim, msg] of r.issues) console.log(`         ${dim.padEnd(12)} ${msg}`);
+    }
+  }
+
+  const n = results.length;
+  const avg = results.reduce((a, r) => a + r.total, 0) / n;
+  const failing = results.filter((r) => r.total < 55).length;
+  console.log(
+    `\n${n} skills, mean ${avg.toFixed(1)}/100, ${failing} below 55 (${((failing / n) * 100).toFixed(0)}%)`,
+  );
+  console.log("columns: trg trigger/25  det determinism/25  eco economy/25  reu reuse/15  saf safety/10");
+}
+
+const min = parseInt(valueOf("--min", "0"), 10);
+if (min > 0 && results.some((r) => r.total < min)) process.exit(1);
