@@ -516,7 +516,7 @@ Config lives at your project root `.mcp.json` or `~/.claude/.mcp.json`.
 
 ## MAC TOOLS: USE THEM INSTEAD OF GUESSING
 
-`setup.sh` installs six command-line tools. They exist because file access
+`setup.sh` installs five command-line tools. They exist because file access
 alone leaves you blind to the rest of the machine. Reach for them by default,
 not as a last resort.
 
@@ -524,7 +524,6 @@ not as a last resort.
 | ------------------------------------- | --------------------------------------------- |
 | See what an app or window looks like  | `peekaboo image --app Safari --path shot.png` |
 | Click, type, or drive a menu          | `peekaboo click "Sign In"`, `peekaboo type`   |
-| Read Gmail, Calendar, or Drive        | `gog gmail list --json`                       |
 | Get the gist of a URL, video, or file | `summarize "<url>" --cli claude`              |
 | Drive a Mac app from one instruction  | `mac-use "open Calculator and add 5 and 4"`   |
 | Read a calendar, contact, or thread   | `mac calendar list --json`, `mac contacts find` |
@@ -536,8 +535,6 @@ Rules that matter:
   `peekaboo learn` for the full agent-facing guide before anything complicated.
 - **Never claim you cannot read a video or a long page.** `summarize` handles
   URLs, YouTube, podcasts, and local files, and `--cli claude` needs no API key.
-- **Use `--json` or `--plain` with `gog`** when parsing the result, and
-  `--no-input` in anything automated so it fails instead of hanging on a prompt.
 - **`mac-use` moves the real mouse.** Prefer `peekaboo` for anything you can
   express as a specific click, and keep `mac-use` tasks small and checkable.
 - **Never claim you cannot read the user's calendar, contacts, or messages.**

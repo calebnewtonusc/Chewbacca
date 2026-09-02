@@ -1,14 +1,14 @@
 ---
 name: agent-setup
-description: "Finish the parts of this kit's install that need a browser or a permission dialog: Google OAuth for gog, screen and accessibility grants, provider keys, and verification. Use after setup.sh, when doctor.sh reports a tool installed but unusable, or when the user says to finish setting something up themselves."
+description: "Finish the parts of this kit's install that need a browser or a permission dialog: screen and accessibility grants, provider keys, any step behind a web console, and verification. Use after setup.sh, when doctor.sh reports a tool installed but unusable, or when the user says to finish setting something up themselves."
 license: MIT
 ---
 
 # Agent setup
 
-`setup.sh` installs binaries. It cannot click a consent screen, tick a checkbox
-in System Settings, or create a Google Cloud OAuth client. This skill is how you
-finish those, so the user does not have to.
+`setup.sh` installs binaries. It cannot tick a checkbox in System Settings,
+click through a consent screen, or fill in a web console that has no API. This
+skill is how you finish those, so the user does not have to.
 
 Work through the checks first, do only what is actually missing, and end by
 running `./doctor.sh`.
@@ -77,87 +77,48 @@ Both cost more per call than a provider key and both inherit the user's
 `~/.claude/CLAUDE.md`, so a preamble the instructions ask for lands in the
 output. Mention that once. Do not ask for a key the user has not offered.
 
-## 3. Google OAuth for gog
+## 3. A step that lives behind a web console
 
-`gog` needs a Desktop OAuth client from a Google Cloud project. This is the
-longest step and most of it is scriptable.
-
-### The parts that are pure CLI
-
-```bash
-gcloud auth list                                   # is there a usable account
-gcloud config set account <their-google-account>
-gcloud projects list                               # reuse a project if one fits
-gcloud projects create <id> --name="gogcli"        # or make one
-
-gcloud services enable gmail.googleapis.com calendar-json.googleapis.com \
-  drive.googleapis.com docs.googleapis.com sheets.googleapis.com \
-  tasks.googleapis.com people.googleapis.com contacts.googleapis.com \
-  --project <id>
-```
-
-### The parts behind the console
-
-Use `chrome-js`. Confirm the profile first, because the account signed into
-Chrome must own the project, and JS-from-Apple-Events is a **per-profile**
-setting:
+Some tools need a credential that only a web console issues, and consoles rarely
+have an API. `chrome-js` drives one through JavaScript. Read the page between
+every step rather than assuming the last click landed.
 
 ```bash
-chrome-js --check          # which profiles allow JS, and which account each is
+chrome-js --check                         # which profiles allow JS, and the account on each
+chrome-js --list                          # every tab Chrome exposes
+chrome-js --open "<url>" --profile Default --match "<url-part>" --text
+chrome-js --match "<url-part>" --click "Next"
+chrome-js --match "<url-part>" --eval "document.title"
 ```
 
-Pick the profile whose account owns the project. If it is disabled, that is one
-menu click the user has to make: View > Developer > Allow JavaScript from Apple
-Events, in a window of that profile.
+Four things that will cost you an hour each if you do not know them:
 
-Open the console **in that profile**, or you will land in whichever account
-Chrome used last and get a permissions error that looks like a project problem:
+- **"Allow JavaScript from Apple Events" is per Chrome profile**, not per
+  browser. A window in a profile without it fails every call with the same
+  opaque error. `chrome-js --check` prints the state of each profile.
+- **Chrome exposes one AppleScript-visible instance.** Windows belonging to
+  other profiles or other user-data-dirs are invisible, so a tab can appear to
+  vanish between two calls. Always pass `--profile`, and confirm with `--list`.
+- **Open the console in the profile whose account owns the resource.** Landing
+  in the wrong account gives a permissions page that reads like a broken
+  project and is really a wrong-account problem.
+- **Angular and Polymer ignore `el.value = x`.** Go through the native setter
+  and dispatch the events, or the framework never sees the change:
 
-```bash
-chrome-js --open "https://console.cloud.google.com/auth/overview/create?project=<id>" \
-          --profile Default --match "auth/overview" --text
-```
+  ```javascript
+  var d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value");
+  d.set.call(el, value);
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  ```
 
-Then walk the wizard. Read the page between every step rather than assuming it
-advanced. Selectors confirmed against the Google Auth Platform wizard:
+  Dropdowns are usually a `mat-select` or `[role="combobox"]`: click it, wait,
+  then click the `[role="option"]` you want. Chip fields commit on a synthetic
+  Enter `KeyboardEvent`.
 
-| Step                | What to do                                                                             |
-| ------------------- | -------------------------------------------------------------------------------------- |
-| App Information     | `input[formcontrolname="displayName"]`, then the `userSupportEmail` combobox           |
-| Audience            | the radio whose wrapper text starts with `External` (`Internal` needs a Workspace org) |
-| Contact Information | the emails chip field, committed with an Enter key event                               |
-| Finish              | tick the policy checkbox, `Continue`, then `Create`                                    |
-
-Angular ignores a plain `el.value = x`. Set it through the native setter and
-dispatch the events:
-
-```javascript
-var d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value");
-d.set.call(el, value);
-el.dispatchEvent(new Event("input", { bubbles: true }));
-el.dispatchEvent(new Event("change", { bubbles: true }));
-```
-
-Then create the client itself at
-`https://console.cloud.google.com/auth/clients/create?project=<id>`: open the
-`typeControl` combobox, pick `Desktop app`, name it, `Create`, then click
-`Download JSON` in the dialog that follows. It lands in `~/Downloads`.
-
-```bash
-gog auth credentials set ~/Downloads/client_secret_*.json
-gog auth add <their-account> --services gmail,calendar,drive,docs,sheets,tasks,contacts,people
-```
-
-That last command opens a consent page and waits. It is the one step where the
-user clicks Allow, because it is their account being granted to. Hand them the
-URL it prints, say `BLOCKED: approve the gog consent screen`, and verify after:
-
-```bash
-gog auth list && gog gmail search 'newer_than:1d' --max 1 --json
-```
-
-An External app in Testing may need the account on the test-user list first, at
-`https://console.cloud.google.com/auth/audience?project=<id>`.
+A consent screen granting access to someone's own account is theirs to approve.
+Get it to the point of one click, hand them the URL, say
+`BLOCKED: approve the consent screen`, and verify after they do.
 
 ## 4. Verify and report
 

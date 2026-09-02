@@ -2,7 +2,7 @@
 
 Claude Code can read and write files all day and still be blind to the rest of
 the machine. It cannot see a window, click a button, read your calendar, or
-remember what you copied ten minutes ago. These six tools close that gap, and
+remember what you copied ten minutes ago. These five tools close that gap, and
 `setup.sh` installs them.
 
 None are vendored. Each is a third-party project installed from its own source,
@@ -11,7 +11,6 @@ so each keeps its own license and updates on its own schedule.
 | Tool                                                | Source                 | Needs                                     |
 | --------------------------------------------------- | ---------------------- | ----------------------------------------- |
 | [peekaboo](https://github.com/openclaw/Peekaboo)    | openclaw/tap           | Screen Recording plus Accessibility       |
-| [gog](https://github.com/openclaw/gogcli)           | openclaw/tap           | One Google OAuth login                    |
 | [summarize](https://github.com/steipete/summarize)  | steipete/tap           | A provider key, or the Claude CLI         |
 | [mac-use](https://github.com/browser-use/macOS-use) | clone plus a uv venv   | Accessibility, and a provider key         |
 | [mac](https://github.com/31Carlton7/mac-cli)        | clone plus swift build | Per-app consent, granted to your terminal |
@@ -67,31 +66,6 @@ claude mcp list | grep peekaboo     # expect: Connected
 ```
 
 Prefer the MCP server for interactive work and the CLI inside scripts.
-
----
-
-## gog
-
-Gmail, Calendar, Drive, Docs, Sheets, Contacts, and Tasks from the terminal.
-
-```bash
-brew install openclaw/tap/gogcli     # the binary is `gog`, not `gogcli`
-gog auth login                       # opens a browser, once
-gog auth status                      # config_exists should flip to true
-```
-
-The login is the only step a person has to do by hand. Until it runs,
-`gog auth status` reports `config_exists false` and every command fails.
-
-```bash
-gog gmail list --json                 # scriptable output
-gog calendar list --plain             # TSV, stable for parsing
-gog drive ls
-```
-
-Use `--json` when Claude will parse the result and `--plain` for TSV. Add
-`--no-input` in anything automated so it fails instead of hanging on a prompt,
-and `--account` when more than one Google account is logged in.
 
 ---
 
@@ -340,7 +314,6 @@ whether you are mid-task before touching the GUI.
 
 ```bash
 peekaboo permissions                  # Granted, twice
-gog auth status                       # config_exists true
 summarize "https://example.com" --cli claude
 mac-use --help
 mac doctor

@@ -274,22 +274,6 @@ else
     warn "peekaboo missing, Claude cannot see or drive the screen" 
   fi
 
-  if command -v gog >/dev/null 2>&1; then
-    # Three states, not two. Credentials stored with no token means the OAuth
-    # client exists and only the consent click is left, which is most of the
-    # work done: reporting that as "not logged in" hides real progress.
-    if gog auth list 2>/dev/null | grep -qv "No tokens stored" &&
-      [ -n "$(gog auth list --plain 2>/dev/null)" ]; then
-      ok "gog authorized"
-    elif gog auth credentials list 2>/dev/null | grep -q "^default"; then
-      warn "gog has OAuth credentials but no token yet (gog auth add <your-account>)"
-    else
-      warn "gog installed but has no OAuth client (see skills/agent-setup)"
-    fi
-  else
-    warn "gog missing, no Gmail/Calendar/Drive from the terminal"
-  fi
-
   command -v summarize >/dev/null 2>&1 &&
     ok "summarize present" ||
     warn "summarize missing (brew install steipete/tap/summarize)"
