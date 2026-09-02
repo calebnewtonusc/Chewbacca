@@ -1,5 +1,5 @@
 ---
-description: Mark a Todoist task as complete — search by name or ID
+description: Mark a Todoist task as complete, search by name or ID
 allowed-tools: Bash(curl:*), Read
 argument-hint: "<task name or ID>"
 ---
@@ -30,6 +30,6 @@ curl -sf -X POST "https://api.todoist.com/rest/v2/tasks/{task_id}/close" \
 
 ## Step 3: Confirm
 
-Report: "Done: {task name}" — one line.
+Report: "Done: {task name}", one line.
 
-If $ARGUMENTS is "all sprint 1" or similar — close all tasks in that sprint for today.
+If $ARGUMENTS is "all sprint 1" or similar, close all tasks in that sprint for today.

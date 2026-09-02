@@ -1,4 +1,4 @@
-// app/api/{resource}/route.ts — App Router API route template
+// app/api/{resource}/route.ts: App Router API route template
 // Replace {resource} with your actual resource name
 
 import { NextRequest, NextResponse } from "next/server";

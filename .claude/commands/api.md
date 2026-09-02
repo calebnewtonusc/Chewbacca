@@ -1,7 +1,7 @@
 ---
-description: Build a full Next.js API route — Zod validation, auth, error handling, TypeScript
+description: Build a full Next.js API route: Zod validation, auth, error handling, TypeScript
 allowed-tools: Bash(npm:*), Bash(npx:*), Read, Write, Edit, Glob
-argument-hint: "<resource description — e.g. 'POST /api/projects, creates a new project for the authenticated user'>"
+argument-hint: "<resource description, e.g. 'POST /api/projects, creates a new project for the authenticated user'>"
 ---
 
 # API
@@ -71,7 +71,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const { page, limit, status } = params.data;
     const offset = (page - 1) * limit;
 
-    // 3. Query — specific columns, never select("*")
+    // 3. Query, specific columns, never select("*")
     let query = supabase
       .from("{resource}")
       .select("id, name, description, status, created_at", { count: "exact" })
@@ -210,7 +210,7 @@ export async function PATCH(
       );
     }
 
-    // RLS handles ownership — if this returns null, user doesn't own it
+    // RLS handles ownership, if this returns null, user doesn't own it
     const { data, error } = await supabase
       .from("{resource}")
       .update(body.data)
@@ -254,7 +254,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Soft delete — never hard delete user data
+    // Soft delete, never hard delete user data
     const { error } = await supabase
       .from("{resource}")
       .update({ deleted_at: new Date().toISOString(), status: "deleted" })
@@ -327,8 +327,8 @@ Add to `src/app/api/README.md` (create if missing):
 ## Never do these
 
 - Never `req.json()` without Zod validation
-- Never `select("*")` — always specific columns
+- Never `select("*")`, always specific columns
 - Never expose stack traces in error responses
-- Never trust `params.id` for ownership — let RLS handle it or check explicitly
-- Never return 404 for auth failures — use 401/403 (prevents enumeration)
+- Never trust `params.id` for ownership, let RLS handle it or check explicitly
+- Never return 404 for auth failures, use 401/403 (prevents enumeration)
 - Never skip the auth check on any route that touches user data

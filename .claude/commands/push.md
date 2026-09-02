@@ -1,5 +1,5 @@
 ---
-description: Smart git push — stage relevant files, generate commit message, push to GitHub
+description: Smart git push, stage relevant files, generate commit message, push to GitHub
 allowed-tools: Bash(git:*), Bash(gh:*), Bash(ls:*), Read, Glob
 argument-hint: "[commit message or leave empty for AI-generated]"
 ---
@@ -26,16 +26,16 @@ git diff --stat HEAD | grep -E "\.env" && echo "WARNING: .env file modified" || 
 git diff HEAD -- | grep -E "^\\+(sk-ant|sk-|ANTHROPIC|API_KEY|SECRET|PASSWORD|TOKEN)" | grep -v "process\.env\." | grep -v "example\|placeholder" | head -5
 ```
 
-If any real secrets appear in the diff — **STOP**, warn the user, do not commit.
+If any real secrets appear in the diff, **STOP**, warn the user, do not commit.
 
 ## Step 3: Determine what to stage
 
 Look at modified files. For each:
 
-- Source files (.ts, .tsx, .py, .js, etc.) — stage
-- Config files (package.json, tsconfig.json, vercel.json, etc.) — stage
-- .env files — DO NOT stage, warn the user
-- node_modules, .next, dist, **pycache** — skip entirely
+- Source files (.ts, .tsx, .py, .js, etc.), stage
+- Config files (package.json, tsconfig.json, vercel.json, etc.), stage
+- .env files: DO NOT stage, warn the user
+- node_modules, .next, dist, **pycache**, skip entirely
 
 Stage by filename:
 

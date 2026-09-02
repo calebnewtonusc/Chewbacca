@@ -32,7 +32,7 @@ export default function RootLayout({ children }) {
 }
 ```
 
-Never use `<link href="fonts.googleapis.com/...">` in Next.js — it bypasses optimization.
+Never use `<link href="fonts.googleapis.com/...">` in Next.js, it bypasses optimization.
 
 ## Code Splitting
 
@@ -51,7 +51,7 @@ const HeavyChart = dynamic(() => import("@/components/HeavyChart"), {
 
 ## Data Fetching
 
-- Prefer Server Components for data fetching — zero JS sent to client
+- Prefer Server Components for data fetching, zero JS sent to client
 - Use `fetch` with cache control in server components:
 
 ```ts
@@ -92,18 +92,18 @@ debounce(fn, 300);
 ```
 
 - Regularly check bundle size: `npm run build` shows route sizes
-- Flag any route over 100KB first load JS — investigate and optimize
+- Flag any route over 100KB first load JS, investigate and optimize
 
 ## Rendering Strategy
 
-- Default to Server Components (RSC) — no `"use client"` unless needed
+- Default to Server Components (RSC), no `"use client"` unless needed
 - Add `"use client"` only when the component uses: hooks, event handlers, browser APIs
 - Keep `"use client"` boundaries as deep in the tree as possible
 
 ## Animation Performance
 
 ```tsx
-// Use transform and opacity — GPU-accelerated
+// Use transform and opacity: GPU-accelerated
 // Never animate: width, height, top, left, margin, padding
 
 // Good
@@ -120,7 +120,7 @@ Use `will-change: transform` sparingly for elements that animate frequently.
 - Always limit query results: `.limit(20)` or pagination
 - Never fetch all rows: no `.from("table").select()`without `.limit()` in production
 - Use indexes on columns in WHERE/ORDER BY clauses
-- Use `.select("col1, col2")` — never `select("*")` in production
+- Use `.select("col1, col2")`, never `select("*")` in production
 
 ## Core Web Vitals Targets
 
@@ -132,7 +132,7 @@ Run `npx lighthouse` or check Vercel's Speed Insights after every major deploy.
 
 ## Never Do These
 
-- Never block the main thread with synchronous heavy computation — use Web Workers
+- Never block the main thread with synchronous heavy computation, use Web Workers
 - Never load analytics/tracking scripts before page is interactive
 - Never use `useEffect` to fetch data that could be a Server Component
 - Never ignore Lighthouse warnings on production routes

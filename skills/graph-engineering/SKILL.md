@@ -1,11 +1,11 @@
 ---
 name: graph-engineering
-description: Teaches an agent graph engineering — both halves. Knowledge graphs (ontology design, entity/relation/event extraction, fusion, GraphRAG/memory serving; distilled and translated from Southeast University's graduate Knowledge Graph course, npubird/KnowledgeGraphCourse, 4.4K stars) and task graphs (agent orchestration — parallel fan-out, verifier separation, the stop rule, human gates). Use when asked to build a knowledge graph, extract entities/relations from text, design an ontology, dedupe/merge entities, add graph memory or GraphRAG to an agent, orchestrate multi-agent workflows as a graph, or LEARN graph engineering — in teaching mode the agent explains each stage with worked examples and generates visual diagram artifacts.
+description: Teaches an agent graph engineering, both halves. Knowledge graphs (ontology design, entity/relation/event extraction, fusion, GraphRAG/memory serving; distilled and translated from Southeast University's graduate Knowledge Graph course, npubird/KnowledgeGraphCourse, 4.4K stars) and task graphs (agent orchestration, parallel fan-out, verifier separation, the stop rule, human gates). Use when asked to build a knowledge graph, extract entities/relations from text, design an ontology, dedupe/merge entities, add graph memory or GraphRAG to an agent, orchestrate multi-agent workflows as a graph, or LEARN graph engineering, in teaching mode the agent explains each stage with worked examples and generates visual diagram artifacts.
 ---
 
 # Graph Engineering
 
-Graph engineering is the discipline of designing the structures agents work through — not the
+Graph engineering is the discipline of designing the structures agents work through, not the
 prompts. It has two halves:
 
 1. **Knowledge graphs**: what agents remember. Nodes are entities and facts, edges are
@@ -19,18 +19,18 @@ prompts. It has two halves:
    orchestrating agents rather than building memory.
 
 Core mental model: a knowledge graph is a **product with a schema**, not a pile of triples.
-Quality comes from the pipeline order — model the domain BEFORE extracting, fuse BEFORE storing,
+Quality comes from the pipeline order, model the domain BEFORE extracting, fuse BEFORE storing,
 evaluate at every stage.
 
 ## Teaching Mode
 
-When the user wants to LEARN graph engineering (rather than build something), teach it — do
+When the user wants to LEARN graph engineering (rather than build something), teach it, do
 not just execute. Rules:
 
 1. Anchor every stage in the user's own domain: ask for one real project or dataset, then use
    it as the running example through all stages.
 2. **Generate visual artifacts as you teach.** Concepts in this discipline are shapes; show
-   them. For each major concept, produce a small diagram the user can keep — mermaid diagrams
+   them. For each major concept, produce a small diagram the user can keep, mermaid diagrams
    (flowchart for the pipeline and task graphs, `graph LR` for example ontologies and
    subgraphs) or a single self-contained HTML page when interactivity helps. At minimum:
    the 9-stage pipeline, a 3-type ontology drawn from the user's domain, one extracted
@@ -44,7 +44,7 @@ not just execute. Rules:
 ## The 9-Stage Pipeline
 
 Run stages in order. For small projects stages 4-6 collapse into one extraction pass, but never
-skip stages 3 (ontology) or 8 (fusion) — they are where real-world graphs fail.
+skip stages 3 (ontology) or 8 (fusion), they are where real-world graphs fail.
 
 1. **Scope & value test**: Confirm a graph beats a simpler structure. A graph pays off when
    queries are multi-hop ("who worked with X on projects using Y"), when entities recur across
@@ -76,7 +76,7 @@ skip stages 3 (ontology) or 8 (fusion) — they are where real-world graphs fail
 7. **Quality gate**: Before fusion, sample and score: entity precision (are extracted
    entities real and correctly typed?), relation precision (does the source sentence actually
    assert the edge?). Fix the prompt/rules, not the output, then re-run. Target ≥90% precision
-   on a 50-item sample before proceeding — recall improves with more passes; bad precision
+   on a 50-item sample before proceeding, recall improves with more passes; bad precision
    poisons the graph permanently.
 
 8. **Knowledge fusion**: Merge duplicates within and across sources: same real-world entity,
@@ -95,7 +95,7 @@ skip stages 3 (ontology) or 8 (fusion) — they are where real-world graphs fail
   word cloud with arrows. If the user resists schema design, build the minimal 5-type ontology
   from 3 sample documents and show it for approval.
 - **Provenance on every fact.** Each node/edge stores `source`, `extracted_at`, and confidence.
-  Non-negotiable — fusion (stage 8) and trust both depend on it.
+  Non-negotiable, fusion (stage 8) and trust both depend on it.
 - **Incremental over big-bang.** Process a 10-document pilot through all 9 stages before
   scaling. The pilot exposes ontology gaps at 1% of the cost.
 - **LLM extraction is stage machinery, not the pipeline.** The LLM slots into stages 4-6;
@@ -116,6 +116,6 @@ skip stages 3 (ontology) or 8 (fusion) — they are where real-world graphs fail
 ## Credits
 
 Distilled and translated from 东南大学《知识图谱》研究生课程 (Southeast University graduate
-course on Knowledge Graphs), Prof. Peng Wang — https://github.com/npubird/KnowledgeGraphCourse.
+course on Knowledge Graphs), Prof. Peng Wang, https://github.com/npubird/KnowledgeGraphCourse.
 All original lecture PDFs are in Chinese; this skill is an independent English distillation
 adapted for AI-agent workflows.

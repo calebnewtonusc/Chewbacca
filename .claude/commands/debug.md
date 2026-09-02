@@ -29,7 +29,7 @@ git diff HEAD~3 --name-only
 git log --oneline -5
 ```
 
-Read the exact file and line number. Do not guess — go there first.
+Read the exact file and line number. Do not guess, go there first.
 
 ## Step 3: Check your assumptions
 
@@ -49,19 +49,19 @@ Output exactly this format:
 ROOT CAUSE
 {1-2 sentence explanation of why this is happening}
 
-FIX 1 (most likely — {confidence}%)
+FIX 1 (most likely, {confidence}%)
 {what to change and why}
 
-FIX 2 (if Fix 1 is wrong — {confidence}%)
+FIX 2 (if Fix 1 is wrong, {confidence}%)
 {alternative cause + what to change}
 
-FIX 3 (edge case — {confidence}%)
+FIX 3 (edge case, {confidence}%)
 {the weird case that sometimes causes this}
 ```
 
 ## Step 5: Implement Fix 1
 
-Apply the most likely fix. Make the minimum change needed — don't refactor surrounding code.
+Apply the most likely fix. Make the minimum change needed, don't refactor surrounding code.
 
 After the fix:
 

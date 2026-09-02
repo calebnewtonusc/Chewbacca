@@ -1,12 +1,12 @@
 ---
-description: Deploy current project to Vercel — auto-detects project, runs quality gate, deploys
+description: Deploy current project to Vercel, auto-detects project, runs quality gate, deploys
 allowed-tools: Bash(vercel:*), Bash(git:*), Bash(gh:*), Bash(pnpm:*), Bash(npm:*), Bash(npx:*), Bash(ls:*), Read, Glob
 argument-hint: "[--prod] [project-path]"
 ---
 
 # Deploy
 
-Deploy current project to Vercel. Runs quality gate first — never ships broken code.
+Deploy current project to Vercel. Runs quality gate first, never ships broken code.
 
 ## Step 1: Detect project
 

@@ -1,9 +1,9 @@
 #!/bin/bash
-# init-brain.sh — D1 Second Brain Setup
+# init-brain.sh: D1 Second Brain Setup
 #
 # Creates two repos:
-#   claude-context   (PUBLIC)  — operational instructions: CLAUDE.md, rules, commands, hooks
-#   personal-context (PRIVATE) — personal facts: YOU.md, NOW.md, PEOPLE.md, SYSTEM.md
+#   claude-context   (PUBLIC), operational instructions: CLAUDE.md, rules, commands, hooks
+#   personal-context (PRIVATE), personal facts: YOU.md, NOW.md, PEOPLE.md, SYSTEM.md
 #
 # claude-context can be made public. It contains zero PII.
 # personal-context stays private. It contains everything about you.
@@ -18,7 +18,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 echo ""
-echo -e "${BOLD}${BLUE}D1 Second Brain — Setup${NC}"
+echo -e "${BOLD}${BLUE}D1 Second Brain: Setup${NC}"
 echo "================================================"
 echo ""
 echo "Two repos will be created:"
@@ -66,10 +66,10 @@ echo -e "  ${GREEN}✓${NC} Copied to $CC_DIR"
 
 echo "→ Creating GitHub repo: $GITHUB_USER/claude-context (public)..."
 if gh repo view "$GITHUB_USER/claude-context" &>/dev/null; then
-  echo -e "  ${YELLOW}!${NC} Repo exists — skipping creation"
+  echo -e "  ${YELLOW}!${NC} Repo exists, skipping creation"
 else
   gh repo create "$GITHUB_USER/claude-context" --public \
-    --description "Claude Code operational instructions — CLAUDE.md, rules, commands" \
+    --description "Claude Code operational instructions: CLAUDE.md, rules, commands" \
     2>/dev/null || gh repo create "$GITHUB_USER/claude-context" --public \
     --description "Claude Code operational instructions"
   echo -e "  ${GREEN}✓${NC} Created github.com/$GITHUB_USER/claude-context (public)"
@@ -93,7 +93,7 @@ echo -e "  ${GREEN}✓${NC} https://github.com/$GITHUB_USER/claude-context"
 echo ""
 
 # ── Step 2: personal-context ──────────────────────────────────────────────────
-echo -e "${BOLD}Step 2: personal-context${NC} (private — your identity + projects)"
+echo -e "${BOLD}Step 2: personal-context${NC} (private, your identity + projects)"
 echo ""
 
 PC_DIR="$HOME/personal-context"
@@ -106,7 +106,7 @@ if [ ! -f "$PC_DIR/YOU.md" ]; then
   cp "$SCRIPT_DIR/context/SYSTEM.md" "$PC_DIR/SYSTEM.md"
   echo -e "  ${GREEN}✓${NC} Templates copied to $PC_DIR"
 else
-  echo -e "  ${YELLOW}!${NC} Files already exist — not overwriting"
+  echo -e "  ${YELLOW}!${NC} Files already exist, not overwriting"
 fi
 
 echo ""
@@ -118,7 +118,7 @@ read -rp "  Press Enter to open in your editor... "
 echo ""
 echo "→ Creating GitHub repo: $GITHUB_USER/personal-context (private)..."
 if gh repo view "$GITHUB_USER/personal-context" &>/dev/null; then
-  echo -e "  ${YELLOW}!${NC} Repo exists — skipping creation"
+  echo -e "  ${YELLOW}!${NC} Repo exists, skipping creation"
 else
   gh repo create "$GITHUB_USER/personal-context" --private \
     --description "Personal context: identity, projects, contacts, system" \

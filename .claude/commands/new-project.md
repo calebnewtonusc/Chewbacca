@@ -1,12 +1,12 @@
 ---
-description: Scaffold a new project under projects/ with standard structure — full design system wired from day one
+description: Scaffold a new project under projects/ with standard structure, full design system wired from day one
 allowed-tools: Bash(mkdir:*), Bash(git:*), Bash(npm:*), Bash(npx:*), Bash(ls:*), Bash(cat:*), Bash(echo:*), Bash(printf:*), Read, Write, Edit, Glob
 argument-hint: "<project-name> [description]"
 ---
 
 # New Project
 
-Scaffold `$ARGUMENTS` as a new project under `projects/`. Every project starts polished — never barebones.
+Scaffold `$ARGUMENTS` as a new project under `projects/`. Every project starts polished, never barebones.
 
 ## Step 1: Parse arguments
 
@@ -79,7 +79,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-Write `src/app/globals.css` — dark base:
+Write `src/app/globals.css`, dark base:
 
 ```css
 @tailwind base;
@@ -97,7 +97,7 @@ body {
 }
 ```
 
-Write `src/components/navbar.tsx` — scroll-aware (mandatory on every project):
+Write `src/components/navbar.tsx`, scroll-aware (mandatory on every project):
 
 ```tsx
 "use client";
@@ -138,7 +138,7 @@ export function Navbar() {
 }
 ```
 
-Write `src/app/page.tsx` — real hero (no Lorem ipsum):
+Write `src/app/page.tsx`, real hero (no Lorem ipsum):
 
 ```tsx
 import { Navbar } from "@/components/navbar";
@@ -193,11 +193,11 @@ Just: `README.md`, `.gitignore`
 
 ## Step 4: Initial commit
 
-Stage by filename — never `git add .` or `git add -A`:
+Stage by filename, never `git add .` or `git add -A`:
 
 ```bash
 git add src/ .prettierrc package.json tsconfig.json .gitignore 2>/dev/null
-git commit -m "init: {name} — {description or 'initial scaffold'}"
+git commit -m "init: {name}, {description or 'initial scaffold'}"
 ```
 
 ## Step 5: Create GitHub repo and push (always: never wait to be asked)

@@ -1,4 +1,4 @@
-// app/dashboard/loading.tsx — Next.js automatic loading UI
+// app/dashboard/loading.tsx: Next.js automatic loading UI
 // Drop this in any route segment to show skeleton while page data loads
 
 export default function Loading() {

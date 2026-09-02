@@ -1,5 +1,5 @@
 ---
-description: Full PR lifecycle — review, fix findings, address comments, quality gate, push, CI fix loop, merge
+description: Full PR lifecycle, review, fix findings, address comments, quality gate, push, CI fix loop, merge
 allowed-tools: Bash(gh pr *), Bash(gh api *), Bash(gh repo view:*), Bash(gh run *), Bash(git *), Bash(npm:*), Bash(npx:*), Read, Edit, Write, Grep, Glob, Agent
 argument-hint: "<pr-number or url> [--fix] [--merge] [--review-only]"
 ---
@@ -155,6 +155,6 @@ gh pr merge {number} --{squash|rebase|merge} --delete-branch
 ## Rules
 
 - Read before judging. No comments without reading the code.
-- Fix the pattern, not just the instance — grep for similar bugs across the codebase.
+- Fix the pattern, not just the instance, grep for similar bugs across the codebase.
 - Don't over-fix. Only change what was flagged.
 - Distinguish certainty: "this IS a bug" vs "this COULD be a bug if X".

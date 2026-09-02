@@ -1,6 +1,6 @@
 "use client";
 
-// useScrollNav — scroll-aware navbar hook
+// useScrollNav, scroll-aware navbar hook
 //
 // Behavior:
 //   - Returns false at top of page (navbar hidden)

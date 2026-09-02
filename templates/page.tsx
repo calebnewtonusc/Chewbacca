@@ -1,4 +1,4 @@
-// app/dashboard/page.tsx — Server Component shell
+// app/dashboard/page.tsx: Server Component shell
 // Replace with your actual page name and content
 
 import type { Metadata } from "next";

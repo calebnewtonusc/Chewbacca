@@ -121,21 +121,21 @@ chrome-js --open "https://console.cloud.google.com/auth/overview/create?project=
 Then walk the wizard. Read the page between every step rather than assuming it
 advanced. Selectors confirmed against the Google Auth Platform wizard:
 
-| Step                | What to do                                                          |
-| ------------------- | ------------------------------------------------------------------- |
-| App Information     | `input[formcontrolname="displayName"]`, then the `userSupportEmail` combobox |
+| Step                | What to do                                                                             |
+| ------------------- | -------------------------------------------------------------------------------------- |
+| App Information     | `input[formcontrolname="displayName"]`, then the `userSupportEmail` combobox           |
 | Audience            | the radio whose wrapper text starts with `External` (`Internal` needs a Workspace org) |
-| Contact Information | the emails chip field, committed with an Enter key event            |
-| Finish              | tick the policy checkbox, `Continue`, then `Create`                 |
+| Contact Information | the emails chip field, committed with an Enter key event                               |
+| Finish              | tick the policy checkbox, `Continue`, then `Create`                                    |
 
 Angular ignores a plain `el.value = x`. Set it through the native setter and
 dispatch the events:
 
 ```javascript
-var d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value');
+var d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value");
 d.set.call(el, value);
-el.dispatchEvent(new Event('input', {bubbles: true}));
-el.dispatchEvent(new Event('change', {bubbles: true}));
+el.dispatchEvent(new Event("input", { bubbles: true }));
+el.dispatchEvent(new Event("change", { bubbles: true }));
 ```
 
 Then create the client itself at

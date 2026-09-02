@@ -1,12 +1,12 @@
 ---
 description: Build a UI from description using the full visual system + deep UX law enforcement
 allowed-tools: Bash(npm:*), Bash(npx:*), Read, Write, Edit, Glob
-argument-hint: "<UI description — be specific about the content, context, and user goal>"
+argument-hint: "<UI description, be specific about the content, context, and user goal>"
 ---
 
 # Design
 
-Build `$ARGUMENTS` using the full design system. UX laws are not decorations — they are enforced at every decision.
+Build `$ARGUMENTS` using the full design system. UX laws are not decorations, they are enforced at every decision.
 
 ---
 
@@ -133,7 +133,7 @@ Run this checklist BEFORE designing a single component. Every law must be satisf
 **Peak-End Rule**: Experience is judged by its peak and its ending.
 
 - Design the success moment: confetti, bold confirmation, clear next step.
-- Design the error moment: friendly, specific, actionable — never "Something went wrong."
+- Design the error moment: friendly, specific, actionable, never "Something went wrong."
 - Final screen of a flow should feel like an accomplishment, not just text.
 
 **Chunking**: Break content into visually distinct groups.
@@ -150,8 +150,8 @@ Run this checklist BEFORE designing a single component. Every law must be satisf
 
 ```
 - Tailwind CSS (all layout and styling)
-- shadcn/ui (all interactive primitives — never raw HTML buttons)
-- Lucide React (all icons — never emoji)
+- shadcn/ui (all interactive primitives, never raw HTML buttons)
+- Lucide React (all icons, never emoji)
 - Inter or Geist via next/font
 - Framer Motion (for scroll animations and transitions)
 - Scroll-aware navbar (mandatory on every page)
@@ -181,7 +181,7 @@ className = "bg-indigo-500/10 border border-indigo-500/20"; // accent surface
 ### Scroll animations (mandatory on marketing/landing pages)
 
 ```tsx
-// Fade up on enter — every section
+// Fade up on enter, every section
 <motion.div
   initial={{ opacity: 0, y: 24 }}
   whileInView={{ opacity: 1, y: 0 }}
@@ -414,7 +414,7 @@ Law of Similarity:   [ ] Interactive elements look different from static content
 Von Restorff Effect: [ ] ONE highlighted CTA per section (not two, not zero)
 Serial Position:     [ ] Primary action at start or end, not buried in middle
 Goal-Gradient:       [ ] Multi-step flows show progress
-Cognitive Load:      [ ] Every element earns its place — nothing decorative
+Cognitive Load:      [ ] Every element earns its place, nothing decorative
 Peak-End Rule:       [ ] Success state is satisfying, error state is helpful
 Aesthetic-Usability: [ ] Full dark design system applied, hover states on everything
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

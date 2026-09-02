@@ -37,18 +37,18 @@ Never remove focus styles. Make them visible.
 ## Images and Icons
 
 ```tsx
-// Meaningful images — descriptive alt
+// Meaningful images, descriptive alt
 <Image src="/hero.jpg" alt="Team working at a whiteboard" />
 
-// Decorative — empty alt
+// Decorative, empty alt
 <Image src="/wave.svg" alt="" />
 
-// Icon-only buttons — aria-label required
+// Icon-only buttons, aria-label required
 <button aria-label="Delete post">
   <Trash2 className="w-4 h-4" />
 </button>
 
-// Icon alongside text — mark icon as decorative
+// Icon alongside text, mark icon as decorative
 <button>
   <Trash2 className="w-4 h-4" aria-hidden="true" />
   Delete post

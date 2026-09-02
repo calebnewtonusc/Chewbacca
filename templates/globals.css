@@ -46,7 +46,7 @@
     margin: 0;
   }
 
-  /* Links — never default browser blue */
+  /* Links, never default browser blue */
   a {
     @apply text-inherit no-underline;
   }
@@ -55,7 +55,7 @@
 /* ─── Utilities ─────────────────────────────────────────────────────────── */
 
 @layer utilities {
-  /* Gradient text — common pattern */
+  /* Gradient text, common pattern */
   .text-gradient {
     @apply bg-gradient-to-r from-white to-zinc-400 bg-clip-text text-transparent;
   }
@@ -126,7 +126,7 @@
   }
 }
 
-/* ─── Focus styles — never remove ──────────────────────────────────────── */
+/* ─── Focus styles, never remove ──────────────────────────────────────── */
 
 @layer base {
   :focus-visible {

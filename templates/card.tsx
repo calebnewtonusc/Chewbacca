@@ -36,7 +36,7 @@ export function GlassCard({ children, className = "", onClick }: CardProps) {
   );
 }
 
-// Feature card — icon + title + description
+// Feature card, icon + title + description
 interface FeatureCardProps {
   icon: LucideIcon;
   title: string;

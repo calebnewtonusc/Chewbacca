@@ -1,5 +1,5 @@
 ---
-description: Compare .env.example vs .env — find missing vars, find undocumented vars
+description: Compare .env.example vs .env, find missing vars, find undocumented vars
 allowed-tools: Bash(cat:*), Bash(grep:*), Bash(diff:*), Read, Glob
 argument-hint: "[project-path]"
 ---
@@ -14,7 +14,7 @@ Audit environment variable coverage.
 cat .env.example 2>/dev/null || echo "No .env.example found"
 ```
 
-Do NOT read .env directly — just check which keys exist:
+Do NOT read .env directly, just check which keys exist:
 
 ```bash
 grep -o "^[A-Z_]*=" .env 2>/dev/null | sort
@@ -25,8 +25,8 @@ grep -o "^[A-Z_]*=" .env.example 2>/dev/null | sort
 
 Find:
 
-- Variables in .env.example but NOT in .env (missing — app might break)
-- Variables in .env but NOT in .env.example (undocumented — security risk)
+- Variables in .env.example but NOT in .env (missing, app might break)
+- Variables in .env but NOT in .env.example (undocumented, security risk)
 
 ## Step 3: Check code usage
 
@@ -39,13 +39,13 @@ grep -r "process\.env\.\|env\." --include="*.ts" --include="*.tsx" --include="*.
 
 ```
 MISSING FROM .env (in example but not set):
-- VAR_NAME — {what it's for based on .env.example comment}
+- VAR_NAME, {what it's for based on .env.example comment}
 
 UNDOCUMENTED (in .env but not in .env.example):
-- VAR_NAME — add to .env.example with a placeholder
+- VAR_NAME, add to .env.example with a placeholder
 
 REFERENCED IN CODE BUT NOT IN EITHER FILE:
-- VAR_NAME — add to both files
+- VAR_NAME, add to both files
 
 ALL GOOD: {if nothing to report}
 ```

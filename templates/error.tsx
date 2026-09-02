@@ -1,6 +1,6 @@
 "use client";
 
-// app/dashboard/error.tsx — Next.js error boundary
+// app/dashboard/error.tsx: Next.js error boundary
 // Must be a Client Component. Catches errors in route segment.
 
 import { useEffect } from "react";

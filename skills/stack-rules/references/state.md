@@ -76,14 +76,14 @@ const [isOpen, setIsOpen] = useState(false);
 // Loading state for async operations
 const [isPending, startTransition] = useTransition();
 
-// Derived state — compute from existing state, don't store separately
+// Derived state, compute from existing state, don't store separately
 const filteredPosts = useMemo(
   () => posts.filter((p) => p.status === activeFilter),
   [posts, activeFilter],
 );
 ```
 
-Never store derived state — compute it. Never duplicate server state in local state.
+Never store derived state, compute it. Never duplicate server state in local state.
 
 ## Shared UI State: Zustand
 
@@ -149,8 +149,8 @@ Never show blank white space or raw error strings.
 
 ## Never Do These
 
-- Never store server state in Zustand — use React Query
+- Never store server state in Zustand, use React Query
 - Never use Context for high-frequency updates (it rerenders all consumers)
-- Never store derived values in state — compute them with useMemo
-- Never mutate state directly — always use setter functions
+- Never store derived values in state, compute them with useMemo
+- Never mutate state directly, always use setter functions
 - Never put async logic in useState setters

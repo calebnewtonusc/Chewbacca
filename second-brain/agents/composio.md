@@ -53,7 +53,7 @@ In the Composio dashboard, connect the services you want:
 - Click "Add Integration"
 - Select the app (GitHub, Gmail, etc.)
 - Authorize via OAuth or API key
-- Done — Claude can now use it
+- Done: Claude can now use it
 
 ### 5. Test it
 
@@ -87,7 +87,7 @@ Once Composio is connected, the SessionStart hook can inject Todoist priorities 
 
 ## Security
 
-Your Composio MCP URL is a credential — treat it like an API key:
+Your Composio MCP URL is a credential, treat it like an API key:
 
 - Never commit it to a public repo
 - Store it in `~/.claude/settings.json` (not in project-level `.mcp.json` if the project is public)

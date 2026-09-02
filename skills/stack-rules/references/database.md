@@ -57,7 +57,7 @@ CREATE POLICY "Users can insert own posts"
 - Primary key: `id uuid DEFAULT gen_random_uuid() PRIMARY KEY`
 - Timestamps: `created_at timestamptz DEFAULT now()`, `updated_at timestamptz DEFAULT now()`
 - Foreign keys: `{table_singular}_id` (e.g., `user_id`, `post_id`)
-- Soft delete: `deleted_at timestamptz` (nullable — null means not deleted)
+- Soft delete: `deleted_at timestamptz` (nullable, null means not deleted)
 
 ## Type Safety
 
@@ -129,7 +129,7 @@ supabase migration new add_posts_table
 supabase db push
 ```
 
-Never write raw DDL directly in the Supabase dashboard for anything that needs to persist — always migrate.
+Never write raw DDL directly in the Supabase dashboard for anything that needs to persist, always migrate.
 
 ## Indexes
 
@@ -143,7 +143,7 @@ CREATE INDEX posts_created_at_idx ON posts(created_at DESC);
 ## Never Do These
 
 - Never disable RLS without an explicit policy plan
-- Never store passwords in the database — use Supabase Auth
+- Never store passwords in the database, use Supabase Auth
 - Never expose the service role key to the client
-- Never use `select("*")` in production — always specify columns
-- Never delete rows that users care about — soft delete with `deleted_at`
+- Never use `select("*")` in production, always specify columns
+- Never delete rows that users care about, soft delete with `deleted_at`

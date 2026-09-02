@@ -118,7 +118,7 @@ export function ErrorMessage({
 
 ## Toast Notifications
 
-Use shadcn/ui `useToast` — never build custom toast:
+Use shadcn/ui `useToast`, never build custom toast:
 
 ```tsx
 import { useToast } from "@/hooks/use-toast";
@@ -193,9 +193,9 @@ Prefer composition over props drilling:
 
 ## Never Do These
 
-- Never build a custom button, input, dialog, select, or dropdown — use shadcn/ui
-- Never use inline styles — Tailwind only
-- Never render `null` on error — show an error state
-- Never render nothing on empty — show an empty state
+- Never build a custom button, input, dialog, select, or dropdown, use shadcn/ui
+- Never use inline styles: Tailwind only
+- Never render `null` on error, show an error state
+- Never render nothing on empty, show an empty state
 - Never forget loading state on any async component
-- Never put business logic inside JSX — extract to handlers or hooks
+- Never put business logic inside JSX, extract to handlers or hooks

@@ -6,7 +6,8 @@ All slide decks are Chinese PDFs in the repo root; 2025 decks are prefixed `2025
 This file is the English map of the 2025 edition.
 
 ## Lecture 1: Knowledge Graphs: Theory, Technology, Practice, Challenges
-*(2025-pub-1 …A.pdf / …B.pdf)*
+
+_(2025-pub-1 …A.pdf / …B.pdf)_
 
 - 1.1 The KG view of cognitive intelligence: what "knowledge" adds to machine cognition;
   the essence of a knowledge graph; how KGs evolved (semantic networks → expert systems →
@@ -52,10 +53,11 @@ deep/reinforcement-learning approaches.
 → Distilled in [extraction.md](extraction.md).
 
 ## Lecture 7: Event Extraction (2024-pub-7; includes Huawei industry lecture "From Classic
+
 to LLM Paradigms")
 
 Event concepts (trigger, arguments, event types), extraction methods, a finance-domain event
-extraction system walkthrough, and event-logic graphs (事理图谱) — graphs whose nodes are
+extraction system walkthrough, and event-logic graphs (事理图谱), graphs whose nodes are
 events and edges are causal/temporal/conditional links.
 → Distilled in [extraction.md](extraction.md).
 
@@ -75,14 +77,14 @@ quality evaluation.
 
 ## How the course maps to this skill's 9-stage pipeline
 
-| Skill stage | Course source |
-|---|---|
-| 1 Scope & value | Lecture 1.1, 1.3 |
-| 2 Representation choice | Lecture 2 |
-| 3 Ontology modeling | Lecture 3 |
-| 4 Entity extraction | Lectures 4-5 |
-| 5 Relation extraction | Lecture 6 |
-| 6 Event extraction | Lecture 7 |
-| 7 Quality gate | Lecture 1.3 + evaluation material in 9 |
-| 8 Knowledge fusion | Lecture 8 |
-| 9 Serve to LLMs | Lecture 9 |
+| Skill stage             | Course source                          |
+| ----------------------- | -------------------------------------- |
+| 1 Scope & value         | Lecture 1.1, 1.3                       |
+| 2 Representation choice | Lecture 2                              |
+| 3 Ontology modeling     | Lecture 3                              |
+| 4 Entity extraction     | Lectures 4-5                           |
+| 5 Relation extraction   | Lecture 6                              |
+| 6 Event extraction      | Lecture 7                              |
+| 7 Quality gate          | Lecture 1.3 + evaluation material in 9 |
+| 8 Knowledge fusion      | Lecture 8                              |
+| 9 Serve to LLMs         | Lecture 9                              |

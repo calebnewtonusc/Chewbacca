@@ -1,5 +1,5 @@
 ---
-description: Generate a daily standup — what was done, what's next, any blockers
+description: Generate a daily standup, what was done, what's next, any blockers
 allowed-tools: Bash(git:*), Bash(gh:*), Bash(curl:*), Bash(date:*), Read
 ---
 

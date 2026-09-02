@@ -1,5 +1,5 @@
 ---
-description: Write comprehensive tests — Vitest unit tests + Playwright E2E sketch for a component or function
+description: Write comprehensive tests: Vitest unit tests + Playwright E2E sketch for a component or function
 allowed-tools: Bash(npm:*), Bash(npx:*), Bash(grep:*), Read, Write, Glob
 argument-hint: "<file path or component/function name>"
 ---
@@ -195,7 +195,7 @@ If Playwright is installed, create `{feature}.spec.ts` in `tests/e2e/`:
 import { test, expect } from "@playwright/test";
 
 test.describe("{Feature}", () => {
-  test("happy path — user can {main action}", async ({ page }) => {
+  test("happy path, user can {main action}", async ({ page }) => {
     await page.goto("/");
 
     // Step 1: Navigate to feature

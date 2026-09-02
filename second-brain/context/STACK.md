@@ -47,7 +47,7 @@ See `CLAUDE.md` for the full design system. Summary:
 
 ## Code Standards
 
-- TypeScript strict mode — no `any`
+- TypeScript strict mode, no `any`
 - No `console.log` in production code
 - No commented-out code
 - No em dashes, no emojis in code or copy

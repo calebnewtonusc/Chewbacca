@@ -1,5 +1,5 @@
 ---
-description: End-of-session wrap-up — commit staged changes, push to GitHub, log what was done, prep for next session
+description: End-of-session wrap-up, commit staged changes, push to GitHub, log what was done, prep for next session
 allowed-tools: Bash(git:*), Bash(gh:*), Bash(date:*), Read, Edit, Write, Glob
 ---
 
@@ -22,7 +22,7 @@ Report: files modified, staged, untracked that might matter.
 git diff --cached --name-only | grep -E "^\.env|\.env\." && echo "WARNING: .env file staged!" || echo "No .env files staged"
 ```
 
-If any `.env` file is staged — STOP and unstage it immediately:
+If any `.env` file is staged: STOP and unstage it immediately:
 
 ```bash
 git reset HEAD .env
@@ -33,7 +33,7 @@ git reset HEAD .env
 If there are staged or unstaged changes:
 
 1. Show the diff summary
-2. Stage specific files by name — never `git add -A` or `git add .`
+2. Stage specific files by name, never `git add -A` or `git add .`
 3. Commit with a meaningful message (no Co-Authored-By lines):
 
 ```bash

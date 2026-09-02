@@ -28,7 +28,7 @@ Every section must look visually distinct from every other section on the page.
 **React / Next.js:**
 
 - Tailwind CSS (always)
-- shadcn/ui (always — never build raw buttons, inputs, dialogs from scratch)
+- shadcn/ui (always, never build raw buttons, inputs, dialogs from scratch)
 - Lucide React icons (always)
 - `next/font` with Geist or Inter (always)
 - Framer Motion for animations when there is interactivity
@@ -42,7 +42,7 @@ Every section must look visually distinct from every other section on the page.
 
 ## Color
 
-- Background: `#0a0a0a` or `zinc-950` — never pure `#000000` or `#ffffff`
+- Background: `#0a0a0a` or `zinc-950`, never pure `#000000` or `#ffffff`
 - Text primary: `white` or `zinc-50`
 - Text muted: `zinc-400` or `zinc-500`
 - Accent: `indigo-500` / `indigo-600` as default
@@ -51,14 +51,14 @@ Every section must look visually distinct from every other section on the page.
 ## Cards: must be visible
 
 - Minimum background: `rgba(255,255,255,0.06)` or solid `zinc-900` / `zinc-800`
-- Never use `rgba(255,255,255,0.025)` — it is invisible on dark backgrounds
+- Never use `rgba(255,255,255,0.025)`, it is invisible on dark backgrounds
 - Border: `border border-zinc-800` or `border border-white/10`
 - Hover: `hover:border-zinc-700` or `hover:border-white/20`
 - Every clickable card: `transition-all duration-200 cursor-pointer`
 
 ## Typography
 
-- Font: Inter or Geist — NEVER system fonts, NEVER Times New Roman
+- Font: Inter or Geist, never system fonts, never Times New Roman
 - Hero headline: `text-5xl md:text-7xl font-bold tracking-tight`
 - Section heading: `text-3xl md:text-4xl font-semibold tracking-tight`
 - Body: `text-base text-zinc-300 leading-relaxed`
@@ -99,7 +99,7 @@ Secondary: `bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 f
 - NO placeholder content like "Lorem ipsum" in MVPs
 - NO components without hover states
 - NO glass cards where the glass effect is imperceptible
-- NO generic 3-column card grid for every single section — vary layouts
+- NO generic 3-column card grid for every single section, vary layouts
 - NO centered heading + subtitle + grid repeated for every section
 - NO shipping a tribute/person site without a real photo of the person
 - NO inline styles (use Tailwind classes)
@@ -110,7 +110,7 @@ Secondary: `bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 f
 
 Ask: "Does this look like it could be a real YC-backed startup product page or a polished Dribbble shot?"
 
-If no — redesign it.
+If no, redesign it.
 
 ## Scroll-Aware Navbar (Mandatory)
 
@@ -142,7 +142,7 @@ Apply with: `style={{ transform: visible ? "translateY(0)" : "translateY(-100%)"
 
 Never use a static always-visible sticky navbar.
 
-**Vanilla HTML equivalent (plain HTML projects — no React):**
+**Vanilla HTML equivalent (plain HTML projects, no React):**
 
 ```html
 <nav

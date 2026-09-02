@@ -1,5 +1,5 @@
 ---
-description: Capture a quick idea — adds to Todoist + saves to memory if significant
+description: Capture a quick idea, adds to Todoist + saves to memory if significant
 allowed-tools: Bash(curl:*), Bash(date:*), Read, Write, Edit
 argument-hint: "<idea or note>"
 ---

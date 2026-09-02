@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-// Scroll-aware navbar — mandatory pattern
+// Scroll-aware navbar, mandatory pattern
 // Hidden at top, slides in after 80px scroll, hides near bottom
 function useScrollNav() {
   const [visible, setVisible] = useState(false);

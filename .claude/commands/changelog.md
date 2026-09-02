@@ -1,5 +1,5 @@
 ---
-description: Generate a changelog from git log — grouped by type, since last tag or N days
+description: Generate a changelog from git log, grouped by type, since last tag or N days
 allowed-tools: Bash(git:*), Read
 argument-hint: "[--since=7d] [--since-tag]"
 ---
@@ -55,4 +55,4 @@ Categorize each commit by conventional commit type:
 - {chore/refactor commits}
 ```
 
-If $ARGUMENTS has `--pr` — format for PR description instead.
+If $ARGUMENTS has `--pr`, format for PR description instead.

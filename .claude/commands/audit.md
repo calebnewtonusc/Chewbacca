@@ -1,5 +1,5 @@
 ---
-description: Security and code quality audit — find vulnerabilities, bad patterns, and tech debt
+description: Security and code quality audit, find vulnerabilities, bad patterns, and tech debt
 allowed-tools: Bash(git:*), Bash(npm:*), Bash(npx:*), Bash(grep:*), Bash(find:*), Read, Glob
 argument-hint: "[project-path]"
 ---
@@ -61,6 +61,6 @@ grep -r "<button" --include="*.tsx" . 2>/dev/null | grep -v "className" | head -
 
 ## Step 5: Report
 
-Grade each category (A/B/C/D/F) and list specific issues with file:line references. Be specific — not just "found issues" but "file.tsx:42 has an unhandled promise".
+Grade each category (A/B/C/D/F) and list specific issues with file:line references. Be specific, not just "found issues" but "file.tsx:42 has an unhandled promise".
 
 Prioritize by severity: Security > Correctness > Quality > Style.

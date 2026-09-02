@@ -1,5 +1,5 @@
 ---
-description: Deep audit a project directory — find bugs, incomplete work, security issues, and inconsistencies
+description: Deep audit a project directory, find bugs, incomplete work, security issues, and inconsistencies
 allowed-tools: Read, Glob, Grep, Bash(git log:*), Bash(npm:*), Bash(npx tsc:*)
 argument-hint: "<project path, e.g. projects/mergepilot/web>"
 ---
@@ -14,9 +14,9 @@ If `$ARGUMENTS` is given, use that path. Otherwise, use the current directory. C
 
 Read:
 
-- `package.json` / `pyproject.toml` — dependencies, scripts, entry points
+- `package.json` / `pyproject.toml`, dependencies, scripts, entry points
 - `README.md`: stated purpose and architecture
-- Top-level source files — build a mental map before diving in
+- Top-level source files, build a mental map before diving in
 
 Do NOT comment on what you haven't read.
 
@@ -107,4 +107,4 @@ End with a summary table and total count per severity.
 - Read every file you cite before reporting a finding.
 - Never report a finding without specific file:line evidence.
 - Distinguish confirmed bugs from conditional risks.
-- This is a read-only audit — do not implement fixes unless the user explicitly asks.
+- This is a read-only audit, do not implement fixes unless the user explicitly asks.

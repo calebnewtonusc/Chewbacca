@@ -47,7 +47,7 @@ export function UserCard({ user, onEdit }: UserCardProps) {}
 
 ## CSS / Tailwind
 
-- Use Tailwind utility classes — no custom class names unless absolutely necessary
+- Use Tailwind utility classes, no custom class names unless absolutely necessary
 - If custom classes are needed: `kebab-case` (`hero-gradient`, `card-hover`)
 - CSS custom properties: `--kebab-case` (`--color-accent`, `--font-display`)
 
@@ -72,5 +72,5 @@ export function UserCard({ user, onEdit }: UserCardProps) {}
 
 - No abbreviations unless universally understood (`url`, `id`, `html` are fine; `usr`, `btn`, `cnt` are not)
 - No single-letter variables outside of loops (`i`, `j` are fine in for loops)
-- No misleading names (`data`, `info`, `stuff`, `thing` — be specific)
+- No misleading names (`data`, `info`, `stuff`, `thing`, be specific)
 - No type names that include the word "type" (`UserType` → just `User`)

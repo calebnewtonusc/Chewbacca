@@ -1,5 +1,5 @@
 ---
-description: Update CURRENT_CONTEXT with what's happening right now — major decisions, shifts, new projects
+description: Update CURRENT_CONTEXT with what's happening right now, major decisions, shifts, new projects
 allowed-tools: Read, Edit, Write, Bash(date:*)
 argument-hint: "<what changed or what's happening now>"
 ---

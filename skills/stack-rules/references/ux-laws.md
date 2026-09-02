@@ -7,7 +7,7 @@ paths:
 
 # Laws of UX
 
-Apply these when designing any UI, component, or interaction. They are not suggestions — violations are design bugs.
+Apply these when designing any UI, component, or interaction. They are not suggestions, violations are design bugs.
 
 ---
 

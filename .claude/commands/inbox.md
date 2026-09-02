@@ -1,5 +1,5 @@
 ---
-description: Instantly scan iMessage inbox — surface pending replies, priorities, and unreads
+description: Instantly scan iMessage inbox, surface pending replies, priorities, and unreads
 allowed-tools: Bash(bun:*), Bash(cd:*), Read
 ---
 

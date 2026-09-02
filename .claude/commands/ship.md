@@ -7,10 +7,10 @@ Run the quality gate for the project at `$ARGUMENTS` (defaults to current direct
 
 ## Step 0: .env Leak Check
 
-Before anything else — check that no secrets are staged:
+Before anything else, check that no secrets are staged:
 
 ```bash
-git diff --cached --name-only | grep -E "^\.env|\.env\." && echo "BLOCKED: .env file staged — unstage before shipping" || echo "Clean"
+git diff --cached --name-only | grep -E "^\.env|\.env\." && echo "BLOCKED: .env file staged, unstage before shipping" || echo "Clean"
 ```
 
 If a `.env` file is staged: **STOP**. Unstage it, warn the user, do not proceed.
@@ -21,7 +21,7 @@ Also scan staged content for obvious secret patterns:
 git diff --cached | grep -E "(sk-ant|sk-|ANTHROPIC|API_KEY|SECRET|PASSWORD|TOKEN)" | grep "^+" | grep -v "example\|placeholder\|your_key\|process\.env\." | head -10
 ```
 
-If real secrets appear in the diff — STOP and flag them.
+If real secrets appear in the diff: STOP and flag them.
 
 ## Step 1: Detect project type
 
@@ -74,6 +74,6 @@ BUNDLE:    PASS / WARN (largest route: Xkb)
 ENV LEAK:  CLEAN / BLOCKED
 ```
 
-If any step fails — list the specific errors and suggest fixes. Do NOT mark as shipped past a failing gate.
+If any step fails, list the specific errors and suggest fixes. Do NOT mark as shipped past a failing gate.
 
 Clean ship = all green. Then proceed to `/push` or `/deploy`.

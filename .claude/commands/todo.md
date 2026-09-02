@@ -1,5 +1,5 @@
 ---
-description: Add a Todoist task from natural language — auto-assigns sprint, priority, due date
+description: Add a Todoist task from natural language, auto-assigns sprint, priority, due date
 allowed-tools: Bash(curl:*), Bash(date:*), Read
 argument-hint: "<task description> [due:today|tomorrow|monday] [sprint:1-5] [p1|p2|p3|p4]"
 ---

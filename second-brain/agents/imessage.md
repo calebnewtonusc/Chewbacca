@@ -11,7 +11,7 @@ Give Claude the ability to read your iMessage inbox and send messages. Built on 
 
 ## Prerequisites
 
-- macOS (required — uses native Messages.app)
+- macOS (required, uses native Messages.app)
 - Terminal must have Full Disk Access (System Preferences → Privacy → Full Disk Access)
 - Messages.app signed in with Apple ID
 
@@ -94,4 +94,4 @@ For a full MCP server that wraps this into structured tools Claude can call nati
 
 ## Privacy note
 
-`chat.db` contains all your messages. The bridge only runs locally — nothing is sent to any external server. Claude reads the DB file directly on your machine.
+`chat.db` contains all your messages. The bridge only runs locally, nothing is sent to any external server. Claude reads the DB file directly on your machine.

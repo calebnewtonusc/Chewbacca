@@ -1,5 +1,5 @@
 ---
-description: Show today's Todoist sprint breakdown — tasks by sprint, priorities, estimated load
+description: Show today's Todoist sprint breakdown, tasks by sprint, priorities, estimated load
 allowed-tools: Bash(curl:*), Bash(date:*), Read
 ---
 
@@ -37,21 +37,21 @@ Priority sort within each sprint: P1 (api=4) first, P4 (api=1) last.
 ## Step 3: Output
 
 ```
-TODAY — {Day}, {Date}
+TODAY, {Day}, {Date}
 {total} tasks across {n} sprints
 
-SPRINT 1 — Morning Admin ({n} tasks)
+SPRINT 1: Morning Admin ({n} tasks)
   [P1] {task}
   [P3] {task}
 
-SPRINT 2 — Deep Work ({n} tasks)
+SPRINT 2: Deep Work ({n} tasks)
   ...
 
 OVERDUE ({n})
   {tasks that should have been done}
 
 LOAD ASSESSMENT
-{Light / Moderate / Heavy} — {brief reasoning}
+{Light / Moderate / Heavy}, {brief reasoning}
 ```
 
-If $ARGUMENTS is "reorder" — suggest optimal reordering based on time of day and dependencies.
+If $ARGUMENTS is "reorder", suggest optimal reordering based on time of day and dependencies.

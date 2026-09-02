@@ -1,5 +1,5 @@
 ---
-description: Refactor a file for readability and performance — add types, split if over 200 lines, clean up
+description: Refactor a file for readability and performance, add types, split if over 200 lines, clean up
 allowed-tools: Bash(npm:*), Bash(npx:*), Bash(grep:*), Bash(wc:*), Read, Write, Edit, Glob
 argument-hint: "<file path>"
 ---
@@ -126,12 +126,12 @@ npx eslint "$ARGUMENTS" 2>&1 | head -20
 npm test -- --run 2>/dev/null | tail -10
 ```
 
-Zero new errors after refactor. If a test breaks, fix it — don't revert the refactor.
+Zero new errors after refactor. If a test breaks, fix it, don't revert the refactor.
 
 ## What NOT to do
 
-- Don't change behavior — only change structure
+- Don't change behavior, only change structure
 - Don't rename public APIs or exported function names
 - Don't add new features while refactoring
-- Don't change test files to make tests pass — fix the source
-- Don't add comments explaining obvious code — rename the variable instead
+- Don't change test files to make tests pass, fix the source
+- Don't add comments explaining obvious code, rename the variable instead

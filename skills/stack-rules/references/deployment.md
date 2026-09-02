@@ -68,12 +68,12 @@ git push origin main
 # Vercel auto-deploys from the push
 ```
 
-Never use `vercel deploy` from local for production — always go through GitHub.
+Never use `vercel deploy` from local for production, always go through GitHub.
 
 ## Build Optimization
 
-- Use `next/image` for all images — never `<img>`
-- Use `next/font` for fonts — never Google Fonts CDN link in Next.js
+- Use `next/image` for all images, never `<img>`
+- Use `next/font` for fonts, never Google Fonts CDN link in Next.js
 - Enable ISR or SSG where data doesn't change per request
 - Use `generateStaticParams` for dynamic routes with known values
 

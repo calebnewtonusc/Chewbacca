@@ -1,5 +1,5 @@
 ---
-description: Triage GitHub issues — classify, score severity/opportunity, detect duplicates, output a prioritized report
+description: Triage GitHub issues, classify, score severity/opportunity, detect duplicates, output a prioritized report
 allowed-tools: Bash(gh issue:*), Bash(gh api:*), Bash(gh repo:*)
 argument-hint: "[repo in owner/repo format, or current repo if omitted]"
 ---
@@ -15,6 +15,7 @@ gh issue list --state open --limit 100 --json number,title,body,labels,createdAt
 ```
 
 For large repos, paginate:
+
 ```
 gh api --paginate repos/{owner}/{repo}/issues?state=open&per_page=100
 ```
@@ -22,11 +23,13 @@ gh api --paginate repos/{owner}/{repo}/issues?state=open&per_page=100
 ## Step 2: Classify each issue
 
 **Type:**
+
 - `bug`: broken existing functionality with clear reproduction
 - `feature`: new capability requested
 - `ambiguous`: unclear whether bug or feature, or needs more info
 
 **Spec quality:**
+
 - `well-specified`: clear steps, expected vs actual, acceptance criteria
 - `adequate`: enough to act on, minor gaps
 - `under-specified`: missing key information to reproduce or implement
@@ -36,6 +39,7 @@ gh api --paginate repos/{owner}/{repo}/issues?state=open&per_page=100
 ```
 severity = impact(1-4) × urgency(1-3) × scope(1-3)
 ```
+
 - +5 bonus if security-related
 - +3 bonus if a PR already exists
 
@@ -48,6 +52,7 @@ severity = impact(1-4) × urgency(1-3) × scope(1-3)
 ```
 opportunity = value(1-4) + (4 - effort(1-3)) + readiness(1-3)
 ```
+
 - +2 bonus if multiple users requested
 - +2 bonus if aligns with active roadmap work
 
@@ -87,5 +92,5 @@ opportunity = value(1-4) + (4 - effort(1-3)) + readiness(1-3)
 ## Rules
 
 - Read-only. No comments, labels, or closes.
-- Use only `gh` CLI — no web scraping.
+- Use only `gh` CLI, no web scraping.
 - Don't speculate about fixes. Triage is assessment only.

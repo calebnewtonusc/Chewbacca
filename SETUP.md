@@ -69,9 +69,9 @@ Add these to `~/.claude/settings.json` under `"env"`:
 }
 ```
 
-**GITHUB_TOKEN**: Generate at github.com/settings/tokens — needs `repo` + `workflow` scopes.
+**GITHUB_TOKEN**: Generate at github.com/settings/tokens, needs `repo` + `workflow` scopes.
 
-**TODOIST_API_TOKEN**: Get at app.todoist.com/app/settings/integrations/developer — optional, only needed for `/daily-brief`, `/sprint`, `/todo`, `/done`.
+**TODOIST_API_TOKEN**: Get at app.todoist.com/app/settings/integrations/developer, optional, only needed for `/daily-brief`, `/sprint`, `/todo`, `/done`.
 
 ### Your GitHub username
 

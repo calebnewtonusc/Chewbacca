@@ -3,21 +3,21 @@
 The D1 second brain splits into two repos with a hard boundary:
 
 ```
-claude-context/   PUBLIC — operational instructions for Claude
+claude-context/   PUBLIC, operational instructions for Claude
                   CLAUDE.md, rules/, behavioral standards
                   Contains: how Claude should behave
                   Contains NOTHING about you personally
 
-personal-context/ PRIVATE — who you are and what you're working on
+personal-context/ PRIVATE, who you are and what you're working on
                   YOU.md, NOW.md, PEOPLE.md, SYSTEM.md
                   Contains: your identity, projects, contacts, APIs
 ```
 
 ## Why split?
 
-**claude-context can be public.** It's just a set of coding standards and behavioral rules — no different from a public dotfiles repo. Other devs can fork it. Your AI setup becomes shareable without exposing anything personal.
+**claude-context can be public.** It's just a set of coding standards and behavioral rules, no different from a public dotfiles repo. Other devs can fork it. Your AI setup becomes shareable without exposing anything personal.
 
-**personal-context stays private.** Your job history, project URLs, contacts, API key formats, personal stories — none of that bleeds into a public repo.
+**personal-context stays private.** Your job history, project URLs, contacts, API key formats, personal stories, none of that bleeds into a public repo.
 
 ## What each repo contains
 

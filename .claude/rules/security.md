@@ -27,8 +27,8 @@ paths:
 
 ## Input handling
 
-- Type external data as `unknown` and narrow before use — never `as any` on untrusted input.
-- `dangerouslySetInnerHTML` only with a sanitizer (DOMPurify) — never with raw user content.
+- Type external data as `unknown` and narrow before use, never `as any` on untrusted input.
+- `dangerouslySetInnerHTML` only with a sanitizer (DOMPurify), never with raw user content.
 - No `eval()` or `new Function()` with user-supplied strings.
 
 ## Network / SSRF prevention

@@ -120,7 +120,7 @@ return new Response(stream.toReadableStream(), {
 
 ## Environment Variables
 
-- Never hardcode secrets — always `process.env.VAR_NAME`
+- Never hardcode secrets, always `process.env.VAR_NAME`
 - Client-safe vars: prefix `NEXT_PUBLIC_`
 - Always add to `.env.example` with placeholder values
 - Never commit `.env`

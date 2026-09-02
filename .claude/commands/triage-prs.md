@@ -1,5 +1,5 @@
 ---
-description: Generate a prioritized PR triage dashboard — classify by module, review state, scope, and risk
+description: Generate a prioritized PR triage dashboard, classify by module, review state, scope, and risk
 allowed-tools: Bash(gh pr:*), Bash(gh api:*), Bash(gh repo:*)
 argument-hint: "[repo in owner/repo format, or current repo if omitted]"
 ---
@@ -13,6 +13,7 @@ gh pr list --state open --limit 100 --json number,title,author,createdAt,updated
 ```
 
 For each PR, fetch its file list to determine module:
+
 ```
 gh pr view {number} --json files --jq '.files[].path'
 ```
@@ -20,6 +21,7 @@ gh pr view {number} --json files --jq '.files[].path'
 ## Step 2: Classify each PR
 
 **Module** (based on changed file paths):
+
 - `web/ui`: components, pages, styles
 - `api`: routes, handlers, middleware
 - `db/schema`: migrations, schema, ORM models
@@ -32,6 +34,7 @@ gh pr view {number} --json files --jq '.files[].path'
 - `other`: doesn't fit above
 
 **Review state:**
+
 - `approved`: at least one approval, no changes requested
 - `changes-requested`: reviewer asked for changes
 - `reviewed`: comments but no formal decision
@@ -39,6 +42,7 @@ gh pr view {number} --json files --jq '.files[].path'
 - `no-review`: no reviews at all
 
 **Scope:**
+
 - `tiny`: <50 lines changed
 - `small`: 50–200 lines
 - `medium`: 200–500 lines
@@ -46,13 +50,14 @@ gh pr view {number} --json files --jq '.files[].path'
 - `xl`: 2000+ lines or 15+ files
 
 **Risk type:**
+
 - `fix`: bug fix, safe to merge quickly after review
 - `feature`: new capability, standard review
-- `architectural`: changes interfaces, DB schema, auth flow — needs deep review
+- `architectural`: changes interfaces, DB schema, auth flow, needs deep review
 
 ## Step 3: Detect conflicts/overlaps
 
-Identify PRs that touch the same files — flag potential merge conflicts or conceptual overlap.
+Identify PRs that touch the same files, flag potential merge conflicts or conceptual overlap.
 
 ## Step 4: Output dashboard
 

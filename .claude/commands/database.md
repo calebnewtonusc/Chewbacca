@@ -1,7 +1,7 @@
 ---
 description: Design Supabase schema, write Drizzle migration, add RLS policies, generate TypeScript types
 allowed-tools: Bash(npm:*), Bash(npx:*), Bash(supabase:*), Read, Write, Glob
-argument-hint: "<feature description — what data does this feature need?>"
+argument-hint: "<feature description, what data does this feature need?>"
 ---
 
 # Database
@@ -158,7 +158,7 @@ import type { Database } from "@/types/supabase";
 type Row = Database["public"]["Tables"]["{table_name}"]["Row"];
 type Insert = Database["public"]["Tables"]["{table_name}"]["Insert"];
 
-// Always specific columns — never select("*")
+// Always specific columns, never select("*")
 const COLUMNS = "id, user_id, name, description, status, created_at" as const;
 
 export async function list{TablePascalCase}(supabase: ReturnType<typeof createServerClient<Database>>) {
@@ -221,7 +221,7 @@ export async function update{TablePascalCase}(
   return data;
 }
 
-// Soft delete — never hard delete user data
+// Soft delete, never hard delete user data
 export async function delete{TablePascalCase}(
   supabase: ReturnType<typeof createServerClient<Database>>,
   id: string
@@ -292,6 +292,6 @@ CREATE POLICY "team_select" ON projects FOR SELECT
 
 - Never `select("*")` in production queries
 - Never disable RLS on a table with user data
-- Never hard delete user-owned rows — soft delete
-- Never store passwords in the DB — use Supabase Auth
+- Never hard delete user-owned rows, soft delete
+- Never store passwords in the DB, use Supabase Auth
 - Never expose service role key to client

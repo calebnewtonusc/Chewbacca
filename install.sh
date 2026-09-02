@@ -1,5 +1,5 @@
 #!/bin/bash
-# D1 Vibe Coding — Quick install
+# D1 Vibe Coding: Quick install
 # Copies CLAUDE.md + .claude/ into the current project directory.
 # For full infrastructure setup (second brain, iMessage agent, MCP), run setup.sh instead.
 
@@ -13,7 +13,7 @@ PROJECT_DIR="${1:-$(pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo ""
-echo "D1 Vibe Coding — Project Install"
+echo "D1 Vibe Coding: Project Install"
 echo "================================="
 echo ""
 echo "Installing to: $PROJECT_DIR"
@@ -57,7 +57,7 @@ if [ ! -f "$SETTINGS_DEST" ]; then
   chmod 600 "$SETTINGS_DEST"
   echo -e "  ${GRN}✓${NC} ~/.claude/settings.json (created)"
 else
-  echo -e "  ${YLW}!${NC} ~/.claude/settings.json exists — merge settings/settings.json manually"
+  echo -e "  ${YLW}!${NC} ~/.claude/settings.json exists, merge settings/settings.json manually"
 fi
 
 echo ""

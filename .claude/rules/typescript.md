@@ -6,7 +6,7 @@ paths:
 
 # TypeScript Rules
 
-**Run `tsc --noEmit` before declaring anything done.** Zero errors is the bar — not "it mostly works".
+**Run `tsc --noEmit` before declaring anything done.** Zero errors is the bar, not "it mostly works".
 
 **Strict mode is assumed.** `strict: true` is set in all tsconfigs. Honor it.
 
@@ -16,7 +16,7 @@ paths:
 
 ## Supabase Patterns
 
-**Typed client — always use generated types:**
+**Typed client, always use generated types:**
 
 ```typescript
 import { createClient } from "@supabase/supabase-js";
@@ -28,7 +28,7 @@ const supabase = createClient<Database>(
 );
 ```
 
-**Server-side (App Router) — use `createServerClient`:**
+**Server-side (App Router), use `createServerClient`:**
 
 ```typescript
 import { createServerClient } from "@supabase/ssr";
@@ -44,7 +44,7 @@ export function createSupabaseServer() {
 }
 ```
 
-**Type-safe queries — destructure the data, narrow the error:**
+**Type-safe queries, destructure the data, narrow the error:**
 
 ```typescript
 const { data, error } = await supabase
@@ -83,7 +83,7 @@ if (!parsed.success) {
 }
 ```
 
-**Infer types from schemas — don't duplicate:**
+**Infer types from schemas, don't duplicate:**
 
 ```typescript
 type CreateProjectInput = z.infer<typeof createProjectSchema>;
@@ -155,7 +155,7 @@ type NonNullId = NonNullable<Project["id"]>;
 ## What NOT to Do
 
 - `as any`: use `unknown` + type guard instead
-- `!` non-null assertion on values that could genuinely be null — check first
-- Separate interface and type when one will do — pick one style and stick to it
-- `Object.keys(x).forEach` when you want `Object.entries(x)` — be explicit
-- Casting `req.params as any` — type the route generics properly
+- `!` non-null assertion on values that could genuinely be null, check first
+- Separate interface and type when one will do, pick one style and stick to it
+- `Object.keys(x).forEach` when you want `Object.entries(x)`, be explicit
+- Casting `req.params as any`, type the route generics properly

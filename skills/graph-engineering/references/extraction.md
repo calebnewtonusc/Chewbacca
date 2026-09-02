@@ -1,7 +1,9 @@
 # Knowledge Extraction: Entities, Relations, Events
-*(Course lectures 4-7, translated and adapted)*
+
+_(Course lectures 4-7, translated and adapted)_
 
 ## Contents
+
 - [Extraction by source type](#extraction-by-source-type)
 - [Entity extraction](#entity-extraction)
 - [Relation extraction](#relation-extraction)
@@ -11,7 +13,7 @@
 
 ## Extraction by source type
 
-(Lecture 4.) Match method to source structure — using NLP on data that is already structured
+(Lecture 4.) Match method to source structure, using NLP on data that is already structured
 is the classic beginner waste:
 
 - **Structured (databases, CSVs, APIs):** direct mapping, no NLP. Write a per-source mapping
@@ -28,16 +30,16 @@ The course traces: rules/dictionaries → HMM/CRF → BiLSTM-CRF → semi-superv
 pretrained (BERT) → LLM. What survives into practice:
 
 1. **Dictionary/rule extraction first** for closed vocabularies you already have (your product
-   names, team roster, ticker symbols, ontology enum values). Exact match beats any model —
+   names, team roster, ticker symbols, ontology enum values). Exact match beats any model,
    free, deterministic, 100% precision.
 2. **LLM extraction** for everything open-ended, with the ontology's entity types + definitions
-   + examples in the prompt (pattern below).
+   - examples in the prompt (pattern below).
 3. **Always capture:** surface form, canonical form (best guess), type, source pointer
    (doc id + char span or sentence), confidence.
 
 Classical lesson that still applies to LLM output: **nested and discontinuous mentions**
 ("University of California, Berkeley professor John Smith" contains an ORG inside a PERSON
-context) and **type ambiguity** ("Apple") drive most errors — require the model to quote its
+context) and **type ambiguity** ("Apple") drive most errors, require the model to quote its
 evidence sentence, which forces disambiguation from context.
 
 ## Relation extraction
@@ -45,31 +47,31 @@ evidence sentence, which forces disambiguation from context.
 (Lecture 6.) Course inventory: template-based → supervised → weakly supervised → distant
 supervision → unsupervised open IE → deep/RL methods. Modern distillation:
 
-- Extract relations **only between entities that passed stage 4** — never let relation
+- Extract relations **only between entities that passed stage 4**, never let relation
   extraction invent new entities. This single constraint kills most compounding errors.
 - Constrain output to the ontology's relation list; **validate domain/range in code**
   (an `EMPLOYED_BY` edge from Org → Org is auto-rejected).
 - Distant supervision's core insight still matters for evaluation: if two entities co-occur,
   a model will happily assert the relation the prior suggests. Guard: require an evidence
-  quote that *asserts* the relation, not just co-occurrence ("Musk discussed Twitter" is not
+  quote that _asserts_ the relation, not just co-occurrence ("Musk discussed Twitter" is not
   `OWNS`).
-- Keep un-modeled but repeated relations in a `candidate_relations` side-list — review weekly;
+- Keep un-modeled but repeated relations in a `candidate_relations` side-list, review weekly;
   promote real ones into the ontology rather than forcing them into wrong types.
 
 ## Event extraction
 
-(Lecture 7.) Use when the domain is dynamic — news, incidents, transactions, funding rounds.
+(Lecture 7.) Use when the domain is dynamic, news, incidents, transactions, funding rounds.
 
 An event = **trigger** (the word/phrase signaling it) + **typed arguments** (participants,
 time, place, values) + **event type** from the ontology. Events are first-class nodes with
-edges to their arguments — never flatten a 4-argument event into 6 pairwise edges (you lose
+edges to their arguments, never flatten a 4-argument event into 6 pairwise edges (you lose
 which acquisition happened at which price).
 
 The course's finance case study generalizes: define per-event-type argument schemas
 (`Acquisition: {acquirer, target, price, date}`), extract into that schema, reject events
 missing the trigger evidence.
 
-**Event-logic graphs (事理图谱):** a distinctive idea from the course worth knowing — graphs
+**Event-logic graphs (事理图谱):** a distinctive idea from the course worth knowing, graphs
 whose nodes are events and edges are causal/temporal/conditional relations between events
 ("rate hike → bond selloff"). Build one when the user asks "what leads to what," not just
 "what is related to what."
@@ -99,10 +101,10 @@ chunk; fusion (stage 8) reconciles.
 
 ## Failure modes
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| Graph full of `Concept`/`Thing` nodes | Extracting without ontology | Stage 3 first; re-extract |
-| Same person as 4 nodes | Skipped canonical-form rule | Define rule in ontology; fusion pass |
-| Confident wrong relations | Co-occurrence treated as assertion | Evidence-quote requirement + domain/range validation |
-| Events flattened to edge soup | No event schema | First-class event nodes with argument schemas |
-| Precision collapses at scale | Prompt drift across doc types | Per-source-type prompts; stage 7 gate per source |
+| Symptom                               | Cause                              | Fix                                                  |
+| ------------------------------------- | ---------------------------------- | ---------------------------------------------------- |
+| Graph full of `Concept`/`Thing` nodes | Extracting without ontology        | Stage 3 first; re-extract                            |
+| Same person as 4 nodes                | Skipped canonical-form rule        | Define rule in ontology; fusion pass                 |
+| Confident wrong relations             | Co-occurrence treated as assertion | Evidence-quote requirement + domain/range validation |
+| Events flattened to edge soup         | No event schema                    | First-class event nodes with argument schemas        |
+| Precision collapses at scale          | Prompt drift across doc types      | Per-source-type prompts; stage 7 gate per source     |

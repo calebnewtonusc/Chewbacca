@@ -1,7 +1,7 @@
 ---
 description: Read all review comments on a PR, triage each one, then implement fixes and reply
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash(gh pr:*), Bash(gh api:*), Bash(git:*), Bash(npm:*), Bash(npx tsc:*)
-argument-hint: "[PR number] — defaults to current branch's PR"
+argument-hint: "[PR number], defaults to current branch's PR"
 ---
 
 # Respond to PR Review Comments
@@ -36,7 +36,7 @@ Fetch review summaries (approval state, body):
 gh api --paginate repos/{owner}/{repo}/pulls/{number}/reviews
 ```
 
-Deduplicate — bots sometimes post the same finding under multiple IDs. Group by the actual issue raised, not by comment ID.
+Deduplicate, bots sometimes post the same finding under multiple IDs. Group by the actual issue raised, not by comment ID.
 
 ## Step 3: Triage and plan
 
@@ -73,7 +73,7 @@ For each addressed comment, reply on the PR with what was fixed and the commit S
 ## Rules
 
 - Never assess code you haven't read. Always read the referenced file and line first.
-- Group duplicate findings (same issue from multiple bots) — reply to all of them.
+- Group duplicate findings (same issue from multiple bots), reply to all of them.
 - Do not make changes beyond what the review comments ask for.
 - If you disagree with a comment, surface it during the planning phase rather than ignoring it.
 - Follow project conventions: no `as any`, no non-null assertions without comment, parameterized queries only.

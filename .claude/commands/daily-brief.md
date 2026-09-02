@@ -1,5 +1,5 @@
 ---
-description: Morning briefing — Todoist tasks for today, GitHub PRs/issues needing attention, and a focused plan for the day
+description: Morning briefing: Todoist tasks for today, GitHub PRs/issues needing attention, and a focused plan for the day
 allowed-tools: Bash(gh:*), Bash(curl:*), Bash(date:*), Bash(cat:*), Bash(ls:*), Read
 ---
 

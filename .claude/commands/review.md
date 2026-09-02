@@ -1,5 +1,5 @@
 ---
-description: Thorough code review — security, performance, accessibility, TypeScript, error states
+description: Thorough code review, security, performance, accessibility, TypeScript, error states
 allowed-tools: Bash(npm:*), Bash(npx:*), Bash(grep:*), Bash(ls:*), Read, Glob
 argument-hint: "[file path or directory, defaults to recent changes]"
 ---
@@ -24,7 +24,7 @@ Check every one of these:
 
 **SQL injection / NoSQL injection**
 
-- All user input goes through parameterized queries or Supabase `.eq()` / `.filter()` — never string interpolation
+- All user input goes through parameterized queries or Supabase `.eq()` / `.filter()`, never string interpolation
 - No `${}` inside raw SQL strings
 
 **Secrets**
@@ -36,7 +36,7 @@ Check every one of these:
 **Auth / Authorization**
 
 - Every protected route checks `auth.getUser()` or equivalent
-- User-supplied IDs verified against `auth.uid()` — never trusted blindly
+- User-supplied IDs verified against `auth.uid()`, never trusted blindly
 - No `select *` returning data that could belong to another user
 
 **XSS**
@@ -53,7 +53,7 @@ Report format:
 
 ```
 SECURITY: [PASS | WARN | FAIL]
-- {issue}: {file}:{line} — {recommendation}
+- {issue}: {file}:{line}, {recommendation}
 ```
 
 ## Step 3: TypeScript audit
@@ -96,7 +96,7 @@ PERFORMANCE: [PASS | WARN | FAIL]
 
 - Every `<button>` with only an icon has `aria-label`
 - Every form `<input>` has an associated `<label htmlFor=...>`
-- No `onClick` on `<div>` — use `<button>` or add `role="button"` + `tabIndex={0}` + `onKeyDown`
+- No `onClick` on `<div>`, use `<button>` or add `role="button"` + `tabIndex={0}` + `onKeyDown`
 - No focus styles removed without replacement
 - Images have `alt` text (meaningful or empty string for decorative)
 

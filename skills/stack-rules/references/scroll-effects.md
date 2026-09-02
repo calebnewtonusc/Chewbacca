@@ -28,7 +28,7 @@ Chrome 115+ / Firefox 110+. No JS needed for most visual effects.
   }
 }
 
-/* Reading progress bar — pure CSS */
+/* Reading progress bar, pure CSS */
 .progress-bar {
   position: fixed;
   top: 0;
@@ -317,7 +317,7 @@ Available presets: `fade`, `fade-up`, `fade-down`, `fade-left`, `fade-right`, `f
 
 ## Never Do These
 
-- Never skip scroll animations on marketing/landing pages — static scrolling looks unfinished
-- Never animate `width`, `height`, `top`, `left`, `margin` — GPU only: `transform` and `opacity`
+- Never skip scroll animations on marketing/landing pages, static scrolling looks unfinished
+- Never animate `width`, `height`, `top`, `left`, `margin`. GPU only: `transform` and `opacity`
 - Never use scroll animations that delay content rendering (don't gate above-the-fold)
-- Never leave `will-change: transform` on permanently — only add it just before animation
+- Never leave `will-change: transform` on permanently, only add it just before animation
