@@ -106,7 +106,7 @@ handed to an agent rather than to you: see
 | Piece                   | Details                                                                                                                                            |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **macOS tools**         | 8 installed alongside the kit: Anki, bd, mac, Maccy, mac-use, peekaboo, summarize, yt-transcript                                                   |
-| **Skills and plugins**  | 63 skills (7 shipped here, 3 cloned from upstream, 53 from 1 skill pack) plus 18 plugins across 3 marketplaces                                     |
+| **Skills and plugins**  | 64 skills (8 shipped here, 3 cloned from upstream, 53 from 1 skill pack) plus 18 plugins across 3 marketplaces                                     |
 | **Second brain**        | A private notes repo Claude reads at the start of every session and writes to as things change. Syncs to GitHub                                    |
 | **Coursework ledger**   | Your syllabi become deadlines, attendance budgets, and a per-course AI policy Claude checks before touching graded work                            |
 | **On-device dictation** | Installs [Plynn](https://github.com/31Carlton7/plynn): hold fn, talk, and clean text appears. Speech and cleanup run on your Mac, nothing uploaded |
@@ -121,21 +121,32 @@ handed to an agent rather than to you: see
 
 ## Quick Start
 
-Everything, in one command. This is the one you want:
+Clone it, then let Claude do the install:
 
 ```bash
 git clone https://github.com/calebnewtonusc/Chewbacca
 cd Chewbacca
-chmod +x setup.sh && ./setup.sh
+claude "run the setup skill"
 ```
 
-It asks a few questions, installs the tools, and verifies itself when it is
-done. Anything it cannot finish alone, like a macOS permission checkbox, it
-hands to Claude rather than to you:
+Claude asks what it needs in chat, runs the installer with your answers, reads
+the results back, and hands you the two or three things that need a real click
+in System Settings. There is no terminal questionnaire.
+
+The installer takes every answer as a flag, so you can drive it yourself:
 
 ```bash
-claude "run the agent-setup skill and finish whatever doctor.sh says is missing"
+./setup.sh --name Jane --repo-dir ~/dev
+./setup.sh --help          # every flag
+./setup.sh --dry-run --name Jane   # what it would change, changing nothing
+./setup.sh --only tools    # re-run one section after a tool arrives late
 ```
+
+Two things stay off unless you ask for them by name. `--bypass-permissions`
+stops Claude asking before it runs commands or writes files, everywhere, and
+takes three files to undo. `--session-opener prayer` opens every reply with a
+prayer. Credentials are written only when passed on that run, never read from
+your shell or keychain, and the installer prints each one it writes.
 
 <details>
 <summary>Already a developer with your own setup?</summary>
@@ -592,6 +603,7 @@ fires, which is the thing that matters most.
 | [skills/graph-engineering](skills/graph-engineering)                                                      | Skill  | Knowledge graphs and agent task graphs, with teaching mode                                     |
 | [skills/life-ops](skills/life-ops)                                                                        | Skill  | The weekly review, life admin with real deadlines, and what to cut                             |
 | [skills/second-brain](skills/second-brain)                                                                | Skill  | Reading, writing, and auditing your personal context repo                                      |
+| [skills/setup](skills/setup)                                                                              | Skill  | Installing the kit by conversation instead of a terminal questionnaire                         |
 | [skills/stack-rules](skills/stack-rules)                                                                  | Skill  | The 12 stack-specific standards, loaded only when the work needs them                          |
 | [skills/study-system](skills/study-system)                                                                | Skill  | Retrieval practice over rereading, exam run-ups, and the four-cause postmortem                 |
 | [avoid-ai-writing](https://github.com/conorbronsdon/avoid-ai-writing)                                     | Skill  | Audit and rewrite content to remove AI writing patterns ("AI-isms").                           |

@@ -59,34 +59,173 @@ backup() {
   BACKED_UP=1
 }
 
-# Every prompt below reads from stdin. Piped or cron-run, `read` hits EOF and
-# `set -e` kills the script with a blank screen and exit 1. Say so instead.
-if [ ! -t 0 ]; then
-  err "setup.sh needs an interactive terminal. Run it directly, not piped."
-  exit 1
+# ── Inputs ────────────────────────────────────────────────────────────────────
+# Every value arrives as a flag or in an answers file. There are no read calls
+# anywhere in this script, for three reasons.
+#
+#   1. An agent could not run it. The old version refused to start without a
+#      TTY, so Claude could not set this up on your behalf even when asked to.
+#   2. Blank prompts were not blank. A value already exported in the shell
+#      survived an empty answer and got written to settings.json as though you
+#      had typed it. Credentials now come only from a flag or the answers file.
+#   3. A terminal questionnaire is the wrong surface for a Claude Code kit. The
+#      /setup skill asks these in chat and calls this script with the answers.
+#
+# Anything not passed is simply not configured. Nothing is inferred from the
+# environment, the keychain, or `gh auth token`.
+
+usage() {
+  cat <<'USAGE'
+Chewbacca setup. Non-interactive by design.
+
+The easy way, in Claude:
+
+  claude "run the setup skill"
+
+The direct way:
+
+  ./setup.sh --name Jane [options]
+  ./setup.sh --answers setup.answers.json
+
+Required:
+  --name <first name>          Becomes your private context repo name.
+
+Optional:
+  --github-user <login>        Defaults to the logged-in gh account.
+  --repo-dir <path>            Where repos live. Default ~/dev
+  --anthropic-key <key>        Written to settings.json env. Omit to leave unset.
+  --github-token <token>       Written to settings.json env. Omit to leave unset.
+  --todoist-token <token>      Written to settings.json env. Omit to leave unset.
+  --composio-url <url>         Composio MCP endpoint.
+  --composio-key <key>         Composio API key.
+  --answers <file.json>        Read every value above from JSON instead.
+
+Behaviors, both off unless asked for:
+  --session-opener <name>      Opens every response with a fixed line. The only
+                               value shipped is "prayer". Default: none.
+  --bypass-permissions         Claude runs shell commands and writes files
+                               without asking, on this whole machine, in every
+                               project, until you undo it in three files.
+                               Default: off, so Claude asks.
+
+Re-running:
+  --only <section>             Run one section. Safe to repeat.
+                               prereq repos settings editor desktop mcp rules
+                               plugins tools plynn verify
+  --dry-run                    Print what would run and exit.
+  -h, --help                   This text.
+USAGE
+}
+
+NAME=""; GITHUB_USER=""; REPO_DIR=""; ANTHROPIC_KEY=""; GITHUB_PAT=""
+TODOIST_TOKEN=""; COMPOSIO_URL=""; COMPOSIO_KEY=""; ANSWERS=""
+SESSION_OPENER="none"; BYPASS_PERMS="no"; ONLY=""; DRY_RUN=0
+# Only these reach settings.json, and only when passed here in this run.
+declare -a CREDS_WRITTEN=()
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --name) NAME="${2:-}"; shift 2 ;;
+    --github-user) GITHUB_USER="${2:-}"; shift 2 ;;
+    --repo-dir) REPO_DIR="${2:-}"; shift 2 ;;
+    --anthropic-key) ANTHROPIC_KEY="${2:-}"; shift 2 ;;
+    --github-token) GITHUB_PAT="${2:-}"; shift 2 ;;
+    --todoist-token) TODOIST_TOKEN="${2:-}"; shift 2 ;;
+    --composio-url) COMPOSIO_URL="${2:-}"; shift 2 ;;
+    --composio-key) COMPOSIO_KEY="${2:-}"; shift 2 ;;
+    --answers) ANSWERS="${2:-}"; shift 2 ;;
+    --session-opener) SESSION_OPENER="${2:-none}"; shift 2 ;;
+    --bypass-permissions) BYPASS_PERMS="yes"; shift ;;
+    --only) ONLY="${2:-}"; shift 2 ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) err "unknown argument: $1"; echo; usage; exit 2 ;;
+  esac
+done
+
+# The answers file fills anything a flag did not. Flags win, so a one-off
+# override never means editing the file.
+if [ -n "$ANSWERS" ]; then
+  [ -f "$ANSWERS" ] || { err "answers file not found: $ANSWERS"; exit 2; }
+  eval "$(python3 - "$ANSWERS" <<'PYEOF'
+import json, shlex, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception as e:
+    print(f'err "answers file is not valid JSON: {e}"; exit 2')
+    raise SystemExit(0)
+pairs = {
+    "name": "NAME", "github_user": "GITHUB_USER", "repo_dir": "REPO_DIR",
+    "anthropic_key": "ANTHROPIC_KEY", "github_token": "GITHUB_PAT",
+    "todoist_token": "TODOIST_TOKEN", "composio_url": "COMPOSIO_URL",
+    "composio_key": "COMPOSIO_KEY", "session_opener": "SESSION_OPENER",
+}
+for k, var in pairs.items():
+    v = d.get(k)
+    if v:
+        print(f'[ -n "${{{var}:-}}" ] || {var}={shlex.quote(str(v))}')
+if d.get("bypass_permissions") is True:
+    print('BYPASS_PERMS=yes')
+PYEOF
+)"
 fi
 
-clear 2>/dev/null || true
+if [ -z "$NAME" ] && [ "${ONLY:-}" = "repos" ]; then
+  err "--only repos still needs --name: it is what the repo is called"
+  exit 2
+fi
+
+if [ -z "$NAME" ] && [ -z "$ONLY" ]; then
+  err "--name is required (or --answers, or --only <section>)"
+  echo
+  usage
+  exit 2
+fi
+
+USER_NAME="$(printf '%s' "$NAME" | tr -cd '[:alnum:] _-' | xargs)"
+if [ -n "$USER_NAME" ]; then
+  USER_NAME_LOWER=$(printf '%s' "$USER_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+  PERSONAL_REPO="${USER_NAME_LOWER}-context"
+fi
+
+WORKSPACE_DIR="${REPO_DIR:-$HOME/dev}"
+WORKSPACE_DIR="${WORKSPACE_DIR/#\~/$HOME}"
+case "$WORKSPACE_DIR" in /*) ;; *) WORKSPACE_DIR="$PWD/$WORKSPACE_DIR" ;; esac
+mkdir -p "$WORKSPACE_DIR"
+WORKSPACE_DIR="$(cd "$WORKSPACE_DIR" && pwd)"
+
+# --only runs one section. Everything here is written to be safe to repeat, so
+# a run that died halfway, or a tool that arrived after the first run, is one
+# flag away rather than a hand-copied block from this file.
+SECTIONS="prereq repos settings editor desktop mcp rules plugins tools plynn verify"
+if [ -n "$ONLY" ]; then
+  case " $SECTIONS " in
+    *" $ONLY "*) ;;
+    *) err "unknown section: $ONLY"; err "one of: $SECTIONS"; exit 2 ;;
+  esac
+fi
+should_run() { [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; }
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "Would run: ${ONLY:-all sections}"
+  echo "  name:            ${USER_NAME:-<unset>}"
+  echo "  repo dir:        $WORKSPACE_DIR"
+  echo "  session opener:  $SESSION_OPENER"
+  echo "  bypass perms:    $BYPASS_PERMS"
+  for pair in "anthropic:$ANTHROPIC_KEY" "github:$GITHUB_PAT" "todoist:$TODOIST_TOKEN"; do
+    [ -n "${pair#*:}" ] && echo "  credential:      ${pair%%:*} (would be written to settings.json)"
+  done
+  exit 0
+fi
+
 echo ""
 sep
 echo -e "  ${BLD}Chewbacca: Infrastructure Setup${NC}"
 sep
 echo ""
-echo "  This sets up your complete Claude Code infrastructure."
-echo "  Takes about 5 minutes. Run it once."
-echo ""
-echo "  What you'll get:"
-echo -e "    ${CYN}{name}-context${NC}   your private second brain"
-echo -e "    ${CYN}claude-context${NC}   public operational rules (forkable)"
-echo ""
-echo "  Hooks wired automatically:"
-echo "    Session context injection on every Claude session"
-echo "    PostToolUse auto-format + auto-sync to GitHub"
-echo "    Todoist priorities injected at session start"
-echo ""
-read -rp "  Press Enter to begin..."
 
 # ── Prerequisites ─────────────────────────────────────────────────────────────
+if should_run prereq; then
 section "Checking prerequisites"
 MISSING=0
 
@@ -137,67 +276,30 @@ gh auth setup-git &>/dev/null || true
 # Catch it here where there is still someone at the keyboard to answer.
 if [ -z "$(git config --global user.name 2>/dev/null)" ] ||
   [ -z "$(git config --global user.email 2>/dev/null)" ]; then
-  warn "No global git identity is set. Every commit will fail without one."
-  echo ""
-  read -rp "  Git author name (e.g. Jane Doe): " GIT_NAME
-  read -rp "  Git author email: " GIT_EMAIL
-  if [ -z "$GIT_NAME" ] || [ -z "$GIT_EMAIL" ]; then
-    err "Both are required. Set them yourself and re-run this script:"
-    err "  git config --global user.name \"Your Name\""
-    err "  git config --global user.email \"you@example.com\""
-    exit 1
-  fi
-  git config --global user.name "$GIT_NAME"
-  git config --global user.email "$GIT_EMAIL"
-  log "Git identity set: $GIT_NAME <$GIT_EMAIL>"
+  err "No global git identity is set. Every commit this script makes would fail."
+  err "Set one, then re-run:"
+  err "  git config --global user.name \"Your Name\""
+  err "  git config --global user.email \"you@example.com\""
+  exit 1
 else
   log "Git identity: $(git config --global user.name) <$(git config --global user.email)>"
 fi
 
-GITHUB_USER=$(gh api user --jq .login 2>/dev/null)
-log "GitHub: $GITHUB_USER"
+# A passed --github-user wins; the logged-in account is only the fallback.
+GITHUB_USER="${GITHUB_USER:-$(gh api user --jq .login 2>/dev/null)}"
+fi
 
 # ── Collect info ──────────────────────────────────────────────────────────────
+# Nothing to collect. Every value came in as a flag or from the answers file,
+# and anything absent stays absent rather than being guessed at.
 section "About you"
-echo ""
-
-read -rp "  Your first name (e.g. John): " USER_NAME
-USER_NAME="$(printf '%s' "$USER_NAME" | tr -cd '[:alnum:] _-' | xargs)"
-if [ -z "$USER_NAME" ]; then
-  err "A name is required. It becomes your context repo name."
-  exit 1
-fi
-# Spaces and slashes break the repo name, the remote URL, and the sed below.
-USER_NAME_LOWER=$(printf '%s' "$USER_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
-PERSONAL_REPO="${USER_NAME_LOWER}-context"
-
-echo ""
-read -rsp "  Anthropic API key (sk-ant-...): " ANTHROPIC_KEY; echo
-echo ""
-read -rsp "  GitHub Personal Access Token (repo+workflow scopes): " GITHUB_PAT; echo
-echo ""
-read -rp "  Composio MCP URL (optional, press Enter to skip): " COMPOSIO_URL
-echo ""
-read -rsp "  Composio API Key (optional, press Enter to skip): " COMPOSIO_KEY; echo
-echo ""
-read -rsp "  Todoist API token (optional, press Enter to skip): " TODOIST_TOKEN; echo
-echo ""
-
-WORKSPACE_DIR="$HOME/dev"
-read -rp "  Where should repos live? [$WORKSPACE_DIR]: " CUSTOM_DIR
-WORKSPACE_DIR="${CUSTOM_DIR:-$WORKSPACE_DIR}"
-# Quoted input means ~ never expands, and a relative path breaks the moment the
-# script cd's into the first repo. Normalize before anything uses it.
-WORKSPACE_DIR="${WORKSPACE_DIR/#\~/$HOME}"
-case "$WORKSPACE_DIR" in /*) ;; *) WORKSPACE_DIR="$PWD/$WORKSPACE_DIR" ;; esac
-mkdir -p "$WORKSPACE_DIR"
-WORKSPACE_DIR="$(cd "$WORKSPACE_DIR" && pwd)"
-
-echo ""
-sep
-echo ""
+GITHUB_USER="${GITHUB_USER:-$(gh api user --jq .login 2>/dev/null)}"
+log "Name: $USER_NAME"
+log "GitHub: ${GITHUB_USER:-<unknown>}"
+log "Repos: $WORKSPACE_DIR"
 
 # ── Repo 1: {name}-context (private) ─────────────────────────────────────────
+if should_run repos && [ -n "${USER_NAME:-}" ]; then
 section "Creating $PERSONAL_REPO (private personal brain)"
 
 PC_DIR="$WORKSPACE_DIR/$PERSONAL_REPO"
@@ -218,10 +320,9 @@ sedi "s/YOUR_GITHUB_USERNAME/$GITHUB_USER/g" "$PC_DIR/YOU.md"
 log "Templates copied to $PC_DIR"
 
 echo ""
-echo "  Opening YOU.md in your editor. Fill in your background, goals, working style."
-echo "  This is what Claude reads about you every single session."
+echo "  Fill in YOU.md with your background, goals, and working style."
+echo "  Claude reads it at the start of every session."
 echo ""
-read -rp "  Press Enter to open YOU.md..."
 PICKED_EDITOR=""
 for e in "${EDITOR:-}" nano vi; do
   [ -n "$e" ] && command -v "${e%% *}" &>/dev/null && PICKED_EDITOR="$e" && break
@@ -269,8 +370,10 @@ git diff --cached --quiet || git commit -q -m "init: $USER_NAME personal context
 git branch -M main
 git push -u origin main -q 2>/dev/null || warn "Push failed, you may need to push manually"
 log "https://github.com/$GITHUB_USER/$PERSONAL_REPO"
+fi
 
 # ── Repo 2: claude-context (public) ──────────────────────────────────────────
+if should_run repos && [ -n "${USER_NAME:-}" ]; then
 section "Creating claude-context (public operational rules)"
 
 CC_DIR="$WORKSPACE_DIR/claude-context"
@@ -349,16 +452,20 @@ git diff --cached --quiet || git commit -q -m "init: claude-context from Chewbac
 git branch -M main
 git push -u origin main -q 2>/dev/null || warn "Push failed, you may need to push manually"
 log "https://github.com/$GITHUB_USER/claude-context"
+fi
 
 # ── iMessage agent ────────────────────────────────────────────────────────────
+if should_run repos && [ -n "${USER_NAME:-}" ]; then
 # Not bundled. This used to clone calebnewtonusc/imessage-agent, which does not
 # exist, so every user who said yes got a warning and nothing else. The pattern
 # is documented in second-brain/agents/imessage.md if you want to build one;
 # setup.sh will not pretend to install it.
 IMSG_DIR=""
 SETUP_IMESSAGE=0
+fi
 
 # ── Wire ~/.claude/settings.json ─────────────────────────────────────────────
+if should_run settings; then
 section "Wiring ~/.claude/settings.json"
 
 for existing in "$HOME/.claude/settings.json" "$HOME/.claude/CLAUDE.md" \
@@ -428,26 +535,35 @@ PUBLIC_CONTEXT_DIR="$CC_DIR"
 CONTEXT_OWNER="$USER_NAME"
 D1CONFIG
 log "Hook config written to ~/.claude/d1-config.sh"
+fi
 
-# ── Two behaviors this kit turns on by design ────────────────────────────────
-# Both are deliberate and neither is prompted. If you are handing this to
-# someone, tell them up front. Editing ~/.claude/settings.json afterward turns
-# either one off.
+# ── What this run turns on ────────────────────────────────────────────────────
+# Both of these used to be on with no way to say no, announced in a wall of
+# text after they had already been written. Each is a flag now, each defaults
+# to off, and this prints the state it is actually about to write.
 echo ""
-echo "  Two behaviors are enabled by default:"
-echo ""
-echo "    Session opener   Every response starts with a prayer."
-echo "                     Change or remove it in ~/.claude/settings.json"
-echo "                     under hooks.UserPromptSubmit."
-echo ""
-echo "    bypassPermissions  Claude writes files and runs shell commands"
-echo "                       without asking each time. It is set in three"
-echo "                       places, because there are three ways to run"
-echo "                       Claude and each has its own switch:"
-echo "                         permissions.defaultMode in ~/.claude/settings.json"
-echo "                         claudeCode.* in your editor user settings"
-echo "                         dispatchCodeTasksPermissionMode in the desktop app"
-echo "                       Undo any one of them and that surface asks again."
+echo "  This run will configure:"
+if [ "$SESSION_OPENER" = "none" ]; then
+  echo "    Session opener     off"
+else
+  echo "    Session opener     $SESSION_OPENER, on every response"
+fi
+if [ "$BYPASS_PERMS" = "yes" ]; then
+  echo "    Permission prompts OFF. Claude runs shell commands and writes files"
+  echo "                       without asking, in every project on this machine."
+  echo "                       Undoing it means editing three files."
+else
+  echo "    Permission prompts on. Claude asks before acting."
+fi
+CRED_COUNT=0
+for v in "$ANTHROPIC_KEY" "$GITHUB_PAT" "$TODOIST_TOKEN"; do
+  [ -n "$v" ] && CRED_COUNT=$((CRED_COUNT + 1))
+done
+if [ "$CRED_COUNT" -gt 0 ]; then
+  echo "    Credentials        $CRED_COUNT written to ~/.claude/settings.json in plain text"
+else
+  echo "    Credentials        none. Nothing is read from your shell or keychain."
+fi
 echo ""
 
 # Secrets and paths reach python through the environment. Interpolating them
@@ -466,6 +582,8 @@ export D1_PC_DIR="${PC_DIR:-}"
 export D1_CC_DIR="${CC_DIR:-}"
 export D1_IMSG_DIR="${IMSG_DIR:-}"
 export D1_HOOKS="$HOME/.claude/hooks"
+export D1_SESSION_OPENER="$SESSION_OPENER"
+export D1_BYPASS_PERMS="$BYPASS_PERMS"
 
 python3 << 'PYEOF'
 import json, os, shlex
@@ -480,6 +598,9 @@ except Exception:
 env = os.environ.get
 hooks_dir = env("D1_HOOKS") or os.path.expanduser("~/.claude/hooks")
 
+# Only what was passed to this run. Nothing is read from the ambient shell,
+# the keychain, or `gh auth token`. A value already exported under one of these
+# names used to survive an empty prompt and land here as though it were typed.
 settings.setdefault("env", {})
 for key, var in (("GITHUB_TOKEN", "D1_GITHUB_PAT"),
                  ("ANTHROPIC_API_KEY", "D1_ANTHROPIC_KEY"),
@@ -487,12 +608,18 @@ for key, var in (("GITHUB_TOKEN", "D1_GITHUB_PAT"),
     val = env(var, "").strip()
     if val:
         settings["env"][key] = val
+        print(f"Wrote credential to settings.json: env.{key}")
 
 perms = settings.setdefault("permissions", {})
-# On by design. The whole point of the kit is that Claude acts instead of
-# stopping to ask. Flip this to "default" in ~/.claude/settings.json if you
-# want the confirmation step back.
-perms["defaultMode"] = "bypassPermissions"
+# Off unless --bypass-permissions was passed. Turning it on removes the step
+# where Claude asks before running a shell command or writing a file, on the
+# whole machine, in every project, and it takes three separate files to undo.
+# That is not something an installer should decide on someone's behalf.
+if env("D1_BYPASS_PERMS", "no") == "yes":
+    perms["defaultMode"] = "bypassPermissions"
+    print("Permission prompts disabled: Claude will not ask before acting.")
+else:
+    perms.setdefault("defaultMode", "default")
 
 perms.setdefault("additionalDirectories", [])
 for d in (env("D1_PC_DIR", ""), env("D1_CC_DIR", ""), env("D1_IMSG_DIR", "")):
@@ -530,21 +657,34 @@ settings["alwaysThinkingEnabled"] = True
 
 h = settings.setdefault("hooks", {})
 
-# Session opener. On by design, same as bypassPermissions above. Edit the text
-# here or in ~/.claude/settings.json under hooks.UserPromptSubmit.
-opener_payload = json.dumps({"hookSpecificOutput": {
-    "hookEventName": "UserPromptSubmit",
-    "additionalContext": (
+# Session opener: off unless --session-opener names one. This used to be wired
+# unconditionally, so a stranger running the installer got every reply opening
+# with a prayer and found out from two lines in a wall of setup output. That is
+# the author's own practice, not a default anyone else agreed to.
+OPENERS = {
+    "prayer": (
         "MANDATORY: Begin every response with a prayer to Jesus. "
         "Specific to what is actually being worked on, personal, varied, "
         "ending with Amen. Then respond."
     ),
-}})
-h["UserPromptSubmit"] = [{"hooks": [{
-    "type": "command",
-    "command": "printf '%s' " + shlex.quote(opener_payload),
-    "statusMessage": "Session opener",
-}]}]
+}
+opener = env("D1_SESSION_OPENER", "none").strip().lower()
+if opener in ("", "none", "no", "off"):
+    h.pop("UserPromptSubmit", None)
+elif opener in OPENERS:
+    opener_payload = json.dumps({"hookSpecificOutput": {
+        "hookEventName": "UserPromptSubmit",
+        "additionalContext": OPENERS[opener],
+    }})
+    h["UserPromptSubmit"] = [{"hooks": [{
+        "type": "command",
+        "command": "printf '%s' " + shlex.quote(opener_payload),
+        "statusMessage": "Session opener",
+    }]}]
+    print(f"Session opener enabled: {opener}")
+else:
+    print(f"Unknown session opener {opener!r}, leaving it off. "
+          f"Known: {', '.join(sorted(OPENERS))}")
 
 h["PostToolUse"] = [{"matcher": "Write|Edit", "hooks": [{
     "type": "command",
@@ -626,6 +766,7 @@ log "~/.claude/settings.json configured"
 
 
 # ── Wire the editor extension ─────────────────────────────────────────────────
+if should_run editor; then
 # permissions.defaultMode above is only half of it. The VS Code extension gates
 # bypass mode behind its own setting, so with the CLI configured and the editor
 # not, you still get prompted inside the editor. This merges the keys from
@@ -647,6 +788,15 @@ except Exception:
 
 # Keys starting with _comment document the template. They are not settings.
 desired = {k: v for k, v in template.items() if not k.startswith("_comment")}
+
+# The editor is the second of the three places permission prompts get turned
+# off. Without --bypass-permissions, drop those two keys and keep the rest of
+# the template, which is ordinary editor configuration.
+if os.environ.get("D1_BYPASS_PERMS") != "yes":
+    for k in ("claudeCode.allowDangerouslySkipPermissions",
+              "claudeCode.initialPermissionMode"):
+        desired.pop(k, None)
+    print("  Permission prompts left on in the editor extension.")
 
 home = os.path.expanduser("~")
 if os.name == "nt":
@@ -749,8 +899,10 @@ PYEDITOR
 
 unset D1_EDITOR_TEMPLATE
 log "Editor settings configured"
+fi
 
 # ── Wire the Claude desktop app ───────────────────────────────────────────────
+if should_run desktop; then
 # The desktop app runs its own copy of the CLI and reads ~/.claude/settings.json,
 # so permissions.defaultMode above already covers its chat and code sessions.
 # What it does NOT cover is coding tasks dispatched from the app, which have a
@@ -800,6 +952,13 @@ if os.path.exists(path):
 
 # Enum the app accepts: default, acceptEdits, plan, auto, bypassPermissions.
 # Anything else fails its schema check and the app discards the whole file.
+#
+# Only written when --bypass-permissions was passed. This was the third of
+# three files that turned off the safety net, and the one nobody would think
+# to look in.
+if os.environ.get("D1_BYPASS_PERMS") != "yes":
+    print("  Permission prompts left on in the desktop app.")
+    raise SystemExit(0)
 config["dispatchCodeTasksPermissionMode"] = "bypassPermissions"
 
 tmp = path + ".tmp"
@@ -813,9 +972,10 @@ print("  Code tasks set to bypassPermissions")
 PYDESKTOP
 
 log "Claude desktop app configured"
-
+fi
 
 # ── Wire .mcp.json ────────────────────────────────────────────────────────────
+if should_run mcp; then
 section "Wiring .mcp.json"
 
 MCP_FILE="$HOME/.claude.json"
@@ -889,8 +1049,10 @@ PYEOF2
 
 unset D1_MCP_FILE D1_COMPOSIO_URL D1_COMPOSIO_KEY
 log ".mcp.json configured"
+fi
 
 # ── Install D1 rules globally ─────────────────────────────────────────────────
+if should_run rules; then
 section "Installing rules and commands globally"
 
 GLOBAL_CLAUDE="$HOME/.claude"
@@ -912,8 +1074,10 @@ log "Commands installed to ~/.claude/commands/ ($(ls "$SCRIPT_DIR"/.claude/comma
 log "Rules installed to ~/.claude/rules/ ($(ls "$SCRIPT_DIR"/.claude/rules/*.md | wc -l | tr -d ' ') files)"
 log "Subagents installed to ~/.claude/agents/ ($(ls "$SCRIPT_DIR"/.claude/agents/*.md | wc -l | tr -d ' ') agents)"
 log "CLAUDE.md installed to ~/.claude/CLAUDE.md"
+fi
 
 # ── Skills and plugins ────────────────────────────────────────────────────────
+if should_run plugins; then
 section "Installing skills and plugins"
 
 mkdir -p "$GLOBAL_CLAUDE/skills"
@@ -1009,8 +1173,10 @@ fi
 # Self-hosted MCP servers. Each needs its own service running; see docs/EXTENSIONS.md.
 #   prompt-optimizer: https://github.com/linshenkx/prompt-optimizer
 # END GENERATED: extensions
+fi
 
 # ── macOS tools ───────────────────────────────────────────────────────────────
+if should_run tools; then
 # Screen control, Google Workspace, summarization, clipboard history, and the
 # agent-scripts skill pack. Everything here is optional: a failure warns and the
 # install continues.
@@ -1093,7 +1259,8 @@ fi
 if command -v mac-use &>/dev/null; then
   log "mac-use already installed"
 elif ! command -v uv &>/dev/null; then
-  warn "uv not found, skipping macOS-use. See docs/MACOS-TOOLS.md"
+  warn "uv not found, skipping macOS-use. Install uv, then re-run:"
+  warn "  ./setup.sh --only tools"
 else
   MU_DIR="$HOME/Projects/macOS-use"
   [ -d "$MU_DIR/.git" ] || git clone -q --depth 1 \
@@ -1175,8 +1342,10 @@ if [ -d "$PACK_DIR/skills" ]; then
   log "agent-scripts: $PACK_N skills linked"
 fi
 # END GENERATED: cli
+fi
 
 # ── Plynn ─────────────────────────────────────────────────────────────────────
+if should_run plynn; then
 # On-device dictation by Carlton Aikins (github.com/31Carlton7/plynn, MIT).
 # Hold fn, talk, release, and clean text lands wherever the cursor is. Speech
 # recognition and cleanup both run on the Mac, nothing is uploaded.
@@ -1190,8 +1359,10 @@ if [ -x "$SCRIPT_DIR/bin/install-plynn.sh" ]; then
 else
   warn "bin/install-plynn.sh missing, skipping Plynn"
 fi
+fi
 
 # ── Verify ────────────────────────────────────────────────────────────────────
+if should_run verify; then
 # Claiming success without checking is how this kit shipped six months of
 # silently broken hooks. Prove the install works before saying it worked.
 section "Verifying the install"
@@ -1204,6 +1375,7 @@ if [ -x "$SCRIPT_DIR/doctor.sh" ]; then
   fi
 else
   warn "doctor.sh not found or not executable, skipping verification"
+fi
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
