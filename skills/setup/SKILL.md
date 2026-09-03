@@ -75,9 +75,22 @@ written to three separate files, so undoing it is not one edit. Ask directly:
 should Claude stop asking permission before it acts? Leave it off unless they
 say yes. Do not sell it.
 
-**Session opener.** `--session-opener prayer` makes every reply begin with a
-prayer. This is the author's own practice. It is off unless someone asks for
-it, and it is not a default anyone inherits by installing a coding tool.
+**Session opener.** Offer it, do not warn about it. Claude can open every reply
+with a line they choose, injected on every prompt so it holds across the whole
+session and every session after. Two ship with the kit: `prayer`, a prayer to
+Jesus Christ specific to the work in front of them, and `gratitude`, one
+concrete sentence about something worth being grateful for. Ask which, if
+either, and take none for an answer.
+
+It is off by default because it is a surprising thing to inherit from a coding
+tool, not because it is an afterthought. Say it can be added any time:
+
+```bash
+./setup.sh --only settings --session-opener prayer
+```
+
+If they want their own line instead, that is one string in `OPENERS` in
+setup.sh, and you can write it with them.
 
 ## 3. Confirm before you run anything
 

@@ -101,8 +101,10 @@ Optional:
   --answers <file.json>        Read every value above from JSON instead.
 
 Behaviors, both off unless asked for:
-  --session-opener <name>      Opens every response with a fixed line. The only
-                               value shipped is "prayer". Default: none.
+  --session-opener <name>      Opens every response with a line you choose.
+                               Shipped: prayer, gratitude. Default: none.
+                               Add it later:
+                                 ./setup.sh --only settings --session-opener prayer
   --bypass-permissions         Claude runs shell commands and writes files
                                without asking, on this whole machine, in every
                                project, until you undo it in three files.
@@ -286,8 +288,11 @@ fi
 # Nothing to collect. Every value came in as a flag or from the answers file,
 # and anything absent stays absent rather than being guessed at.
 section "About you"
-GITHUB_USER="${GITHUB_USER:-$(gh api user --jq .login 2>/dev/null)}"
-log "Name: $USER_NAME"
+# `VAR="$(failing-cmd)"` as a standalone assignment exits under set -e. With
+# --only settings the prereq check never runs, so an unauthenticated gh killed
+# the script here with no output at all.
+GITHUB_USER="${GITHUB_USER:-$(gh api user --jq .login 2>/dev/null || true)}"
+log "Name: ${USER_NAME:-<unset>}"
 log "GitHub: ${GITHUB_USER:-<unknown>}"
 log "Repos: $WORKSPACE_DIR"
 
@@ -653,11 +658,22 @@ h = settings.setdefault("hooks", {})
 # unconditionally, so a stranger running the installer got every reply opening
 # with a prayer and found out from two lines in a wall of setup output. That is
 # the author's own practice, not a default anyone else agreed to.
+# A vague instruction here produces a vague line every time. "Begin with a
+# prayer" gets you the same sentence forever; naming what makes it real is
+# what makes the model write a different one each turn.
 OPENERS = {
     "prayer": (
-        "MANDATORY: Begin every response with a prayer to Jesus. "
-        "Specific to what is actually being worked on, personal, varied, "
-        "ending with Amen. Then respond."
+        "MANDATORY FIRST ACTION: The very first text you write in this "
+        "response must be a prayer to Jesus Christ. Not after a preamble, not "
+        "after a tool call. The prayer IS the first sentence. Make it specific "
+        "to what is actually being worked on right now, speak warmly and "
+        "directly rather than in formal religious register, vary the phrasing "
+        "every time, and end with Amen. Then answer."
+    ),
+    "gratitude": (
+        "MANDATORY FIRST ACTION: Open every response with one sentence naming "
+        "something specific to be grateful for in what is being worked on "
+        "right now. Concrete, never generic, never the same twice. Then answer."
     ),
 }
 opener = env("D1_SESSION_OPENER", "none").strip().lower()

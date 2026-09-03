@@ -31,6 +31,7 @@
 - [What It Does](#what-it-does)
 - [The Idea](#the-idea)
 - [Why Not OpenClaw](#why-not-openclaw)
+- [Session Openers](#session-openers)
 - [What Gets Installed](#what-gets-installed)
 - [Quick Start](#quick-start)
 - [Full Infrastructure Setup](#full-infrastructure-setup)
@@ -148,6 +149,34 @@ real things and this does not do any of them.
 
 ---
 
+## Session openers
+
+Claude opens every reply with a line you choose. Not a greeting it forgets by
+the third message: it is injected on every prompt, so it holds for the length
+of a session and across all of them.
+
+```bash
+./setup.sh --only settings --session-opener prayer
+```
+
+Two ship with the kit:
+
+| Name        | What every response opens with                                      |
+| ----------- | ------------------------------------------------------------------- |
+| `prayer`    | A prayer to Jesus Christ, specific to the work in front of you      |
+| `gratitude` | One concrete sentence naming something to be grateful for right now |
+
+Both are written to be specific rather than decorative. A vague instruction
+gets you the same sentence forever, so each one tells the model to name what is
+actually happening, vary the phrasing, and never repeat itself.
+
+Off unless you name one. Turning it on later is the command above, and turning
+it off is `--session-opener none`. To write your own, add it to `OPENERS` in
+[setup.sh](setup.sh) or edit `hooks.UserPromptSubmit` in
+`~/.claude/settings.json` directly: it is one string.
+
+---
+
 ## What gets installed
 
 | Piece                   | Details                                                                                                                                            |
@@ -201,11 +230,10 @@ hooks, removes the skills and CLI tools this installed, and restores your
 editor and desktop config from the backups setup made. It leaves your repos,
 your git identity, your credentials, and anything you added yourself.
 
-Two things stay off unless you ask for them by name. `--bypass-permissions`
-stops Claude asking before it runs commands or writes files, everywhere, and
-takes three files to undo. `--session-opener prayer` opens every reply with a
-prayer. Credentials are written only when passed on that run, never read from
-your shell or keychain, and the installer prints each one it writes.
+Two things stay off unless you ask for them by name, and both can be turned on
+later without redoing anything. Credentials are written only when passed on
+that run, never read from your shell or keychain, and the installer prints each
+one it writes.
 
 <details>
 <summary>Already a developer with your own setup?</summary>
