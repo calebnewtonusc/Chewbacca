@@ -29,6 +29,21 @@ section() { [ "$QUIET" -eq 1 ] || echo -e "\n${BLD}$1${NC}"; }
 
 CLAUDE_DIR="$HOME/.claude"
 
+# macOS ships no timeout(1), and this checker is not allowed to hang. `mac
+# doctor` blocks forever on a TCC permission that has never been prompted:
+# no output, no error, 0% CPU, and the only way out is killing it by hand.
+# Anything that talks to a permission-gated API goes through this.
+run_limited() {
+  local secs="$1"; shift
+  local out rc
+  # The watcher's stdout goes to /dev/null. Left attached, it holds the command
+  # substitution's pipe open and every fast check waits out the full window.
+  out="$("$@" 2>/dev/null & pid=$!; { sleep "$secs"; kill -9 $pid 2>/dev/null; } >/dev/null 2>&1 & watcher=$!;
+        wait $pid 2>/dev/null; rc=$?; kill -9 $watcher 2>/dev/null; exit $rc)" || rc=$?
+  printf '%s' "$out"
+  return "${rc:-0}"
+}
+
 # ── Toolchain ─────────────────────────────────────────────────────────────────
 section "Toolchain"
 
@@ -311,8 +326,11 @@ else
   # Consent is granted to the terminal, not the binary, so a `mac` that works in
   # one terminal warns in another. That is worth reporting, not fixing here.
   if command -v mac >/dev/null 2>&1; then
-    if mac doctor 2>/dev/null | grep -q ": granted"; then
+    MAC_DOC="$(run_limited 8 mac doctor)"
+    if printf '%s' "$MAC_DOC" | grep -q ": granted"; then
       ok "mac present and permitted"
+    elif [ -z "$MAC_DOC" ]; then
+      warn "mac doctor did not answer in 8s, likely blocked on an unprompted TCC dialog"
     else
       warn "mac installed but no capability granted yet (mac doctor)"
     fi
