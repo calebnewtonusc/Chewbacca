@@ -226,9 +226,21 @@ def main():
     targets = []
     if a.stdin or not a.files:
         targets.append(("<stdin>", sys.stdin.read()))
+    # A directory means every markdown file under it, worst first. ai-scan has
+    # always taken directories and this did not, which made it the awkward one
+    # to reach for and impossible to use as a CI gate.
+    import pathlib
+
+    paths = []
     for f in a.files:
+        pth = pathlib.Path(f)
+        if pth.is_dir():
+            paths.extend(sorted(q for q in pth.rglob("*.md") if q.is_file()))
+        else:
+            paths.append(pth)
+    for pth in paths:
         try:
-            targets.append((f, open(f, encoding="utf-8", errors="replace").read()))
+            targets.append((str(pth), pth.read_text(encoding="utf-8", errors="replace")))
         except OSError as e:
             print(f"slop-check: {e}", file=sys.stderr)
             return 2
