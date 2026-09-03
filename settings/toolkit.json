@@ -162,7 +162,7 @@
     {
       "display": "peekaboo",
       "url": "https://github.com/openclaw/Peekaboo",
-      "install": "brew install openclaw/tap/peekaboo",
+      "install": "brew install steipete/tap/peekaboo",
       "description": "Screenshots, UI inspection, and click/type automation for any macOS app"
     },
     {

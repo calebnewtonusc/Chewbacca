@@ -639,7 +639,7 @@ installed alongside the kit, not vendored into it.
 | [mac](https://github.com/31Carlton7/mac-cli)                                  | see docs/MACOS-APP-CONTROL.md (clone plus swift build, no formula yet) | Calendar, Reminders, Contacts, Mail, Messages, Notes, and Finder as JSON     |
 | [Maccy](https://github.com/p0deje/Maccy)                                      | `brew install --cask maccy`                                            | Clipboard history, so a value scrolled past is still recoverable             |
 | [mac-use](https://github.com/browser-use/macOS-use)                           | see docs/MACOS-TOOLS.md (clone plus a uv venv, no formula)             | Natural-language agent that drives any Mac app through Accessibility         |
-| [peekaboo](https://github.com/openclaw/Peekaboo)                              | `brew install openclaw/tap/peekaboo`                                   | Screenshots, UI inspection, and click/type automation for any macOS app      |
+| [peekaboo](https://github.com/openclaw/Peekaboo)                              | `brew install steipete/tap/peekaboo`                                   | Screenshots, UI inspection, and click/type automation for any macOS app      |
 | [summarize](https://github.com/steipete/summarize)                            | `brew install steipete/tap/summarize`                                  | Gist of any URL, YouTube video, podcast, or local file                       |
 | [yt-transcript](https://github.com/calebnewtonusc/claude-youtube-transcripts) | see docs/MACOS-TOOLS.md (its own installer, no formula)                | Transcript of any YouTube video, channel, or playlist, read without asking   |
 

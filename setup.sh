@@ -950,6 +950,16 @@ no-ai-slop|https://github.com/petergyang/no-ai-slop|skills/no-ai-slop|MIT|peterg
 youtube-transcripts|https://github.com/calebnewtonusc/claude-youtube-transcripts|skills/youtube-transcripts|MIT|calebnewtonusc
 UPSTREAM_SKILLS
 
+# A missing claude CLI used to drop every plugin with one warning. The
+# installer already needs node, so install the CLI rather than skip the
+# largest single piece of what this kit is.
+if ! command -v claude &>/dev/null && command -v npm &>/dev/null; then
+  log "claude CLI not found, installing it"
+  npm install -g @anthropic-ai/claude-code &>/dev/null \
+    && log "claude CLI installed" \
+    || warn "could not install the claude CLI: npm install -g @anthropic-ai/claude-code"
+fi
+
 if command -v claude &>/dev/null; then
   for m in \
     Egonex-AI/Understand-Anything \
@@ -992,7 +1002,8 @@ if command -v claude &>/dev/null; then
   fi
   warn "Plugins needing OAuth (Vercel, Railway) stay inert until you run /mcp and authorize."
 else
-  warn "claude CLI not found. Plugins skipped. See docs/EXTENSIONS.md."
+  warn "claude CLI still missing. Plugins skipped: install node, then re-run"
+  warn "  ./setup.sh --only plugins"
 fi
 
 # Self-hosted MCP servers. Each needs its own service running; see docs/EXTENSIONS.md.
@@ -1039,7 +1050,7 @@ if command -v brew &>/dev/null; then
   if [ -x /opt/homebrew/bin/peekaboo ]; then
     log "peekaboo already installed"
   else
-    brew install openclaw/tap/peekaboo &>/dev/null && log "peekaboo installed" || warn "could not install peekaboo"
+    brew install steipete/tap/peekaboo &>/dev/null && log "peekaboo installed" || warn "could not install peekaboo"
   fi
   if command -v summarize &>/dev/null; then
     log "summarize already installed"
@@ -1124,7 +1135,9 @@ fi
 
 # peekaboo speaks MCP too. Registered at user scope so it is available in
 # every project, not just this one.
-if command -v claude &>/dev/null && command -v peekaboo &>/dev/null; then
+if ! command -v claude &>/dev/null; then
+  warn "claude CLI missing, so the peekaboo MCP server was not registered"
+elif command -v peekaboo &>/dev/null; then
   if claude mcp list 2>/dev/null | grep -q "^peekaboo:"; then
     log "peekaboo MCP already registered"
   elif claude mcp add peekaboo --scope user -- peekaboo mcp serve &>/dev/null; then
