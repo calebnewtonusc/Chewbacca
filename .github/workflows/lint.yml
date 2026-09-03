@@ -94,7 +94,10 @@ jobs:
             grep -oP '\[.*?\]\(\K[^)]+' "$file" 2>/dev/null | while read -r link; do
               # Skip URLs, anchors, and mailto
               case "$link" in
-                http*|mailto*|#*) continue ;;
+                # '#' must be quoted. After a | bash reads a bare # as the
+                # start of a comment, which swallowed the rest of the case and
+                # made this step a syntax error on every run it ever had.
+                http*|mailto*|'#'*) continue ;;
               esac
               # Resolve relative to the file's directory
               dir=$(dirname "$file")
