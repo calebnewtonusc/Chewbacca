@@ -71,6 +71,32 @@ jobs:
           grep -q "session opener:  none" /tmp/dry
           echo "ok  both consequential defaults are off"
 
+      - name: Every section is guarded by --only
+        run: |
+          # A section header not followed by `if should_run` runs on every
+          # invocation, including --only. That bug rewrote a live machine's
+          # global hooks during an --only prereq run, silently, because a new
+          # header had been inserted mid-section and closed the guard early.
+          python3 - <<'PY'
+          import pathlib, re, sys
+          UNGUARDED = {"Colors", "Inputs", "Collect info", "What this run turns on", "Done"}
+          lines = pathlib.Path("setup.sh").read_text().splitlines()
+          bad = []
+          for i, line in enumerate(lines):
+              m = re.match(r"^# ── (.+?) ─", line)
+              if not m:
+                  continue
+              name = m.group(1).strip()
+              if name in UNGUARDED:
+                  continue
+              nxt = lines[i + 1].strip() if i + 1 < len(lines) else ""
+              if not nxt.startswith("if should_run"):
+                  bad.append(f"line {i+1}: section '{name}' is not guarded")
+          for b in bad:
+              print(b)
+          sys.exit(1 if bad else 0)
+          PY
+
       - name: Writing rules
         run: |
           # 60, not 0. The worst file in the tree is vendored from another

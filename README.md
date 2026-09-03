@@ -195,6 +195,12 @@ The installer takes every answer as a flag, so you can drive it yourself:
 ./setup.sh --only tools    # re-run one section after a tool arrives late
 ```
 
+Changed your mind? [uninstall.sh](uninstall.sh) reverses it. `--dry-run` lists
+everything it would remove first. It puts permission prompts back, unwires the
+hooks, removes the skills and CLI tools this installed, and restores your
+editor and desktop config from the backups setup made. It leaves your repos,
+your git identity, your credentials, and anything you added yourself.
+
 Two things stay off unless you ask for them by name. `--bypass-permissions`
 stops Claude asking before it runs commands or writes files, everywhere, and
 takes three files to undo. `--session-opener prayer` opens every reply with a
@@ -677,7 +683,7 @@ fires, which is the thing that matters most.
 
 <!-- END GENERATED: extensions -->
 
-That table is generated. `~/.claude/hooks/sync-to-d1.sh` reads what is actually
+That table is generated. [tools/inventory.py](tools/inventory.py) reads what is actually
 installed on the author's machine and rewrites it, along with the install list in
 `setup.sh` and the manifest at [settings/toolkit.json](settings/toolkit.json). A
 skill reaches this list only if it carries a public upstream URL or ships in this
@@ -827,6 +833,7 @@ Chewbacca/
 ├── LICENSE                      # MIT
 ├── setup.sh                     # One-command full infrastructure setup
 ├── doctor.sh                    # Verifies the install actually works
+├── uninstall.sh                 # Reverses setup.sh, with a --dry-run
 ├── add-skill.sh                 # Installs a skill from upstream, license-aware
 ├── install.sh                   # Quick project-level install
 ├── SETUP.md                     # Manual setup instructions
@@ -847,6 +854,8 @@ Chewbacca/
 │   ├── MACOS-TOOLS.md           # Screen control, Workspace, summarization, clipboard
 │   ├── SWIFT-MACOS-PORTING.md   # Running a Swift app below its declared macOS floor
 │   └── MACOS-APP-CONTROL.md     # Native macOS apps as JSON, for agents
+├── tools/
+│   └── inventory.py             # Regenerates the tables below from what is installed
 ├── bin/
 │   ├── ai-scan                  # Scores prose for AI-writing tells, no model
 │   ├── skill-scan               # Scores skills on whether they will fire, no model
