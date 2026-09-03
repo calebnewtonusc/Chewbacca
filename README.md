@@ -30,6 +30,7 @@
 
 - [What It Does](#what-it-does)
 - [The Idea](#the-idea)
+- [Why Not OpenClaw](#why-not-openclaw)
 - [What Gets Installed](#what-gets-installed)
 - [Quick Start](#quick-start)
 - [Full Infrastructure Setup](#full-infrastructure-setup)
@@ -98,6 +99,52 @@ them, and nothing depends on you remembering one.
 Anything the installer cannot finish by itself, like a permission checkbox, is
 handed to an agent rather than to you: see
 [agent-setup](skills/agent-setup).
+
+---
+
+## Why not OpenClaw
+
+[OpenClaw](https://github.com/openclaw/openclaw) is the obvious alternative and
+a genuinely good project. It is also a different kind of thing, and the
+difference is the whole argument for this one.
+
+OpenClaw is an assistant. You install a runtime, run an onboarding wizard, and
+leave a gateway daemon running that brokers your models, your credentials, and
+your chat channels. Chewbacca is not a program. It configures the Claude Code
+you already have and then gets out of the way.
+
+|                                    | Chewbacca                                                  | OpenClaw                                    |
+| ---------------------------------- | ---------------------------------------------------------- | ------------------------------------------- |
+| What you install                   | Config files, skills, and CLI tools                        | A runtime and a gateway daemon              |
+| Processes left running             | MCP servers, started and stopped by Claude Code            | A daemon, kept alive                        |
+| Where your credentials sit         | Your own `~/.claude` and keychain                          | Brokered through the gateway                |
+| Ecosystem                          | Anthropic's official marketplace and the open skill format | clawhub, its own registry                   |
+| Platforms                          | macOS                                                      | macOS, Linux, Windows                       |
+| Models                             | Claude                                                     | Whatever you connect                        |
+| Reachable from                     | Terminal, editor, desktop app                              | Also WhatsApp, Telegram, and other channels |
+| To undo it                         | Edit or revert the files it wrote                          | Uninstall the runtime                       |
+| Size of the thing you are trusting | About 2,600 lines of bash and Python, all readable         | A platform                                  |
+
+Three practical consequences.
+
+**There is no daemon holding your state.** The MCP servers this wires up are
+children of Claude Code and stop when it stops. Nothing runs between sessions,
+nothing needs restarting, and nothing keeps your credentials while you are not
+looking. This repo exists partly because its author ran OpenClaw for months and
+lost it to a single bad config key.
+
+**You keep the model you already trust.** No gateway sits between you and
+Claude, so there is no second place for a credential to live and no second
+thing to keep updated.
+
+**You can read all of it.** Every file this writes is plain text you can open,
+diff, and revert. `./setup.sh --dry-run` prints what it would change before it
+changes anything.
+
+**Pick OpenClaw instead** if you want an assistant that reaches you in
+WhatsApp or Telegram, if you are on Linux or Windows, if you want to run
+non-Claude models, or if you want one gateway shared across a team. Those are
+real things and this does not do any of them.
 
 ---
 
