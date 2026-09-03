@@ -129,6 +129,12 @@ cd Chewbacca
 claude "run the setup skill"
 ```
 
+Nothing installed yet? That is the expected case. macOS ships bash and curl and
+not much else, so `bin/bootstrap.sh` installs the Command Line Tools, Homebrew,
+gh, node, jq, uv and the claude CLI first. Claude runs it for you and waits at
+the three points that need you: the Command Line Tools dialog, the Homebrew
+password prompt, and signing in to GitHub.
+
 Claude asks what it needs in chat, runs the installer with your answers, reads
 the results back, and hands you the two or three things that need a real click
 in System Settings. There is no terminal questionnaire.

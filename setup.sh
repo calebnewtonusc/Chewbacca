@@ -229,41 +229,34 @@ if should_run prereq; then
 section "Checking prerequisites"
 MISSING=0
 
-if ! command -v gh &>/dev/null; then
-  err "gh CLI not found. Install: brew install gh"
-  MISSING=1
-fi
-
-if ! command -v git &>/dev/null; then
-  err "git not found. Install Xcode Command Line Tools: xcode-select --install"
-  MISSING=1
-fi
-
+# Each of these used to print its own error and its own brew command, on a
+# machine that might not have brew either. "Install: brew install gh" is a dead
+# end for the person this kit is aimed at. bootstrap.sh installs the lot, and
+# names the two steps that genuinely need a human.
+for pair in "gh:GitHub CLI" "git:git" "python3:python3" "jq:jq"; do
+  cmd="${pair%%:*}"
+  command -v "$cmd" &>/dev/null || { err "missing: ${pair##*:} ($cmd)"; MISSING=1; }
+done
 if ! command -v bun &>/dev/null && ! command -v node &>/dev/null; then
-  err "Neither bun nor node found. Install bun: curl -fsSL https://bun.sh/install | bash"
-  MISSING=1
-fi
-
-if ! command -v python3 &>/dev/null; then
-  err "python3 not found. It writes settings.json and .mcp config."
-  MISSING=1
-fi
-
-if ! command -v jq &>/dev/null; then
-  err "jq not found. Every hook parses its input with jq and will silently"
-  err "  do nothing without it. Install: brew install jq"
+  err "missing: node or bun"
   MISSING=1
 fi
 
 if [ "$MISSING" -eq 1 ]; then
   echo ""
-  echo "  Fix the above and re-run setup.sh."
+  echo "  Run this first. It installs all of them:"
+  echo ""
+  echo "      ./bin/bootstrap.sh"
+  echo ""
+  echo "  Or let Claude do it:  claude \"run the setup skill\""
   exit 1
 fi
 
 if ! gh auth status &>/dev/null; then
-  warn "Not authenticated with GitHub. Running gh auth login now..."
-  gh auth login
+  err "Not signed in to GitHub. This needs a browser, so it cannot run from here:"
+  err "  gh auth login"
+  err "Then re-run. ./bin/bootstrap.sh checks this too."
+  exit 1
 fi
 
 # gh auth login lets you decline git credential setup, and every remote this

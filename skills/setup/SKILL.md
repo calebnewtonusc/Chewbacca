@@ -13,19 +13,52 @@ where the user fills in a form.
 Never tell them to run `setup.sh` themselves and answer prompts. There are no
 prompts.
 
+## 0. Check the machine before asking anything
+
+Assume nothing is installed. This kit is aimed at people whose Mac has Claude
+on it and not much else, and macOS ships only bash, curl, and stubs at
+`/usr/bin/git` and `/usr/bin/python3` that do nothing until the Command Line
+Tools are installed.
+
+```bash
+./bin/bootstrap.sh --check
+```
+
+Read the result back in plain words. If anything is missing, run it for real:
+
+```bash
+./bin/bootstrap.sh
+```
+
+It installs the Command Line Tools, Homebrew, gh, node, jq, uv, and the claude
+CLI. Three things it cannot do alone, and you should not pretend otherwise:
+
+- **The Command Line Tools dialog.** A window opens with an Install button.
+  Tell them to click it and say you will wait. Re-run bootstrap after.
+- **The Homebrew password prompt.** Homebrew writes outside their account, so
+  it asks for their login password. Say that plainly before it appears, or a
+  password prompt out of nowhere reads like something has gone wrong.
+- **`gh auth login`.** It opens a browser and needs their GitHub account. If
+  they do not have one, that is a real fork in the road: say so, because two
+  repos get created and pushed.
+
+Do not start the questions until bootstrap says Ready. Answers collected
+against a machine that then fails prerequisites are answers you have to ask
+for twice.
+
 ## 1. Ask only what is needed
 
 One question at a time, in plain language. Do not dump the whole list at once.
 
-| Ask                            | Flag              | If they skip it                          |
-| ------------------------------ | ----------------- | ---------------------------------------- |
-| First name                     | `--name`          | Required. It names their context repo.    |
-| Where should repos live        | `--repo-dir`      | `~/dev`                                   |
-| GitHub username                | `--github-user`   | Taken from whoever `gh` is logged in as   |
-| Anthropic API key              | `--anthropic-key` | Not written. Claude Code's own login still works |
-| GitHub token                   | `--github-token`  | Not written                               |
-| Todoist token                  | `--todoist-token` | Not written                               |
-| Composio MCP URL and key       | `--composio-url`, `--composio-key` | Composio not wired      |
+| Ask                      | Flag                               | If they skip it                                  |
+| ------------------------ | ---------------------------------- | ------------------------------------------------ |
+| First name               | `--name`                           | Required. It names their context repo.           |
+| Where should repos live  | `--repo-dir`                       | `~/dev`                                          |
+| GitHub username          | `--github-user`                    | Taken from whoever `gh` is logged in as          |
+| Anthropic API key        | `--anthropic-key`                  | Not written. Claude Code's own login still works |
+| GitHub token             | `--github-token`                   | Not written                                      |
+| Todoist token            | `--todoist-token`                  | Not written                                      |
+| Composio MCP URL and key | `--composio-url`, `--composio-key` | Composio not wired                               |
 
 Say plainly that keys are optional and that each one written lands in
 `~/.claude/settings.json` in plain text. Someone who does not need Composio
