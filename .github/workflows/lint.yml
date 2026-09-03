@@ -7,6 +7,78 @@ on:
     branches: [main]
 
 jobs:
+  # The installer is the thing most likely to break and was the only thing not
+  # checked. 1411 lines of bash with five embedded Python heredocs, and CI
+  # looked at links and secrets while a syntax error in either language would
+  # have shipped. All three of these have caught a real bug already.
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax
+        run: |
+          for f in setup.sh doctor.sh install.sh add-skill.sh bin/*.sh bin/chrome-js bin/peekaboo bin/mac-use; do
+            [ -f "$f" ] || continue
+            bash -n "$f" || { echo "syntax error: $f"; exit 1; }
+            echo "ok  $f"
+          done
+
+      - name: Shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y shellcheck
+          shellcheck -S error setup.sh doctor.sh install.sh add-skill.sh
+
+      - name: Embedded Python compiles
+        run: |
+          python3 - <<'PY'
+          import pathlib, re, sys
+          found = 0
+          for f in pathlib.Path(".").glob("*.sh"):
+              t = f.read_text()
+              for m in re.finditer(r"python3[^\n]*<<\s*'?(\w+)'?\n(.*?)\n\1\n", t, re.S):
+                  try:
+                      compile(m.group(2), f"<{f}>", "exec")
+                  except SyntaxError as e:
+                      print(f"{f}: embedded python failed to compile: {e}")
+                      sys.exit(1)
+                  found += 1
+          print(f"{found} embedded python blocks compile")
+          if found == 0:
+              print("expected to find embedded python; the matcher may have drifted")
+              sys.exit(1)
+          PY
+
+      - name: Python tools compile
+        run: |
+          python3 -m py_compile bin/slop-check bin/mac_use_cli.py bin/mac_use_claude.py
+
+      - name: setup.sh takes no interactive input
+        run: |
+          # The whole point of the flag rewrite. A reintroduced prompt makes the
+          # installer un-runnable by an agent and un-runnable without a TTY.
+          if grep -nE '^\s*read (-[a-z]+ )*' setup.sh; then
+            echo "setup.sh must not read from stdin: pass a flag or use --answers"
+            exit 1
+          fi
+          echo "ok  no read calls"
+
+      - name: setup.sh help and dry-run work
+        run: |
+          bash setup.sh --help > /dev/null
+          bash setup.sh --dry-run --name CI --repo-dir /tmp/ci | tee /tmp/dry
+          grep -q "bypass perms:    no" /tmp/dry
+          grep -q "session opener:  none" /tmp/dry
+          echo "ok  both consequential defaults are off"
+
+      - name: Writing rules
+        run: |
+          # 60, not 0. The worst file in the tree is vendored from another
+          # author and scores 55, and rewriting someone else's skill to pass
+          # our house style is not the job. This catches a regression in the
+          # kit's own prose without failing on inherited content.
+          python3 bin/slop-check docs/ skills/ --max 60
+
   markdown-lint:
     runs-on: ubuntu-latest
     steps:
