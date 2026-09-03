@@ -528,7 +528,6 @@ PUBLIC_CONTEXT_DIR="$CC_DIR"
 CONTEXT_OWNER="$USER_NAME"
 D1CONFIG
 log "Hook config written to ~/.claude/d1-config.sh"
-fi
 
 # ── What this run turns on ────────────────────────────────────────────────────
 # Both of these used to be on with no way to say no, announced in a wall of
@@ -755,6 +754,7 @@ print("Settings written.")
 PYEOF
 
 unset D1_GITHUB_PAT D1_ANTHROPIC_KEY D1_TODOIST_TOKEN
+fi
 log "~/.claude/settings.json configured"
 
 
