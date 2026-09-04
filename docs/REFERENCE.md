@@ -158,8 +158,7 @@ something you left running. If Claude works for you today, this works.
 **There is no daemon holding your state.** The MCP servers this wires up are
 children of Claude Code and stop when it stops. Nothing runs between sessions,
 nothing needs restarting, and nothing keeps your credentials while you are not
-looking. This repo exists partly because its author ran OpenClaw for months and
-lost it to a single bad config key.
+looking.
 
 **You keep the model you already trust.** No gateway sits between you and
 Claude, so there is no second place for a credential to live and no second

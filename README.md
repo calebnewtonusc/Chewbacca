@@ -99,8 +99,7 @@ way. Every file it writes is plain text you can open, diff, and revert, and
 That matters because the obvious alternative,
 [OpenClaw](https://github.com/openclaw/openclaw), is a genuinely good project
 that asks you for something else first: model credentials you bring yourself,
-and a daemon you keep alive. This repo exists partly because its author ran
-OpenClaw for months and lost the whole thing to one bad config key.
+and a daemon you keep alive. Nothing here needs either.
 
 |                     | Chewbacca                 | OpenClaw                       |
 | ------------------- | ------------------------- | ------------------------------ |
