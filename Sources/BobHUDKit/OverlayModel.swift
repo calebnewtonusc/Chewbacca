@@ -35,7 +35,7 @@ public struct OverlaySurface: Identifiable, Equatable {
     /// panels sized for a screen that is no longer there.
     @MainActor
     public static var ceiling: CGFloat {
-        (NSScreen.main?.visibleFrame.height ?? 800) - 36
+        (OverlayWindow.active?.visibleFrame.height ?? 800) - 36
     }
 
     public static func == (a: OverlaySurface, b: OverlaySurface) -> Bool {
@@ -357,7 +357,7 @@ public final class OverlayModel {
     /// SwiftUI's `.position` places a view's centre, so this returns an offset
     /// applied after pinning to the origin, which keeps the arithmetic readable.
     public func origin(for surface: OverlaySurface) -> CGPoint {
-        guard let screen = NSScreen.main else { return .zero }
+        guard let screen = OverlayWindow.active else { return .zero }
 
         // The window covers the whole display, menu bar and Dock included, but
         // nothing should be *placed* under either of them. `visibleFrame` is the

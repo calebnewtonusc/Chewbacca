@@ -82,7 +82,9 @@ public final class CommandBarWindow: NSPanel {
     /// third down is where every launcher on this platform has settled, and it
     /// is above the line of most people's working content.
     private func centerOnActiveScreen() {
-        guard let screen = NSScreen.main else { return }
+        // The screen the pointer is on, like everything else here. A front door
+        // that opens on the other monitor is a front door people stop using.
+        guard let screen = OverlayWindow.active else { return }
         let visible = screen.visibleFrame
         let size = frame.size
         setFrameOrigin(

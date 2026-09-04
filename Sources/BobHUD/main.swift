@@ -327,8 +327,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// AppKit's mouse location has a bottom-left origin and everything a person
     /// would compare it against, including every screenshot, has a top-left one.
     private static func flipped(_ point: NSPoint) -> CGPoint {
-        guard let screen = NSScreen.main else { return point }
-        return CGPoint(x: point.x, y: screen.frame.height - point.y)
+        guard let screen = OverlayWindow.active else { return point }
+        return CGPoint(x: point.x, y: screen.frame.maxY - point.y)
     }
 
     private static func rect(from: CGPoint, to: CGPoint) -> CGRect {
@@ -338,6 +338,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateInteractive() {
+        // Following the pointer across displays happens here rather than on a
+        // timer: the mouse monitor already fires on every move, and refitting is
+        // a no-op when the frame is already right.
+        overlay?.fitToScreen()
         overlay?.updateInteractive(surfaces: model.frames, mouse: NSEvent.mouseLocation)
     }
 
