@@ -45,7 +45,22 @@ public struct SurfaceView: View {
         guard let element = store.spec.elements[id],
               element.type != ComponentNode.pendingType
         else { return AnyView(PlaceholderView()) }
-        return render(element, ancestors: ancestors.union([id]))
+        return AnyView(
+            render(element, ancestors: ancestors.union([id]))
+                // Identity keyed on the *type*, so a component that becomes a
+                // different kind of component transitions instead of snapping.
+                //
+                // Changing props keeps the identity and animates in place: a
+                // number rolls, a bar grows, a diagram's nodes travel. Changing
+                // the type cannot animate in place, because there is no sensible
+                // halfway point between a table and a chart, so it crossfades
+                // and scales instead. Both read as the interface responding
+                // rather than being rebuilt, which is the whole difference
+                // between this and a slideshow.
+                .id(element.type)
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.97)),
+                    removal: .opacity.combined(with: .scale(scale: 1.02)))))
     }
 
     @ViewBuilder
@@ -142,11 +157,17 @@ public struct SurfaceView: View {
     private func data(_ p: [String: JSON], type: String) -> AnyView {
         switch type {
         case "Metric":
+            let value = p["value"]?.display ?? ""
             return AnyView(
                 MetricView(
                     label: p["label"]?.display ?? "",
-                    value: p["value"]?.display ?? "",
-                    unit: p["unit"]?.stringValue))
+                    value: value,
+                    unit: p["unit"]?.stringValue)
+                    // Digits roll rather than cutting. A number that changes
+                    // under your eye is the one thing on a HUD you always want
+                    // to have noticed.
+                    .contentTransition(.numericText())
+                    .animation(.easeOut(duration: 0.3), value: value))
 
         case "Table":
             let columns = (p["columns"]?.arrayValue ?? []).compactMap { column -> Column? in
@@ -154,11 +175,13 @@ public struct SurfaceView: View {
                       let field = object["field"]?.stringValue else { return nil }
                 return Column(field: field, label: object["label"]?.stringValue ?? field)
             }
+            let rows = p["rows"]?.arrayValue ?? []
             return AnyView(
                 TableView(
                     caption: p["caption"]?.display ?? "",
                     columns: columns,
-                    rows: p["rows"]?.arrayValue ?? []))
+                    rows: rows)
+                    .animation(.spring(response: 0.34, dampingFraction: 0.85), value: rows.count))
 
         default:
             return AnyView(

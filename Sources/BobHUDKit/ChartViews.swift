@@ -181,7 +181,12 @@ struct BarsView: View {
                 }
             }
         }
-        .animation(.spring(response: 0.5, dampingFraction: 0.85), value: parsed.count)
+        // On the values, not just the count. Four rows whose numbers all
+        // changed is the common case and the first version animated none of it,
+        // because the count had stayed the same.
+        .animation(
+            .spring(response: 0.36, dampingFraction: 0.85),
+            value: parsed.map(\.value))
     }
 }
 
