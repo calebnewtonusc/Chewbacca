@@ -287,6 +287,35 @@ CMD_COUNT="$(ls "$CLAUDE_DIR"/commands/*.md 2>/dev/null | wc -l | tr -d ' ')"
 # These are optional add-ons, so a missing one warns rather than fails. A tool
 # that is installed but unusable does fail: a granted-looking peekaboo that
 # cannot capture is worse than no peekaboo, because Claude will keep trying.
+section "Kits"
+
+# Building a kit is only half the loop. If nothing can discover one afterwards,
+# the next session rebuilds it, or answers the same question in a chat window
+# while the kit sits on disk holding the person's deadlines.
+if command -v kits &>/dev/null; then
+  ok "kits installed (kit discovery)"
+  KIT_COUNT=$(kits --paths 2>/dev/null | wc -l | tr -d ' ')
+  if [ "${KIT_COUNT:-0}" -gt 0 ]; then
+    ok "$KIT_COUNT kit(s) discoverable"
+    STUCK=0
+    for kd in $(kits --paths 2>/dev/null); do
+      # The template is meant to have placeholders. Anything else with them is a
+      # kit somebody cloned and never finished naming, which leaves it silently
+      # excluded from routing forever.
+      grep -q '^status: template' "$kd/.kit" 2>/dev/null && continue
+      if grep -q '{{' "$kd/.kit" 2>/dev/null; then
+        warn "$(basename "$kd")/.kit still has placeholders, so it is invisible to routing"
+        STUCK=1
+      fi
+    done
+    [ "$STUCK" = "0" ] && ok "no half-filled .kit markers"
+  else
+    warn "no kits built yet (the kit-builder skill builds one when a process earns it)"
+  fi
+else
+  warn "kits not installed, so anything built cannot be discovered later"
+fi
+
 section "macOS tools"
 
 if [ "$(uname)" != "Darwin" ]; then
