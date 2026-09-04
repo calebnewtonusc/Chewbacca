@@ -22,3 +22,7 @@ __pycache__/
 # DerivedData sat in git status as untracked noise forever.
 plynn/.build/
 plynn/build/
+# Coverage data, dropped in the working directory by `swift test` rather than
+# anywhere sensible. Zero bytes and untracked, so it shows up in git status
+# after every test run and looks like work.
+*.profraw
