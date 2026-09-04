@@ -380,6 +380,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         self.routeToChewie = false
                         self.askChewie(
                             ChewieRouter.compose(prompt: chewiePrompt, selection: selection))
+                        // Let go of the session.
+                        //
+                        // Every other path out of transcribing dispatches this;
+                        // the Chewie branch returned without it, so the session
+                        // sat in .transcribing forever and the next Option hold
+                        // was dropped by the guard that wants .idle. Chewie
+                        // answered once and then went deaf, which is not a
+                        // conversation.
+                        //
+                        // Empty on purpose: this releases the state machine and
+                        // pastes nothing, because the answer goes to the pill
+                        // and the clipboard, never into the app underneath.
+                        //
+                        // After askChewie, not before. It sets the phase to
+                        // .thinking, and the idle check at the end of dispatch
+                        // hides the panel unless a Chewie phase is already
+                        // showing.
+                        self.dispatch(.transcriptReady(""))
                     }
                     return
                 }
@@ -570,6 +588,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 !quick.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             {
                 let text = quick.trimmingCharacters(in: .whitespacesAndNewlines)
+                if case .recording = model.phase {
+                    Paster.copy(text)
+                    return
+                }
                 Paster.copy(text)
                 Feedback.play(.success)
                 model.phase = .answer(text)
@@ -610,6 +632,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard !answer.isEmpty else {
                 showError("Chewie had nothing to say.")
                 Paster.copy(prompt)
+                return
+            }
+            // If they are already talking again, the answer has been overtaken.
+            // It still goes to the clipboard; it does not get to replace the
+            // waveform of a sentence in progress.
+            if case .recording = model.phase {
+                Paster.copy(answer)
                 return
             }
             Paster.copy(answer)

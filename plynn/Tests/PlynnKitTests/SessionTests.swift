@@ -225,3 +225,52 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(s.state, .transcribing)
     }
 }
+
+// MARK: - Handing off to Chewie
+
+extension SessionTests {
+    /// A Chewie answer must leave the session able to hear the next question.
+    ///
+    /// The Chewie branch used to return without dispatching anything, so the
+    /// session sat in `.transcribing` forever and the guard on the Option key,
+    /// which wants `.idle`, dropped every press after the first. Chewie answered
+    /// once and then went deaf, which is not a conversation.
+    func testEmptyTranscriptReadyReleasesTheSessionWithoutPasting() {
+        var s = Session()
+        let start = t0
+        _ = s.handle(.fnDown, at: start)
+        _ = s.handle(.fnUp, at: start.advanced(by: .seconds(2)))
+        XCTAssertEqual(s.state, .transcribing)
+
+        // What the Chewie path sends: releases the state machine, pastes
+        // nothing, because the answer goes to the pill and the clipboard and
+        // never into the app underneath.
+        XCTAssertEqual(s.handle(.transcriptReady(""), at: start), [])
+        XCTAssertEqual(s.state, .idle)
+    }
+
+    func testASecondQuestionCanStartRightAfterAnAnswer() {
+        var s = Session()
+        let start = t0
+        _ = s.handle(.fnDown, at: start)
+        _ = s.handle(.fnUp, at: start.advanced(by: .seconds(2)))
+        _ = s.handle(.transcriptReady(""), at: start)
+
+        // Far enough after the first release that it is a fresh hold rather
+        // than the second half of a double tap.
+        let again = start.advanced(by: .seconds(5))
+        XCTAssertEqual(s.handle(.fnDown, at: again), [.startRecording])
+        XCTAssertEqual(s.state, .recording(.pushToTalk))
+    }
+
+    func testAStuckTranscribingStateSwallowsTheNextHold() {
+        // The bug itself, stated as a test: without the release above, a press
+        // produces nothing at all.
+        var s = Session()
+        let start = t0
+        _ = s.handle(.fnDown, at: start)
+        _ = s.handle(.fnUp, at: start.advanced(by: .seconds(2)))
+        XCTAssertEqual(s.state, .transcribing)
+        XCTAssertEqual(s.handle(.fnDown, at: start.advanced(by: .seconds(5))), [])
+    }
+}
