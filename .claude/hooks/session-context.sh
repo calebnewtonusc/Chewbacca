@@ -1,4 +1,8 @@
 #!/bin/bash
+# Timing, logging, a watchdog and an output cap. See lib.sh.
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh" 2>/dev/null || true
+type hook_init >/dev/null 2>&1 && hook_init session-context.sh 8
 # SessionStart: inject personal context, and today's tasks if Todoist is wired.
 #
 # Why this is a script and not an inline settings.json command:
@@ -36,9 +40,39 @@ if command -v coursework >/dev/null 2>&1; then
 fi
 export COURSEWORK_JSON
 
+# Cache. Building this costs a Todoist round trip and two subprocesses, and
+# measured at 4.5 seconds on every single session start. Two sessions opened a
+# minute apart do not need two round trips, so the result is reused until it
+# goes stale or a source file changes underneath it.
+CACHE_DIR="$HOME/.chewbacca/cache"
+CACHE="$CACHE_DIR/session-context.json"
+TTL="${CHEWBACCA_CONTEXT_TTL:-900}"
+mkdir -p "$CACHE_DIR" 2>/dev/null || true
+
+cache_fresh() {
+  [ -f "$CACHE" ] || return 1
+  [ "${CHEWBACCA_NO_CACHE:-0}" = "1" ] && return 1
+  local age now mt
+  now=$(date +%s)
+  mt=$(stat -f %m "$CACHE" 2>/dev/null || stat -c %Y "$CACHE" 2>/dev/null || echo 0)
+  age=$((now - mt))
+  [ "$age" -lt "$TTL" ] || return 1
+  # Any source newer than the cache invalidates it, so editing a context file
+  # takes effect in the next session rather than fifteen minutes later.
+  for d in "${PERSONAL_CONTEXT_DIR:-}/core" "$HOME/coursework/courses"; do
+    [ -d "$d" ] || continue
+    [ -n "$(find "$d" -newer "$CACHE" -type f -print -quit 2>/dev/null)" ] && return 1
+  done
+  return 0
+}
+
+if cache_fresh; then
+  type hook_emit >/dev/null 2>&1 && hook_emit < "$CACHE" || cat "$CACHE"
+  type hook_note >/dev/null 2>&1 && hook_note "cache hit"
+else
 # Values reach python through the environment, never by string interpolation.
 # A token containing a quote or a backslash would otherwise break the script.
-python3 <<'PY'
+python3 <<'PY' > "$CACHE.tmp"
 import json, os, re, urllib.request
 
 ctx_dir = os.environ.get("PERSONAL_CONTEXT_DIR", "")
@@ -203,6 +237,11 @@ print(json.dumps({
     }
 }))
 PY
+# An empty result is a valid answer and is worth caching too: it means there
+# was nothing to say, and recomputing that costs the same round trip.
+mv "$CACHE.tmp" "$CACHE" 2>/dev/null || rm -f "$CACHE.tmp"
+[ -s "$CACHE" ] && { type hook_emit >/dev/null 2>&1 && hook_emit < "$CACHE" || cat "$CACHE"; }
+fi
 
 # Pull new iMessages into the local people store, in the background.
 #
@@ -220,7 +259,18 @@ PY
 # caps each run, so twenty sessions in a day cost one bounded scan rather than
 # twenty open-ended ones. It says nothing unless it actually found something.
 if command -v people >/dev/null 2>&1; then
-  ( people texts sync >/dev/null 2>&1; people events auto >/dev/null 2>&1 & ) >/dev/null 2>&1
+  # trap - EXIT inside the subshell: it inherits the hook's exit trap, and
+  # without this the background sync logs a second, wildly misleading duration
+  # for the hook minutes after the hook itself finished.
+  # Actually backgrounded. The comment above said it was, and it was not: the
+  # subshell ran `people texts sync` in its own foreground, so a session that
+  # happened to land on a sync waited 4.3 seconds for it. Measured, not guessed.
+  # trap - EXIT because the subshell inherits the hook's exit trap and would
+  # otherwise log a second, wildly wrong duration minutes later.
+  ( trap - EXIT
+    people texts sync >/dev/null 2>&1
+    people events auto >/dev/null 2>&1 ) >/dev/null 2>&1 &
+  disown 2>/dev/null || true
 fi
 
 exit 0

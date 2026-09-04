@@ -1,4 +1,8 @@
 #!/bin/sh
+# Timing, logging, a watchdog and an output cap. See lib.sh.
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh" 2>/dev/null || true
+type hook_init >/dev/null 2>&1 && hook_init kit-route.sh 5
 # Route a prompt into an existing kit, at the moment the person types it.
 #
 # The session briefing lists what kits exist, but a list read once at session

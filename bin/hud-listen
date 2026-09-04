@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+"""Close the loop: speech in, an interface out.
+
+The display can hear (it emits `h "..."` when someone speaks to it) and it can
+draw (it accepts Bob Lines). Nothing joined the two, so the microphone produced
+events that went nowhere. This is the join: hold one connection open, wait for
+something to be said, ask a model for an interface, and stream the answer back
+down the same socket.
+
+It is deliberately a separate process from the display. The HUD holds no model,
+no key, and no network access, and that is worth keeping: the thing with the
+microphone and the thing with the API credentials should not be the same binary.
+
+Usage:
+    hud listen [--model-cmd 'claude -p'] [--verbose]
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shlex
+import socket
+import subprocess
+import sys
+import threading
+from pathlib import Path
+
+SOCKET = os.environ.get("BOB_HUD_SOCKET", str(Path.home() / ".bob" / "hud.sock"))
+SKILL = Path(__file__).resolve().parent.parent / "skills" / "hud" / "SKILL.md"
+
+# Fences are the single most common thing a model wraps output in, and a fence
+# line is not a valid op, so it would be dropped silently and the surface would
+# simply be missing whatever the fence swallowed.
+FENCE = re.compile(r"^\s*```[a-zA-Z]*\s*$")
+VERBS = ("@", "c", ">", "d", "r", "-", "p")
+
+
+def instructions() -> str:
+    """The drawing vocabulary, read from the skill rather than duplicated.
+
+    Keeping one copy matters more here than it looks: a second copy of the
+    component list drifts the first time somebody adds a component, and the
+    failure is silent because the renderer drops what it does not know.
+    """
+    try:
+        return SKILL.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def draw_lines(text: str) -> list[str]:
+    """Keep the ops and throw away the prose.
+
+    A model asked for only Bob Lines will still occasionally explain itself, and
+    an explanation sent to the parser is a screen full of warnings. Filtering to
+    known verbs on this side means the worst case is a missing surface rather
+    than a broken one.
+    """
+    out = []
+    for line in text.splitlines():
+        if FENCE.match(line):
+            continue
+        stripped = line.strip()
+        if not stripped:
+            continue
+        head = stripped.split(None, 1)[0]
+        if head in VERBS:
+            out.append(stripped)
+    return out
+
+
+class Listener:
+    def __init__(self, model_cmd: str, verbose: bool) -> None:
+        self.model_cmd = model_cmd
+        self.verbose = verbose
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.lock = threading.Lock()
+        self.busy = False
+
+    def log(self, *args) -> None:
+        if self.verbose:
+            print(*args, file=sys.stderr, flush=True)
+
+    def send(self, line: str) -> None:
+        with self.lock:
+            try:
+                self.sock.sendall((line.rstrip("\n") + "\n").encode("utf-8"))
+            except OSError:
+                pass
+
+    def run(self) -> int:
+        try:
+            self.sock.connect(SOCKET)
+        except OSError as err:
+            print(f"The display is not running ({err}). Start it with: hud open", file=sys.stderr)
+            return 1
+
+        print(f"listening on {SOCKET} — say something to the display", file=sys.stderr)
+        self.send("p attentive")
+
+        buffer = b""
+        while True:
+            try:
+                chunk = self.sock.recv(4096)
+            except (OSError, KeyboardInterrupt):
+                break
+            if not chunk:
+                break
+            buffer += chunk
+            while b"\n" in buffer:
+                raw, buffer = buffer.split(b"\n", 1)
+                self.handle(raw.decode("utf-8", "replace").strip())
+        return 0
+
+    def handle(self, line: str) -> None:
+        if not line:
+            return
+        self.log("<-", line)
+
+        if line.startswith("h "):
+            try:
+                said = json.loads(line[2:])
+            except json.JSONDecodeError:
+                return
+            self.ask(said)
+        elif line.startswith("e "):
+            # A control was used. Same path: the press is a request in words.
+            parts = line.split(None, 2)
+            if len(parts) >= 3:
+                self.ask(f"The user pressed {parts[1]} on {parts[2]}. Respond by updating the display.")
+
+    def ask(self, said: str) -> None:
+        # One request at a time. Two models drawing to the same surfaces at once
+        # is a race with a visible symptom, and the person only asked once.
+        if self.busy:
+            self.log("busy, dropped:", said)
+            return
+        self.busy = True
+        threading.Thread(target=self._ask, args=(said,), daemon=True).start()
+
+    def _ask(self, said: str) -> None:
+        try:
+            self.send("p thinking")
+            prompt = (
+                f"{instructions()}\n\n"
+                "---\n\n"
+                f"The user said, out loud: {said!r}\n\n"
+                "Answer by drawing on their screen. Reply with Bob Lines and "
+                "nothing else: no prose, no explanation, no code fences. If the "
+                "request does not warrant a panel, reply with a single line that "
+                "is only the word: none\n"
+            )
+            self.log("->", said)
+            result = subprocess.run(
+                shlex.split(self.model_cmd),
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            lines = draw_lines(result.stdout)
+            if not lines:
+                self.log("nothing drawable:", result.stdout[:200])
+                self.send("p attentive")
+                return
+            for line in lines:
+                self.send(line)
+            self.send("p attentive")
+        except subprocess.TimeoutExpired:
+            self.send("p failed")
+        except Exception as err:  # noqa: BLE001
+            self.log("failed:", err)
+            self.send("p failed")
+        finally:
+            self.busy = False
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--model-cmd",
+        default=os.environ.get("BOB_MODEL_CMD", "claude -p"),
+        help="any command that reads a prompt on stdin and writes the answer to stdout",
+    )
+    parser.add_argument("--verbose", action="store_true")
+    args = parser.parse_args()
+    return Listener(args.model_cmd, args.verbose).run()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

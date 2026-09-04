@@ -17,6 +17,7 @@ usage() {
 hud draw            read Bob Lines on stdin and draw them
 hud close <name>    take one surface off the screen
 hud clear           take everything off
+hud listen          hear what is said to it and draw the answer
 hud status          is the display running
 hud open            start the display
 
@@ -62,6 +63,7 @@ case "${1:-}" in
           # keystroke would need accessibility permission, so close by name is
           # the scriptable route and this is the blunt one.
           osascript -e 'tell application "System Events" to key code 53' 2>/dev/null || true ;;
+  listen) shift; exec "$(dirname "$0")/hud-listen" "$@" ;;
   status) if running; then echo "running: $SOCK"; else echo "not running"; fi ;;
   open)   open -a BobHUD 2>/dev/null || { echo "BobHUD.app is not installed" >&2; exit 1; }
           for _ in 1 2 3 4 5 6 7 8 9 10; do running && break; sleep 0.3; done

@@ -1,4 +1,8 @@
 #!/bin/bash
+# Timing, logging, a watchdog and an output cap. See lib.sh.
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh" 2>/dev/null || true
+type hook_init >/dev/null 2>&1 && hook_init format-and-sync.sh 20
 # PostToolUse: format the file that was just written, then sync context repos.
 #
 # Why this is a script and not an inline settings.json command:

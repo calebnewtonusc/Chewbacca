@@ -1,4 +1,8 @@
 #!/bin/bash
+# Timing, logging, a watchdog and an output cap. See lib.sh.
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh" 2>/dev/null || true
+type hook_init >/dev/null 2>&1 && hook_init stop-check.sh 10
 # Stop: remind about unpushed work, but only when there actually is any.
 #
 # The previous version fired the same "push to GitHub now" reminder at the end
