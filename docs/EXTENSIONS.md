@@ -83,6 +83,58 @@ They overlap enough that running all three on one draft mostly wastes tokens.
 | Second opinion after one of the above looks clean | `humanizer`, since its pattern list comes from a different source |
 | Gating docs in CI with no model in the loop       | `avoid-ai-writing`'s Node detector                                |
 
+## MCP servers the installer sets up
+
+Curated from [mcpmarket.com](https://mcpmarket.com), which catalogs a bit over 46,000 servers. The
+list below is small on purpose: every entry was checked against the npm or PyPI registry, so none of
+them is a squatted package name. Two of mcpmarket's own most-engaged entries did not survive that
+check, which is the argument for doing it.
+
+They install in two tiers, and the difference is whether you need an account.
+
+The first tier needs no account and installs outright. These work the moment `setup.sh`
+finishes.
+
+| Server                | Runs                                            | What you get                                 |
+| --------------------- | ----------------------------------------------- | -------------------------------------------- |
+| `fetch`               | `uvx mcp-server-fetch`                          | A URL pulled down as markdown                |
+| `time`                | `uvx mcp-server-time`                           | Real current time and timezone math          |
+| `git`                 | `uvx mcp-server-git`                            | Repo reads, searches, and commits as calls   |
+| `sequential-thinking` | `npx @modelcontextprotocol/server-sequential-thinking` | Long reasoning as revisable steps     |
+| `chart`               | `npx @antv/mcp-server-chart`                    | 25 chart types rendered from data            |
+
+The second tier is mcpmarket's Official row, and each one is installed only when its key is
+already exported.
+
+| Server        | Variables                                        | Key from                  |
+| ------------- | ------------------------------------------------ | ------------------------- |
+| `exa`         | `EXA_API_KEY`                                    | dashboard.exa.ai/api-keys |
+| `tavily`      | `TAVILY_API_KEY`                                 | app.tavily.com            |
+| `firecrawl`   | `FIRECRAWL_API_KEY`                              | firecrawl.dev             |
+| `elevenlabs`  | `ELEVENLABS_API_KEY`                             | elevenlabs.io             |
+| `browserbase` | `BROWSERBASE_API_KEY`, `BROWSERBASE_PROJECT_ID`  | browserbase.com           |
+| `magic`       | `TWENTY_FIRST_API_KEY`                           | 21st.dev/magic            |
+
+`claude mcp add` will register a server whose key is missing, and then every call it makes fails.
+That is worse than the server being absent, because the agent keeps reaching for a tool that cannot
+work. So a keyed server is skipped, by name, with the variable it wanted:
+
+```
+  warn browserbase skipped, needs: BROWSERBASE_PROJECT_ID
+```
+
+To add one later, export the variable and re-run that section. It is idempotent, so a server already
+registered is left alone:
+
+```bash
+export TAVILY_API_KEY=tvly-...
+./setup.sh --only plugins
+```
+
+To change the catalog, edit `KIT_MCP` in [tools/inventory.py](../tools/inventory.py) and run
+`python3 tools/inventory.py`. It rewrites the README table, this installer block, and
+`settings/toolkit.json` together. Hand-editing any of the three loses the edit on the next run.
+
 ## MCP servers you host yourself
 
 **[linshenkx/prompt-optimizer](https://github.com/linshenkx/prompt-optimizer)** (AGPL-3.0) rewrites

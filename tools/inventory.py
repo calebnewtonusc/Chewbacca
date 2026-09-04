@@ -17,13 +17,13 @@ What it will publish:
   - skills vendored in the repo's own skills/ directory
   - skills symlinked out of a skill pack in PACKS, grouped into one row
   - plugins from enabledPlugins, with the marketplace they came from
-  - MCP servers on the PUBLIC_MCP allowlist, and only those
+  - the MCP servers in KIT_MCP, which is repo-owned data
   - CLI tools and macOS apps in CLI_TOOLS whose probe finds them installed
 
 What it will never publish:
   - a skill with no .source that is not in the repo (assumed personal)
-  - any MCP server not on the allowlist. ~/.claude.json holds client hostnames
-    and API keys, so the default for that file is silence, not redaction.
+  - anything at all out of ~/.claude.json. It holds client hostnames and API
+    keys, and nothing in this generator reads it.
 
 Exit codes: 0 wrote changes, 1 nothing to do, 2 error.
 """
@@ -41,15 +41,102 @@ HOME = Path.home()
 REPO = Path(__file__).resolve().parent.parent
 SKILLS = HOME / ".claude/skills"
 SETTINGS = HOME / ".claude/settings.json"
-CLAUDE_JSON = HOME / ".claude.json"
 
-# An MCP server reaches the public repo only by being named here. Everything
-# else is treated as client infrastructure.
-PUBLIC_MCP = {
-    "prompt-optimizer": (
-        "https://github.com/linshenkx/prompt-optimizer",
-        "Rewrites and iterates on prompts through three MCP tools, self-hosted",
-    ),
+# The MCP servers the installer sets up, sourced from mcpmarket.com. This is
+# repo-owned data, not a read of ~/.claude.json: that file holds client
+# hostnames and API keys, and the old design published a server only if it was
+# also installed on the maintainer's laptop, which made the kit's catalog a
+# function of one machine. Nothing here is read from local config, so there is
+# nothing to leak.
+#
+#   cmd/args  what `claude mcp add <name> --scope user --` runs
+#   env       environment variables the server needs to do anything. A server
+#             with an empty list works the moment it is installed; one with a
+#             non-empty list is installed only when those variables are already
+#             set, because a server that 500s on every call is worse than a
+#             server that is absent.
+KIT_MCP = {
+    # Works with no account. This tier is why the feature is worth shipping:
+    # someone who signs up for nothing still gets five new capabilities.
+    "fetch": {
+        "url": "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch",
+        "description": "Pulls a URL down as markdown the agent can read, no key",
+        "cmd": "uvx",
+        "args": ["mcp-server-fetch"],
+        "env": [],
+    },
+    "time": {
+        "url": "https://github.com/modelcontextprotocol/servers/tree/main/src/time",
+        "description": "Real current time and timezone conversion, no key",
+        "cmd": "uvx",
+        "args": ["mcp-server-time"],
+        "env": [],
+    },
+    "git": {
+        "url": "https://github.com/modelcontextprotocol/servers/tree/main/src/git",
+        "description": "Reads, searches, and edits a git repo as structured calls, no key",
+        "cmd": "uvx",
+        "args": ["mcp-server-git"],
+        "env": [],
+    },
+    "sequential-thinking": {
+        "url": "https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking",
+        "description": "Externalizes a long chain of reasoning into revisable steps, no key",
+        "cmd": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+        "env": [],
+    },
+    "chart": {
+        "url": "https://github.com/antvis/mcp-server-chart",
+        "description": "Renders 25 chart types from data, so an answer can be a picture, no key",
+        "cmd": "npx",
+        "args": ["-y", "@antv/mcp-server-chart"],
+        "env": [],
+    },
+    # mcpmarket.com's own Official row. Every one of these needs an account,
+    # which is the whole reason they are gated on the key being present.
+    "exa": {
+        "url": "https://github.com/exa-labs/exa-mcp-server",
+        "description": "Web search built for agents rather than for people, from Exa",
+        "cmd": "npx",
+        "args": ["-y", "exa-mcp-server"],
+        "env": ["EXA_API_KEY"],
+    },
+    "tavily": {
+        "url": "https://github.com/tavily-ai/tavily-mcp",
+        "description": "Search plus extraction in one call, tuned for grounding answers",
+        "cmd": "npx",
+        "args": ["-y", "tavily-mcp"],
+        "env": ["TAVILY_API_KEY"],
+    },
+    "firecrawl": {
+        "url": "https://github.com/firecrawl/firecrawl-mcp-server",
+        "description": "Crawls a whole site and returns clean markdown, not raw HTML",
+        "cmd": "npx",
+        "args": ["-y", "firecrawl-mcp"],
+        "env": ["FIRECRAWL_API_KEY"],
+    },
+    "elevenlabs": {
+        "url": "https://github.com/elevenlabs/elevenlabs-mcp",
+        "description": "Text to speech and voice cloning as tools the agent can call",
+        "cmd": "uvx",
+        "args": ["elevenlabs-mcp"],
+        "env": ["ELEVENLABS_API_KEY"],
+    },
+    "browserbase": {
+        "url": "https://github.com/browserbase/mcp-server-browserbase",
+        "description": "Drives a cloud browser, for sites that block a local one",
+        "cmd": "npx",
+        "args": ["-y", "@browserbasehq/mcp"],
+        "env": ["BROWSERBASE_API_KEY", "BROWSERBASE_PROJECT_ID"],
+    },
+    "magic": {
+        "url": "https://github.com/21st-dev/magic-mcp",
+        "description": "Generates a real UI component from a description, from 21st.dev",
+        "cmd": "npx",
+        "args": ["-y", "@21st-dev/magic"],
+        "env": ["TWENTY_FIRST_API_KEY"],
+    },
 }
 
 # Skills that ship inside the repo. Their descriptions are the repo's to write,
@@ -414,18 +501,8 @@ def collect_plugins():
 
 
 def collect_mcp():
-    try:
-        cfg = json.loads(CLAUDE_JSON.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
-    names = set(cfg.get("mcpServers", {}))
-    for proj in (cfg.get("projects") or {}).values():
-        names |= set((proj or {}).get("mcpServers", {}))
-    return [
-        {"name": n, "url": PUBLIC_MCP[n][0], "description": PUBLIC_MCP[n][1]}
-        for n in sorted(names)
-        if n in PUBLIC_MCP
-    ]
+    """The catalog, verbatim. Deliberately does not read ~/.claude.json."""
+    return [dict(spec, name=name) for name, spec in KIT_MCP.items()]
 
 
 def md_table(upstream, vendored, packs, plugins, mcp):
@@ -743,9 +820,77 @@ def setup_block(upstream, plugins, markets, mcp):
         "fi",
     ]
     if mcp:
-        lines += ["", "# Self-hosted MCP servers. Each needs its own service running; see docs/EXTENSIONS.md."]
-        for m in mcp:
-            lines.append(f"#   {m['name']}: {m['url']}")
+        free = [m for m in mcp if not m["env"]]
+        keyed = [m for m in mcp if m["env"]]
+        lines += [
+            "",
+            "# MCP servers, curated from mcpmarket.com. See docs/EXTENSIONS.md.",
+            "#",
+            "# Two tiers on purpose. The keyless ones are installed outright. The ones",
+            "# needing an account are installed only when their variables are already",
+            "# exported, because `claude mcp add` will happily register a server that",
+            "# fails on every call, and a broken tool in the list is worse than a",
+            "# missing one: the agent keeps reaching for it.",
+            "if command -v claude &>/dev/null; then",
+            "  mcp_present() { claude mcp list 2>/dev/null | grep -q \"^$1:\"; }",
+            "",
+            "  while IFS='|' read -r M_NAME M_CMD M_ARGS; do",
+            '    [ -n "$M_NAME" ] || continue',
+            '    if mcp_present "$M_NAME"; then',
+            '      log "$M_NAME already registered"',
+            "      continue",
+            "    fi",
+            # The directive has to sit in front of a whole compound command.
+            # In front of an elif branch shellcheck errors with SC1123.
+            "    # shellcheck disable=SC2086  # M_ARGS is a deliberate argument list",
+            '    if claude mcp add "$M_NAME" --scope user -- "$M_CMD" $M_ARGS &>/dev/null; then',
+            '      log "$M_NAME registered"',
+            "    else",
+            '      warn "could not register $M_NAME"',
+            "    fi",
+            "  done <<'KEYLESS_MCP'",
+        ]
+        lines += [f"{m['name']}|{m['cmd']}|{' '.join(m['args'])}" for m in free]
+        lines += [
+            "KEYLESS_MCP",
+            "",
+            "  while IFS='|' read -r M_NAME M_CMD M_ARGS M_ENV; do",
+            '    [ -n "$M_NAME" ] || continue',
+            '    if mcp_present "$M_NAME"; then',
+            '      log "$M_NAME already registered"',
+            "      continue",
+            "    fi",
+            "    M_FLAGS=\"\"; M_MISSING=\"\"",
+            "    for M_VAR in $M_ENV; do",
+            '      M_VAL="$(eval "printf %s \\"\\${$M_VAR:-}\\"")"',
+            '      if [ -n "$M_VAL" ]; then',
+            '        M_FLAGS="$M_FLAGS --env $M_VAR=$M_VAL"',
+            "      else",
+            '        M_MISSING="$M_MISSING $M_VAR"',
+            "      fi",
+            "    done",
+            '    if [ -n "$M_MISSING" ]; then',
+            '      warn "$M_NAME skipped, needs:$M_MISSING"',
+            "      continue",
+            "    fi",
+            "    # shellcheck disable=SC2086  # both are deliberate argument lists",
+            '    if claude mcp add "$M_NAME" --scope user $M_FLAGS -- "$M_CMD" $M_ARGS &>/dev/null; then',
+            '      log "$M_NAME registered"',
+            "    else",
+            '      warn "could not register $M_NAME"',
+            "    fi",
+            "  done <<'KEYED_MCP'",
+        ]
+        lines += [
+            f"{m['name']}|{m['cmd']}|{' '.join(m['args'])}|{' '.join(m['env'])}" for m in keyed
+        ]
+        lines += [
+            "KEYED_MCP",
+            "",
+            '  log "MCP servers done. Anything skipped: export its key and re-run"',
+            '  log "  ./setup.sh --only plugins"',
+            "fi",
+        ]
     return "\n".join(lines)
 
 
