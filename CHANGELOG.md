@@ -14,9 +14,11 @@ real commit; nothing here is written by hand.
 - the listener died when the display restarted
 
 ### Changed
+- regenerate the changelog
 - regenerate checksums after the display tools landed
 
 ### Documentation
+- regenerate the component reference for the diagram layout convention
 - send the root early
 
 ### Other
