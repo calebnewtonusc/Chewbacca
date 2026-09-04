@@ -377,3 +377,40 @@ struct ChromeTests {
         #expect(!Chrome.bracket.isFilled)
     }
 }
+
+@Suite("Bindings")
+struct BindingTests {
+    @Test("the short form binds")
+    func shortForm() throws {
+        let op = try #require(try LineParser.parse("c m Metric value=@/counts/unread"))
+        guard case .component(let node) = op else {
+            Issue.record("expected a component op")
+            return
+        }
+        #expect(node.props["value"] == .binding(DataBinding(pointer: "/counts/unread")))
+    }
+
+    @Test("the object form binds too, rather than parsing as a literal object")
+    func objectForm() throws {
+        let op = try #require(try LineParser.parse(#"c d Diagram parts={"$bind":"/graph"}"#))
+        guard case .component(let node) = op else {
+            Issue.record("expected a component op")
+            return
+        }
+        // Left as a literal this is a valid object that draws nothing, which is
+        // the failure that motivated accepting both spellings.
+        #expect(node.props["parts"] == .binding(DataBinding(pointer: "/graph")))
+    }
+
+    @Test("an object that merely contains $bind is still an object")
+    func notABinding() throws {
+        let op = try #require(try LineParser.parse(#"c x Text value={"$bind":"/a","t":1}"#))
+        guard case .component(let node) = op else {
+            Issue.record("expected a component op")
+            return
+        }
+        if case .binding = node.props["value"] {
+            Issue.record("a two-key object is data, not a binding")
+        }
+    }
+}

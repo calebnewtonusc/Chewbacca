@@ -213,20 +213,44 @@ struct SurfaceChrome: ViewModifier {
                     // Flat. Deep enough to read over a white editor, where a
                     // vibrancy material alone samples the page and goes pale.
                     Color.black.opacity(0.55)
+                    // The sheen: a soft light falling across the top left.
+                    //
+                    // This is the piece every glassmorphism reference has and
+                    // the hairline alone does not give. A pane of glass is not
+                    // uniformly lit, and the gradient of the light *across* the
+                    // face is what says there is a surface there at all rather
+                    // than a translucent rectangle.
+                    RadialGradient(
+                        colors: [.white.opacity(0.16), .clear],
+                        center: UnitPoint(x: 0.1, y: -0.05),
+                        startRadius: 0, endRadius: 320)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                // Thickness. A second hairline just inside the bottom edge,
+                // dim, as if light had travelled through the pane and come out
+                // the far side. Without it a card reads as a decal.
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [.clear, .clear, .white.opacity(0.14)],
+                            startPoint: .top, endPoint: .bottom),
+                        lineWidth: 1)
+                    .blur(radius: 0.5)
+                    .padding(1)
+            }
             .overlay {
                 // The inner light. One hairline inside the top edge, the way a
                 // real pane catches the light above it, and a border that fades
                 // as it comes down and away from that light.
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .strokeBorder(
                         LinearGradient(
                             colors: [
-                                .white.opacity(0.28),
-                                .white.opacity(0.10),
-                                .white.opacity(0.04),
+                                .white.opacity(0.38),
+                                .white.opacity(0.12),
+                                .white.opacity(0.05),
                             ],
                             startPoint: .top, endPoint: .bottom),
                         lineWidth: 0.75)
