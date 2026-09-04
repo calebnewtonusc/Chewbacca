@@ -154,6 +154,8 @@ if group "tools"; then
   check  "changelog generates" python3 "$ROOT/tools/changelog.py"
   check  "memory compact dry run is safe" python3 "$ROOT/tools/memory_compact.py" --dry-run
   check  "secret scan finds nothing in the repo" python3 "$ROOT/bin/secret-scan" "$ROOT"
+  check  "AGENTS.md exports for other agents" python3 "$ROOT/tools/agents_md.py" "$TMP"
+  check  "the export leaks no @imports" bash -c "! grep -q '^@' '$TMP/AGENTS.md'"
   check  "slop check holds the line" python3 "$ROOT/bin/slop-check" "$ROOT/docs" "$ROOT/skills" --max 60
 fi
 
@@ -164,6 +166,8 @@ if group "installer"; then
   check  "--dry-run writes nothing" bash -c "test ! -d '$TMP/ci'"
   expect "uninstall --dry-run says so" "Dry run" bash "$ROOT/uninstall.sh" --dry-run
   exits  "uninstall rejects an unknown flag" 2 bash "$ROOT/uninstall.sh" --nonsense
+  expect "portable profile installs no Mac tools" "~/.claude only" bash "$ROOT/setup.sh" --dry-run --profile portable --name CI
+  exits  "an unknown profile exits 2" 2 bash "$ROOT/setup.sh" --dry-run --profile nonsense --name CI
   check  "no read calls in the installer" bash -c "! grep -nE '^[[:space:]]*read (-[a-z]+ )*' '$ROOT/setup.sh'"
 fi
 
