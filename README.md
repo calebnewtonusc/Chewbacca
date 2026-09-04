@@ -154,17 +154,17 @@ expensive way to read a screen and the least reliable way to click something.
 click by name. Vision is the fallback, not the default. The `mac-control` skill
 routes any request to the cheapest layer that can do it.
 
-| Verb                     | What it does                                        |
-| ------------------------ | ---------------------------------------------------- |
-| `chewie see`             | The screen as an accessibility tree, not an image    |
-| `chewie click` / `type`  | Drive real UI by element name                        |
-| `chewie run`             | AppleScript, or JXA with `--js`                      |
-| `chewie texts`           | iMessage history with no UI at all                   |
-| `chewie web`             | Read and drive web pages through Chrome DevTools     |
-| `chewie plan run`        | A checked plan instead of improvised bash            |
-| `chewie brief`           | Email, texts and calendar triaged into what is next  |
-| `chewie log`             | What it actually did, afterwards                     |
-| `chewie doctor`          | Which permission is missing, and for which app       |
+| Verb                    | What it does                                        |
+| ----------------------- | --------------------------------------------------- |
+| `chewie see`            | The screen as an accessibility tree, not an image   |
+| `chewie click` / `type` | Drive real UI by element name                       |
+| `chewie run`            | AppleScript, or JXA with `--js`                     |
+| `chewie texts`          | iMessage history with no UI at all                  |
+| `chewie web`            | Read and drive web pages through Chrome DevTools    |
+| `chewie plan run`       | A checked plan instead of improvised bash           |
+| `chewie brief`          | Email, texts and calendar triaged into what is next |
+| `chewie log`            | What it actually did, afterwards                    |
+| `chewie doctor`         | Which permission is missing, and for which app      |
 
 Anything past two or three steps goes through `chewie plan`, which type-checks
 the plan, runs it, verifies each step, and logs what happened. That is the
@@ -274,7 +274,7 @@ it off is `--session-opener none`. To write your own, add it to `OPENERS` in
 
 | Piece                   | Details                                                                                                                                            |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **macOS tools**         | 8 installed alongside the kit: Anki, bd, mac, Maccy, mac-use, peekaboo, summarize, yt-transcript                                                   |
+| **macOS tools**         | 4 installed alongside the kit: Anki, Maccy, peekaboo, summarize                                                                                    |
 | **Skills and plugins**  | 75 skills (19 shipped here, 3 cloned from upstream, 53 from 1 skill pack) plus 18 plugins across 3 marketplaces                                    |
 | **Second brain**        | A private notes repo Claude reads at the start of every session and writes to as things change. Syncs to GitHub                                    |
 | **Coursework ledger**   | Your syllabi become deadlines, attendance budgets, and a per-course AI policy Claude checks before touching graded work                            |
@@ -877,16 +877,12 @@ installed alongside the kit, not vendored into it.
 
 <!-- BEGIN GENERATED: cli -->
 
-| Tool                                                                          | Install                                                                | What it does                                                                 |
-| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| [Anki](https://github.com/ankitects/anki)                                     | `brew install --cask anki`                                             | Spaced repetition, where the flashcards the study skills write actually live |
-| [bd](https://github.com/gastownhall/beads)                                    | `brew install beads`                                                   | Issue tracker your agent reads and writes, so work survives a context reset  |
-| [mac](https://github.com/31Carlton7/mac-cli)                                  | see docs/MACOS-APP-CONTROL.md (clone plus swift build, no formula yet) | Calendar, Reminders, Contacts, Mail, Messages, Notes, and Finder as JSON     |
-| [Maccy](https://github.com/p0deje/Maccy)                                      | `brew install --cask maccy`                                            | Clipboard history, so a value scrolled past is still recoverable             |
-| [mac-use](https://github.com/browser-use/macOS-use)                           | see docs/MACOS-TOOLS.md (clone plus a uv venv, no formula)             | Natural-language agent that drives any Mac app through Accessibility         |
-| [peekaboo](https://github.com/openclaw/Peekaboo)                              | `brew install steipete/tap/peekaboo`                                   | Screenshots, UI inspection, and click/type automation for any macOS app      |
-| [summarize](https://github.com/steipete/summarize)                            | `brew install steipete/tap/summarize`                                  | Gist of any URL, YouTube video, podcast, or local file                       |
-| [yt-transcript](https://github.com/calebnewtonusc/claude-youtube-transcripts) | see docs/MACOS-TOOLS.md (its own installer, no formula)                | Transcript of any YouTube video, channel, or playlist, read without asking   |
+| Tool                                               | Install                               | What it does                                                                 |
+| -------------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------------------- |
+| [Anki](https://github.com/ankitects/anki)          | `brew install --cask anki`            | Spaced repetition, where the flashcards the study skills write actually live |
+| [Maccy](https://github.com/p0deje/Maccy)           | `brew install --cask maccy`           | Clipboard history, so a value scrolled past is still recoverable             |
+| [peekaboo](https://github.com/openclaw/Peekaboo)   | `brew install steipete/tap/peekaboo`  | Screenshots, UI inspection, and click/type automation for any macOS app      |
+| [summarize](https://github.com/steipete/summarize) | `brew install steipete/tap/summarize` | Gist of any URL, YouTube video, podcast, or local file                       |
 
 <!-- END GENERATED: cli -->
 
