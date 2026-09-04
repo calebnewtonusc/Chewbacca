@@ -152,11 +152,35 @@ fast, because a model that knows the arrangement stops inventing one.
 7/7 scenarios pass, every one at stability 1.00
 ```
 
+## Seeing it without a screen
+
+A heads-up display is the hardest kind of UI to review, because looking at it
+needs a machine somebody is sitting at, unlocked, with the right things already
+behind it. `SnapshotTests` removes all of that: `ImageRenderer` turns each
+surface into pixels, so the interface is reviewable from a terminal or a build
+server.
+
+Every surface is drawn twice, over a light page and a dark one, because the one
+thing this UI cannot control is what is behind it. The assertion is that a
+meaningful share of the pixels changed, which sounds crude and is the one that
+matters: a view rendering nothing is pixel-identical to its backdrop, and
+"renders nothing" is this project's favourite failure. A `matchedGeometryEffect`
+once blanked the entire display and was caught only because somebody happened to
+take a screenshot.
+
+```bash
+HUD_SNAPSHOT_DIR=/tmp/shots swift test   # keeps the PNGs
+```
+
+It found three things on its first run: markers whose visibility depended on an
+async task having fired, edges in a diagram that vanished into a page of black
+text, and a caption sitting inside the region it was supposed to be labelling.
+
 ## Building it
 
 ```bash
 swift build
-swift test          # 62 tests
+swift test          # 70 tests
 ./scripts/bundle.sh # produces build/BobHUD.app
 ```
 

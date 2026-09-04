@@ -57,36 +57,70 @@ struct MarkerView: View {
     private var tint: Color { HUD.tone(marker.tone) }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            Brackets(lit: arrived, tint: tint)
-                .frame(width: marker.rect.width, height: marker.rect.height)
-
-            if !marker.label.isEmpty {
-                Text(marker.label)
-                    .font(.system(size: 10.5, weight: .medium, design: .rounded))
-                    .foregroundStyle(HUD.ink)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .background(Color.black.opacity(0.45), in: Capsule())
-                    .overlay {
-                        Capsule().strokeBorder(tint.opacity(0.55), lineWidth: 0.8)
-                    }
-                    .shadow(color: .black.opacity(0.5), radius: 6, y: 2)
-                    // Above the region, not inside it. A label inside covers the
-                    // thing the mark exists to point at.
-                    .offset(y: -22)
-                    .fixedSize()
+        // The label is an overlay, so only the brackets decide the size.
+        //
+        // As a sibling in the ZStack it was part of the layout, so a mark with
+        // a label was a different size from the region it marked, and
+        // `.position` then centred the pair rather than the brackets. The mark
+        // sat below the thing it was pointing at, by half the height of its own
+        // caption. An annotation layer whose marks are near the right place is
+        // worse than one with no marks, because it is confidently wrong.
+        Brackets(lit: arrived, tint: tint)
+            .frame(width: marker.rect.width, height: marker.rect.height)
+            .overlay(alignment: .topLeading) {
+                if !marker.label.isEmpty {
+                    Text(marker.label)
+                        .font(.system(size: 10.5, weight: .medium, design: .rounded))
+                        .foregroundStyle(HUD.ink)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .background(Color.black.opacity(0.55), in: Capsule())
+                        .overlay {
+                            Capsule().strokeBorder(tint.opacity(0.65), lineWidth: 0.8)
+                        }
+                        .shadow(color: .black.opacity(0.55), radius: 6, y: 2)
+                        .fixedSize()
+                        // Above the region, not inside it. A label inside covers
+                        // the thing the mark exists to point at, which is the
+                        // one thing it must never do.
+                        //
+                        // Offset rather than an alignment guide: the guide
+                        // version left the caption sitting inside the top-left
+                        // of the marked area, and an overlay is sized by its
+                        // host, so moving a child of it costs nothing.
+                        .offset(y: -26)
+                }
             }
-        }
-        .position(
-            x: marker.rect.midX,
-            y: marker.rect.midY)
-        .opacity(arrived ? 1 : 0)
-        .scaleEffect(arrived ? 1 : 1.06)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: arrived)
+        // Pinned by its top-left corner, not by its centre.
+        //
+        // `.position` centres a view inside whatever bounds its parent hands
+        // it, and those bounds are not reliably the full overlay, so a mark
+        // landed tens of points from the region it was describing. A mark in
+        // roughly the right place is worse than no mark: it is confidently
+        // wrong, and the layer stops being believable.
+        //
+        // Offsetting is exact and costs nothing here, because a mark is not
+        // interactive: the usual objection to `.offset`, that it moves the
+        // picture and leaves the hit region behind, cannot apply to something
+        // that never accepts a click.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .offset(x: marker.rect.minX, y: marker.rect.minY)
+        // Visible at rest, and animated in by the transition the layer applies
+        // on insertion.
+        //
+        // It used to start at zero opacity and become visible from inside a
+        // `.task`, which meant its entire visibility depended on an async side
+        // effect firing. That works until it does not, and a mark that is
+        // invisible is indistinguishable from one that was never sent. A
+        // snapshot render caught it immediately: nothing drew at all, because
+        // nothing had run the task.
         .task {
-            arrived = true
+            // The brackets still strike a moment after the mark lands, so
+            // arriving reads as switching on rather than appearing. Losing this
+            // costs a flourish, not the mark.
+            try? await Task.sleep(for: .milliseconds(60))
+            withAnimation(.easeOut(duration: 0.35)) { arrived = true }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)

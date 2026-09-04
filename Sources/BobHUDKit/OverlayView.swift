@@ -328,8 +328,16 @@ struct SurfaceChrome: ViewModifier {
             // job now (shapes fill near-black, free text carries a plate), so
             // this only has to draw the outline that keeps a bright stroke off
             // a bright background.
+            // Three passes: an outline, a hold, and enough spread to pull a
+            // title off a page of dense text.
+            //
+            // Two was right for a figure that carries its own fill and wrong
+            // for a line of type, which has nothing behind it at all. A title
+            // over a paragraph was legible only because I already knew what it
+            // said.
             .shadow(color: .black.opacity(0.9), radius: 0.5)
-            .shadow(color: .black.opacity(0.55), radius: 2.5)
+            .shadow(color: .black.opacity(0.7), radius: 2)
+            .shadow(color: .black.opacity(0.5), radius: 6)
     }
 
     /// Corner brackets, no fill.
@@ -375,7 +383,14 @@ struct Brackets: View {
                     path.addLine(to: CGPoint(x: origin.x, y: origin.y + arm * direction.height))
                 }
             }
-            .stroke((tint ?? HUD.accent).opacity(lit ? 0.95 : 0.3), lineWidth: 1.6)
+            // Legible before the strike, brighter after it.
+            //
+            // At 0.3 a mark was nearly invisible until an async task raised it,
+            // which is the same fragility that made markers render as nothing:
+            // an appearance that depends on a side effect having fired. The
+            // strike is now a flourish on top of something already readable
+            // rather than the thing that makes it readable.
+            .stroke((tint ?? HUD.accent).opacity(lit ? 1 : 0.75), lineWidth: 1.6)
             .shadow(color: (tint ?? HUD.accent).opacity(0.65), radius: 5)
         }
         .padding(-6)
@@ -432,7 +447,45 @@ struct CloseButton: View {
     }
 }
 
-struct VisualEffect: NSViewRepresentable {
+/// Whether this view tree is being rasterised rather than shown on a screen.
+///
+/// `ImageRenderer` can draw SwiftUI but not AppKit: an `NSViewRepresentable`
+/// has no window to sample and comes out as a red prohibition symbol. That
+/// makes every surface built on real vibrancy unreviewable offscreen, which is
+/// most of them, and being unreviewable is how a heads-up display ends up
+/// shipping something nobody has looked at.
+///
+/// So the material has a SwiftUI stand-in for that case. It is not identical
+/// and it is not pretending to be: it is close enough to judge contrast,
+/// spacing and legibility, which are the things a snapshot is for.
+struct HUDOffscreenKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var hudOffscreen: Bool {
+        get { self[HUDOffscreenKey.self] }
+        set { self[HUDOffscreenKey.self] = newValue }
+    }
+}
+
+struct VisualEffect: View {
+    let material: NSVisualEffectView.Material
+    let blending: NSVisualEffectView.BlendingMode
+
+    @Environment(\.hudOffscreen) private var offscreen
+
+    var body: some View {
+        if offscreen {
+            Rectangle().fill(.ultraThinMaterial)
+        } else {
+            Vibrancy(material: material, blending: blending)
+        }
+    }
+}
+
+/// The real thing: AppKit's own blur, sampling the desktop behind the window.
+private struct Vibrancy: NSViewRepresentable {
     let material: NSVisualEffectView.Material
     let blending: NSVisualEffectView.BlendingMode
 
