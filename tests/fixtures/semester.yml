@@ -1,0 +1,4 @@
+term: Fall 2026
+start: 2026-08-24
+end: 2026-12-11
+notes: "Fixture semester, used by tests/run.sh only."

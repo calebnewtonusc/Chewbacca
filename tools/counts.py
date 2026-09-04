@@ -24,6 +24,10 @@ BEGIN = "<!-- BEGIN GENERATED: counts -->"
 END = "<!-- END GENERATED: counts -->"
 
 
+def claude_md():
+    return (REPO / "CLAUDE.md").read_text(encoding="utf-8")
+
+
 def counts():
     toolkit = json.loads((REPO / "settings/toolkit.json").read_text(encoding="utf-8"))
     vendored = len(list((REPO / "skills").glob("*/SKILL.md")))
@@ -31,7 +35,9 @@ def counts():
     packed = sum(p["count"] for p in toolkit["packs"])
     return {
         "commands": len(list((REPO / ".claude/commands").glob("*.md"))),
-        "rules": len(list((REPO / ".claude/rules").glob("*.md"))),
+        "rules": len(re.findall(r"^@~/\.claude/rules/", claude_md(), re.M)),
+        "rules_on_demand": len(list((REPO / ".claude/rules").glob("*.md")))
+                           - len(re.findall(r"^@~/\.claude/rules/", claude_md(), re.M)),
         "hooks": len(list((REPO / ".claude/hooks").glob("*.sh"))),
         "subagents": len(list((REPO / ".claude/agents").glob("*.md"))),
         "skills_own": vendored,
@@ -41,7 +47,10 @@ def counts():
         "mcp": len(toolkit["mcp"]),
         "cli": len(toolkit["cli"]),
         "plugins": len(toolkit["plugins"]),
-        "lines": lines(),
+        # Rounded to the nearest thousand on purpose. An exact count changes
+        # with every commit, so --check would fail on the commit that edits one
+        # comment and the number would be churn rather than information.
+        "lines": round(lines(), -3),
     }
 
 
@@ -69,7 +78,7 @@ def sentence(c):
         f"({c['skills_own']} written here, {c['skills_upstream']} cloned from upstream, "
         f"{c['skills_packed']} from a skill pack), {c['mcp']} MCP servers, {c['hooks']} hooks, "
         f"{c['subagents']} subagents, {c['cli']} command-line tools and {c['rules']} always-on "
-        f"standards.** {c['lines']:,} lines, every one of them plain text you can read."
+        f"standards (plus {c['rules_on_demand']} that load only when the work calls for them).** About {c['lines']:,} lines, every one of them plain text you can read."
     )
 
 

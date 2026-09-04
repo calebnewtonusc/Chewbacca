@@ -18,5 +18,7 @@ Thumbs.db
 __pycache__/
 *.pyc
 
-# Vendored Plynn build output
+# Vendored Plynn build output. Both of them: only .build was listed, so
+# DerivedData sat in git status as untracked noise forever.
 plynn/.build/
+plynn/build/

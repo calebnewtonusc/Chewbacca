@@ -116,6 +116,18 @@ jobs:
           # kit's own prose without failing on inherited content.
           python3 bin/slop-check docs/ skills/ --max 60
 
+  # The kit is macOS-only and had no macOS runner. Every behavioral test ran
+  # on Ubuntu or not at all.
+  tests:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Test suite
+        run: bash tests/run.sh
+
   markdown-lint:
     runs-on: ubuntu-latest
     steps:
