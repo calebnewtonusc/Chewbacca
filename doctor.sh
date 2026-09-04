@@ -477,6 +477,28 @@ else
   warn "coursework not on PATH, so /due, /week, and /attendance have no data source"
 fi
 
+# ── Tools the skills promise ──────────────────────────────────────────────────
+# A skill that documents a command the machine does not have is worse than a
+# missing skill: the agent reads the instructions, runs the command, gets
+# "command not found", and improvises. `chewie` was installed by setup.sh and
+# missing here anyway, and nothing noticed, which is the exact failure this
+# whole file exists to refuse.
+section "Documented tools"
+
+for pair in "chewie:mac-followups, mac-see, mac-runtime" \
+  "people:people, texts" \
+  "coursework:coursework, study-system"; do
+  tool="${pair%%:*}"
+  skills="${pair#*:}"
+  if command -v "$tool" >/dev/null 2>&1; then
+    ok "$tool on PATH (promised by: $skills)"
+  else
+    for_profile student || continue
+    bad "$tool is missing but $skills tell the agent to run it" \
+      "./setup.sh, or: ln -sf \"\$PWD/mac/bin/$tool\" ~/.local/bin/$tool"
+  fi
+done
+
 # ── One context store, not two ────────────────────────────────────────────────
 # Two stores is the failure that prompted this check: a second context repo ran
 # alongside the first for months, both were written to, and neither was
