@@ -9,6 +9,7 @@ import Foundation
 ///     e <action> <componentId> [key=value ...]     a control was used
 ///     v <pointer> <json>                           a bound value changed
 ///     x                                            the panel was dismissed
+///     h <json string>                              something was said to it
 ///
 /// Values echo the same encoding as inbound props, so `label="Send it"` means
 /// the same thing in both directions.
@@ -16,6 +17,10 @@ public enum OutboundEvent: Sendable, Equatable {
     case action(name: String, component: ComponentID, payload: [String: JSON])
     case value(pointer: String, value: JSON)
     case dismissed
+    /// A spoken request, wake word already removed. Always a quoted JSON string,
+    /// never bare: an utterance has spaces in it and a listener splitting on
+    /// whitespace would otherwise take the first word and drop the sentence.
+    case heard(String)
 
     public var line: String {
         switch self {
@@ -31,6 +36,9 @@ public enum OutboundEvent: Sendable, Equatable {
 
         case .dismissed:
             return "x"
+
+        case .heard(let text):
+            return "h \(OutboundEvent.jsonString(text))"
         }
     }
 

@@ -211,9 +211,15 @@ public enum Op: Sendable, Equatable {
     case data(path: String, value: JSON?)
     case root(id: ComponentID)
     /// Open or switch to a named surface. Everything after this targets it.
-    case surface(id: String, region: Region?, width: Double?, urgency: Urgency?, chrome: Chrome?)
+    case surface(
+        id: String, region: Region?, width: Double?,
+        urgency: Urgency?, chrome: Chrome?, life: Double?)
     /// Close a surface and take it off the screen.
     case close(id: String)
     /// Say what the assistant is doing. Draws the presence ring.
     case presence(Presence, amplitude: Double?)
+    /// Put a mark on the screen at absolute coordinates.
+    case mark(id: String, rect: CGRect, label: String, tone: String?, life: Double?)
+    /// Take a mark off, or all of them when the id is empty.
+    case unmark(id: String)
 }

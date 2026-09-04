@@ -8,10 +8,12 @@ import Foundation
 ///     > <id> <child> [child ...]         give it children
 ///     d <pointer> <json>                 patch the data model
 ///     r <id>                             declare the root
-///     @ <surface> [at=region] [w=380] [urgency=alert] [chrome=bare]
+///     @ <surface> [at=region] [w=380] [urgency=alert] [chrome=bare] [life=60]
 ///                                        open or switch to a surface
 ///     - <surface>
-///     p <state> [amp=0.4]                presence: what it is doing                        close a surface
+///     p <state> [amp=0.4]                presence: what it is doing
+///     m <id> <x> <y> <w> <h> [label=]    mark a region of the screen
+///     u [<id>]                           unmark one, or all of them                        close a surface
 ///
 /// A line is either complete or invisible, which is the whole reason this is the
 /// right thing to put on a socket. There is no partial-value state to get wrong:
@@ -197,6 +199,7 @@ public enum LineParser {
             var width: Double?
             var urgency: Urgency?
             var chrome: Chrome?
+            var life: Double?
             for token in tokens.dropFirst(2) {
                 guard let (key, raw) = splitPair(token) else { continue }
                 let value = raw.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
@@ -204,16 +207,51 @@ public enum LineParser {
                 if key == "w" || key == "width" { width = Double(value) }
                 if key == "urgency" { urgency = Urgency(rawValue: value) }
                 if key == "chrome" { chrome = Chrome(rawValue: value) }
+                if key == "life" { life = Double(value) }
             }
             return .surface(
                 id: tokens[1], region: region, width: width,
-                urgency: urgency, chrome: chrome)
+                urgency: urgency, chrome: chrome, life: life)
 
         case "-":
             guard tokens.count == 2 else {
                 throw LineParseError.malformed("`-` takes exactly one surface name", line: trimmed)
             }
             return .close(id: tokens[1])
+
+        case "m":
+            // `m <id> <x> <y> <w> <h> [label="..."] [tone=warn] [life=30]`
+            //
+            // Absolute screen points with a top-left origin, because that is
+            // what a screenshot and a window query both give you and converting
+            // in two places is how a marker ends up in the wrong corner.
+            guard tokens.count >= 6,
+                  let x = Double(tokens[2]), let y = Double(tokens[3]),
+                  let width = Double(tokens[4]), let height = Double(tokens[5])
+            else {
+                throw LineParseError.malformed(
+                    "`m` needs an id and four numbers", line: trimmed)
+            }
+            var label = ""
+            var tone: String?
+            var life: Double?
+            for token in tokens.dropFirst(6) {
+                guard let (key, raw) = splitPair(token) else { continue }
+                let value = raw.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                switch key {
+                case "label": label = value
+                case "tone": tone = value
+                case "life": life = Double(value)
+                default: break
+                }
+            }
+            return .mark(
+                id: tokens[1],
+                rect: CGRect(x: x, y: y, width: width, height: height),
+                label: label, tone: tone, life: life)
+
+        case "u":
+            return .unmark(id: tokens.count >= 2 ? tokens[1] : "")
 
         case "p":
             // `p thinking`, `p hearing amp=0.4`, `p dormant`.

@@ -45,6 +45,15 @@ public final class OverlayWindow: NSPanel {
         ignoresMouseEvents = true
         isMovableByWindowBackground = false
         animationBehavior = .none
+        // Keep the glass out of screen captures where that is still possible.
+        //
+        // This is honored by the older CGWindowList and `screencapture` paths
+        // and is no longer reliably honored by ScreenCaptureKit-based capture,
+        // which is most of what people actually share with. So it is worth
+        // setting and it is not a guarantee, and the guarantee has to come from
+        // the person hiding the layer themselves. Option-Command-Space does
+        // that, and it is in the menu.
+        sharingType = .none
         acceptsMouseMovedEvents = true
 
         contentView = PassThroughHostingView(rootView: AnyView(content))

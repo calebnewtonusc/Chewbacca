@@ -25,6 +25,15 @@ public struct OverlayView: View {
             // even at low opacity, tints the entire display.
             Color.clear
 
+            // Marks sit under the panels: a panel is something the person
+            // asked for, a mark is something the assistant added, and when they
+            // overlap the answer should not be hidden by the annotation.
+            ForEach(model.markers) { marker in
+                MarkerView(marker: marker, screenHeight: 0)
+                    .transition(.opacity)
+            }
+            .zIndex(1)
+
             // The ring, bottom right, above everything.
             //
             // It is the one thing on the glass that is always present, so it
@@ -344,6 +353,10 @@ struct SurfaceChrome: ViewModifier {
 /// Four corner marks, drawn as one shape so they animate together.
 struct Brackets: View {
     let lit: Bool
+    /// Nil takes the house accent, which is what a surface's chrome wants. A
+    /// marker passes its own, so an outline that means "this is broken" is not
+    /// drawn in the same colour as everything that means nothing in particular.
+    var tint: Color?
 
     var body: some View {
         GeometryReader { proxy in
@@ -362,8 +375,8 @@ struct Brackets: View {
                     path.addLine(to: CGPoint(x: origin.x, y: origin.y + arm * direction.height))
                 }
             }
-            .stroke(HUD.accent.opacity(lit ? 0.9 : 0.3), lineWidth: 1.5)
-            .shadow(color: HUD.accent.opacity(0.6), radius: 4)
+            .stroke((tint ?? HUD.accent).opacity(lit ? 0.95 : 0.3), lineWidth: 1.6)
+            .shadow(color: (tint ?? HUD.accent).opacity(0.65), radius: 5)
         }
         .padding(-6)
         .animation(.easeOut(duration: 0.5), value: lit)

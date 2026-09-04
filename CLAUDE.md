@@ -69,6 +69,42 @@ more `c d Diagram` with different numbers, not a redraw.
 
 Take something down with `- <surface>` when the person is done with it.
 
+## Marking the screen
+
+A panel sits *beside* the work. A mark sits **on** it.
+
+```
+m <id> <x> <y> <w> <h> [label="..."] [tone=bad] [life=30]
+u [<id>]
+```
+
+Coordinates are **points with a top-left origin**, and points are not pixels: a
+Retina screenshot reports twice the number you want. Run `hud screen` to get the
+size before you place anything.
+
+```bash
+hud draw <<'EOF'
+m bug 420 260 380 90 label="This is the one failing" tone=bad
+EOF
+```
+
+Marks decay. The default life is twelve seconds, `life=0` pins one, and re-sending
+the same id with a new rectangle moves it rather than leaving a trail. That is
+deliberate and it is the rule that makes the layer trustworthy: a mark that
+outlives what it described is worse than no mark, because the person learns to
+disbelieve all of them.
+
+Twelve marks maximum. Past a dozen the screen is not annotated, it is hatched.
+
+## Panels that take themselves down
+
+`@ toast at=top life=6` closes after six seconds. Use it for something the person
+does not need to dismiss: a build finishing, a file saved, a reminder that stops
+being true.
+
+Leave `life` off for anything they will read or act on. A panel that vanishes
+mid-sentence is a bug they will blame on you.
+
 ## Updating in real time
 
 Bind a prop to the data model and then push data at it. This is the cheap path

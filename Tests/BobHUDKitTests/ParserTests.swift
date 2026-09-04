@@ -1,3 +1,4 @@
+import CoreGraphics
 import Testing
 @testable import BobHUDKit
 
@@ -316,7 +317,7 @@ struct UrgencyTests {
     @Test("a surface carries an urgency when one is given")
     func parsesUrgency() throws {
         let op = try #require(try LineParser.parse("@ alarm at=center urgency=critical"))
-        guard case .surface(let id, let region, _, let urgency, _) = op else {
+        guard case .surface(let id, let region, _, let urgency, _, _) = op else {
             Issue.record("expected a surface op")
             return
         }
@@ -328,7 +329,7 @@ struct UrgencyTests {
     @Test("an unknown urgency is dropped rather than guessed")
     func rejectsUnknownUrgency() throws {
         let op = try #require(try LineParser.parse("@ p urgency=extremely"))
-        guard case .surface(_, _, _, let urgency, _) = op else {
+        guard case .surface(_, _, _, let urgency, _, _) = op else {
             Issue.record("expected a surface op")
             return
         }
@@ -349,7 +350,7 @@ struct ChromeTests {
     @Test("a surface can ask for no window around it")
     func parsesChrome() throws {
         let op = try #require(try LineParser.parse("@ figure chrome=bare"))
-        guard case .surface(_, _, _, _, let chrome) = op else {
+        guard case .surface(_, _, _, _, let chrome, _) = op else {
             Issue.record("expected a surface op")
             return
         }
@@ -359,7 +360,7 @@ struct ChromeTests {
     @Test("an omitted chrome is nil, so re-addressing keeps what the surface had")
     func omittedChromeIsNil() throws {
         let op = try #require(try LineParser.parse("@ figure"))
-        guard case .surface(_, let region, _, let urgency, let chrome) = op else {
+        guard case .surface(_, let region, _, let urgency, let chrome, _) = op else {
             Issue.record("expected a surface op")
             return
         }
@@ -412,5 +413,85 @@ struct BindingTests {
         if case .binding = node.props["value"] {
             Issue.record("a two-key object is data, not a binding")
         }
+    }
+}
+
+@Suite("Markers")
+struct MarkerTests {
+    @Test("a mark carries a rectangle in screen points")
+    func parsesMark() throws {
+        let op = try #require(
+            try LineParser.parse(#"m bug 100 200 300 40 label="Here" tone=bad life=30"#))
+        guard case .mark(let id, let rect, let label, let tone, let life) = op else {
+            Issue.record("expected a mark op")
+            return
+        }
+        #expect(id == "bug")
+        #expect(rect == CGRect(x: 100, y: 200, width: 300, height: 40))
+        #expect(label == "Here")
+        #expect(tone == "bad")
+        #expect(life == 30)
+    }
+
+    @Test("four numbers are required, because three is a mark in the wrong place")
+    func rejectsShortMark() {
+        #expect(throws: (any Error).self) {
+            _ = try LineParser.parse("m bug 100 200 300")
+        }
+    }
+
+    @Test("unmark with no id clears the layer")
+    func unmarkAll() throws {
+        let op = try #require(try LineParser.parse("u"))
+        guard case .unmark(let id) = op else {
+            Issue.record("expected an unmark op")
+            return
+        }
+        #expect(id.isEmpty)
+    }
+
+    @Test("a surface can be given a lifetime")
+    func surfaceLife() throws {
+        let op = try #require(try LineParser.parse("@ toast at=top life=6"))
+        guard case .surface(_, _, _, _, _, let life) = op else {
+            Issue.record("expected a surface op")
+            return
+        }
+        #expect(life == 6)
+    }
+}
+
+@Suite("Voice")
+struct VoiceTests {
+    @Test("everything before the wake word is discarded")
+    @MainActor
+    func stripsWakeWord() {
+        let voice = VoiceListener()
+        // In wake mode the audio before the wake word is somebody's unrelated
+        // conversation, so keeping it would send it to a model.
+        #expect(
+            voice.strippingWakeWord(from: "so anyway chewy show me my week")
+                == "show me my week")
+    }
+
+    @Test("punctuation after the wake word goes too")
+    @MainActor
+    func stripsPunctuation() {
+        let voice = VoiceListener()
+        #expect(voice.strippingWakeWord(from: "Chewy, what is due") == "what is due")
+    }
+
+    @Test("no wake word means it was not being spoken to")
+    @MainActor
+    func requiresWakeWord() {
+        let voice = VoiceListener()
+        #expect(voice.strippingWakeWord(from: "show me my week") == nil)
+    }
+
+    @Test("the wake word alone is not a request")
+    @MainActor
+    func wakeWordAloneIsNothing() {
+        let voice = VoiceListener()
+        #expect(voice.strippingWakeWord(from: "chewy") == nil)
     }
 }
