@@ -3,7 +3,7 @@
 #
 # Creates two repos:
 #   claude-context   (PUBLIC), operational instructions: CLAUDE.md, rules, commands, hooks
-#   personal-context (PRIVATE), personal facts: YOU.md, NOW.md, PEOPLE.md, SYSTEM.md
+#   personal-context (PRIVATE), personal facts: YOU.md, NOW.md, PEOPLE.md, SYSTEM.md, VOICE.md
 #
 # claude-context can be made public. It contains zero PII.
 # personal-context stays private. It contains everything about you.
@@ -104,6 +104,7 @@ if [ ! -f "$PC_DIR/YOU.md" ]; then
   cp "$SCRIPT_DIR/context/NOW.md" "$PC_DIR/NOW.md"
   cp "$SCRIPT_DIR/context/PEOPLE.md" "$PC_DIR/PEOPLE.md"
   cp "$SCRIPT_DIR/context/SYSTEM.md" "$PC_DIR/SYSTEM.md"
+  cp "$SCRIPT_DIR/context/VOICE.md" "$PC_DIR/VOICE.md"
   echo -e "  ${GREEN}✓${NC} Templates copied to $PC_DIR"
 else
   echo -e "  ${YELLOW}!${NC} Files already exist, not overwriting"
