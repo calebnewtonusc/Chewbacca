@@ -1211,8 +1211,34 @@ function NSLOGGED_ERR(e) {
   process.stderr.write(`  batch failed: ${(e && e.message) || e}\n`);
 }
 
+/// The hook path. Runs a small, throttled slice of the scan so that events keep
+/// up with the messages on their own, without anyone remembering to do it.
+///
+/// Three things keep this from being a nuisance. It is THROTTLED, so a day of
+/// twenty sessions costs one scan, not twenty. It is BOUNDED, so a single run
+/// is a handful of model calls rather than an open-ended bill. And it is SILENT
+/// unless something was found, because a hook that talks during unrelated work
+/// is a hook people turn off.
+async function eventsAuto(flags) {
+  const everyHours = Number(flags.every || 6);
+  const last = syncState("events_last_auto");
+  if (last && (Date.now() - Date.parse(last.replace(" ", "T"))) < everyHours * 3600000) {
+    return;
+  }
+  syncState("events_last_auto", nowISO());
+  await cmdEvents([
+    "scan",
+    "--days", String(flags.days || 21),
+    "--limit", String(flags.limit || 60),
+    "--batch", String(flags.batch || 10),
+    "--concurrency", String(flags.concurrency || 3),
+    "--quiet",
+  ]);
+}
+
 async function cmdEvents(argv) {
-  const sub = ["scan", "list", "reset"].includes(argv[0]) ? argv.shift() : "list";
+  const sub = ["scan", "list", "reset", "auto"].includes(argv[0]) ? argv.shift() : "list";
+  if (sub === "auto") return eventsAuto(parseArgs(argv).flags);
   const { flags, rest } = parseArgs(argv);
   const d = db();
 
@@ -1267,10 +1293,13 @@ async function cmdEvents(argv) {
     .all(eventMatchQuery(), since, maxEpisodes);
 
   if (!episodes.length) {
+    if (flags.quiet) return;
     return say(c.dim("\n  nothing new to read. `people events reset` to rescan from scratch.\n"));
   }
 
-  say(c.dim(`\n  reading ${episodes.length} person-days with ${model}...`));
+  const quiet = !!flags.quiet;
+  const note = (t) => { if (!quiet) say(t); };
+  note(c.dim(`\n  reading ${episodes.length} person-days with ${model}...`));
   const markScanned = d.prepare(
     "INSERT INTO event_scan_state (person_id, day, found) VALUES (?,?,?) ON CONFLICT DO NOTHING",
   );
@@ -1285,7 +1314,7 @@ async function cmdEvents(argv) {
     );
   }
   const conc = Math.max(1, Math.min(8, Number(flags.concurrency || 4)));
-  say(c.dim(`  ${batches.length} batches, ${conc} at a time`));
+  note(c.dim(`  ${batches.length} batches, ${conc} at a time`));
 
   let written = 0, read = 0;
 
@@ -1350,10 +1379,16 @@ async function cmdEvents(argv) {
     }),
     conc,
     (done, total) =>
-      say(c.dim(`  batch ${done}/${total}  ${written} events from ${read} days`)),
+      note(c.dim(`  batch ${done}/${total}  ${written} events from ${read} days`)),
   );
 
   recomputeScores();
+  // A quiet run still speaks when it found something, because that is the one
+  // thing worth knowing; silence means there was nothing new.
+  if (quiet) {
+    if (written) say(c.dim(`  ${written} new event(s) logged from your messages`));
+    return;
+  }
   say(`\n  ${c.grn("logged")} ${written} events from ${read} person-days`);
   if (failed) say(c.dim(`  ${failed} batch(es) failed and were left unmarked; rerun to retry them`));
   say(c.dim("  people events list        to read them"));

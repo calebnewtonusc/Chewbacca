@@ -214,8 +214,13 @@ PY
 # Silent by design. No Full Disk Access, no `people` on PATH, no database: all
 # of those mean this does nothing, and none of them are worth a warning at the
 # top of an unrelated session. `people texts stats` says when the last sync ran.
+#
+# The events pass runs behind the sync, and only that way round: it reads the
+# messages the sync just pulled. It throttles itself to once every six hours and
+# caps each run, so twenty sessions in a day cost one bounded scan rather than
+# twenty open-ended ones. It says nothing unless it actually found something.
 if command -v people >/dev/null 2>&1; then
-  ( people texts sync >/dev/null 2>&1 & ) >/dev/null 2>&1
+  ( people texts sync >/dev/null 2>&1; people events auto >/dev/null 2>&1 & ) >/dev/null 2>&1
 fi
 
 exit 0

@@ -203,6 +203,14 @@ State is kept per person-day, so rescanning never re-asks about a day already
 read and never writes the same dinner twice. Runs take a while: budget roughly
 one Claude call per dozen days.
 
+**It keeps itself up to date.** The SessionStart hook runs `people texts sync`
+and then `people events auto`, so new conversations become logged events without
+anyone asking. `auto` throttles to once every six hours and caps each run, so
+twenty sessions in a day cost one bounded scan rather than twenty open-ended
+ones, and it stays silent unless it actually found something. Tell the user it
+is already running before offering to run a scan by hand; a full-history
+backfill is the only thing they need to start themselves.
+
 ## Relationship graphs over time
 
 Everything else answers "where does this stand today". These three answer "is it
