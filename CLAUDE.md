@@ -945,3 +945,9 @@ closes.
 If it matches nothing and the work is kit-shaped, build it, and **write the `.kit` marker**
 so the next session finds it. A kit that has been built and cannot be discovered gets
 rebuilt.
+
+**The bar is apply-kit and accommodations-kit, and it is enforced.** Run
+`sh tools/kit-check.sh` inside any kit before calling it finished: nineteen checks, every
+floor measured from the weaker of those two, zero failures or it does not ship. Then
+answer the four questions in `STANDARD.md` that no script can check. A kit that passes
+every check and fails those is worse than one that does the reverse.
