@@ -393,6 +393,33 @@ else
   warn "coursework not on PATH, so /due, /week, and /attendance have no data source"
 fi
 
+section "People"
+
+PEOPLE_HOME="${PEOPLE_DIR:-$HOME/.chewbacca/people}"
+if command -v people >/dev/null 2>&1; then
+  ok "people CLI on PATH"
+  # node:sqlite landed in 22.5. On an older node every people command dies at
+  # require time, which reads as the tool being broken rather than node being old.
+  if node -e "require('node:sqlite')" >/dev/null 2>&1; then
+    ok "node:sqlite available ($(node --version))"
+    if [ -f "$PEOPLE_HOME/people.db" ]; then
+      P_COUNT="$(people stats 2>/dev/null | awk '/^  people/ {print $2}')"
+      ok "${P_COUNT:-0} people in $PEOPLE_HOME"
+      if people check >/dev/null 2>&1; then
+        ok "database validates"
+      else
+        warn "database has warnings. Run: people check"
+      fi
+    else
+      warn "no database yet. Run: people import --mac"
+    fi
+  else
+    warn "node $(node --version 2>/dev/null) has no node:sqlite (needs 22.5+). Run: brew upgrade node"
+  fi
+else
+  warn "people not on PATH, so nothing remembers who the user knows"
+fi
+
 # ── Commit attribution ────────────────────────────────────────────────────────
 # Off by default here on purpose. Catching this after a hundred commits means
 # rewriting every one of them and force-pushing a public branch.
