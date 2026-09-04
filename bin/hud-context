@@ -32,8 +32,18 @@ tell application "System Events"
     set appName to name of frontApp
     set winTitle to ""
     try
-        set winTitle to name of front window of frontApp
+        -- AXFocusedWindow rather than `front window`. The Apple Events name is
+        -- empty for a lot of apps, Chrome among them, while the accessibility
+        -- title is the string actually painted in the title bar, which is the
+        -- one a person would use to say which document they mean.
+        set focusedWin to value of attribute "AXFocusedWindow" of frontApp
+        set winTitle to value of attribute "AXTitle" of focusedWin
     end try
+    if winTitle is "" then
+        try
+            set winTitle to name of front window of frontApp
+        end try
+    end if
     set selText to ""
     try
         set focused to value of attribute "AXFocusedUIElement" of frontApp
@@ -42,6 +52,32 @@ tell application "System Events"
 end tell
 return appName & linefeed & winTitle & linefeed & selText
 '''
+
+
+# Some apps do not answer accessibility queries about their own windows, Chrome
+# among them, and the ones that refuse are the ones people spend the most time
+# in. Asking the app directly through its own scripting dictionary needs no
+# Accessibility grant and gives a better answer anyway: for a browser, the page
+# you are looking at rather than the name of a window frame.
+BY_APP = {
+    "Google Chrome": 'tell application "Google Chrome" to return title of active tab of front window',
+    "Chromium": 'tell application "Chromium" to return title of active tab of front window',
+    "Safari": 'tell application "Safari" to return name of current tab of front window',
+    "Arc": 'tell application "Arc" to return title of active tab of front window',
+}
+
+
+def ask_app(app: str) -> str:
+    script = BY_APP.get(app)
+    if not script:
+        return ""
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script], capture_output=True, text=True, timeout=3
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
 
 
 def look() -> dict[str, str]:
@@ -65,6 +101,8 @@ def look() -> dict[str, str]:
     seen: dict[str, str] = {}
     if app:
         seen["app"] = app
+    if not title and app:
+        title = ask_app(app)
     if title:
         seen["window"] = title
     if selection:

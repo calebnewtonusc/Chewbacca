@@ -18,12 +18,16 @@ hud draw            read Bob Lines on stdin and draw them
 hud close <name>    take one surface off the screen
 hud clear           take everything off
 hud listen          hear what is said to it and draw the answer
+hud screen          the display size in points, for marker coordinates
 hud status          is the display running
 hud open            start the display
 
 Bob Lines, in full:
 
   @ <surface> [at=region] [w=380] [urgency=alert] [chrome=bare]
+  m <id> <x> <y> <w> <h> [label="..."] [tone=bad] [life=30]
+  u [<id>]
+  p <state> [amp=0.4]
   c <id> <Type> prop=value ...
   > <parent> <child> ...
   d /pointer <json>
@@ -64,6 +68,19 @@ case "${1:-}" in
           # the scriptable route and this is the blunt one.
           osascript -e 'tell application "System Events" to key code 53' 2>/dev/null || true ;;
   listen) shift; exec "$(dirname "$0")/hud-listen" "$@" ;;
+  screen)
+    # Points, not pixels.
+    #
+    # Every marker coordinate is in points, and on a Retina display that is half
+    # the number a screenshot reports. Getting this wrong puts a mark in the
+    # bottom right when it was meant to be in the middle, and the mistake looks
+    # like a bug in the display rather than in the arithmetic, so the size is
+    # printed rather than left to be guessed.
+    osascript <<'OSA'
+tell application "Finder" to set b to bounds of window of desktop
+return "screen: " & (item 3 of b) & " x " & (item 4 of b) & " points, top-left origin"
+OSA
+    ;;
   status) if running; then echo "running: $SOCK"; else echo "not running"; fi ;;
   open)   open -a BobHUD 2>/dev/null || { echo "BobHUD.app is not installed" >&2; exit 1; }
           for _ in 1 2 3 4 5 6 7 8 9 10; do running && break; sleep 0.3; done
