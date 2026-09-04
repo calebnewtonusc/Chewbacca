@@ -44,6 +44,10 @@ EOF
 Every line is one op. Nothing paints until `r`, and `c` and `>` may arrive in
 any order, so a child can be sent before its parent.
 
+Send `r` as soon as the Screen exists rather than at the end. Children that
+arrive after the root still land, so a stream that gets cut off has drawn
+something instead of nothing.
+
 ```
 @ <surface> [at=region] [w=points] [urgency=level] [chrome=kind]
 c <id> <Type> prop=value ...
