@@ -100,6 +100,20 @@ Optional:
   --composio-key <key>         Composio API key.
   --answers <file.json>        Read every value above from JSON instead.
 
+Who this install is for:
+  --profile <name>             personal   Claude for your life. No GitHub, no
+                                          repos, no stack rules, no coursework.
+                               student    personal plus the coursework ledger
+                                          and the study skills.
+                               developer  Everything. The default, and what
+                                          every previous version did.
+  --no-github                  Skip GitHub entirely. Your second brain stays a
+                               folder on this Mac. Implied by --profile personal
+                               and --profile student.
+  --full-send                  Alias for --bypass-permissions. Same effect,
+                               a name you can remember at the end of a pasted
+                               curl line.
+
 Behaviors, both off unless asked for:
   --session-opener <name>      Opens every response with a line you choose.
                                Shipped: prayer, gratitude. Default: none.
@@ -122,6 +136,7 @@ USAGE
 NAME=""; GITHUB_USER=""; REPO_DIR=""; ANTHROPIC_KEY=""; GITHUB_PAT=""
 TODOIST_TOKEN=""; COMPOSIO_URL=""; COMPOSIO_KEY=""; ANSWERS=""
 SESSION_OPENER="none"; BYPASS_PERMS="no"; ONLY=""; DRY_RUN=0
+PROFILE="developer"; NO_GITHUB=0
 # Only these reach settings.json, and only when passed here in this run.
 declare -a CREDS_WRITTEN=()
 
@@ -138,12 +153,24 @@ while [ $# -gt 0 ]; do
     --answers) ANSWERS="${2:-}"; shift 2 ;;
     --session-opener) SESSION_OPENER="${2:-none}"; shift 2 ;;
     --bypass-permissions) BYPASS_PERMS="yes"; shift ;;
+    --profile) PROFILE="${2:-developer}"; shift 2 ;;
+    --no-github) NO_GITHUB=1; shift ;;
+    --full-send) BYPASS_PERMS="yes"; shift ;;
     --only) ONLY="${2:-}"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) err "unknown argument: $1"; echo; usage; exit 2 ;;
   esac
 done
+
+# A profile is a set of defaults, not a separate code path. It decides what a
+# section does rather than whether the script runs, so every section stays
+# reachable with --only and the whole thing stays one file.
+case "$PROFILE" in
+  personal|student) NO_GITHUB=1 ;;
+  developer) ;;
+  *) err "unknown profile: $PROFILE (personal, student, developer)"; exit 2 ;;
+esac
 
 # The answers file fills anything a flag did not. Flags win, so a one-off
 # override never means editing the file.
@@ -210,6 +237,8 @@ should_run() { [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; }
 
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "Would run: ${ONLY:-all sections}"
+  echo "  profile:         $PROFILE"
+  echo "  github:          $([ "$NO_GITHUB" -eq 1 ] && echo "skipped, brain stays local" || echo "two repos created and pushed")"
   echo "  name:            ${USER_NAME:-<unset>}"
   echo "  repo dir:        $WORKSPACE_DIR"
   echo "  session opener:  $SESSION_OPENER"
@@ -254,10 +283,16 @@ if [ "$MISSING" -eq 1 ]; then
   exit 1
 fi
 
-if ! gh auth status &>/dev/null; then
+# Two hard exits used to live here, and together they were the reason someone
+# with a Claude subscription and no GitHub account could not run this at all.
+# Neither is needed unless we are actually going to create and push repos.
+if [ "$NO_GITHUB" -eq 0 ] && ! gh auth status &>/dev/null; then
   err "Not signed in to GitHub. This needs a browser, so it cannot run from here:"
   err "  gh auth login"
   err "Then re-run. ./bin/bootstrap.sh checks this too."
+  err ""
+  err "Or skip GitHub. Your second brain becomes a folder on this Mac:"
+  err "  ./setup.sh --profile personal --name <your name>"
   exit 1
 fi
 
@@ -269,12 +304,21 @@ gh auth setup-git &>/dev/null || true
 # fails with "Author identity unknown", both repos get created and pushed empty,
 # and the sync hook then fails silently forever because it swallows the error.
 # Catch it here where there is still someone at the keyboard to answer.
-if [ -z "$(git config --global user.name 2>/dev/null)" ] ||
+if [ "$NO_GITHUB" -eq 1 ]; then
+  # Nothing gets pushed on this path, so a missing identity costs nothing. Set
+  # a local one anyway if git is present, so the brain folder can still keep
+  # history for the user without ever asking them what an email address is for.
+  if command -v git &>/dev/null && [ -z "$(git config --global user.name 2>/dev/null)" ]; then
+    log "No git identity set, and none needed: nothing here is pushed anywhere"
+  fi
+elif [ -z "$(git config --global user.name 2>/dev/null)" ] ||
   [ -z "$(git config --global user.email 2>/dev/null)" ]; then
   err "No global git identity is set. Every commit this script makes would fail."
   err "Set one, then re-run:"
   err "  git config --global user.name \"Your Name\""
   err "  git config --global user.email \"you@example.com\""
+  err ""
+  err "Or skip GitHub entirely:  ./setup.sh --profile personal --name <your name>"
   exit 1
 else
   log "Git identity: $(git config --global user.name) <$(git config --global user.email)>"
@@ -318,20 +362,23 @@ sedi "s/YOUR_GITHUB_USERNAME/$GITHUB_USER/g" "$PC_DIR/YOU.md"
 log "Templates copied to $PC_DIR"
 
 echo ""
-echo "  Fill in YOU.md with your background, goals, and working style."
-echo "  Claude reads it at the start of every session."
+echo "  Claude reads YOU.md at the start of every session."
 echo ""
-PICKED_EDITOR=""
-for e in "${EDITOR:-}" nano vi; do
-  [ -n "$e" ] && command -v "${e%% *}" &>/dev/null && PICKED_EDITOR="$e" && break
-done
-if [ -n "$PICKED_EDITOR" ]; then
-  $PICKED_EDITOR "$PC_DIR/YOU.md" || true
+# This used to launch $EDITOR, falling back to nano and then vi, and block until
+# the file was closed. On a Mac with no EDITOR set that is vi, and someone who
+# has never seen vi cannot get out of it. The install appeared to hang, in a
+# text editor, with no instructions. Nothing here is worth that: Claude fills
+# this file in by asking, which is the whole design of the kit anyway.
+if [ "$PROFILE" = "developer" ] && [ -n "${EDITOR:-}" ] && command -v "${EDITOR%% *}" &>/dev/null; then
+  log "Opening YOU.md in $EDITOR"
+  $EDITOR "$PC_DIR/YOU.md" || true
 else
-  warn "No usable editor found. Fill in $PC_DIR/YOU.md by hand later."
+  log "YOU.md is a template. Ask Claude to fill it in with you."
 fi
 
-if gh repo view "$GITHUB_USER/$PERSONAL_REPO" &>/dev/null; then
+if [ "$NO_GITHUB" -eq 1 ]; then
+  log "Staying local: $PC_DIR is a folder on this Mac, not a repo"
+elif gh repo view "$GITHUB_USER/$PERSONAL_REPO" &>/dev/null; then
   warn "Repo $GITHUB_USER/$PERSONAL_REPO already exists, using existing"
 else
   gh repo create "$GITHUB_USER/$PERSONAL_REPO" \
@@ -348,8 +395,10 @@ fi
 
 cd "$PC_DIR"
 git init -q 2>/dev/null || true
-git remote remove origin 2>/dev/null || true
-git remote add origin "https://github.com/$GITHUB_USER/$PERSONAL_REPO.git"
+if [ "$NO_GITHUB" -eq 0 ]; then
+  git remote remove origin 2>/dev/null || true
+  git remote add origin "https://github.com/$GITHUB_USER/$PERSONAL_REPO.git"
+fi
 
 # This repo is private and personal. Keep OS cruft and any stray secret out of
 # it from the first commit, and stage by filename per .claude/rules/git.md
@@ -364,14 +413,25 @@ Thumbs.db
 GITIGNORE
 
 git add -- .gitignore YOU.md NOW.md PEOPLE.md SYSTEM.md STACK.md SCHOOL.md
-git diff --cached --quiet || git commit -q -m "init: $USER_NAME personal context"
-git branch -M main
-git push -u origin main -q 2>/dev/null || warn "Push failed, you may need to push manually"
-log "https://github.com/$GITHUB_USER/$PERSONAL_REPO"
+# A commit needs an identity. On the no-GitHub path we may not have one, and
+# asking for an email to make a local commit nobody will ever read is exactly
+# the kind of question this profile exists to delete.
+if [ -n "$(git config user.name 2>/dev/null)" ] || [ "$NO_GITHUB" -eq 0 ]; then
+  git diff --cached --quiet || git commit -q -m "init: $USER_NAME personal context"
+  git branch -M main
+fi
+if [ "$NO_GITHUB" -eq 1 ]; then
+  log "$PC_DIR"
+else
+  git push -u origin main -q 2>/dev/null || warn "Push failed, you may need to push manually"
+  log "https://github.com/$GITHUB_USER/$PERSONAL_REPO"
+fi
 fi
 
+# Skipped without GitHub: this one exists only to be a public repo, so there is
+# no local half of it worth writing.
 # ── Repo 2: claude-context (public) ──────────────────────────────────────────
-if should_run repos && [ -n "${USER_NAME:-}" ]; then
+if should_run repos && [ -n "${USER_NAME:-}" ] && [ "$NO_GITHUB" -eq 0 ]; then
 section "Creating claude-context (public operational rules)"
 
 CC_DIR="$WORKSPACE_DIR/claude-context"
@@ -1077,12 +1137,21 @@ cp "$SCRIPT_DIR/.claude/agents/"*.md   "$GLOBAL_CLAUDE/agents/"   2>/dev/null ||
 # never selected: picking one is a per-project choice made in /config.
 mkdir -p "$GLOBAL_CLAUDE/output-styles"
 cp "$SCRIPT_DIR/.claude/output-styles/"*.md "$GLOBAL_CLAUDE/output-styles/" 2>/dev/null || true
-cp "$SCRIPT_DIR/CLAUDE.md"             "$GLOBAL_CLAUDE/CLAUDE.md" 2>/dev/null || true
+# Which standards file lands here decides what every future session costs and
+# what it optimizes for. The developer one mandates Next.js, Tailwind, shadcn,
+# a design system and a deploy checklist, on every prompt including the ones
+# about someone's calendar. That is the right file for people who write code
+# and the wrong file for everyone else.
+case "$PROFILE" in
+  personal|student) STANDARDS="$SCRIPT_DIR/CLAUDE-PERSONAL.md" ;;
+  *)                STANDARDS="$SCRIPT_DIR/CLAUDE.md" ;;
+esac
+cp "$STANDARDS"                        "$GLOBAL_CLAUDE/CLAUDE.md" 2>/dev/null || true
 
 log "Commands installed to ~/.claude/commands/ ($(ls "$SCRIPT_DIR"/.claude/commands/*.md | wc -l | tr -d ' ') files)"
 log "Rules installed to ~/.claude/rules/ ($(ls "$SCRIPT_DIR"/.claude/rules/*.md | wc -l | tr -d ' ') files)"
 log "Subagents installed to ~/.claude/agents/ ($(ls "$SCRIPT_DIR"/.claude/agents/*.md | wc -l | tr -d ' ') agents)"
-log "CLAUDE.md installed to ~/.claude/CLAUDE.md"
+log "CLAUDE.md installed to ~/.claude/CLAUDE.md ($(basename "$STANDARDS"))"
 fi
 
 # ── Skills and plugins ────────────────────────────────────────────────────────
