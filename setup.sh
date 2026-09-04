@@ -458,7 +458,7 @@ Forked from [Chewbacca](https://github.com/calebnewtonusc/Chewbacca).
 
 - \`CLAUDE.md\`, full design system, behavioral rules, coding standards
 - \`.claude/commands/\`: 48 slash commands covering the dev lifecycle, coursework, and the weekly review
-- \`.claude/rules/\`: 6 always-on standards, imported by CLAUDE.md
+- \`.claude/rules/\`: 7 always-on standards, imported by CLAUDE.md
 - \`.claude/hooks/\`: PostToolUse formatters and linters
 
 ## How to use
