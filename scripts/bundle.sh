@@ -32,6 +32,12 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <!-- Accessory: no Dock icon, no app switcher entry, never steals focus. -->
   <key>LSUIElement</key>             <true/>
   <key>NSHighResolutionCapable</key> <true/>
+  <!-- Both are required before the frameworks will even prompt. Without them
+       the app is killed on the first call rather than being denied. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Bob HUD listens only while you hold the globe key, or on a wake word if you turn that on. Recognition runs on this Mac.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>Speech is turned into text on this Mac so you can ask for something without typing. Nothing is sent anywhere.</string>
 </dict>
 </plist>
 PLIST

@@ -13,10 +13,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var overlay: OverlayWindow?
     private var server: SocketServer?
     private var statusItem: NSStatusItem?
+    private var voiceMenu: NSMenu?
     private var hotKeyMonitor: Any?
     private var escMonitor: Any?
     private var mouseMonitor: Any?
     private var localMouseMonitor: Any?
+    private var flagsMonitor: Any?
+    private let voice = VoiceListener()
+    /// Whether the push-to-talk key is currently down, so a flags change that
+    /// does not involve it is ignored.
+    private var pushing = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let overlay = OverlayWindow(content: OverlayView(model: model))
@@ -35,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.server = server
 
         model.onEvent = { [weak server] event in server?.send(event.line) }
+        setUpVoice()
 
         do {
             try server.start()
@@ -45,7 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         server?.stop()
-        let monitors = [hotKeyMonitor, escMonitor, mouseMonitor, localMouseMonitor]
+        voice.setMode(.off)
+        let monitors = [hotKeyMonitor, escMonitor, mouseMonitor, localMouseMonitor, flagsMonitor]
         for monitor in monitors.compactMap({ $0 }) {
             NSEvent.removeMonitor(monitor)
         }
@@ -128,6 +136,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Hearing, and what to do about it.
+    ///
+    /// The listener is deliberately dumb: it produces text and a level and knows
+    /// nothing about surfaces or agents. This is where it becomes visible, and
+    /// the mapping is the whole design of the ring made concrete. Listening is
+    /// `attentive`, a raised level is `hearing`, and a finished sentence is
+    /// `thinking`, because from the person's side the request is now in flight
+    /// whether or not anything is actually listening on the other end of the
+    /// socket.
+    private func setUpVoice() {
+        voice.onSignal = { [weak self] signal in
+            Task { @MainActor in
+                guard let self else { return }
+                switch signal {
+                case .listening(let on):
+                    self.model.setPresence(on ? .attentive : .dormant, amplitude: 0)
+
+                case .level(let level):
+                    // Only claim to be hearing something above the noise floor.
+                    // A ring that reacts to a fan is a ring nobody believes.
+                    if level > 0.18 {
+                        self.model.setPresence(.hearing, amplitude: level)
+                    } else if self.model.presence == .hearing {
+                        self.model.setPresence(.attentive, amplitude: 0)
+                    }
+
+                case .heard(let text):
+                    self.model.setPresence(.thinking, amplitude: 0)
+                    self.model.onEvent?(.heard(text))
+
+                case .failed(let message):
+                    self.model.warn(message)
+                    self.model.setPresence(.failed, amplitude: 0)
+                }
+            }
+        }
+
+        // Hold the globe key to talk.
+        //
+        // `fn` rather than a letter combination because it is a modifier nobody
+        // else has claimed, it cannot collide with what you are typing into the
+        // app underneath, and holding it is a gesture rather than a shortcut to
+        // remember. Nothing is captured until it goes down.
+        flagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) {
+            [weak self] event in
+            let down = event.modifierFlags.contains(.function)
+            Task { @MainActor in
+                guard let self, self.voice.mode == .pushToTalk else { return }
+                if down && !self.pushing {
+                    self.pushing = true
+                    self.voice.beginPush()
+                } else if !down && self.pushing {
+                    self.pushing = false
+                    self.voice.endPush()
+                }
+            }
+        }
+    }
+
     private func updateInteractive() {
         overlay?.updateInteractive(surfaces: model.frames, mouse: NSEvent.mouseLocation)
     }
@@ -173,6 +240,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(clearItem)
         menu.addItem(.separator())
 
+        // Listening is off until asked for.
+        //
+        // A microphone that opens on first launch is the kind of thing that gets
+        // a tool uninstalled, however good its reasons. The menu is where the
+        // person decides, and the three options are honest about their cost.
+        let listening = NSMenuItem(title: "Listening", action: nil, keyEquivalent: "")
+        let listenMenu = NSMenu()
+        for (title, mode) in [
+            ("Off", VoiceListener.Mode.off),
+            ("Hold the globe key to talk", .pushToTalk),
+            ("Always, on a wake word", .wake),
+        ] {
+            let entry = NSMenuItem(
+                title: title, action: #selector(setListening(_:)), keyEquivalent: "")
+            entry.target = self
+            entry.representedObject = mode.rawValue
+            entry.state = voice.mode == mode ? .on : .off
+            listenMenu.addItem(entry)
+        }
+        listening.submenu = listenMenu
+        menu.addItem(listening)
+        voiceMenu = listenMenu
+        menu.addItem(.separator())
+
         let socket = NSMenuItem(title: SocketServer.defaultPath, action: nil, keyEquivalent: "")
         socket.isEnabled = false
         menu.addItem(socket)
@@ -182,6 +273,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         item.menu = menu
         statusItem = item
+    }
+
+    @objc private func setListening(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let mode = VoiceListener.Mode(rawValue: raw)
+        else { return }
+        voice.setMode(mode)
+        for entry in voiceMenu?.items ?? [] {
+            entry.state = (entry.representedObject as? String) == raw ? .on : .off
+        }
+        if mode == .off { model.setPresence(.dormant, amplitude: 0) }
     }
 
     @objc private func toggleFromMenu() { toggle() }

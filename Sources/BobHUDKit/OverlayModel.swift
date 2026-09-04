@@ -23,6 +23,10 @@ public struct OverlaySurface: Identifiable, Equatable {
     /// the surface is opened; the literal is here only because a default in a
     /// nonisolated struct cannot touch `NSScreen`.
     public var maxHeight: CGFloat = 620
+    /// When this panel takes itself down. Nil means it stays until closed,
+    /// which is the default: a panel someone asked for should not vanish while
+    /// they are reading it.
+    public var expires: Date?
 
     /// The usable height of the display, less the margins the layout keeps.
     ///
@@ -36,7 +40,7 @@ public struct OverlaySurface: Identifiable, Equatable {
 
     public static func == (a: OverlaySurface, b: OverlaySurface) -> Bool {
         a.id == b.id && a.region == b.region && a.slot == b.slot
-            && a.width == b.width && a.drag == b.drag && a.urgency == b.urgency && a.chrome == b.chrome
+            && a.width == b.width && a.drag == b.drag && a.urgency == b.urgency && a.chrome == b.chrome && a.expires == b.expires
     }
 }
 
@@ -59,6 +63,8 @@ public final class OverlayModel {
     /// Cancels the self-demote when the state changes before its patience runs
     /// out, which is the normal case.
     @ObservationIgnored private var patienceTask: Task<Void, Never>?
+    /// Retires expired marks. Nil when nothing on screen can expire.
+    @ObservationIgnored private var sweepTask: Task<Void, Never>?
 
     /// Measured heights, reported by each card once laid out, so stacking uses
     /// real sizes rather than a guess.
@@ -66,7 +72,7 @@ public final class OverlayModel {
 
     public init() {}
 
-    public var isEmpty: Bool { surfaces.isEmpty }
+    public var isEmpty: Bool { surfaces.isEmpty && markers.isEmpty }
 
     /// True when something on the glass outranks the person having hidden it.
     ///
@@ -79,14 +85,27 @@ public final class OverlayModel {
 
     public func apply(_ op: Op) {
         switch op {
-        case .surface(let id, let region, let width, let urgency, let chrome):
+        case .surface(let id, let region, let width, let urgency, let chrome, let life):
             current = id
             open(
                 id, region: region, width: width.map { CGFloat($0) },
-                urgency: urgency, chrome: chrome)
+                urgency: urgency, chrome: chrome, life: life)
 
         case .presence(let state, let amplitude):
             setPresence(state, amplitude: amplitude)
+
+        case .mark(let id, let rect, let label, let tone, let life):
+            mark(id: id, rect: rect, label: label, tone: tone, life: life)
+
+        case .unmark(let id):
+            if id.isEmpty {
+                markers = []
+            } else {
+                markers.removeAll { $0.id == id }
+            }
+            sweepTask?.cancel()
+            sweepTask = nil
+            revision += 1
 
         case .close(let id):
             close(id)
@@ -107,6 +126,17 @@ public final class OverlayModel {
     /// in the menu. Connecting does not do this, because a surface has to
     /// outlive the connection that drew it for anything to be able to change it
     /// later.
+    /// Marks drawn on the screen itself, newest last.
+    public private(set) var markers: [Marker] = []
+
+    /// The most marks the layer will hold at once.
+    ///
+    /// Twelve, the same cap the spec puts on the annotation layer and for a
+    /// sharper reason than it puts on panels: past a dozen outlines a screen is
+    /// not annotated, it is hatched, and nothing stands out because everything
+    /// does.
+    public static let maxMarkers = 12
+
     /// What the assistant is doing, and how loud the person is talking.
     public private(set) var presence: Presence = .dormant
     public private(set) var amplitude: Double = 0
@@ -139,7 +169,68 @@ public final class OverlayModel {
         }
     }
 
+    /// Put a mark up, or refresh one that is already there.
+    ///
+    /// Refreshing rather than duplicating is what makes tracking possible: an
+    /// agent watching something move re-sends the same id with a new rectangle
+    /// and the mark follows, instead of leaving a trail of stale outlines.
+    public func mark(
+        id: String, rect: CGRect, label: String, tone: String?, life: Double?
+    ) {
+        // `life=0` pins it. Anything else, including an omitted value, expires.
+        let expires: Date? = (life == 0)
+            ? nil
+            : Date().addingTimeInterval(life ?? Marker.defaultLife)
+        let marker = Marker(id: id, rect: rect, label: label, tone: tone, expires: expires)
+
+        if let index = markers.firstIndex(where: { $0.id == id }) {
+            markers[index] = marker
+        } else {
+            markers.append(marker)
+            if markers.count > Self.maxMarkers { markers.removeFirst() }
+        }
+        revision += 1
+        startSweep()
+    }
+
+    /// Retire marks as they expire.
+    ///
+    /// One timer for the whole layer rather than one per mark: a dozen timers
+    /// firing independently is a dozen redraws of the same view, and this runs
+    /// on somebody's real machine while they work.
+    private func startSweep() {
+        guard sweepTask == nil else { return }
+        sweepTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard let self else { return }
+                let now = Date()
+                let before = self.markers.count
+                self.markers.removeAll { marker in
+                    guard let expires = marker.expires else { return false }
+                    return expires <= now
+                }
+                // Panels expire on the same sweep rather than a second timer.
+                let surfacesBefore = self.surfaces.count
+                self.surfaces.removeAll { surface in
+                    guard let expires = surface.expires else { return false }
+                    return expires <= now
+                }
+                if self.surfaces.count != surfacesBefore { self.relayout() }
+                if self.markers.count != before { self.revision += 1 }
+                if self.markers.allSatisfy({ $0.expires == nil })
+                    && self.surfaces.allSatisfy({ $0.expires == nil }) {
+                    self.sweepTask = nil
+                    return
+                }
+            }
+        }
+    }
+
     public func reset() {
+        markers = []
+        sweepTask?.cancel()
+        sweepTask = nil
         presence = .dormant
         patienceTask?.cancel()
         surfaces = []
@@ -194,7 +285,7 @@ public final class OverlayModel {
     @discardableResult
     private func open(
         _ id: String, region: Region?, width: CGFloat?,
-        urgency: Urgency?, chrome: Chrome?
+        urgency: Urgency?, chrome: Chrome?, life: Double? = nil
     ) -> OverlaySurface {
         if let index = surfaces.firstIndex(where: { $0.id == id }) {
             // Moving or resizing an open surface mid-stream is a normal ask.
@@ -202,9 +293,11 @@ public final class OverlayModel {
             if let region { existing.region = region }
             if let urgency { existing.urgency = urgency }
             if let chrome { existing.chrome = chrome }
+            if let life { existing.expires = life == 0 ? nil : Date().addingTimeInterval(life) }
             existing.maxHeight = OverlaySurface.ceiling
             if let width { existing.width = width }
             surfaces[index] = existing
+            if existing.expires != nil { startSweep() }
             relayout()
             return existing
         }
@@ -219,8 +312,10 @@ public final class OverlayModel {
             width: width ?? (urgency == .critical ? 420 : 380),
             slot: 0, depth: nextDepth, drag: .zero,
             urgency: urgency ?? .normal, chrome: chrome ?? .card,
-            maxHeight: OverlaySurface.ceiling)
+            maxHeight: OverlaySurface.ceiling,
+            expires: life.map { $0 == 0 ? .distantFuture : Date().addingTimeInterval($0) })
         surfaces.append(surface)
+        if surface.expires != nil { startSweep() }
         // Drop the oldest rather than refusing the newest: the one just asked
         // for is the one the person is looking for.
         if surfaces.count > Self.maxSurfaces {
