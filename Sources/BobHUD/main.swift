@@ -54,7 +54,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handle(_ event: SocketServer.Event) {
         switch event.kind {
         case .began:
-            model.reset()
+            // A new connection does *not* clear the glass.
+            //
+            // It used to, on the reasoning that two agents drawing at once is a
+            // race and the last one in should win. That was wrong once surfaces
+            // became addressable by name: every sentence you say to an agent is
+            // a new connection, so wiping on connect meant a panel could never
+            // survive long enough to be updated, and "change that chart" always
+            // came out as "draw a new chart from nothing".
+            //
+            // Named surfaces settle the race on their own. Two agents writing to
+            // different names cannot collide, and two writing to the same name
+            // were always going to fight whatever this did. Clearing stays
+            // available and stays deliberate: `- <surface>`, Escape, or the menu.
             overlay?.show()
 
         case .line(let line):

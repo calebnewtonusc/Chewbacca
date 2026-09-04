@@ -76,6 +76,12 @@ public struct SurfaceView: View {
             return data(p, type: element.type)
         case "Sparkline", "Bars", "Ring", "Events":
             return chart(p, type: element.type)
+        case "Diagram":
+            return AnyView(
+                DiagramView(
+                    parts: p["parts"]?.arrayValue ?? [],
+                    aspect: p["aspect"]?.doubleValue ?? 2,
+                    tone: HUD.tone(p["tone"]?.stringValue)))
         default:
             return control(element, p)
         }

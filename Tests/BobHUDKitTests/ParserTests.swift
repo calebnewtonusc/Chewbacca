@@ -316,7 +316,7 @@ struct UrgencyTests {
     @Test("a surface carries an urgency when one is given")
     func parsesUrgency() throws {
         let op = try #require(try LineParser.parse("@ alarm at=center urgency=critical"))
-        guard case .surface(let id, let region, _, let urgency) = op else {
+        guard case .surface(let id, let region, _, let urgency, _) = op else {
             Issue.record("expected a surface op")
             return
         }
@@ -328,7 +328,7 @@ struct UrgencyTests {
     @Test("an unknown urgency is dropped rather than guessed")
     func rejectsUnknownUrgency() throws {
         let op = try #require(try LineParser.parse("@ p urgency=extremely"))
-        guard case .surface(_, _, _, let urgency) = op else {
+        guard case .surface(_, _, _, let urgency, _) = op else {
             Issue.record("expected a surface op")
             return
         }
@@ -341,5 +341,39 @@ struct UrgencyTests {
         #expect(!Urgency.alert.breaksThrough)
         #expect(!Urgency.normal.breaksThrough)
         #expect(!Urgency.ambient.breaksThrough)
+    }
+}
+
+@Suite("Chrome")
+struct ChromeTests {
+    @Test("a surface can ask for no window around it")
+    func parsesChrome() throws {
+        let op = try #require(try LineParser.parse("@ figure chrome=bare"))
+        guard case .surface(_, _, _, _, let chrome) = op else {
+            Issue.record("expected a surface op")
+            return
+        }
+        #expect(chrome == .bare)
+    }
+
+    @Test("an omitted chrome is nil, so re-addressing keeps what the surface had")
+    func omittedChromeIsNil() throws {
+        let op = try #require(try LineParser.parse("@ figure"))
+        guard case .surface(_, let region, _, let urgency, let chrome) = op else {
+            Issue.record("expected a surface op")
+            return
+        }
+        // All three nil is what lets `@ figure` mean "that panel again" rather
+        // than "put that panel back to defaults".
+        #expect(region == nil)
+        #expect(urgency == nil)
+        #expect(chrome == nil)
+    }
+
+    @Test("only a card paints a background")
+    func onlyCardIsFilled() {
+        #expect(Chrome.card.isFilled)
+        #expect(!Chrome.bare.isFilled)
+        #expect(!Chrome.bracket.isFilled)
     }
 }

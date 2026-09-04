@@ -49,7 +49,7 @@ public struct OverlayView: View {
                     .zIndex(Double(surface.depth))
             }
         }
-        .animation(.spring(response: 0.42, dampingFraction: 0.78), value: model.revision)
+        .animation(.spring(response: 0.30, dampingFraction: 0.80), value: model.revision)
         .ignoresSafeArea()
     }
 }
@@ -134,50 +134,7 @@ struct SurfaceCard: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                ZStack {
-                    // Dark and translucent: the wallpaper and windows underneath
-                    // stay legible, and light text reads as emitted rather than
-                    // printed.
-                    VisualEffect(material: .hudWindow, blending: .behindWindow)
-                    // Deep enough to read as a HUD over a *light* window too.
-                    //
-                    // At 0.36 the card was a pale grey rectangle over a white
-                    // editor, because a vibrancy material samples what is behind
-                    // it and there was not enough ink on top to win.
-                    Color.black.opacity(0.62)
-
-                    // A wash of the accent from the top edge, as if lit from the
-                    // hairline above it.
-                    LinearGradient(
-                        colors: [HUD.accent.opacity(0.16), .clear],
-                        startPoint: .top, endPoint: .center)
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(alignment: .top) {
-                // The light source. One bright hairline, brightest in the middle,
-                // which is what makes the whole card look lit instead of drawn.
-                LinearGradient(
-                    colors: [.clear, HUD.accent.opacity(0.85), .clear],
-                    startPoint: .leading, endPoint: .trailing)
-                    .frame(height: 1)
-                    .opacity(lit ? 1 : 0)
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                HUD.accent.opacity(0.34),
-                                .white.opacity(0.07),
-                                .clear,
-                            ],
-                            startPoint: .top, endPoint: .bottom),
-                        lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(0.55), radius: 26, y: 12)
-            .shadow(color: HUD.accent.opacity(0.14), radius: 18)
+            .modifier(SurfaceChrome(chrome: surface.chrome, lit: lit))
             .overlay(alignment: .topTrailing) {
                 CloseButton(action: onDismiss)
                     .padding(9)
@@ -211,13 +168,157 @@ struct SurfaceCard: View {
             .task {
                 // The hairline strikes just after the card lands, so arriving
                 // reads as powering on rather than appearing.
-                try? await Task.sleep(for: .milliseconds(90))
-                withAnimation(.easeOut(duration: 0.5)) { lit = true }
+                try? await Task.sleep(for: .milliseconds(50))
+                withAnimation(.easeOut(duration: 0.28)) { lit = true }
             }
             // Force dark regardless of the system appearance: a light HUD over a
             // dark desktop is a white rectangle, and there is no version of that
             // which looks like anything but a bug.
             .environment(\.colorScheme, .dark)
+    }
+}
+
+/// The three ways a surface can meet the screen.
+///
+/// Split out of `SurfaceCard` because it is the part that varies, and because a
+/// `@ViewBuilder` switch over three chromes inside the card's own body put the
+/// same exponential type-checking cost back that splitting `SurfaceView` had
+/// just removed.
+struct SurfaceChrome: ViewModifier {
+    let chrome: Chrome
+    let lit: Bool
+
+    func body(content: Content) -> some View {
+        switch chrome {
+        case .card: return AnyView(card(content))
+        case .bare: return AnyView(bare(content))
+        case .bracket: return AnyView(bracket(content))
+        }
+    }
+
+    /// Glass, a lit hairline, and its own pool of shadow.
+    private func card(_ content: Content) -> some View {
+        content
+            // Glass is blur plus a light edge, not a dark ramp.
+            //
+            // The first version washed an accent gradient down from the top
+            // edge and tinted the whole card, which is the look of a 2010
+            // button rather than of frosted material. What actually reads as
+            // glass is three things and none of them is a gradient fill: enough
+            // backdrop blur to abstract what is behind, a flat wash dark enough
+            // to hold white text, and a hairline along the lit edge.
+            .background {
+                ZStack {
+                    VisualEffect(material: .hudWindow, blending: .behindWindow)
+                    // Flat. Deep enough to read over a white editor, where a
+                    // vibrancy material alone samples the page and goes pale.
+                    Color.black.opacity(0.55)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                // The inner light. One hairline inside the top edge, the way a
+                // real pane catches the light above it, and a border that fades
+                // as it comes down and away from that light.
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                .white.opacity(0.28),
+                                .white.opacity(0.10),
+                                .white.opacity(0.04),
+                            ],
+                            startPoint: .top, endPoint: .bottom),
+                        lineWidth: 0.75)
+            }
+            .overlay(alignment: .top) {
+                // The accent, kept to a short segment rather than the full
+                // width, so it reads as a light source and not as a rule.
+                LinearGradient(
+                    colors: [.clear, HUD.accent.opacity(0.9), .clear],
+                    startPoint: .leading, endPoint: .trailing)
+                    .frame(height: 1)
+                    .padding(.horizontal, 28)
+                    .opacity(lit ? 1 : 0)
+            }
+            .shadow(color: .black.opacity(0.5), radius: 30, y: 14)
+    }
+
+    /// Nothing behind it.
+    ///
+    /// The legibility problem a background solves has to be solved some other
+    /// way, and the way is a halo: two black shadows on the content itself. A
+    /// shadow follows the alpha of what it is applied to, so this darkens the
+    /// screen in the shape of the glyphs and the strokes and nowhere else. A
+    /// figure keeps its own outline instead of arriving inside a slab.
+    private func bare(_ content: Content) -> some View {
+        content
+            // Five passes, tight to wide. Three was not enough over a white
+            // document: the tight ones draw the outline that separates a glyph
+            // from the page, and the wide ones darken enough ground around the
+            // figure that it stops competing with the text underneath it.
+            //
+            // This is the honest limit of doing it without reading the screen.
+            // A real heads-up display measures the luminance behind itself and
+            // flips its ink; doing that here means capturing what is below the
+            // window, which costs a screen-recording permission that a panel
+            // this small has no business asking for yet.
+            // Two tight passes and nothing wide.
+            //
+            // Five stacked shadows out to a 22-point radius did hold contrast
+            // and looked like a smudge: a grey cloud around the figure, with
+            // the page still readable through it. Contrast is the drawing's own
+            // job now (shapes fill near-black, free text carries a plate), so
+            // this only has to draw the outline that keeps a bright stroke off
+            // a bright background.
+            .shadow(color: .black.opacity(0.9), radius: 0.5)
+            .shadow(color: .black.opacity(0.55), radius: 2.5)
+    }
+
+    /// Corner brackets, no fill.
+    ///
+    /// Marks a region rather than covering one, which is what the film's HUD
+    /// does around anything it is paying attention to.
+    private func bracket(_ content: Content) -> some View {
+        content
+            // A thin scrim rather than glass. Enough to hold contrast, not
+            // enough to read as a window: the brackets are what marks the
+            // region, and the fill only has to keep the text off the wallpaper.
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(.black.opacity(0.72))
+                    .padding(-8)
+            }
+            .overlay { Brackets(lit: lit) }
+    }
+}
+
+/// Four corner marks, drawn as one shape so they animate together.
+struct Brackets: View {
+    let lit: Bool
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            let arm: CGFloat = 14
+            Path { path in
+                for corner in [
+                    (CGPoint(x: 0, y: 0), CGSize(width: 1, height: 1)),
+                    (CGPoint(x: size.width, y: 0), CGSize(width: -1, height: 1)),
+                    (CGPoint(x: 0, y: size.height), CGSize(width: 1, height: -1)),
+                    (CGPoint(x: size.width, y: size.height), CGSize(width: -1, height: -1)),
+                ] {
+                    let (origin, direction) = corner
+                    path.move(to: CGPoint(x: origin.x + arm * direction.width, y: origin.y))
+                    path.addLine(to: origin)
+                    path.addLine(to: CGPoint(x: origin.x, y: origin.y + arm * direction.height))
+                }
+            }
+            .stroke(HUD.accent.opacity(lit ? 0.9 : 0.3), lineWidth: 1.5)
+            .shadow(color: HUD.accent.opacity(0.6), radius: 4)
+        }
+        .padding(-6)
+        .animation(.easeOut(duration: 0.5), value: lit)
     }
 }
 
