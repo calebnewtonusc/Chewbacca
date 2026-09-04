@@ -1211,12 +1211,14 @@ function git(args, opts = {}) {
 }
 
 // For probes where a non-zero exit is a normal answer rather than a problem,
-// and git's own stderr would only confuse the person reading it.
+// and git's own stderr would only confuse the person reading it. Keeps stderr
+// so the caller can tell WHICH failure happened.
 function gitQuiet(args) {
   try {
-    return { ok: true, out: git(args, { stdio: ["ignore", "pipe", "ignore"] }) };
-  } catch {
-    return { ok: false, out: "" };
+    return { ok: true, out: git(args, { stdio: ["ignore", "pipe", "pipe"] }), err: "" };
+  } catch (e) {
+    const err = [e && e.stderr, e && e.stdout].filter(Boolean).join("\n");
+    return { ok: false, out: "", err: String(err || (e && e.message) || "") };
   }
 }
 
@@ -1255,9 +1257,13 @@ function cmdSync(argv) {
       say(c.grn("pulled"));
     } else {
       die(
-        "Pull was not a fast-forward. The database is a binary file, so git cannot merge it.\n" +
-          "Whichever machine has the newer data should push with --force, and the other should\n" +
-          "reset to it. This is the cost of syncing a database through git.",
+        "Pull was not a fast-forward, so both sides have changes.\n" +
+          "  The database is binary, so git cannot merge them: one side has to win.\n\n" +
+          "  See what differs first:  people sync diff\n\n" +
+          "  Take the remote and lose local edits:\n" +
+          `    git -C ${DIR} fetch origin && git -C ${DIR} reset --hard origin/${branch}\n\n` +
+          "  Keep local and overwrite the remote:\n" +
+          `    git -C ${DIR} push --force origin ${branch}`,
       );
     }
     return;
@@ -1273,13 +1279,52 @@ function cmdSync(argv) {
     git(["commit", "-q", "-m", `people: ${n} people, ${nowISO().slice(0, 10)}`]);
     const branch = git(["rev-parse", "--abbrev-ref", "HEAD"]) || "main";
     const pushed = gitQuiet(["push", "origin", `${branch}:${branch}`]);
-    if (!pushed.ok)
+    if (!pushed.ok) {
+      // The likely failure is not an unreachable remote, it is the other
+      // machine having pushed first. Saying "check you can reach it" sends
+      // someone to debug their network when their data is the problem.
+      if (/non-fast-forward|rejected|fetch first|behind/i.test(pushed.err))
+        die(
+          "Another machine pushed first, so this push was rejected.\n" +
+            "  The commit is safe here. The database is binary, so git cannot merge\n" +
+            "  the two: one side has to win, and you have to pick which.\n\n" +
+            "  Keep what is on the remote and lose the edits made here:\n" +
+            `    git -C ${DIR} fetch origin && git -C ${DIR} reset --hard origin/${branch}\n\n` +
+            "  Keep what is here and overwrite the remote:\n" +
+            `    git -C ${DIR} push --force origin ${branch}\n\n` +
+            "  Not sure? Read both first:  people sync diff",
+        );
       die(
         "Push failed, but the commit is safe on this machine.\n" +
-          "  Check the remote exists and you can reach it:\n" +
-          `    git -C ${DIR} push origin ${branch}`,
+          `  ${pushed.err.split("\n").find((l) => l.trim()) || "no detail from git"}\n` +
+          `  Retry by hand with:  git -C ${DIR} push origin ${branch}`,
       );
+    }
     say(c.grn("pushed") + c.dim(`  ${n} people`));
+    return;
+  }
+
+  // The .db is binary and unreadable in a diff, but `sync push` exports markdown
+  // beside it, and that IS readable. So when the two machines disagree, compare
+  // the exports: it answers "what would I lose" in the only terms that matter.
+  if (sub === "diff") {
+    const branch = git(["rev-parse", "--abbrev-ref", "HEAD"]) || "main";
+    if (!gitQuiet(["fetch", "origin", branch]).ok)
+      die("Could not reach the remote to compare against.");
+    const ahead = gitQuiet(["rev-list", "--count", `origin/${branch}..HEAD`]).out || "0";
+    const behind = gitQuiet(["rev-list", "--count", `HEAD..origin/${branch}`]).out || "0";
+    say("");
+    say(`  here has  ${c.b(ahead)} commit(s) the remote does not`);
+    say(`  remote has ${c.b(behind)} commit(s) this machine does not`);
+    if (ahead === "0" && behind === "0") return say(c.grn("\n  in step\n"));
+    const d2 = gitQuiet(["diff", "--stat", `origin/${branch}...HEAD`, "--", "export"]);
+    if (d2.out) {
+      say("\n" + c.cyn("  what differs, in the readable export"));
+      for (const line of d2.out.split("\n")) say("    " + line);
+    } else {
+      say(c.dim("\n  no differences in the exported markdown"));
+    }
+    say("");
     return;
   }
 
@@ -1301,7 +1346,7 @@ function cmdSync(argv) {
     return;
   }
 
-  die("people sync [init <url>|push|pull|status]");
+  die("people sync [init <url>|push|pull|diff|status]");
 }
 
 // ---------------------------------------------------------------- misc
@@ -1830,7 +1875,7 @@ const HELP = `${c.b("people")} ${c.dim("- everything you know about the people i
   ${c.b("people score")}
 
   ${c.b("people export")} [--out DIR]        markdown you can read
-  ${c.b("people sync")} init <private-git-url> | push | pull | status
+  ${c.b("people sync")} init <private-git-url> | push | pull | diff | status
   ${c.b("people check")} | ${c.b("people stats")}
 
 ${c.dim("flags on note:")}

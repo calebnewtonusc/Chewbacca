@@ -208,6 +208,33 @@ def scan(text, chat=False):
     return min(int(round(score)), 100), findings
 
 
+CODE_SUFFIXES = {
+    ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".py", ".rb", ".go", ".rs",
+    ".java", ".c", ".h", ".cc", ".cpp", ".hpp", ".swift", ".kt", ".php", ".pl",
+    ".sh", ".bash", ".zsh", ".fish", ".sql", ".css", ".scss", ".html", ".xml",
+    ".json", ".yml", ".yaml", ".toml", ".ini", ".lock",
+}
+
+
+def is_code(path, text):
+    """True when this is source, not prose.
+
+    Extension first, then a shebang, then a density test for extensionless
+    files like `bin/people`. The density test looks for lines ending in a
+    brace or semicolon, which is rare in English and constant in code.
+    """
+    if path.suffix.lower() in CODE_SUFFIXES:
+        return True
+    head = text[:200].lstrip()
+    if head.startswith("#!"):
+        return True
+    lines = [ln.rstrip() for ln in text.split("\n") if ln.strip()]
+    if len(lines) < 20:
+        return False
+    codey = sum(1 for ln in lines if ln.endswith((";", "{", "}", ");", "):", "*/")))
+    return codey / len(lines) > 0.15
+
+
 def main():
     ap = argparse.ArgumentParser(prog="slop-check")
     ap.add_argument("files", nargs="*")
@@ -226,6 +253,7 @@ def main():
     targets = []
     if a.stdin or not a.files:
         targets.append(("<stdin>", sys.stdin.read()))
+
     # A directory means every markdown file under it, worst first. ai-scan has
     # always taken directories and this did not, which made it the awkward one
     # to reach for and impossible to use as a CI gate.
@@ -240,10 +268,21 @@ def main():
             paths.append(pth)
     for pth in paths:
         try:
-            targets.append((str(pth), pth.read_text(encoding="utf-8", errors="replace")))
+            text = pth.read_text(encoding="utf-8", errors="replace")
         except OSError as e:
             print(f"slop-check: {e}", file=sys.stderr)
             return 2
+        # A source file scored as prose is noise, not a finding. `if (x) {` on
+        # its own line reads as a one-line paragraph to a rhythm detector, so a
+        # clean program can score worse than genuinely bad writing. Naming the
+        # file explicitly should not defeat that: say why it was skipped, so it
+        # does not look like the file passed.
+        if is_code(pth, text):
+            print(f"  --  {pth}  skipped (source code, not prose)")
+            continue
+        targets.append((str(pth), text))
+    if not targets:
+        return 0
 
     worst, out = 0, []
     for name, text in targets:
