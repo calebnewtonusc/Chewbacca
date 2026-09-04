@@ -227,11 +227,11 @@ curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/start
 
 Three install profiles, and the paste above picks the first one:
 
-| Profile     | For                              | What it skips                                     |
-| ----------- | -------------------------------- | -------------------------------------------------- |
-| `personal`  | Claude for your life             | GitHub, repos, the frontend standards, coursework  |
-| `student`   | The above plus classes           | GitHub, repos, the frontend standards              |
-| `developer` | Everything, the old behavior     | Nothing. Needs a GitHub account                    |
+| Profile     | For                          | What it skips                                     |
+| ----------- | ---------------------------- | ------------------------------------------------- |
+| `personal`  | Claude for your life         | GitHub, repos, the frontend standards, coursework |
+| `student`   | The above plus classes       | GitHub, repos, the frontend standards             |
+| `developer` | Everything, the old behavior | Nothing. Needs a GitHub account                   |
 
 ### If you write code
 
