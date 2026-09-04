@@ -261,6 +261,8 @@ else
   # already here, so telling them to go open Claude is nonsense. Tell the agent
   # what to do next instead.
   echo "  Claude: setup is done. Do not list what was installed. Read their real"
-  echo "  calendar or contacts now and tell them something true about their week,"
+  echo "  calendar and contacts now and tell them something true about their week,"
   echo "  then ask what they want help with and save the answer to their brain."
+  echo "  Then load the life-context skill and follow it. Do not ask them to"
+  echo "  describe themselves."
 fi

@@ -105,6 +105,36 @@ honest, sourced, and correct when written. `stale.sh` and the `Checked` columns 
 enforcement. Do not remove them from a kit because the domain "does not have numbers."
 Every domain has facts that go stale.
 
+## The bar is not "a kit," it is these two
+
+**apply-kit and accommodations-kit.** Every floor in the checker is measured from the
+weaker of them, so meeting it is not aspirational.
+
+```
+sh tools/kit-check.sh
+```
+
+Nineteen checks. **Zero failures or it does not ship.** Both reference kits pass all
+nineteen clean; a fresh clone of the template fails five.
+
+The check people try hardest to argue around is the domain tool. If you believe your
+domain has no arithmetic, look harder. Days between dates, totals of a column, counts of
+anything. apply-kit counts words because a model cannot. accommodations-kit checks whether
+a letter was actually delivered and whether a booking window is closing, which is the
+entire failure it exists to prevent.
+
+Then read `STANDARD.md` and answer its four questions out loud, because they are what
+actually separate a good kit from a folder of markdown that passes nineteen checks:
+
+1. Would a tired person at 11pm answer your opening question, or close the terminal?
+2. Do your interview questions get at something nobody has ever asked them?
+3. Does the kit sit where people actually fail, or where the process starts? Almost nobody
+   fails at registration.
+4. If the agent followed rule 4 exactly, would the kit still be worth opening?
+
+**A kit that passes nineteen checks and fails those four is worse than one that fails a
+check and passes them.**
+
 ## Before handing it to anybody
 
 ```

@@ -22,9 +22,14 @@
 >    their account. It is their Mac login password.
 >
 > When it finishes, do not list what was installed. Use it. Read their real
-> calendar or contacts and tell them something true about their week, so the
+> calendar and contacts and tell them something true about their week, so the
 > first thing they see is the thing working. Then ask what they want help with
 > and write their answer into their second brain.
+>
+> After that, load the `life-context` skill and follow it. It is how you get to
+> know them without handing them a blank page, and it is the difference between
+> a tool they configured once and one that knows things. Do not ask them to
+> describe themselves.
 >
 > If a step fails, run `chewbacca doctor`, read it, and fix what it names.
 > Do not ask them to fix it themselves.
@@ -228,7 +233,7 @@ it off is `--session-opener none`. To write your own, add it to `OPENERS` in
 | Piece                   | Details                                                                                                                                            |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **macOS tools**         | 8 installed alongside the kit: Anki, bd, mac, Maccy, mac-use, peekaboo, summarize, yt-transcript                                                   |
-| **Skills and plugins**  | 65 skills (9 shipped here, 3 cloned from upstream, 53 from 1 skill pack) plus 18 plugins across 3 marketplaces                                     |
+| **Skills and plugins**  | 66 skills (10 shipped here, 3 cloned from upstream, 53 from 1 skill pack) plus 18 plugins across 3 marketplaces                                    |
 | **Second brain**        | A private notes repo Claude reads at the start of every session and writes to as things change. Syncs to GitHub                                    |
 | **Coursework ledger**   | Your syllabi become deadlines, attendance budgets, and a per-course AI policy Claude checks before touching graded work                            |
 | **On-device dictation** | Installs [Plynn](https://github.com/31Carlton7/plynn): hold fn, talk, and clean text appears. Speech and cleanup run on your Mac, nothing uploaded |
@@ -766,6 +771,7 @@ fires, which is the thing that matters most.
 | [skills/coursework](skills/coursework)                                                                    | Skill  | Your syllabi as a ledger: deadlines, attendance math, per-course AI policy                     |
 | [skills/graph-engineering](skills/graph-engineering)                                                      | Skill  | Knowledge graphs and agent task graphs, with teaching mode                                     |
 | [skills/kit-builder](skills/kit-builder)                                                                  | Skill  | Building a kit for a long bureaucratic process, and the test for when not to                   |
+| [skills/life-context](skills/life-context)                                                                | Skill  | Learning about someone without handing them a blank page                                       |
 | [skills/life-ops](skills/life-ops)                                                                        | Skill  | The weekly review, life admin with real deadlines, and what to cut                             |
 | [skills/second-brain](skills/second-brain)                                                                | Skill  | Reading, writing, and auditing your personal context repo                                      |
 | [skills/setup](skills/setup)                                                                              | Skill  | Installing the kit by conversation instead of a terminal questionnaire                         |
@@ -976,6 +982,7 @@ Chewbacca/
 │   ├── ai-scan                  # Scores prose for AI-writing tells, no model
 │   ├── skill-scan               # Scores skills on whether they will fire, no model
 │   ├── secret-scan              # Finds credentials committed as literals, no model
+│   ├── ingest                   # Strips an export down to what an agent can read
 │   ├── coursework               # Reads the semester ledger: due, attendance, grades, ics
 │   ├── mac-use                  # CLI for macOS-use, which ships none upstream
 │   ├── mac_use_claude.py        # Runs mac-use on the Claude CLI, no API key

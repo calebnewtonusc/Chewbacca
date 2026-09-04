@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+"""Turn a pile of someone's files into something an agent can actually read.
+
+The point is cognitive load. "Tell Claude about yourself" is a blank page, and
+a blank page is the most expensive thing you can hand a person. Exporting a
+folder is not: they click three times in Google Drive, get a zip in Downloads,
+and say "here". This does the rest.
+
+    ingest ~/Downloads/drive-export.zip
+    ingest ~/Documents/notes
+    ingest ~/Downloads/takeout.zip --out ~/brain/inbox
+
+What it does, in order:
+
+  1. Unpacks a zip to a temp directory, or walks a folder in place.
+  2. Skips what an agent cannot use: photos, video, audio, binaries, and
+     anything over the size limit. A 2GB Drive export is mostly pixels.
+  3. Converts what it can. .docx and .pdf become text when the tooling is
+     there, and are listed as skipped when it is not.
+  4. Writes a MANIFEST.md: what was found, what was skipped, and why.
+
+It never sends anything anywhere and it never deletes the original.
+"""
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import zipfile
+from pathlib import Path
+
+# Anything an agent can read as prose or data.
+TEXT_EXT = {
+    ".md", ".markdown", ".txt", ".rtf", ".csv", ".tsv", ".json", ".yaml", ".yml",
+    ".html", ".htm", ".xml", ".org", ".tex", ".log", ".ics", ".vcf",
+}
+# Worth converting if the tooling exists.
+CONVERT_EXT = {".pdf", ".docx", ".doc", ".pptx", ".xlsx", ".epub"}
+# Never worth carrying. This is the bulk of any real export.
+SKIP_EXT = {
+    ".jpg", ".jpeg", ".png", ".gif", ".heic", ".webp", ".tiff", ".bmp", ".svg",
+    ".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v",
+    ".mp3", ".wav", ".m4a", ".aac", ".flac",
+    ".zip", ".tar", ".gz", ".dmg", ".pkg", ".app", ".exe", ".bin", ".iso",
+    ".sqlite", ".db", ".psd", ".ai", ".sketch", ".fig",
+}
+SKIP_DIRS = {".git", "node_modules", "__MACOSX", ".Trash", "Library", ".venv", "venv"}
+
+DEFAULT_MAX_MB = 5
+
+
+def human(n: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f}{unit}" if unit == "B" else f"{n/1:.1f}{unit}"
+        n /= 1024
+    return f"{n}B"
+
+
+def convert(src: Path, dest: Path) -> bool:
+    """Best effort. A missing converter is a skip, never a crash."""
+    ext = src.suffix.lower()
+    try:
+        if ext == ".pdf" and shutil.which("pdftotext"):
+            subprocess.run(["pdftotext", "-q", str(src), str(dest)],
+                           check=True, timeout=60)
+            return dest.exists()
+        if ext in {".docx", ".doc", ".pptx", ".epub", ".rtf"} and shutil.which("textutil"):
+            # textutil ships with macOS, so this covers the common case with no
+            # install step at all.
+            subprocess.run(["textutil", "-convert", "txt", "-output", str(dest), str(src)],
+                           check=True, timeout=60, capture_output=True)
+            return dest.exists()
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        return False
+    return False
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Prepare files for an agent to read.")
+    ap.add_argument("source", help="a .zip file or a folder")
+    ap.add_argument("--out", default=None, help="where to write (default: alongside the source)")
+    ap.add_argument("--max-mb", type=float, default=DEFAULT_MAX_MB,
+                    help=f"skip files larger than this (default {DEFAULT_MAX_MB})")
+    args = ap.parse_args()
+
+    source = Path(args.source).expanduser()
+    if not source.exists():
+        print(f"not found: {source}", file=sys.stderr)
+        return 1
+
+    out = Path(args.out).expanduser() if args.out else source.parent / f"{source.stem}-readable"
+    out.mkdir(parents=True, exist_ok=True)
+
+    tmp = None
+    if source.is_file() and source.suffix.lower() == ".zip":
+        tmp = Path(tempfile.mkdtemp(prefix="ingest-"))
+        try:
+            with zipfile.ZipFile(source) as z:
+                z.extractall(tmp)
+        except zipfile.BadZipFile:
+            print(f"not a readable zip: {source}", file=sys.stderr)
+            return 1
+        root = tmp
+    elif source.is_dir():
+        root = source
+    else:
+        print(f"give me a folder or a .zip, not {source.suffix or 'that'}", file=sys.stderr)
+        return 1
+
+    max_bytes = int(args.max_mb * 1024 * 1024)
+    kept, converted, skipped = [], [], {}
+
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+        for name in filenames:
+            if name.startswith("."):
+                continue
+            src = Path(dirpath) / name
+            ext = src.suffix.lower()
+            try:
+                size = src.stat().st_size
+            except OSError:
+                continue
+
+            if ext in SKIP_EXT:
+                skipped.setdefault("media or binary", []).append(name)
+                continue
+            if size > max_bytes:
+                skipped.setdefault(f"larger than {args.max_mb}MB", []).append(f"{name} ({human(size)})")
+                continue
+
+            rel = src.relative_to(root)
+            target = out / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+
+            if ext in TEXT_EXT or ext == "":
+                shutil.copy2(src, target)
+                kept.append(str(rel))
+            elif ext in CONVERT_EXT:
+                txt = target.with_suffix(".txt")
+                if convert(src, txt):
+                    converted.append(str(rel))
+                else:
+                    skipped.setdefault("no converter installed", []).append(name)
+            else:
+                skipped.setdefault("unreadable file type", []).append(name)
+
+    total_skipped = sum(len(v) for v in skipped.values())
+    lines = [
+        "# What is in here",
+        "",
+        f"Source: `{source}`",
+        f"Readable files: **{len(kept) + len(converted)}**  ",
+        f"Skipped: **{total_skipped}**",
+        "",
+        "Photos, video, audio and anything oversized were left behind on purpose:",
+        "an agent cannot read them and they are the bulk of any real export.",
+        "",
+    ]
+    if kept:
+        lines += ["## Text files", ""] + [f"- `{k}`" for k in sorted(kept)[:200]]
+        if len(kept) > 200:
+            lines.append(f"- ...and {len(kept) - 200} more")
+        lines.append("")
+    if converted:
+        lines += ["## Converted to text", ""] + [f"- `{c}`" for c in sorted(converted)[:100]]
+        lines.append("")
+    if skipped:
+        lines += ["## Skipped", ""]
+        for reason, names in sorted(skipped.items()):
+            lines.append(f"**{reason}**: {len(names)} file(s)")
+            for n in sorted(names)[:8]:
+                lines.append(f"  - {n}")
+            if len(names) > 8:
+                lines.append(f"  - ...and {len(names) - 8} more")
+            lines.append("")
+
+    (out / "MANIFEST.md").write_text("\n".join(lines), encoding="utf-8")
+    if tmp:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    print(f"{len(kept) + len(converted)} readable file(s) in {out}")
+    print(f"{total_skipped} skipped (media, binaries, oversized)")
+    print(f"Start with {out}/MANIFEST.md")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

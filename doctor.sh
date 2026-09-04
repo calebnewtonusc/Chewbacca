@@ -331,6 +331,19 @@ if command -v kits &>/dev/null; then
       fi
     done
     [ "$STUCK" = "0" ] && ok "no half-filled .kit markers"
+
+    # The bar is apply-kit and accommodations-kit, and it decays quietly if
+    # nothing re-measures it.
+    BELOW=0
+    for kd in $(kits --paths 2>/dev/null); do
+      [ -x "$kd/tools/kit-check.sh" ] || [ -f "$kd/tools/kit-check.sh" ] || continue
+      grep -q '^status: template' "$kd/.kit" 2>/dev/null && continue
+      if ! sh "$kd/tools/kit-check.sh" "$kd" >/dev/null 2>&1; then
+        warn "$(basename "$kd") is below the kit standard (run tools/kit-check.sh in it)"
+        BELOW=1
+      fi
+    done
+    [ "$BELOW" = "0" ] && ok "every kit meets the standard"
   else
     warn "no kits built yet (the kit-builder skill builds one when a process earns it)"
   fi
