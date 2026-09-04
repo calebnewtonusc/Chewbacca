@@ -544,3 +544,46 @@ struct RegionTests {
                 != OutboundEvent.heard("g 0 0 1 1"))
     }
 }
+
+@Suite("Decay")
+@MainActor
+struct DecayTests {
+    @Test("a surface with a lifetime takes itself down")
+    func surfaceExpires() async throws {
+        let model = OverlayModel()
+        model.apply(try #require(try LineParser.parse("@ toast at=top life=0.3")))
+        model.apply(try #require(try LineParser.parse("c s Screen title=\"HI\"")))
+        model.apply(try #require(try LineParser.parse("r s")))
+        #expect(model.surfaces.count == 1)
+        try await Task.sleep(for: .milliseconds(1200))
+        #expect(model.surfaces.isEmpty)
+    }
+
+    @Test("taking one marker down does not stop everything else expiring")
+    func unmarkKeepsTheSweepRunning() async throws {
+        // This was a real bug: unmark cancelled the sweep unconditionally, so
+        // removing one mark froze every other mark and every surface with a
+        // lifetime on screen forever.
+        let model = OverlayModel()
+        model.apply(try #require(try LineParser.parse("m a 0 0 10 10 life=0.3")))
+        model.apply(try #require(try LineParser.parse("m b 0 0 10 10 life=0.3")))
+        model.apply(try #require(try LineParser.parse("@ toast at=top life=0.3")))
+        model.apply(try #require(try LineParser.parse("c s Screen title=\"HI\"")))
+        model.apply(try #require(try LineParser.parse("r s")))
+
+        model.apply(try #require(try LineParser.parse("u a")))
+        #expect(model.markers.count == 1)
+
+        try await Task.sleep(for: .milliseconds(1200))
+        #expect(model.markers.isEmpty)
+        #expect(model.surfaces.isEmpty)
+    }
+
+    @Test("life=0 pins a marker")
+    func pinned() async throws {
+        let model = OverlayModel()
+        model.apply(try #require(try LineParser.parse("m pin 0 0 10 10 life=0")))
+        try await Task.sleep(for: .milliseconds(900))
+        #expect(model.markers.count == 1)
+    }
+}
