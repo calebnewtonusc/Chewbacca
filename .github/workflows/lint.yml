@@ -102,6 +102,12 @@ jobs:
           # Nine skills had evals and nothing ever ran them. Twelve had none.
           python3 tools/evals.py
 
+      - name: Checksums cover what actually runs
+        run: |
+          # A lockfile for the executable surface. If a script changed and this
+          # did not, the committed checksums are already lying.
+          python3 tools/checksums.py --check
+
       - name: README counts match the tree
         run: |
           # The README said 42 skills, the tree had 21, and doctor reported 79.

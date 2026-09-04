@@ -13,11 +13,17 @@ real commit; nothing here is written by hand.
 ### Fixed
 - hud-listen did not parse
 
+### Changed
+- the hud skill declares the tool it needs
+- notice the same person twice, and merge them without losing anything
+- regenerate the README counts
+
 ### Documentation
 - an index, a troubleshooting page, and five things that did not exist
 - the component reference is generated from the catalog
 
 ### Other
+- install: stop destroying a CLAUDE.md somebody wrote by hand
 - 1000: regenerate the status file
 - 1000: a status file generated from the commit log, and twelve corrections
 - skills: declare the tools they promise, and doctor reads the declaration

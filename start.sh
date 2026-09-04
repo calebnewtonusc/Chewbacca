@@ -22,6 +22,7 @@ set -uo pipefail
 
 REPO="calebnewtonusc/Chewbacca"
 BRANCH="main"
+REF=""
 HOME_DIR="$HOME/.chewbacca"
 BIN_DIR="$HOME/.local/bin"
 
@@ -31,6 +32,9 @@ DRY_RUN=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --full-send) FULL_SEND=1; shift ;;
+    # Pin the install. Without this, everyone gets whatever landed on main an
+    # hour ago, and "which version am I running" has no answer.
+    --version|--ref) REF="${2:-}"; shift 2 ;;
     --profile)   PROFILE="${2:-personal}"; shift 2 ;;
     --dry-run)   DRY_RUN=1; shift ;;
     -h|--help)
@@ -163,9 +167,16 @@ if [ -d "$HOME_DIR" ]; then
 fi
 
 mkdir -p "$HOME_DIR"
-TARBALL="https://codeload.github.com/$REPO/tar.gz/refs/heads/$BRANCH"
+# A tag if one was asked for, main otherwise. A tag is the reproducible
+# install: two people running the same --version get the same tree.
+if [ -n "$REF" ]; then
+  TARBALL="https://codeload.github.com/$REPO/tar.gz/refs/tags/$REF"
+  work "pinned to $REF"
+else
+  TARBALL="https://codeload.github.com/$REPO/tar.gz/refs/heads/$BRANCH"
+fi
 if ! curl -fsSL --max-time 120 "$TARBALL" | tar -xz -C "$HOME_DIR" --strip-components=1; then
-  bad "Download failed."
+  bad "Download failed.${REF:+ Is $REF a real tag?}"
   if [ -d "$HOME_DIR.previous" ]; then
     rm -rf "$HOME_DIR"
     mv "$HOME_DIR.previous" "$HOME_DIR"
@@ -175,6 +186,29 @@ if ! curl -fsSL --max-time 120 "$TARBALL" | tar -xz -C "$HOME_DIR" --strip-compo
 fi
 rm -rf "$HOME_DIR.previous"
 chmod +x "$HOME_DIR"/*.sh "$HOME_DIR"/bin/* 2>/dev/null || true
+
+# Verify what was just downloaded against the checksums committed in the repo.
+# It does not defend against a compromised repo, and it is not pretending to:
+# it catches a truncated download, a proxy that rewrote something, and a
+# mirror that is not what it claims. What it actually buys is written down in
+# docs/THREAT-MODEL.md.
+if [ -f "$HOME_DIR/SHA256SUMS.txt" ] && command -v shasum >/dev/null 2>&1; then
+  MISMATCH=0
+  while IFS= read -r line; do
+    want="${line%% *}"
+    file="${line##* }"
+    [ -f "$HOME_DIR/$file" ] || continue
+    got="$(shasum -a 256 "$HOME_DIR/$file" | cut -d" " -f1)"
+    [ "$want" = "$got" ] || { MISMATCH=$((MISMATCH+1)); echo "      changed: $file"; }
+  done < "$HOME_DIR/SHA256SUMS.txt"
+  if [ "$MISMATCH" -eq 0 ]; then
+    ok "$(wc -l < "$HOME_DIR/SHA256SUMS.txt" | tr -d " ") files match their checksums"
+  else
+    bad "$MISMATCH file(s) do not match the committed checksums."
+    echo "      Stopping. Report this: https://github.com/$REPO/issues"
+    exit 1
+  fi
+fi
 ok "$HOME_DIR"
 
 # `chewbacca` on PATH, so update, doctor, and uninstall are one word each and
