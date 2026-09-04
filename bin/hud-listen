@@ -246,6 +246,18 @@ class Listener:
         # is a race with a visible symptom, and the person only asked once.
         if self.busy:
             self.log("busy, dropped:", said)
+            # Say so on the glass. Dropping a request in silence is the same
+            # failure as having nothing connected: the person cannot tell
+            # whether they were heard, so they say it again, and now there are
+            # two queued requests neither of which they wanted.
+            for line in (
+                "@ busy at=top w=380 life=4",
+                'c bs Screen title="STILL WORKING"',
+                "r bs",
+                'c bt Text value="One thing at a time. Ask again when this finishes." tone=muted',
+                "> bs bt",
+            ):
+                self.send(line)
             return
         self.busy = True
         threading.Thread(target=self._ask, args=(said,), daemon=True).start()
