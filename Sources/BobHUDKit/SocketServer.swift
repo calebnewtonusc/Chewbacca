@@ -12,9 +12,18 @@ import Foundation
 /// connection is what lets an agent ask a question, draw the options, and find
 /// out which one was picked, without a second transport or a polling loop.
 ///
-/// One connection at a time, deliberately. Two agents drawing to the same panel
-/// simultaneously is a race with a visible symptom, so a second connection
-/// replaces the first and the surface resets.
+/// Several connections at once, because the design needs it.
+///
+/// This used to accept one client and then block reading it until it hung up,
+/// which quietly broke the whole system the moment anything stayed connected. A
+/// listening loop holds its connection open for the life of the session, so with
+/// one running, every `hud draw` sat in the accept queue and drew nothing: no
+/// error, no timeout, just a command that appeared to succeed and did nothing.
+///
+/// Each connection now gets its own reader, and events go to all of them. The
+/// race that the single-client rule was guarding against is settled by surfaces
+/// being addressable by name: two writers to different names cannot collide, and
+/// two writers to the same name were always going to fight whatever this did.
 public final class SocketServer: @unchecked Sendable {
     public struct Event: Sendable {
         public enum Kind: Sendable {
@@ -31,10 +40,15 @@ public final class SocketServer: @unchecked Sendable {
     private var listenFD: Int32 = -1
     private let queue = DispatchQueue(label: "bob.hud.socket")
 
-    /// Guards `clientFD`, which the socket thread sets and the main actor writes.
+    /// Guards `clients`, which reader threads mutate and the main actor reads.
     private let lock = NSLock()
-    private var clientFD: Int32 = -1
+    private var clients: Set<Int32> = []
     private var running = false
+
+    /// One queue per connection, so a slow reader cannot stall the others or
+    /// the accept loop.
+    private let readers = DispatchQueue(
+        label: "bob.hud.socket.readers", attributes: .concurrent)
 
     public init(path: String, onEvent: @escaping @Sendable (Event) -> Void) {
         self.path = path
@@ -57,20 +71,29 @@ public final class SocketServer: @unchecked Sendable {
     @discardableResult
     public func send(_ line: String) -> Bool {
         lock.lock()
-        let fd = clientFD
+        let targets = clients
         lock.unlock()
-        guard fd >= 0 else { return false }
+        guard !targets.isEmpty else { return false }
 
         let payload = line.hasSuffix("\n") ? line : line + "\n"
-        return payload.withCString { pointer in
+        var delivered = false
+        for fd in targets {
+            if write(payload, to: fd) { delivered = true }
+        }
+        return delivered
+    }
+
+    /// Write one payload to one client, reporting whether it landed.
+    private func write(_ payload: String, to fd: Int32) -> Bool {
+        payload.withCString { pointer in
             let length = strlen(pointer)
             var written = 0
             while written < length {
                 // MSG_NOSIGNAL is not available on Darwin, so SIGPIPE is
                 // disabled per socket at accept time instead.
-                let n = Darwin.send(fd, pointer + written, length - written, 0)
-                if n <= 0 { return false }
-                written += n
+                let sent = Foundation.send(fd, pointer + written, length - written, 0)
+                if sent <= 0 { return false }
+                written += sent
             }
             return true
         }
@@ -124,7 +147,7 @@ public final class SocketServer: @unchecked Sendable {
         // Only the user who owns it may draw on their own screen.
         chmod(path, 0o600)
 
-        guard listen(listenFD, 4) == 0 else {
+        guard listen(listenFD, 16) == 0 else {
             close(listenFD)
             throw NSError(
                 domain: NSPOSIXErrorDomain, code: Int(errno),
@@ -138,8 +161,11 @@ public final class SocketServer: @unchecked Sendable {
     public func stop() {
         running = false
         lock.lock()
-        if clientFD >= 0 { close(clientFD) }
-        clientFD = -1
+        // Closing each client's descriptor is what unblocks its reader: `recv`
+        // returns 0 and the reader unwinds. Without this, quitting would leave
+        // a thread parked on a socket that nobody was ever going to write to.
+        for fd in clients { close(fd) }
+        clients.removeAll()
         lock.unlock()
         if listenFD >= 0 { close(listenFD) }
         listenFD = -1
@@ -162,19 +188,21 @@ public final class SocketServer: @unchecked Sendable {
             setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
 
             lock.lock()
-            let previous = clientFD
-            clientFD = fd
+            clients.insert(fd)
             lock.unlock()
-            if previous >= 0 { close(previous) }
 
             onEvent(Event(kind: .began))
-            read(fd)
-
-            lock.lock()
-            if clientFD == fd { clientFD = -1 }
-            lock.unlock()
-            close(fd)
-            onEvent(Event(kind: .ended))
+            // Read on its own queue. Doing it here is what made the accept loop
+            // serial: a client that stays connected blocked every later one.
+            readers.async { [weak self] in
+                guard let self else { return }
+                self.read(fd)
+                self.lock.lock()
+                self.clients.remove(fd)
+                self.lock.unlock()
+                close(fd)
+                self.onEvent(Event(kind: .ended))
+            }
         }
     }
 
