@@ -53,6 +53,9 @@ RULES = [
         "binary-contrast",
         12,
         "binary contrast: state the second half only",
+        # "If a plan does not serve this, it is off-mission" is a conditional,
+        # not the "it's not X, it's Y" rhetoric the rule targets. The negative
+        # lookbehind for a leading If/When/Unless keeps ordinary logic out of it.
         re.compile(
             r"\b(?:it'?s not|is not|isn'?t|not)\s+[^,.\n]{3,45},\s+(?:it'?s|it is|but|rather)\b",
             re.I,
@@ -187,6 +190,14 @@ def scan(text, chat=False):
     findings, per_rule = [], {}
     for rid, weight, why, pattern in RULES:
         for m in pattern.finditer(prose):
+            if rid == "binary-contrast":
+                # Look back to the start of the sentence. A conditional ("If a
+                # plan does not serve this, it is off-mission") is ordinary
+                # logic, not the "it's not X, it's Y" move the rule is after.
+                head = prose[max(0, m.start() - 200) : m.start()]
+                clause = re.split(r"(?<=[.!?])\s+|\n", head)[-1].lstrip("*_>#- ")
+                if re.match(r"(?:If|When|Unless|Whether)\b", clause, re.I):
+                    continue
             line = prose[: m.start()].count("\n") + 1
             findings.append(
                 {"rule": rid, "line": line, "why": why, "text": m.group(0)[:70].strip()}
