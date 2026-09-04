@@ -1,0 +1,28 @@
+code: TEST 101
+title: "Fixture Course"
+term: Fall 2026
+syllabus: "tests/fixtures/course.yml"
+notes: >-
+  A fixture, not a real class. The attendance budget is deliberately absent so
+  `coursework check` has something real to find.
+
+meets:
+  - { days: [Mon, Wed], start: "10:00", end: "11:20", room: "Room 1", label: lecture }
+
+policies:
+  ai: "AI is banned on all graded work in this fixture course."
+  late: "10% per day."
+
+absences:
+  allowed: null
+  used: 0
+  penalty: "unknown"
+
+grading_model: weighted
+grading:
+  - { name: "Assignments", weight: 60 }
+  - { name: "Final", weight: 40 }
+
+deliverables:
+  - { name: "Fixture Assignment", due: 2027-05-01, type: assignment, status: todo, weight: 20, source: "fixture" }
+  - { name: "Fixture Final", due: 2027-05-15, type: exam, status: todo, weight: 40, source: "fixture" }

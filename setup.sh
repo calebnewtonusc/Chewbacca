@@ -220,8 +220,13 @@ fi
 WORKSPACE_DIR="${REPO_DIR:-$HOME/dev}"
 WORKSPACE_DIR="${WORKSPACE_DIR/#\~/$HOME}"
 case "$WORKSPACE_DIR" in /*) ;; *) WORKSPACE_DIR="$PWD/$WORKSPACE_DIR" ;; esac
-mkdir -p "$WORKSPACE_DIR"
-WORKSPACE_DIR="$(cd "$WORKSPACE_DIR" && pwd)"
+# A dry run must not touch the disk. This mkdir ran before the dry-run branch,
+# so `--dry-run --repo-dir /somewhere` created /somewhere and then printed that
+# it would not do anything.
+if [ "$DRY_RUN" -eq 0 ]; then
+  mkdir -p "$WORKSPACE_DIR"
+  WORKSPACE_DIR="$(cd "$WORKSPACE_DIR" && pwd)"
+fi
 
 # --only runs one section. Everything here is written to be safe to repeat, so
 # a run that died halfway, or a tool that arrived after the first run, is one
