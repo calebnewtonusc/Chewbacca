@@ -42,6 +42,7 @@ COMMANDS=(
   "update|pull the latest, show what changed, re-run setup"
   "changelog|what changed between versions"
   "skills|list, search, or show a skill"
+  "commands|list, search, or show a slash command"
   "why|which rule or skill governs a behavior"
   "log|what the kit has done recently"
   "bench|time the things that run on every session"
@@ -150,6 +151,10 @@ status)
 skills)
   shift
   run bin/lib/skills.sh "$@"
+  ;;
+commands)
+  shift
+  run bin/lib/commands.sh "$@"
   ;;
 why)
   shift
