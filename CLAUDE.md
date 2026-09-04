@@ -536,7 +536,10 @@ not as a last resort.
 
 | Need                                  | Command                                       |
 | ------------------------------------- | --------------------------------------------- |
+| Read the screen as text, not pixels   | `chewie see --app Safari`                       |
 | See what an app or window looks like  | `peekaboo image --app Safari --path shot.png` |
+| Run a multi-step task as a real plan  | `chewie plan run plan.json`                     |
+| The morning brief                     | `chewie brief`                                  |
 | Click, type, or drive a menu          | `peekaboo click "Sign In"`, `peekaboo type`   |
 | Get the gist of a URL, video, or file | `summarize "<url>" --cli claude`              |
 | Drive a Mac app from one instruction  | `mac-use "open Calculator and add 5 and 4"`   |

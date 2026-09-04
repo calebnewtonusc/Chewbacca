@@ -194,10 +194,15 @@ Two honest limits to state when it comes up:
 - **A flat line usually means missing evidence, not a flat relationship.** The
   curve is only as good as what has been written down. Check the observation
   count in the footer before reading anything into the shape.
-- **Warmth needs interactions.** It decays from the last logged contact, so it
-  reads as zero for anyone whose interactions were never logged or synced.
-  `people texts sync --days 3200` backfills years of iMessage history and makes
-  the warmth curve real.
+- **Warmth needs message history.** It decays from the last contact as of each
+  point on the curve, taking the later of a logged interaction and a synced
+  message. Someone whose texts were never imported reads as flat zero.
+  `people texts sync --days 3200` backfills the full archive; on a real machine
+  that is around 500k messages and takes under a minute.
+- **Standing and warmth answer different questions.** Warmth moves every time
+  they talk. Standing only moves when something gets written down, so it stays
+  flat for people with no observations no matter how close they are. `trend`
+  ranks on both together for that reason.
 
 Three things this does not do, which you should say plainly rather than fake:
 

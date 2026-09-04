@@ -784,8 +784,19 @@ function historyCtx() {
          JOIN observation_dimensions od ON od.observation_id = o.id
         WHERE o.person_id = ? AND o.deleted_at IS NULL AND o.observed_at <= ?`,
     ),
+    // Last contact as of a date. The interactions table only ever holds ONE row
+    // per person (their most recent), so on its own it cannot answer "were you
+    // in touch in 2023" and every warmth curve would read as a single step from
+    // 0 to 1. The messages table has every timestamp, so ask both and take the
+    // later. Falls back cleanly for anyone who has only hand-logged contact.
     intFor: d.prepare(
-      "SELECT max(happened_at) AS t FROM interactions WHERE person_id = ? AND happened_at <= ?",
+      `SELECT max(t) AS t FROM (
+         SELECT max(happened_at) AS t FROM interactions
+          WHERE person_id = ?1 AND happened_at <= ?2
+         UNION ALL
+         SELECT max(sent_at) AS t FROM messages
+          WHERE person_id = ?1 AND sent_at <= ?2
+       )`,
     ),
     cntFor: d.prepare(
       "SELECT count(*) AS n FROM observations WHERE person_id = ? AND deleted_at IS NULL AND observed_at <= ?",
@@ -810,9 +821,10 @@ function sparkline(vals) {
   if (!vals.length) return "";
   const lo = Math.min(...vals), hi = Math.max(...vals);
   const span = hi - lo;
-  return vals
-    .map((v) => SPARK[span < 1e-9 ? 3 : Math.min(7, Math.floor(((v - lo) / span) * 7.999))])
-    .join("");
+  // A flat series is either flat-at-something or flat-at-nothing, and drawing
+  // both at mid-height makes "no evidence" look like "steady".
+  if (span < 1e-9) return SPARK[hi < 1e-9 ? 0 : 3].repeat(vals.length);
+  return vals.map((v) => SPARK[Math.min(7, Math.floor(((v - lo) / span) * 7.999))]).join("");
 }
 
 function arrow(delta) {
@@ -865,6 +877,8 @@ function cmdHistory(argv) {
   say("");
 }
 
+const P_TREND_WARMTH = 1;
+
 function cmdTrend(argv) {
   const { flags } = parseArgs(argv);
   const days = Number(flags.days || 90);
@@ -885,8 +899,13 @@ function cmdTrend(argv) {
   if (!rows.length) {
     return say(c.dim(`\n  nothing has moved measurably in ${days} days.\n`));
   }
-  const up = rows.filter((r) => r.d > 0).sort((a, b) => b.d - a.d).slice(0, limit);
-  const down = rows.filter((r) => r.d < 0).sort((a, b) => a.d - b.d).slice(0, limit);
+  // Split on standing AND warmth together. Standing moves only when something
+  // gets written down, warmth moves every time you talk, so ranking on standing
+  // alone hides everyone you have simply stopped talking to, which is the whole
+  // question this command exists to answer.
+  const move = (r) => r.d + r.w * (P_TREND_WARMTH ?? 1);
+  const up = rows.filter((r) => move(r) > 0).sort((a, b) => move(b) - move(a)).slice(0, limit);
+  const down = rows.filter((r) => move(r) < 0).sort((a, b) => move(a) - move(b)).slice(0, limit);
 
   if (flags.json) return say(JSON.stringify({ days, warming: up, cooling: down }, null, 2));
 
@@ -894,7 +913,10 @@ function cmdTrend(argv) {
     if (!list.length) return;
     say("\n" + c.b(title));
     for (const r of list) {
-      say(`  ${r.name.padEnd(22)} ${r.from.toFixed(2)} → ${r.to.toFixed(2)}  ${arrow(r.d)} ${(r.d >= 0 ? "+" : "") + r.d.toFixed(2)}`);
+      const w = (r.w >= 0 ? "+" : "") + r.w.toFixed(2);
+      say(
+        `  ${r.name.slice(0, 24).padEnd(25)} ${c.dim("standing")} ${r.from.toFixed(2)} → ${r.to.toFixed(2)} ${arrow(r.d)}   ${c.dim("warmth")} ${w} ${arrow(r.w)}`,
+      );
     }
   };
   say(c.dim(`\n  movement over the last ${days} days`));
@@ -2791,11 +2813,28 @@ function cmdTexts(argv) {
     let added = 0,
       maxId = seen,
       unlinked = new Map();
+
+    // resolvePerson runs a LIKE scan over every contact, and a full backfill
+    // asks the same question 600k times for a few thousand distinct threads.
+    // Cache by thread so each one is resolved once.
+    const pidCache = new Map();
+    const resolveCached = (who, handle) => {
+      const key = (handle || "") + "\u0000" + (who || "");
+      if (pidCache.has(key)) return pidCache.get(key);
+      const pid = resolvePerson(who, handle);
+      pidCache.set(key, pid);
+      return pid;
+    };
+
+    // One transaction. Without it SQLite commits and fsyncs per row, which
+    // turns a backfill from seconds into half an hour.
+    d.exec("BEGIN");
+    try {
     for (const r of rows) {
       if (r.reaction || r.attachment_only) continue; // "Loved an image" is not a conversation
       const body = String(r.text || "").trim();
       if (!body) continue;
-      const pid = resolvePerson(r.with, r.handle);
+      const pid = resolveCached(r.with, r.handle);
       const res = ins.run(
         r.id,
         pid,
@@ -2811,6 +2850,11 @@ function cmdTexts(argv) {
         if (!pid) unlinked.set(r.with, (unlinked.get(r.with) || 0) + 1);
       }
       if (r.id > maxId) maxId = r.id;
+    }
+      d.exec("COMMIT");
+    } catch (e) {
+      d.exec("ROLLBACK");
+      throw e;
     }
     // Link the backlog too. Insert-time linking alone means any message that
     // arrived before its contact existed stays orphaned forever, which is the
