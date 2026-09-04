@@ -2,6 +2,7 @@
 name: hud
 description: Draw live interfaces on the screen over everything else, with no browser and no window. Use when the user asks to see something rather than be told it, says show me, put that on screen, pull up, or asks for a dashboard, chart, diagram, or status display. Also use to update or animate something already on screen, and to take it down when they are done.
 license: MIT
+requires: [hud]
 ---
 
 # The display
