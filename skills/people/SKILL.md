@@ -142,7 +142,10 @@ Three things this does not do, which you should say plainly rather than fake:
   `people rank --dim financial` for that question instead.
 - **Syncing a database through git is a compromise.** The `.db` is binary, so
   git cannot merge it. Editing on two machines without pulling first means one
-  side wins. Pull before you write.
+  side has to win. Pull before you write. When both sides have already moved,
+  `people sync diff` compares the exported markdown, which is readable even
+  though the database is not, and the error tells you the two commands that
+  resolve it.
 - **No integrations.** Nothing reads their LinkedIn, Instagram, or X. Contact
   import is macOS Contacts, vCard, or CSV, and everything else is written by
   them or by you.
