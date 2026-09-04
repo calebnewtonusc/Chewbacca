@@ -26,6 +26,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -125,6 +126,15 @@ class Listener:
         # the first request rather than staying the same.
         self.session = str(uuid.uuid4())
         self.started = False
+
+        # The last region the person pointed at, and when.
+        #
+        # Deixis has a short half-life. Pointing at something and asking about
+        # it thirty seconds later is a coincidence, not a reference, and
+        # attaching a stale region to an unrelated question is worse than
+        # attaching none: it sends the model somewhere confidently wrong.
+        self.region: tuple[int, int, int, int] | None = None
+        self.region_at = 0.0
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.lock = threading.Lock()
         self.busy = False
@@ -179,6 +189,15 @@ class Listener:
             except json.JSONDecodeError:
                 return
             self.ask(said)
+        elif line.startswith("g "):
+            parts = line.split()
+            if len(parts) == 5:
+                try:
+                    self.region = tuple(int(p) for p in parts[1:])  # type: ignore[assignment]
+                    self.region_at = time.monotonic()
+                    self.log("pointing at", self.region)
+                except ValueError:
+                    pass
         elif line.startswith("e "):
             # A control was used. Same path: the press is a request in words.
             parts = line.split(None, 2)
@@ -193,6 +212,18 @@ class Listener:
             return
         self.busy = True
         threading.Thread(target=self._ask, args=(said,), daemon=True).start()
+
+    # Thirty seconds. Long enough to point, think, and speak; short enough that
+    # an unrelated question a minute later does not inherit the region.
+    POINT_TTL = 30.0
+
+    def pointing(self) -> tuple[int, int, int, int] | None:
+        if self.region is None:
+            return None
+        if time.monotonic() - self.region_at > self.POINT_TTL:
+            self.region = None
+            return None
+        return self.region
 
     def command(self) -> list[str]:
         """The model command, with continuity flags if it understands them.
@@ -217,9 +248,18 @@ class Listener:
             # rather than be told what to draw, and a long prompt about
             # components is a long prompt about the wrong thing.
             seen = looking_at()
+            pointed = self.pointing()
             prompt = (
                 f"The user said this out loud, to their screen: {said!r}\n\n"
                 + (f"They are looking at: {seen}\n\n" if seen else "")
+                + (
+                    f"They are pointing at the region {pointed} on screen "
+                    "(x, y, width, height, in points, top-left origin). If the "
+                    "request says 'this' or 'that', it means whatever is there. "
+                    "Look at it before answering.\n\n"
+                    if pointed
+                    else ""
+                )
                 + "Use the hud skill to answer them by drawing on their display. "
                 "Look up whatever real data the answer needs first. Do not "
                 "invent a number. Keep any spoken reply under twenty words, "
