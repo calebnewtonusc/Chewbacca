@@ -184,7 +184,7 @@ class Listener:
             prompt = (
                 f"The user said this out loud, to their screen: {said!r}\n\n"
                 + (f"They are looking at: {seen}\n\n" if seen else "")
-                "Use the hud skill to answer them by drawing on their display. "
+                + "Use the hud skill to answer them by drawing on their display. "
                 "Look up whatever real data the answer needs first. Do not "
                 "invent a number. Keep any spoken reply under twenty words, "
                 "because the panel is the answer and the sentence is only a "
