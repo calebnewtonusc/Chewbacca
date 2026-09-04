@@ -129,6 +129,29 @@ Nothing paints until `r`. `c` and `>` may arrive in any order, so a child can be
 sent before its parent. Anything the renderer does not recognise is dropped
 rather than drawn wrong.
 
+## Is it any good
+
+The interfaces a model builds out of this catalog are tested, which is the part
+of generative UI nobody has been able to do. `eval/hud.eval.ts` runs seven
+scenarios three times each and measures not only whether the assertions pass but
+how much the answer *moves* between runs.
+
+That distinction is the whole point, and it earned its keep immediately. The
+diagram scenario passed every assertion — rendered three times out of three,
+used a `Diagram` three times out of three — and still failed, because its
+stability was 0.31. Three correct diagrams, three different diagrams, which is
+exactly what people mean when they say a generated interface destroys the
+familiarity they had built. An assertion-only harness reports that as three
+green runs.
+
+The cause was in the catalog, not the model: nothing said how to arrange a
+drawing. Given a convention, it went to 1.00 and the suite got roughly twice as
+fast, because a model that knows the arrangement stops inventing one.
+
+```
+7/7 scenarios pass, every one at stability 1.00
+```
+
 ## Building it
 
 ```bash
