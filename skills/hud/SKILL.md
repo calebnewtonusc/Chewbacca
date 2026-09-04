@@ -72,70 +72,137 @@ marks around a region without covering it.
 
 ## Components
 
-Structure: `Screen title="..."`, `Stack direction=vertical|horizontal|grid gap=2`,
-where a grid takes `cols` (1 to 4). Four metrics in a column waste a panel's
-height; put them in a grid.
+Anything not listed here is dropped silently by the renderer, so the panel will
+just be missing that piece and nothing will tell you. Write arrays with no
+spaces inside them.
 
-Prose: `Heading text="..." level=2`, `Text value="..." tone=muted`,
-`List items=["a","b"] ordered=true`.
+<!-- generated: components -->
 
-Data: `Metric label="..." value=... unit="..."`, which with
-`thresholds=[{"at":80,"tone":"warn"}]` colours itself when a value crosses a
-line (so does `Ring`),
-`Table caption="..." columns=[{"field":"name","label":"Name"}] rows=[...]`,
-`Status message="..." level=success|warning|error`.
+### Structure
 
-Dashboard, all taking an optional `tone` of `good`, `warn` or `bad`:
+- **Screen** The root of a surface. Exactly one per surface, and every other component hangs off it. A short title in caps reads best at a glance.
 
-- `Sparkline label="..." points=[...] value="71"` a trend. Six to thirty points.
-- `Bars caption="..." rows=[{"label":"West","value":42,"display":"42%"}]` ranked
-  rows scaled against the largest. `display` is printed, `value` sets length.
-- `Ring label="..." value=0.82 caption="82%"` a proportion only. `value` is 0 to
-  1. A ring around an unbounded number is decoration.
-- `Events caption="..." items=[{"time":"9:04","text":"...","accent":true}]`
+  ```
+  c s Screen title="RELATIONSHIPS"
+  ```
 
-Free-form: `Diagram aspect=2.4 parts=[...]`, where each part is a shape in a unit
-square. `node` and `box` take `x y w h label`; `line` and `arrow` take
-`x y x2 y2` plus `dashed`; `circle` and `dot` take `x y r`; `label` takes
-`x y text size`. Use it for a structure or a flow, not to reimplement `Bars`.
+- **Stack** Groups components. Vertical by default; use grid with cols for several small numbers, because four metrics in a column waste the height of a panel that is already capped. Gap is in units of 4 points.
 
-### Files
+  ```
+  c row Stack direction=grid cols=2 gap=3
+  ```
 
-- `File path="~/Downloads/resume.pdf" [page=2] [editable=true]`
+### Prose
 
-  Shows the actual file. PDFs render through the system's own PDF engine,
-  images as images, and anything that decodes as text as text. `editable=true`
-  on a text file gives a real editor with a save button, and saving overwrites
-  that exact path and no other.
+- **Heading** A label over a section. Use it when one panel holds two unrelated groups; a panel with one group already has its Screen title.
 
-  This is the answer to "let's work on my resume, the PDF is in my downloads".
-  Put it on screen rather than describing it back to them.
+  ```
+  c h Heading text="Needs a reply" level=2
+  ```
 
-### Presence
+- **Text** A sentence. Reach for it last: a heads-up display is glanced at, and prose is the thing a glance cannot do. Never use it to describe a chart that is already on the panel.
 
-```
-p thinking
-p hearing amp=0.4
-p dormant
-```
+  ```
+  c t Text value="Nothing is overdue." tone=muted
+  ```
 
-`p` sets the ring in the bottom right corner, which is the one thing always on
-the glass. States are `dormant`, `attentive`, `hearing`, `thinking`, `acting`,
-`attention`, and `failed`. Each has its own motion, so it is readable without
-being looked at.
+- **List** Plain bullets. Prefer Events when the items happened at times, and Bars when they have magnitudes worth comparing.
 
-Set `thinking` when you start work and `dormant` when you finish. A ring left
-spinning is worse than no ring: it demotes itself to `attention` after eight
-seconds rather than spinning forever, and that is a report of your bug, not a
-feature to rely on.
+  ```
+  c l List items=["Bring the charger","Print the form"]
+  ```
 
-`failed` is the only state that is ever red, and it means an action failed in a
-way that may have left something in a bad state. Not "the search returned
-nothing".
+### Data
 
-Controls are live: `Button label="..." action="..."`, `Field label="..."
-bind=/pointer`, `Select`, `Checkbox`. A press writes locally and sends an event
-back, so it answers whether or not you are still listening.
+- **Metric** One number that matters. Give it thresholds and it colours itself when the value crosses one, which is the difference between a number read at a glance and a number that has to be read.
+
+  ```
+  c m Metric label="Unread" value=12
+  ```
+
+  ```
+  c o Metric label="Overdue" value=4 thresholds=[{"at":1,"tone":"bad"}]
+  ```
+
+- **Table** Rows with several fields each. Use it when the person needs to compare across columns; if there is one number per row, Bars says it faster.
+
+  ```
+  c tb Table columns=[{"field":"name","label":"Name"},{"field":"due","label":"Due"}] rows=[{"name":"Origin Story","due":"Sep 9"}]
+  ```
+
+- **Status** One line about how something went. For an outcome, not for standing state: a panel that permanently says everything is fine is a panel nobody reads.
+
+  ```
+  c st Status message="Deploy finished" level=success
+  ```
+
+### Dashboard
+
+- **Sparkline** A trend. Six to thirty points: fewer is noise and more is a smear. Always pass value, because nobody reads an exact number off a 34-point chart, so the drawing carries the shape and the text carries the number.
+
+  ```
+  c sp Sparkline label="Messages this week" points=[31,28,44,39,58,52,71] value="71"
+  ```
+
+- **Bars** Ranked rows, scaled against the largest rather than against zero, so four values within ten percent of each other still read as different. Horizontal because the labels are words. `display` is what gets printed; `value` only sets the length.
+
+  ```
+  c b Bars caption="Time since last reply" rows=[{"label":"Sagar","value":2,"display":"2h"},{"label":"Ava","value":31,"display":"1d"}]
+  ```
+
+- **Ring** A proportion, and only ever a proportion: value runs 0 to 1 and the thing must have a real ceiling. A ring around an unbounded number is decoration, and decoration costs the same attention as information while carrying none.
+
+  ```
+  c r Ring label="Attendance" value=0.82 caption="82%"
+  ```
+
+- **Events** Things that happened or are about to, most recent or soonest first. Set accent on the one that matters; setting it on all of them sets it on none.
+
+  ```
+  c e Events caption="Due" items=[{"time":"Sep 9","text":"Origin Story","accent":true}]
+  ```
+
+### Anything else
+
+- **Diagram** Free-form drawing for a structure, a flow, or a relationship: the case no component anticipates. Every part is a shape in a unit square, so x and y run 0 to 1 and you never think about pixels. Do not use it to reimplement Bars.
+
+  ```
+  c d Diagram aspect=2.4 parts=[{"t":"node","x":0.2,"y":0.5,"label":"Model"},{"t":"arrow","x":0.32,"y":0.5,"x2":0.68,"y2":0.5},{"t":"node","x":0.8,"y":0.5,"label":"Glass"}]
+  ```
+
+- **File** Shows an actual file: a PDF through the system's PDF engine, an image as an image, anything that decodes as text as text. Use it when the person names a document, instead of describing the document back to them. `editable` on a text file gives a real editor whose save overwrites that exact path.
+
+  ```
+  c f File path="~/Downloads/resume.pdf"
+  ```
+
+### Controls
+
+- **Button** A press that sends an action back up the socket. Only add one when there is something for it to do; a button nobody is listening for is a promise the panel cannot keep.
+
+  ```
+  c go Button label="Send it" action=send variant=primary
+  ```
+
+- **Field** A text input bound to a pointer in the panel's own data. It writes locally the moment it is typed in, so it responds at typing speed whether or not anything is still listening.
+
+  ```
+  c n Field label="Note" bind=/draft/note
+  ```
+
+- **Select** One of a fixed set. Use it wherever the answer is a known list, because a text field that must match one of five strings is a trap.
+
+  ```
+  c s Select label="Status" bind=/draft/status options=["Todo","Done"]
+  ```
+
+- **Checkbox** A yes or no, bound to a pointer. Use it for a state the person toggles, not for a list of things to tick off: several checkboxes in a row is a form, and a heads-up display is a bad place to fill in a form.
+
+  ```
+  c c Checkbox label="Urgent" bind=/draft/urgent
+  ```
+
+<!-- /generated -->
 
 ## Marking the screen
 
