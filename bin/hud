@@ -64,10 +64,10 @@ case "${1:-}" in
   draw)   send ;;
   close)  [ $# -ge 2 ] || { echo "hud close <name>" >&2; exit 2; }
           printf -- '- %s\n' "$2" | send ;;
-  clear)  # Escape is the display's own gesture for this; sending it as a
-          # keystroke would need accessibility permission, so close by name is
-          # the scriptable route and this is the blunt one.
-          osascript -e 'tell application "System Events" to key code 53' 2>/dev/null || true ;;
+  clear)  # A bare dash clears the glass. This used to synthesise an Escape
+          # keystroke, which needed Accessibility: a permission to put something
+          # away, which is backwards.
+          printf -- '-\n' | send ;;
   listen) shift; exec "$(dirname "$0")/hud-listen" "$@" ;;
   demo)
     # One command that puts every kind of surface on screen at once.
