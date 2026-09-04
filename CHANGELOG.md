@@ -18,6 +18,7 @@ real commit; nothing here is written by hand.
 - the component reference is generated from the catalog
 
 ### Other
+- skills: declare the tools they promise, and doctor reads the declaration
 - commands: findable, and two that argued with the standards
 - portable: the half of this kit that is not macOS, on any machine
 - tests: 69 of them, on a macOS runner, and they found five real bugs
