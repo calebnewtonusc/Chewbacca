@@ -8,6 +8,15 @@
       "kit-builder",
       "life-context",
       "life-ops",
+      "mac-act",
+      "mac-apps",
+      "mac-control",
+      "mac-debug",
+      "mac-followups",
+      "mac-permissions",
+      "mac-see",
+      "nova-brief",
+      "nova-runtime",
       "second-brain",
       "setup",
       "stack-rules",
@@ -176,6 +185,17 @@
       ],
       "env": [],
       "name": "chart"
+    },
+    {
+      "url": "https://github.com/steipete/macos-automator-mcp",
+      "description": "AppleScript and JXA as tools, with a script knowledge base, no key",
+      "cmd": "npx",
+      "args": [
+        "-y",
+        "@steipete/macos-automator-mcp@latest"
+      ],
+      "env": [],
+      "name": "macos-automator"
     },
     {
       "url": "https://github.com/exa-labs/exa-mcp-server",

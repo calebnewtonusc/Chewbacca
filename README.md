@@ -50,7 +50,7 @@
   <a href="https://github.com/calebnewtonusc/Chewbacca/stargazers"><img src="https://img.shields.io/github/stars/calebnewtonusc/Chewbacca?style=social" alt="Stars"></a>
   <a href="https://github.com/calebnewtonusc/Chewbacca/commits/main"><img src="https://img.shields.io/github/last-commit/calebnewtonusc/Chewbacca" alt="Last Commit"></a>
 <!-- BEGIN GENERATED: badges -->
-  <a href=".claude/commands"><img src="https://img.shields.io/badge/slash_commands-48-indigo" alt="Commands"></a>
+  <a href=".claude/commands"><img src="https://img.shields.io/badge/slash_commands-57-indigo" alt="Commands"></a>
   <a href=".claude/rules"><img src="https://img.shields.io/badge/always_on_rules-7-green" alt="Rules"></a>
   <a href="docs/EXTENSIONS.md"><img src="https://img.shields.io/badge/plugins-18-orange" alt="Plugins"></a>
 <!-- END GENERATED: badges -->
@@ -233,7 +233,7 @@ it off is `--session-opener none`. To write your own, add it to `OPENERS` in
 | Piece                   | Details                                                                                                                                            |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **macOS tools**         | 8 installed alongside the kit: Anki, bd, mac, Maccy, mac-use, peekaboo, summarize, yt-transcript                                                   |
-| **Skills and plugins**  | 66 skills (10 shipped here, 3 cloned from upstream, 53 from 1 skill pack) plus 18 plugins across 3 marketplaces                                    |
+| **Skills and plugins**  | 75 skills (19 shipped here, 3 cloned from upstream, 53 from 1 skill pack) plus 18 plugins across 3 marketplaces                                    |
 | **Second brain**        | A private notes repo Claude reads at the start of every session and writes to as things change. Syncs to GitHub                                    |
 | **Coursework ledger**   | Your syllabi become deadlines, attendance budgets, and a per-course AI policy Claude checks before touching graded work                            |
 | **On-device dictation** | Installs [Plynn](https://github.com/31Carlton7/plynn): hold fn, talk, and clean text appears. Speech and cleanup run on your Mac, nothing uploaded |
@@ -773,6 +773,15 @@ fires, which is the thing that matters most.
 | [skills/kit-builder](skills/kit-builder)                                                                  | Skill  | Building a kit for a long bureaucratic process, and the test for when not to                   |
 | [skills/life-context](skills/life-context)                                                                | Skill  | Learning about someone without handing them a blank page                                       |
 | [skills/life-ops](skills/life-ops)                                                                        | Skill  | The weekly review, life admin with real deadlines, and what to cut                             |
+| [skills/mac-act](skills/mac-act)                                                                          | Skill  | Clicks, types, drags, and drives real UI on the Mac                                            |
+| [skills/mac-apps](skills/mac-apps)                                                                        | Skill  | Drives Mail, Messages, Notes, Safari, Calendar and Finder directly                             |
+| [skills/mac-control](skills/mac-control)                                                                  | Skill  | Routes a Mac task to the cheapest control layer that can do it                                 |
+| [skills/mac-debug](skills/mac-debug)                                                                      | Skill  | Works out why an automation is failing, especially quietly                                     |
+| [skills/mac-followups](skills/mac-followups)                                                              | Skill  | Turns texts, email and calendar into what you owe people                                       |
+| [skills/mac-permissions](skills/mac-permissions)                                                          | Skill  | Diagnoses and fixes the macOS grants that fail silently                                        |
+| [skills/mac-see](skills/mac-see)                                                                          | Skill  | Reads the screen as an accessibility tree, not as a screenshot                                 |
+| [skills/nova-brief](skills/nova-brief)                                                                    | Skill  | The morning brief: what is urgent, who is waiting, what order                                  |
+| [skills/nova-runtime](skills/nova-runtime)                                                                | Skill  | Runs a multi-step task as a checked plan instead of improvised bash                            |
 | [skills/second-brain](skills/second-brain)                                                                | Skill  | Reading, writing, and auditing your personal context repo                                      |
 | [skills/setup](skills/setup)                                                                              | Skill  | Installing the kit by conversation instead of a terminal questionnaire                         |
 | [skills/stack-rules](skills/stack-rules)                                                                  | Skill  | The 12 stack-specific standards, loaded only when the work needs them                          |
@@ -796,6 +805,7 @@ fires, which is the thing that matters most.
 | [git](https://github.com/modelcontextprotocol/servers/tree/main/src/git)                                  | MCP    | Reads, searches, and edits a git repo as structured calls, no key                              |
 | [sequential-thinking](https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking)   | MCP    | Externalizes a long chain of reasoning into revisable steps, no key                            |
 | [chart](https://github.com/antvis/mcp-server-chart)                                                       | MCP    | Renders 25 chart types from data, so an answer can be a picture, no key                        |
+| [macos-automator](https://github.com/steipete/macos-automator-mcp)                                        | MCP    | AppleScript and JXA as tools, with a script knowledge base, no key                             |
 | [exa](https://github.com/exa-labs/exa-mcp-server)                                                         | MCP    | Web search built for agents rather than for people, from Exa                                   |
 | [tavily](https://github.com/tavily-ai/tavily-mcp)                                                         | MCP    | Search plus extraction in one call, tuned for grounding answers                                |
 | [firecrawl](https://github.com/firecrawl/firecrawl-mcp-server)                                            | MCP    | Crawls a whole site and returns clean markdown, not raw HTML                                   |
