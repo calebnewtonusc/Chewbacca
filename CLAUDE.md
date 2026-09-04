@@ -28,7 +28,7 @@ The key: make it specific to the moment, not generic filler. If you use this pat
 
 ## Always-on standards
 
-These six load into every session, about 3,700 tokens total. They apply
+These load into every session, about 4,100 tokens total. They apply
 regardless of language or framework, so they are imported rather than left to
 be discovered.
 
@@ -39,6 +39,7 @@ be discovered.
 @~/.claude/rules/typescript.md
 @~/.claude/rules/review-discipline.md
 @~/.claude/rules/context-discipline.md
+@~/.claude/rules/do-it-yourself.md
 
 The twelve stack-specific standards (components, api, database, deployment,
 design, performance, state, accessibility, scroll-effects, testing, ux-laws,
