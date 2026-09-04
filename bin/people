@@ -340,6 +340,7 @@ function migrate(d) {
   ensureColumn(d, "people", "next_check_reason", "next_check_reason TEXT");
   d.exec(SCHEMA_V2);
   d.exec(SCHEMA_V3);
+  d.exec(SCHEMA_V4);
   seedTemplate(d);
 }
 
@@ -445,6 +446,34 @@ CREATE TABLE IF NOT EXISTS quick_facts (
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (person_id, key)
 );
+`;
+
+// Relationship graphs over time. Everything above answers "where does this
+// relationship stand today". None of it could answer "is this getting better
+// or worse", which is the question you actually act on.
+//
+// Two ways to get there, and this keeps both. Scores are RECOMPUTED for a past
+// date from the observations that existed by then, so a trajectory appears the
+// day you install this rather than a year later. Snapshots freeze a computed
+// point so the curve survives you correcting or deleting an old observation.
+// Recomputation is the default because it is the honest one; snapshots exist
+// because a graph that silently rewrites its own past is worse than no graph.
+const SCHEMA_V4 = `
+CREATE TABLE IF NOT EXISTS score_history (
+  person_id    TEXT NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+  as_of        TEXT NOT NULL,
+  base_score   REAL NOT NULL,
+  warmth       REAL NOT NULL,
+  -- JSON {dimension_code: score}. One blob rather than a row per dimension
+  -- because it is read whole, every time, and never joined against.
+  dims         TEXT NOT NULL DEFAULT '{}',
+  observation_count INTEGER NOT NULL DEFAULT 0,
+  -- 'computed' was derived after the fact, 'snapshot' was frozen at the time.
+  kind         TEXT NOT NULL DEFAULT 'computed'
+               CHECK (kind IN ('computed','snapshot')),
+  PRIMARY KEY (person_id, as_of, kind)
+);
+CREATE INDEX IF NOT EXISTS sh_person_idx ON score_history (person_id, as_of);
 `;
 
 const SEED_TEMPLATE = [
@@ -699,6 +728,203 @@ function recomputeScores() {
 }
 
 // ---------------------------------------------------------------- commands
+
+// ------------------------------------------------- relationship over time
+//
+// The one rule that makes a retroactive score honest: at a past date you may
+// only see what had been observed by that date. Without the two filters below
+// an observation from last week leaks into last year's number, and worse, its
+// age goes negative and 2^(-age/halflife) AMPLIFIES it. The curve would then
+// show every relationship improving, always, which is a lie people like.
+
+function scoreAsOf(ctx, personId, asOf) {
+  const { P, dims, weights, obsFor, intFor, cntFor } = ctx;
+  const rows = obsFor.all(personId, asOf);
+  const sums = {};
+  for (const r of rows) {
+    const dim = dims.find((x) => x.id === r.dimension_id);
+    if (!dim) continue;
+    sums[dim.id] = (sums[dim.id] || 0) + observationWeight(r, dim, P, asOf) * (r.dim_weight ?? 1);
+  }
+  let weighted = 0, wsum = 0;
+  const out = {};
+  for (const dim of dims) {
+    const score = 1 - Math.exp(-P.saturation_k * (sums[dim.id] || 0));
+    out[dim.code] = score;
+    const w = dim.base_weight * (weights[dim.id] ?? 1);
+    weighted += score * w;
+    wsum += w;
+  }
+  const last = intFor.get(personId, asOf).t;
+  const warmth = last
+    ? Math.pow(2, -Math.max(0, daysBetween(last, asOf)) / P.warmth_half_life_days)
+    : 0;
+  return {
+    as_of: asOf,
+    base: wsum ? weighted / wsum : 0,
+    warmth,
+    dims: out,
+    observations: cntFor.get(personId, asOf).n,
+    last_interaction_at: last || null,
+  };
+}
+
+function historyCtx() {
+  const d = db();
+  return {
+    d,
+    P: params(),
+    dims: d.prepare("SELECT * FROM dimensions ORDER BY sort_order").all(),
+    weights: Object.fromEntries(
+      d.prepare("SELECT dimension_id, weight FROM dimension_weights").all().map((r) => [r.dimension_id, r.weight]),
+    ),
+    obsFor: d.prepare(
+      `SELECT o.*, od.dimension_id, od.weight AS dim_weight
+         FROM observations o
+         JOIN observation_dimensions od ON od.observation_id = o.id
+        WHERE o.person_id = ? AND o.deleted_at IS NULL AND o.observed_at <= ?`,
+    ),
+    intFor: d.prepare(
+      "SELECT max(happened_at) AS t FROM interactions WHERE person_id = ? AND happened_at <= ?",
+    ),
+    cntFor: d.prepare(
+      "SELECT count(*) AS n FROM observations WHERE person_id = ? AND deleted_at IS NULL AND observed_at <= ?",
+    ),
+  };
+}
+
+// Sample points, oldest first. Anchored to today so the last point is always
+// "now" rather than a bucket boundary that happens to be four days stale.
+function samplePoints(days, steps) {
+  const now = Date.now();
+  const span = days * 86400000;
+  const out = [];
+  for (let i = steps - 1; i >= 0; i--) {
+    out.push(new Date(now - (span * i) / (steps - 1)).toISOString().slice(0, 19).replace("T", " "));
+  }
+  return out;
+}
+
+const SPARK = "▁▂▃▄▅▆▇█";
+function sparkline(vals) {
+  if (!vals.length) return "";
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const span = hi - lo;
+  return vals
+    .map((v) => SPARK[span < 1e-9 ? 3 : Math.min(7, Math.floor(((v - lo) / span) * 7.999))])
+    .join("");
+}
+
+function arrow(delta) {
+  if (delta > 0.02) return c.grn("↑");
+  if (delta < -0.02) return c.red("↓");
+  return c.dim("→");
+}
+
+function cmdHistory(argv) {
+  const { flags, rest } = parseArgs(argv);
+  if (!rest.length) die("usage: people history <person> [--days 365] [--steps 12] [--json]");
+  const person = findPerson(rest.join(" "));
+  const days = Number(flags.days || 365);
+  const steps = Math.max(2, Math.min(60, Number(flags.steps || 12)));
+  const ctx = historyCtx();
+
+  const stored = ctx.d
+    .prepare("SELECT * FROM score_history WHERE person_id=? AND kind='snapshot' ORDER BY as_of")
+    .all(person.id);
+  const series = samplePoints(days, steps).map((t) => {
+    const snap = stored.find((r) => r.as_of.slice(0, 10) === t.slice(0, 10));
+    if (snap) return { as_of: t, base: snap.base_score, warmth: snap.warmth, dims: JSON.parse(snap.dims), observations: snap.observation_count, frozen: true };
+    return scoreAsOf(ctx, person.id, t);
+  });
+
+  if (flags.json) return say(JSON.stringify({ person: person.name, series }, null, 2));
+
+  const first = series[0], last = series[series.length - 1];
+  say("\n" + c.b(person.name) + c.dim(`   last ${days}d, ${steps} points`));
+  if (stored.length) say(c.dim(`  ${stored.length} frozen snapshot(s) in range are used as-is`));
+
+  say("\n  " + c.dim("standing") + "  " + sparkline(series.map((p) => p.base)) +
+      `  ${first.base.toFixed(2)} → ${last.base.toFixed(2)} ${arrow(last.base - first.base)}`);
+  say("  " + c.dim("warmth  ") + "  " + sparkline(series.map((p) => p.warmth)) +
+      `  ${first.warmth.toFixed(2)} → ${last.warmth.toFixed(2)} ${arrow(last.warmth - first.warmth)}`);
+
+  say("");
+  for (const dim of ctx.dims) {
+    const vals = series.map((p) => p.dims[dim.code] ?? 0);
+    const d0 = vals[0], d1 = vals[vals.length - 1];
+    if (d0 < 0.005 && d1 < 0.005) continue;
+    say(`  ${dim.label.padEnd(12)} ${sparkline(vals)}  ${d0.toFixed(2)} → ${d1.toFixed(2)} ${arrow(d1 - d0)}`);
+  }
+
+  const grew = last.observations - first.observations;
+  say("\n" + c.dim(`  ${last.observations} observations, ${grew >= 0 ? "+" : ""}${grew} over the window`));
+  if (last.last_interaction_at) {
+    say(c.dim(`  last interaction ${last.last_interaction_at.slice(0, 10)}`));
+  }
+  say("");
+}
+
+function cmdTrend(argv) {
+  const { flags } = parseArgs(argv);
+  const days = Number(flags.days || 90);
+  const limit = Number(flags.limit || 15);
+  const ctx = historyCtx();
+  const then = new Date(Date.now() - days * 86400000).toISOString().slice(0, 19).replace("T", " ");
+  const now = nowISO();
+  const people = ctx.d.prepare("SELECT * FROM people WHERE deleted_at IS NULL").all();
+
+  const rows = people
+    .map((p) => {
+      const a = scoreAsOf(ctx, p.id, then);
+      const b = scoreAsOf(ctx, p.id, now);
+      return { name: p.name, from: a.base, to: b.base, d: b.base - a.base, w: b.warmth - a.warmth };
+    })
+    .filter((r) => Math.abs(r.d) > 0.005 || Math.abs(r.w) > 0.005);
+
+  if (!rows.length) {
+    return say(c.dim(`\n  nothing has moved measurably in ${days} days.\n`));
+  }
+  const up = rows.filter((r) => r.d > 0).sort((a, b) => b.d - a.d).slice(0, limit);
+  const down = rows.filter((r) => r.d < 0).sort((a, b) => a.d - b.d).slice(0, limit);
+
+  if (flags.json) return say(JSON.stringify({ days, warming: up, cooling: down }, null, 2));
+
+  const block = (title, list) => {
+    if (!list.length) return;
+    say("\n" + c.b(title));
+    for (const r of list) {
+      say(`  ${r.name.padEnd(22)} ${r.from.toFixed(2)} → ${r.to.toFixed(2)}  ${arrow(r.d)} ${(r.d >= 0 ? "+" : "") + r.d.toFixed(2)}`);
+    }
+  };
+  say(c.dim(`\n  movement over the last ${days} days`));
+  block("warming", up);
+  block("cooling", down);
+  say("");
+}
+
+function cmdSnapshot(argv) {
+  const { flags } = parseArgs(argv);
+  const ctx = historyCtx();
+  const asOf = nowISO();
+  const people = ctx.d.prepare("SELECT * FROM people WHERE deleted_at IS NULL").all();
+  const ins = ctx.d.prepare(
+    `INSERT INTO score_history (person_id, as_of, base_score, warmth, dims, observation_count, kind)
+     VALUES (?,?,?,?,?,?,'snapshot')
+     ON CONFLICT(person_id, as_of, kind) DO UPDATE SET
+       base_score=excluded.base_score, warmth=excluded.warmth,
+       dims=excluded.dims, observation_count=excluded.observation_count`,
+  );
+  let n = 0;
+  for (const p of people) {
+    const s = scoreAsOf(ctx, p.id, asOf);
+    ins.run(p.id, asOf, s.base, s.warmth, JSON.stringify(s.dims), s.observations);
+    n++;
+  }
+  if (flags.json) return say(JSON.stringify({ frozen: n, as_of: asOf }));
+  say(c.dim(`\n  froze ${n} people at ${asOf.slice(0, 16)}.`));
+  say(c.dim("  these points stay put even if you edit the observations behind them.\n"));
+}
 
 function cmdAdd(argv) {
   const { flags, rest } = parseArgs(argv);
@@ -2524,13 +2750,20 @@ function cmdTexts(argv) {
       );
     // First run takes a bounded window. A full history is 600k+ rows on a real
     // machine and nobody wants their first command to be a ten-minute import.
+    //
+    // The DAY WINDOW is that bound, and it is the only one. The reader also has
+    // a --limit, defaulting to 2000, which used to apply here silently: asking
+    // for --days 3200 returned the most recent 2000 rows and reported success,
+    // so a backfill looked like it worked and quietly imported six days. Pass 0
+    // to turn the row cap off and let --days mean what it says.
     const seen = Number(syncState("messages_max_id") || 0);
     const days = Number(flags.days || (seen ? 30 : 90));
+    const limit = flags.limit === undefined ? 0 : Number(flags.limit);
     let raw;
     try {
-      raw = execFileSync("python3", [py, "--json", "--days", String(days)], {
+      raw = execFileSync("python3", [py, "--json", "--days", String(days), "--limit", String(limit)], {
         encoding: "utf8",
-        maxBuffer: 512 * 1024 * 1024,
+        maxBuffer: 1024 * 1024 * 1024,
       });
     } catch (e) {
       const err = String((e && e.stderr) || e.message || "");
@@ -2742,6 +2975,10 @@ const HELP = `${c.b("people")} ${c.dim("- everything you know about the people i
   ${c.b("people tune")} [saturation_k 0.5]
   ${c.b("people score")}
 
+  ${c.b("people history")} "Sagar" [--days 365] [--steps 12]   how it changed
+  ${c.b("people trend")} [--days 90]                           who is warming, who is cooling
+  ${c.b("people snapshot")}                                    freeze today so the curve keeps it
+
   ${c.b("people export")} [--out DIR]        markdown you can read
   ${c.b("people sync")} init <private-git-url> | push | pull | diff | status
   ${c.b("people check")} | ${c.b("people stats")}
@@ -2796,6 +3033,11 @@ const COMMANDS = {
   dims: cmdDims,
   tune: cmdTune,
   score: cmdScore,
+  history: cmdHistory,
+  trajectory: cmdHistory,
+  trend: cmdTrend,
+  drifting: cmdTrend,
+  snapshot: cmdSnapshot,
   export: cmdExport,
   sync: cmdSync,
   check: cmdCheck,

@@ -70,7 +70,7 @@ def read(days=7, limit=2000, who=None, unanswered=False, direct=False,
             LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
             LEFT JOIN chat c ON cmj.chat_id = c.ROWID
             WHERE m.date/1000000000 > ?
-            ORDER BY m.date DESC LIMIT ?""", (cutoff, limit)).fetchall()
+            ORDER BY m.date DESC LIMIT ?""", (cutoff, limit if limit and limit > 0 else -1)).fetchall()
     except sqlite3.DatabaseError as e:
         raise SystemExit(f"query failed: {e}")
 
@@ -130,7 +130,8 @@ def read(days=7, limit=2000, who=None, unanswered=False, direct=False,
 def main():
     p = argparse.ArgumentParser(description="Read iMessage history as structured data")
     p.add_argument("--days", type=int, default=7)
-    p.add_argument("--limit", type=int, default=2000)
+    p.add_argument("--limit", type=int, default=2000,
+                   help="0 or less means no cap, for a full-history backfill")
     p.add_argument("--who", help="filter by contact name or handle")
     p.add_argument("--unanswered", action="store_true",
                    help="only threads where they spoke last")
