@@ -159,7 +159,32 @@ if raw.strip():
     except Exception:
         due_line = ""
 
+# Kits installed on this machine. A kit that has been built but is not
+# discoverable gets rebuilt, or gets ignored while the agent answers the same
+# question turn by turn. This is the half of the loop that closes it.
+kits_line = ""
+try:
+    import subprocess
+    for candidate in (
+        os.path.join(os.path.expanduser("~"), ".local", "bin", "kits"),
+        os.path.join(os.path.expanduser("~"), ".claude", "bin", "kits"),
+        "kits",
+    ):
+        try:
+            out = subprocess.run(
+                [candidate, "--context"], capture_output=True, text=True, timeout=6
+            )
+        except (FileNotFoundError, OSError):
+            continue
+        if out.returncode == 0 and out.stdout.strip():
+            kits_line = out.stdout.strip()
+        break
+except Exception:
+    kits_line = ""
+
 chunks = []
+if kits_line:
+    chunks.append(kits_line)
 if due_line:
     chunks.append(due_line)
 if tasks:

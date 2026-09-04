@@ -926,6 +926,21 @@ instead and who actually decides.** Write it first. These domains are exactly th
 where a confident wrong answer is expensive, and a kit without a hard line will eventually
 hurt somebody.
 
-Already built: apply-kit, accommodations-kit. Check
-`skills/kit-builder/references/existing-kits.md` before starting, so the same kit does not
-get built twice.
+**Check what already exists before building anything.**
+
+```
+kits
+```
+
+Every kit carries a `.kit` marker at its root, and `kits` finds them all. The session
+briefing already injected the list, so you usually know without running it.
+
+**If what they are asking for matches a kit that exists, `cd` into it and work there.** Do
+not answer the question turn by turn in this window, and do not build a second kit for the
+same domain. The kit has their state, their facts, and their deadlines in it. Answering
+outside it throws all of that away and produces advice that evaporates when the window
+closes.
+
+If it matches nothing and the work is kit-shaped, build it, and **write the `.kit` marker**
+so the next session finds it. A kit that has been built and cannot be discovered gets
+rebuilt.
