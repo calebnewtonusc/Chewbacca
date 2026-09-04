@@ -707,7 +707,17 @@ fires, which is the thing that matters most.
 | [session-report](https://github.com/anthropics/claude-plugins-official)                                   | Plugin | An explorable report of what a session actually cost and did                                   |
 | [understand-anything](https://github.com/Egonex-AI/Understand-Anything)                                   | Plugin | Turns a codebase into an interactive knowledge graph you can query                             |
 | bigquery-data-analytics, expo, pinecone, playwright, pyright-lsp, railway, serena, typescript-lsp, vercel | Plugin | Language servers, browser automation, deploys, and data tooling                                |
-| [prompt-optimizer](https://github.com/linshenkx/prompt-optimizer)                                         | MCP    | Rewrites and iterates on prompts through three MCP tools, self-hosted                          |
+| [fetch](https://github.com/modelcontextprotocol/servers/tree/main/src/fetch)                              | MCP    | Pulls a URL down as markdown the agent can read, no key                                        |
+| [time](https://github.com/modelcontextprotocol/servers/tree/main/src/time)                                | MCP    | Real current time and timezone conversion, no key                                              |
+| [git](https://github.com/modelcontextprotocol/servers/tree/main/src/git)                                  | MCP    | Reads, searches, and edits a git repo as structured calls, no key                              |
+| [sequential-thinking](https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking)   | MCP    | Externalizes a long chain of reasoning into revisable steps, no key                            |
+| [chart](https://github.com/antvis/mcp-server-chart)                                                       | MCP    | Renders 25 chart types from data, so an answer can be a picture, no key                        |
+| [exa](https://github.com/exa-labs/exa-mcp-server)                                                         | MCP    | Web search built for agents rather than for people, from Exa                                   |
+| [tavily](https://github.com/tavily-ai/tavily-mcp)                                                         | MCP    | Search plus extraction in one call, tuned for grounding answers                                |
+| [firecrawl](https://github.com/firecrawl/firecrawl-mcp-server)                                            | MCP    | Crawls a whole site and returns clean markdown, not raw HTML                                   |
+| [elevenlabs](https://github.com/elevenlabs/elevenlabs-mcp)                                                | MCP    | Text to speech and voice cloning as tools the agent can call                                   |
+| [browserbase](https://github.com/browserbase/mcp-server-browserbase)                                      | MCP    | Drives a cloud browser, for sites that block a local one                                       |
+| [magic](https://github.com/21st-dev/magic-mcp)                                                            | MCP    | Generates a real UI component from a description, from 21st.dev                                |
 
 <!-- END GENERATED: extensions -->
 
