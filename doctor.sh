@@ -22,12 +22,34 @@ QUIET=0
 
 PASS=0; FAIL=0; WARN=0
 
-ok()   { PASS=$((PASS+1)); [ "$QUIET" -eq 1 ] || echo -e "  ${GRN}pass${NC}  $1"; }
-bad()  { FAIL=$((FAIL+1)); echo -e "  ${RED}FAIL${NC}  $1"; [ -n "${2:-}" ] && echo -e "        ${YLW}fix:${NC} $2"; }
-warn() { WARN=$((WARN+1)); [ "$QUIET" -eq 1 ] || echo -e "  ${YLW}warn${NC}  $1"; }
-section() { [ "$QUIET" -eq 1 ] || echo -e "\n${BLD}$1${NC}"; }
+declare -a PROBLEMS=()
+logline() { echo "$*" >> "${LOG:-/dev/null}" 2>/dev/null || true; }
+ok()   { PASS=$((PASS+1)); logline "pass  $1"; [ "$QUIET" -eq 1 ] || echo -e "  ${GRN}pass${NC}  $1"; }
+bad()  { FAIL=$((FAIL+1)); logline "FAIL  $1${2:+ | fix: $2}"; PROBLEMS+=("$1${2:+ -> $2}")
+         echo -e "  ${RED}FAIL${NC}  $1"; [ -n "${2:-}" ] && echo -e "        ${YLW}fix:${NC} $2"; }
+warn() { WARN=$((WARN+1)); logline "warn  $1"; [ "$QUIET" -eq 1 ] || echo -e "  ${YLW}warn${NC}  $1"; }
+section() { logline ""; logline "== $1"; [ "$QUIET" -eq 1 ] || echo -e "\n${BLD}$1${NC}"; }
 
 CLAUDE_DIR="$HOME/.claude"
+
+# Which profile installed this. A personal install never gets the coursework
+# ledger or the GitHub repos, so checking for them and warning that they are
+# absent reports the install working as designed as if it were a problem. Four
+# yellow lines after a successful install reads as "it did not work".
+PROFILE="$(cat "$CLAUDE_DIR/.chewbacca-profile" 2>/dev/null || echo developer)"
+for_profile() {
+  case "$PROFILE" in
+    personal) [ "$1" = "personal" ] ;;
+    student)  [ "$1" = "personal" ] || [ "$1" = "student" ] ;;
+    *)        true ;;
+  esac
+}
+
+# Everything printed also goes to a file, so "send me your log" beats a
+# screenshot of scrollback when someone asks for help.
+LOG="$HOME/.chewbacca/doctor.log"
+mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
+: > "$LOG" 2>/dev/null || LOG=/dev/null
 
 # macOS ships no timeout(1), and this checker is not allowed to hang. `mac
 # doctor` blocks forever on a TCC permission that has never been prompted:
@@ -417,7 +439,9 @@ fi
 section "Coursework"
 
 COURSEWORK_HOME="${COURSEWORK_DIR:-$HOME/coursework}"
-if command -v coursework >/dev/null 2>&1; then
+if ! for_profile student; then
+  ok "coursework not installed, which is correct for a $PROFILE install"
+elif command -v coursework >/dev/null 2>&1; then
   ok "coursework CLI on PATH"
   if [ -d "$COURSEWORK_HOME" ]; then
     CW_COURSES="$(ls "$COURSEWORK_HOME"/courses/*.yml 2>/dev/null | wc -l | tr -d ' ')"
@@ -567,9 +591,27 @@ fi
 
 # ── Verdict ───────────────────────────────────────────────────────────────────
 echo ""
+logline ""
+logline "$PASS passed, $WARN warnings, $FAIL failures (profile: $PROFILE)"
+
 if [ "$FAIL" -eq 0 ]; then
-  echo -e "${GRN}${BLD}$PASS passed${NC}${GRN}, $WARN warnings, 0 failures.${NC}"
+  echo -e "${GRN}${BLD}Everything works.${NC}${GRN} $PASS checks passed.${NC}"
+  # A warning is not a failure, and saying so is the difference between someone
+  # relaxing and someone thinking their install is broken.
+  [ "$WARN" -gt 0 ] && echo -e "  $WARN warning$([ "$WARN" -eq 1 ] || echo s) about optional things. Nothing is broken."
   exit 0
 fi
-echo -e "${RED}${BLD}$FAIL failed${NC}${RED}, $WARN warnings, $PASS passed.${NC}"
+
+echo -e "${RED}${BLD}$FAIL thing$([ "$FAIL" -eq 1 ] || echo s) need fixing.${NC}${RED} $PASS checks passed.${NC}"
+echo ""
+echo "  What is wrong:"
+for prob in "${PROBLEMS[@]}"; do
+  echo "    - ${prob%% -> *}"
+done
+echo ""
+echo -e "  ${BLD}Easiest fix: paste this to Claude.${NC}"
+echo "    \"run chewbacca doctor and fix whatever it reports\""
+echo ""
+echo "  Claude can read every one of these and repair them. The full log is at"
+echo "    $LOG"
 exit 1

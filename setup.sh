@@ -1188,6 +1188,10 @@ case "$PROFILE" in
   *)                STANDARDS="$SCRIPT_DIR/CLAUDE.md" ;;
 esac
 cp "$STANDARDS"                        "$GLOBAL_CLAUDE/CLAUDE.md" 2>/dev/null || true
+# doctor.sh reads this. Without it, it checks for the coursework ledger and the
+# GitHub repos that a personal install deliberately never creates, and reports
+# their absence as warnings on a perfectly healthy machine.
+echo "$PROFILE" > "$GLOBAL_CLAUDE/.chewbacca-profile"
 
 log "Commands installed to ~/.claude/commands/ ($(ls "$SCRIPT_DIR"/.claude/commands/*.md | wc -l | tr -d ' ') files)"
 log "Rules installed to ~/.claude/rules/ ($(ls "$SCRIPT_DIR"/.claude/rules/*.md | wc -l | tr -d ' ') files)"
