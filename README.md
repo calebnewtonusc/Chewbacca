@@ -98,6 +98,16 @@ model and no key: something else has to be listening and answer by drawing.
 `hud listen`, in the Chewbacca kit, is the loop that turns those events into
 drawings.
 
+## Taking your screen back
+
+Escape clears the glass. Option-Command-Space hides and shows it. `-` on its own
+does the same over the socket, so nothing needs a permission to put the display
+away: drawing on your screen should never be cheaper than clearing it.
+
+Panels and marks can also expire on their own with `life=`, and marks do by
+default, because an annotation that outlives what it described teaches you to
+disbelieve all of them.
+
 ## The wire
 
 Every line is one op, and a line is either complete or invisible, so a
@@ -123,7 +133,7 @@ rather than drawn wrong.
 
 ```bash
 swift build
-swift test          # 46 tests
+swift test          # 62 tests
 ./scripts/bundle.sh # produces build/BobHUD.app
 ```
 
@@ -144,6 +154,10 @@ and most of them exist because something was wrong first. A few worth knowing:
 - A `View` may conform to `Animatable`, which is what lets a diagram morph: the
   canvas reads its coordinates out of `animatableData` and redraws along the path
   between two drawings instead of cutting between them.
+- The socket accepts several clients at once. It used to read one connection to
+  completion before accepting the next, which meant that starting the loop that
+  lets you talk to the display stopped every other client from drawing on it,
+  with no error and no timeout.
 
 Part of [Bob the Builder](../README.md).
 
