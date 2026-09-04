@@ -112,7 +112,7 @@ public final class OverlayModel {
             revision += 1
 
         case .close(let id):
-            close(id)
+            if id.isEmpty { reset() } else { close(id) }
 
         default:
             surface(current).store.apply([op])

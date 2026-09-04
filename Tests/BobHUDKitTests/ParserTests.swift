@@ -618,3 +618,39 @@ struct RepeatTests {
         #expect(heard.count == 2)
     }
 }
+
+@Suite("Clearing")
+@MainActor
+struct ClearTests {
+    @Test("a bare dash clears the glass")
+    func clearsEverything() throws {
+        let model = OverlayModel()
+        model.apply(try #require(try LineParser.parse("@ one at=top")))
+        model.apply(try #require(try LineParser.parse("c s Screen title=\"A\"")))
+        model.apply(try #require(try LineParser.parse("r s")))
+        model.apply(try #require(try LineParser.parse("m x 0 0 9 9 life=0")))
+        #expect(!model.isEmpty)
+
+        model.apply(try #require(try LineParser.parse("-")))
+        #expect(model.isEmpty)
+    }
+
+    @Test("a dash with a name closes only that one")
+    func closesOne() throws {
+        let model = OverlayModel()
+        for line in ["@ one at=top", "c a Screen title=\"A\"", "r a",
+                     "@ two at=bottom", "c b Screen title=\"B\"", "r b"] {
+            model.apply(try #require(try LineParser.parse(line)))
+        }
+        #expect(model.surfaces.count == 2)
+        model.apply(try #require(try LineParser.parse("- one")))
+        #expect(model.surfaces.map(\.id) == ["two"])
+    }
+
+    @Test("more than one name is a mistake, not a list")
+    func rejectsTwoNames() {
+        #expect(throws: (any Error).self) {
+            _ = try LineParser.parse("- one two")
+        }
+    }
+}
