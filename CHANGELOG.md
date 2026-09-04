@@ -18,6 +18,8 @@ real commit; nothing here is written by hand.
 - the component reference is generated from the catalog
 
 ### Other
+- commands: findable, and two that argued with the standards
+- portable: the half of this kit that is not macOS, on any machine
 - tests: 69 of them, on a macOS runner, and they found five real bugs
 - security: a threat model, a data inventory, and a deny list that means it
 

@@ -1,6 +1,7 @@
 ---
 name: mac-apps
 description: Drive specific Mac apps through AppleScript, JXA, Shortcuts, or their own data files - Mail, Messages, Notes, Safari, Calendar, Reminders, Finder, Music, Terminal. Use when the user asks to do something in a named Mac app, especially an Apple one.
+requires: [chewie]
 ---
 
 # Driving named apps

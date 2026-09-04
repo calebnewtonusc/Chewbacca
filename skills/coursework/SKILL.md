@@ -1,6 +1,7 @@
 ---
 name: coursework
 description: Run the user's semester from a machine-readable ledger built out of their syllabi. Use when they mention a class, an assignment, an exam, a deadline, a professor, a reading, a grade, attendance, or a syllabus; when they ask what is due, what to work on, or whether they can miss a class; when they hand over a syllabus PDF; and before helping with any graded work, because each course sets its own rules about what help is allowed.
+requires: [coursework]
 ---
 
 # Coursework

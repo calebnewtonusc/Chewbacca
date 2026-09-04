@@ -1,6 +1,7 @@
 ---
 name: mac-debug
 description: Diagnose a Mac automation that is failing, especially one failing silently. Use when a click does nothing, typing does not appear, the accessibility tree is empty, an AppleScript hangs or errors, coordinates land in the wrong place, or something that worked before stopped working.
+requires: [chewie]
 ---
 
 # Debugging Mac automation

@@ -1,6 +1,7 @@
 ---
 name: mac-act
 description: Click, type, drag, scroll, press keys, and drive UI on the user's Mac. Use when the user asks to click something, fill in a field, press a shortcut, select a menu item, or perform any action in a Mac app.
+requires: [chewie]
 ---
 
 # Acting on a Mac
