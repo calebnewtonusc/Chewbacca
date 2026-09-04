@@ -87,6 +87,33 @@ Chewbacca loads itself.
 Hold `fn` and talk instead of typing, if you prefer. Dictation runs on your Mac
 and nothing is uploaded.
 
+## It is not a program
+
+This is the part people get wrong, so it goes first.
+
+Chewbacca does not run. There is no daemon, no gateway, no account, and no
+server. It configures the Claude you already pay for and then gets out of the
+way. Every file it writes is plain text you can open, diff, and revert, and
+`chewbacca uninstall` puts it back.
+
+That matters because the obvious alternative,
+[OpenClaw](https://github.com/openclaw/openclaw), is a genuinely good project
+that asks you for something else first: model credentials you bring yourself,
+and a daemon you keep alive. This repo exists partly because its author ran
+OpenClaw for months and lost the whole thing to one bad config key.
+
+|                     | Chewbacca                 | OpenClaw                       |
+| ------------------- | ------------------------- | ------------------------------ |
+| What it asks of you | A Claude subscription     | Credentials you bring yourself |
+| Left running after  | Nothing                   | A daemon                       |
+| Where your keys sit | Your own keychain         | Brokered through the gateway   |
+| To undo it          | Revert the files it wrote | Uninstall the runtime          |
+
+**Use OpenClaw instead** if you want an assistant that reaches you in WhatsApp
+or Telegram, if you are on Linux or Windows, or if you want to choose your own
+model. Those are real things this does not do. The
+[full comparison](docs/REFERENCE.md#why-not-openclaw) is honest about the rest.
+
 ## What makes it different
 
 **It remembers.** Most of what you tell an assistant dies when the window
@@ -137,7 +164,7 @@ README used to be: every skill, hook, command, plugin, and standard.
 | [docs/MACOS-TOOLS.md](docs/MACOS-TOOLS.md) | Screen, apps, permissions, failure modes     |
 | [docs/SCHOOL.md](docs/SCHOOL.md)           | The coursework ledger and its AI policy gate |
 | [docs/METHODOLOGY.md](docs/METHODOLOGY.md) | Why it is built this way                     |
-| [CONTRIBUTING.md](.github/CONTRIBUTING.md)         | Adding a skill or a tool                     |
+| [CONTRIBUTING.md](.github/CONTRIBUTING.md) | Adding a skill or a tool                     |
 
 ---
 
