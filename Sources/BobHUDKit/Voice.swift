@@ -267,11 +267,11 @@ public final class VoiceListener {
     /// wake mode the audio before it is somebody's unrelated conversation.
     func strippingWakeWord(from text: String) -> String? {
         let lower = text.lowercased()
-        var best: Range<String.Index>?
-        for word in wakeWords {
-            guard let found = lower.range(of: word) else { continue }
-            if best == nil || found.lowerBound < best!.lowerBound { best = found }
-        }
+        // The earliest match across all the wake words, because two of them can
+        // both appear and the first one is where the address begins.
+        let best = wakeWords
+            .compactMap { lower.range(of: $0) }
+            .min { $0.lowerBound < $1.lowerBound }
         guard let best else { return nil }
         let after = text[best.upperBound...]
         let cleaned = after
