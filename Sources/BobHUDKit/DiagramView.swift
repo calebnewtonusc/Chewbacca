@@ -213,8 +213,13 @@ nonisolated struct DiagramCanvas: View, Animatable {
                         startPoint: .top, endPoint: .bottom),
                     lineWidth: 0.9)
             }
-            .shadow(color: colour.opacity(0.28), radius: 9)
-            .shadow(color: .black.opacity(0.45), radius: 12, y: 5)
+            // Kept tight on purpose. A wide black shadow around each node
+            // reads well in isolation and eats the edges between them: the
+            // arrows terminate at the node border, which is exactly where the
+            // shadow was darkest, so a three-node flow rendered as three nodes
+            // and no flow.
+            .shadow(color: colour.opacity(0.25), radius: 6)
+            .shadow(color: .black.opacity(0.32), radius: 5, y: 3)
             .position(x: values[0] * size.width, y: values[1] * size.height)
     }
 
@@ -253,15 +258,34 @@ nonisolated struct DiagramCanvas: View, Animatable {
             var path = Path()
             path.move(to: from)
             path.addLine(to: to)
+            // A dark casing under the stroke.
+            //
+            // A one-point cyan line is bright against a dark desktop and
+            // disappears into a page of black text, which is most of what
+            // people actually have on screen. The nodes never had this problem
+            // because they carry their own fill; the edges between them did,
+            // and an edgeless diagram is not a diagram. Drawing the line twice,
+            // wider in near-black underneath, gives it its own contrast on any
+            // ground. Skipped in the glow pass, where it would only muddy the
+            // bloom.
+            if !glowing {
+                context.stroke(
+                    path, with: .color(.black.opacity(0.6)), lineWidth: stroke + 2.2)
+            }
             if shape.dashed {
                 context.stroke(
-                    path, with: .color(colour.opacity(0.8)),
+                    path, with: .color(colour.opacity(0.85)),
                     style: StrokeStyle(lineWidth: stroke, dash: [4, 4]))
             } else {
                 context.stroke(path, with: .color(colour), lineWidth: stroke)
             }
             if shape.kind == .arrow {
-                context.stroke(head(from: from, to: to), with: .color(colour), lineWidth: stroke)
+                let tip = head(from: from, to: to)
+                if !glowing {
+                    context.stroke(
+                        tip, with: .color(.black.opacity(0.6)), lineWidth: stroke + 2.2)
+                }
+                context.stroke(tip, with: .color(colour), lineWidth: stroke)
             }
 
         case .circle:
@@ -272,7 +296,11 @@ nonisolated struct DiagramCanvas: View, Animatable {
                 x: from.x - radius, y: from.y - radius,
                 width: radius * 2, height: radius * 2))
             if shape.filled && !glowing {
-                context.fill(path, with: .color(colour.opacity(0.18)))
+                context.fill(path, with: .color(.black.opacity(0.55)))
+            }
+            if !glowing {
+                context.stroke(
+                    path, with: .color(.black.opacity(0.6)), lineWidth: stroke + 2.2)
             }
             context.stroke(path, with: .color(colour), lineWidth: stroke)
 

@@ -548,6 +548,24 @@ struct RegionTests {
 @Suite("Decay")
 @MainActor
 struct DecayTests {
+    /// Wait for a condition, up to a deadline.
+    ///
+    /// A fixed sleep is a bug in a timing test. The sweep runs on a half-second
+    /// tick, so any load on the machine can push it past a hard-coded wait, and
+    /// this suite went red once for no reason other than rendering images at the
+    /// same time. Polling asks the only question that matters: did it happen.
+    private func eventually(
+        within seconds: Double = 6,
+        _ condition: () -> Bool
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(80))
+        }
+        return condition()
+    }
+
     @Test("a surface with a lifetime takes itself down")
     func surfaceExpires() async throws {
         let model = OverlayModel()
@@ -555,8 +573,7 @@ struct DecayTests {
         model.apply(try #require(try LineParser.parse("c s Screen title=\"HI\"")))
         model.apply(try #require(try LineParser.parse("r s")))
         #expect(model.surfaces.count == 1)
-        try await Task.sleep(for: .milliseconds(1200))
-        #expect(model.surfaces.isEmpty)
+        #expect(await eventually { model.surfaces.isEmpty })
     }
 
     @Test("taking one marker down does not stop everything else expiring")
@@ -574,16 +591,16 @@ struct DecayTests {
         model.apply(try #require(try LineParser.parse("u a")))
         #expect(model.markers.count == 1)
 
-        try await Task.sleep(for: .milliseconds(1200))
-        #expect(model.markers.isEmpty)
-        #expect(model.surfaces.isEmpty)
+        #expect(await eventually { model.markers.isEmpty && model.surfaces.isEmpty })
     }
 
     @Test("life=0 pins a marker")
     func pinned() async throws {
         let model = OverlayModel()
         model.apply(try #require(try LineParser.parse("m pin 0 0 10 10 life=0")))
-        try await Task.sleep(for: .milliseconds(900))
+        // The inverse: it must still be there after long enough that anything
+        // expiring would have gone.
+        #expect(!(await eventually(within: 1.5) { model.markers.isEmpty }))
         #expect(model.markers.count == 1)
     }
 }
