@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 // @ts-nocheck
+// node:sqlite is still flagged experimental, and it prints a warning to stderr
+// on every single invocation. In a CLI people run twenty times a day that is
+// not a warning, it is noise that trains them to ignore stderr.
+process.removeAllListeners("warning");
 /**
  * people: everything you know about the people in your life, in one place you own.
  *
@@ -335,8 +339,42 @@ function migrate(d) {
   ensureColumn(d, "people", "next_check_at", "next_check_at TEXT");
   ensureColumn(d, "people", "next_check_reason", "next_check_reason TEXT");
   d.exec(SCHEMA_V2);
+  d.exec(SCHEMA_V3);
   seedTemplate(d);
 }
+
+// Messages. Added because the honest answer to "when did I last talk to her"
+// was living in an app this tool could not see, so warmth and reconnect were
+// scored off whatever the user remembered to type in by hand.
+//
+// NOTHING HERE LEAVES THE MACHINE. This is a local copy of a local database,
+// and no command in this file sends a message body anywhere.
+const SCHEMA_V3 = `
+CREATE TABLE IF NOT EXISTS messages (
+  -- chat.db's own ROWID. Stable, monotonic, and therefore the sync watermark:
+  -- re-running an ingest is a no-op rather than a duplicate.
+  msg_id     INTEGER PRIMARY KEY,
+  person_id  TEXT REFERENCES people (id) ON DELETE SET NULL,
+  who        TEXT NOT NULL,
+  handle     TEXT,
+  from_me    INTEGER NOT NULL,
+  body       TEXT NOT NULL,
+  sent_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS msg_time_idx   ON messages (sent_at DESC);
+CREATE INDEX IF NOT EXISTS msg_person_idx ON messages (person_id, sent_at DESC);
+CREATE INDEX IF NOT EXISTS msg_who_idx    ON messages (who, sent_at DESC);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+  body, content='messages', content_rowid='msg_id'
+);
+
+CREATE TABLE IF NOT EXISTS sync_state (
+  key        TEXT PRIMARY KEY,
+  value      TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`;
 
 // Added after v1 shipped. Kept in its own block so the original schema stays
 // readable as the thing it was, rather than growing a second archaeology layer.
@@ -1703,9 +1741,15 @@ function cmdReconnect(argv) {
   const rows = overdueList(Number(flags.limit || 15));
   if (!rows.length) {
     const total = db().prepare("SELECT count(*) AS n FROM people WHERE deleted_at IS NULL").get().n;
+    // "Nobody is overdue" and "I know nothing about anybody" are different
+    // answers and used to print the same line. Anyone whose texts have synced
+    // has a real last-contact date, so telling them to start writing notes is
+    // both wrong and the opposite of reassuring.
     const known = db()
       .prepare(
-        "SELECT count(DISTINCT person_id) AS n FROM observations WHERE person_id IS NOT NULL AND deleted_at IS NULL",
+        `SELECT count(*) AS n FROM (
+           SELECT person_id FROM observations WHERE person_id IS NOT NULL AND deleted_at IS NULL
+           UNION SELECT person_id FROM interactions WHERE person_id IS NOT NULL)`,
       )
       .get().n;
     if (total && !known)
@@ -1714,7 +1758,10 @@ function cmdReconnect(argv) {
           c.dim("  This ranks people you know things about, so start with:\n") +
           `    people note <name> "..." --dim social`,
       );
-    return say(c.grn("  nobody is overdue"));
+    return say(
+      c.grn("  nobody is overdue") +
+        (known ? c.dim(`\n  ${known} people have recent contact on file`) : ""),
+    );
   }
   say("");
   for (const r of rows) {
@@ -2386,6 +2433,255 @@ function cmdFact(argv) {
   say(`${c.grn("saved")} ${key} for ${c.b(p.name)}`);
 }
 
+// ------------------------------------------------------------------- messages
+
+// The reader lives in the mac kit because decoding attributedBody is fiddly and
+// already solved there. Without that decode you see about 5% of a real library
+// and almost nothing the user sent.
+function textsReader() {
+  const here = path.dirname(fs.realpathSync(process.argv[1]));
+  for (const cand of [
+    path.join(here, "..", "mac", "lib", "texts.py"),
+    path.join(here, "..", "..", "mac", "lib", "texts.py"),
+    path.join(os.homedir(), ".chewbacca", "mac", "lib", "texts.py"),
+    path.join(os.homedir(), "Desktop/2026-Code/projects/chewbacca/mac/lib/texts.py"),
+  ])
+    if (fs.existsSync(cand)) return cand;
+  return null;
+}
+
+function syncState(key, val) {
+  const d = db();
+  if (val === undefined)
+    return (d.prepare("SELECT value FROM sync_state WHERE key=?").get(key) || {}).value;
+  d.prepare(
+    `INSERT INTO sync_state (key, value, updated_at) VALUES (?,?,?)
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+  ).run(key, String(val), nowISO());
+}
+
+// Match a thread to someone already in the store. Handle first because a phone
+// number is exact; the display name is a fallback and is allowed to miss.
+function resolvePerson(who, handle) {
+  const d = db();
+  if (handle) {
+    const digits = String(handle).replace(/\D/g, "").slice(-10);
+    if (digits.length === 10) {
+      const hit = d
+        .prepare(
+          `SELECT id FROM people WHERE deleted_at IS NULL
+             AND replace(replace(replace(replace(coalesce(phone,''),'+',''),'-',''),' ',''),'()','') LIKE ?`,
+        )
+        .get("%" + digits);
+      if (hit) return hit.id;
+    }
+    if (String(handle).includes("@")) {
+      const hit = d
+        .prepare("SELECT id FROM people WHERE deleted_at IS NULL AND lower(email)=lower(?)")
+        .get(handle);
+      if (hit) return hit.id;
+    }
+  }
+  if (who) {
+    const exact = d
+      .prepare("SELECT id FROM people WHERE deleted_at IS NULL AND lower(name)=lower(?)")
+      .get(who);
+    if (exact) return exact.id;
+  }
+  return null;
+}
+
+function cmdTexts(argv) {
+  const sub = ["sync", "log", "stats", "link", "search"].includes(argv[0]) ? argv.shift() : "log";
+  const { flags, rest } = parseArgs(argv);
+  const d = db();
+
+  if (sub === "sync") {
+    const py = textsReader();
+    if (!py)
+      die(
+        "Cannot find the message reader (mac/lib/texts.py).\n" +
+          "  It ships with this kit. Re-run setup.sh, or set CHEWBACCA_ROOT.",
+      );
+    // First run takes a bounded window. A full history is 600k+ rows on a real
+    // machine and nobody wants their first command to be a ten-minute import.
+    const seen = Number(syncState("messages_max_id") || 0);
+    const days = Number(flags.days || (seen ? 30 : 90));
+    let raw;
+    try {
+      raw = execFileSync("python3", [py, "--json", "--days", String(days)], {
+        encoding: "utf8",
+        maxBuffer: 512 * 1024 * 1024,
+      });
+    } catch (e) {
+      const err = String((e && e.stderr) || e.message || "");
+      if (/operation not permitted|unable to open database/i.test(err))
+        die(
+          "macOS blocked the read of your message database.\n" +
+            "  Give your terminal Full Disk Access:\n" +
+            "  System Settings > Privacy & Security > Full Disk Access\n" +
+            "  Nothing is sent anywhere; this reads a local file.",
+        );
+      die("Could not read messages: " + err.split("\n")[0]);
+    }
+    let rows;
+    try {
+      rows = JSON.parse(raw);
+    } catch {
+      die("The message reader returned something unreadable.");
+    }
+
+    const ins = d.prepare(
+      `INSERT INTO messages (msg_id, person_id, who, handle, from_me, body, sent_at)
+       VALUES (?,?,?,?,?,?,?) ON CONFLICT(msg_id) DO NOTHING`,
+    );
+    const fts = d.prepare("INSERT INTO messages_fts (rowid, body) VALUES (?,?)");
+    let added = 0,
+      maxId = seen,
+      unlinked = new Map();
+    for (const r of rows) {
+      if (r.reaction || r.attachment_only) continue; // "Loved an image" is not a conversation
+      const body = String(r.text || "").trim();
+      if (!body) continue;
+      const pid = resolvePerson(r.with, r.handle);
+      const res = ins.run(
+        r.id,
+        pid,
+        r.with || r.handle || "unknown",
+        r.handle || null,
+        r.from_me ? 1 : 0,
+        body,
+        String(r.at).replace("T", " "),
+      );
+      if (res.changes) {
+        fts.run(r.id, body);
+        added++;
+        if (!pid) unlinked.set(r.with, (unlinked.get(r.with) || 0) + 1);
+      }
+      if (r.id > maxId) maxId = r.id;
+    }
+    // Link the backlog too. Insert-time linking alone means any message that
+    // arrived before its contact existed stays orphaned forever, which is the
+    // normal case: the session hook syncs texts before anyone runs an import.
+    let relinked = 0;
+    for (const row of d
+      .prepare("SELECT DISTINCT who, handle FROM messages WHERE person_id IS NULL")
+      .all()) {
+      const pid = resolvePerson(row.who, row.handle);
+      if (!pid) continue;
+      relinked += d
+        .prepare("UPDATE messages SET person_id=? WHERE person_id IS NULL AND who=?")
+        .run(pid, row.who).changes;
+    }
+
+    syncState("messages_max_id", maxId);
+    syncState("messages_last_sync", nowISO());
+
+    // The whole point: a real conversation counts as contact, so warmth and
+    // reconnect stop depending on the user remembering to log by hand.
+    const logged = d
+      .prepare(
+        `INSERT INTO interactions (id, person_id, channel, note, happened_at)
+         SELECT lower(hex(randomblob(16))), m.person_id, 'imessage', NULL, max(m.sent_at)
+           FROM messages m
+          WHERE m.person_id IS NOT NULL
+            AND m.sent_at > coalesce((SELECT max(happened_at) FROM interactions i
+                                       WHERE i.person_id = m.person_id), '')
+          GROUP BY m.person_id`,
+      )
+      .run();
+    recomputeScores();
+
+    say(`${c.grn("synced")} ${added} new messages${c.dim(`  (${days}d window)`)}`);
+    if (relinked) say(c.dim(`  ${relinked} older messages linked to people you have since added`));
+    if (logged.changes) say(c.dim(`  ${logged.changes} people had their last-contact updated`));
+    if (unlinked.size) {
+      const top = [...unlinked.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+      say(c.dim(`\n  ${unlinked.size} threads are not linked to anyone in your store:`));
+      for (const [w, n] of top) say(c.dim(`    ${w}  (${n})`));
+      say(c.dim(`  people texts link "<thread name>" <person>   to connect one`));
+    }
+    return;
+  }
+
+  if (sub === "link") {
+    const who = rest.shift();
+    const target = rest.join(" ");
+    if (!who || !target) die('Try: people texts link "Sagar Tiwari" sagar');
+    const p = findPerson(target);
+    const n = d.prepare("UPDATE messages SET person_id=? WHERE who=? AND person_id IS NULL").run(p.id, who);
+    say(`${c.grn("linked")} ${n.changes} messages from ${c.b(who)} to ${c.b(p.name)}`);
+    recomputeScores();
+    return;
+  }
+
+  if (sub === "stats") {
+    const t = d.prepare("SELECT count(*) n, min(sent_at) a, max(sent_at) b FROM messages").get();
+    const linked = d.prepare("SELECT count(*) n FROM messages WHERE person_id IS NOT NULL").get().n;
+    say("");
+    say(`  messages   ${t.n}`);
+    say(`  linked     ${linked}${t.n ? c.dim(`  (${Math.round((linked / t.n) * 100)}%)`) : ""}`);
+    say(`  range      ${(t.a || "").slice(0, 10)} to ${(t.b || "").slice(0, 10)}`);
+    say(`  last sync  ${syncState("messages_last_sync") || "never"}`);
+    say("");
+    return;
+  }
+
+  if (sub === "search") {
+    const q = rest.join(" ");
+    if (!q) die('Try: people texts search "the trip"');
+    const rows = d
+      .prepare(
+        `SELECT m.who, m.from_me, m.body, m.sent_at FROM messages_fts f
+           JOIN messages m ON m.msg_id = f.rowid
+          WHERE messages_fts MATCH ? ORDER BY m.sent_at DESC LIMIT ?`,
+      )
+      .all(q, Number(flags.limit || 25));
+    if (!rows.length) return say(c.dim(`  nothing matches "${q}"`));
+    say("");
+    for (const r of rows)
+      say(
+        `  ${c.dim(r.sent_at.slice(0, 16))}  ${c.b(r.who.padEnd(20).slice(0, 20))} ${r.from_me ? c.cyn("->") : "<-"} ${r.body.replace(/\s+/g, " ").slice(0, 90)}`,
+      );
+    say(`\n  ${rows.length} results\n`);
+    return;
+  }
+
+  // the running log
+  const days = Number(flags.days || 3);
+  const who = flags.who || rest.join(" ") || null;
+  let sql = `SELECT who, from_me, body, sent_at FROM messages
+              WHERE julianday('now') - julianday(sent_at) <= ?`;
+  const args = [days];
+  if (who) {
+    sql += " AND (lower(who) LIKE ? OR person_id = (SELECT id FROM people WHERE lower(name) LIKE ? LIMIT 1))";
+    args.push("%" + who.toLowerCase() + "%", "%" + who.toLowerCase() + "%");
+  }
+  sql += " ORDER BY sent_at ASC LIMIT ?";
+  args.push(Number(flags.limit || 300));
+  const rows = d.prepare(sql).all(...args);
+  if (!rows.length) {
+    const any = d.prepare("SELECT count(*) n FROM messages").get().n;
+    return say(
+      any
+        ? c.dim(`  nothing in the last ${days} days${who ? ` with ${who}` : ""}`)
+        : c.dim("  no messages yet. Run: people texts sync"),
+    );
+  }
+  say("");
+  let last = null;
+  for (const r of rows) {
+    if (r.who !== last) {
+      say(`\n${c.cyn(r.who)}`);
+      last = r.who;
+    }
+    say(
+      `  ${c.dim(r.sent_at.slice(5, 16))} ${r.from_me ? c.cyn("->") : "  "} ${r.body.replace(/\s+/g, " ").slice(0, 100)}`,
+    );
+  }
+  say("");
+}
+
 const HELP = `${c.b("people")} ${c.dim("- everything you know about the people in your life")}
 
   ${c.b("people add")} "Maggie Chen" --company Acme --role CTO --met "SXSW 2026"
@@ -2412,6 +2708,11 @@ const HELP = `${c.b("people")} ${c.dim("- everything you know about the people i
   ${c.b("people check-on")} ben --in 14d --because "his thesis defense"
   ${c.b("people ask")} maggie                    what you still do not know
   ${c.b("people fact")} maggie food "no shellfish"
+
+  ${c.b("people texts sync")}                    pull new iMessages in (local only)
+  ${c.b("people texts")} [--days 3] [--who maggie]   the running log
+  ${c.b("people texts search")} "the trip"
+  ${c.b("people texts stats")} | ${c.b("people texts link")} "Thread Name" <person>
   ${c.b("people update")} maggie --company Anthropic --cadence 30
   ${c.b("people intro")} Anthropic            who could introduce you
   ${c.b("people import")} --mac | --vcf FILE | --csv FILE
@@ -2461,6 +2762,8 @@ const COMMANDS = {
   "check-on": cmdCheckOn,
   ask: cmdAsk,
   fact: cmdFact,
+  texts: cmdTexts,
+  msgs: cmdTexts,
   today: cmdToday,
   reconnect: cmdReconnect,
   due: cmdReconnect,
