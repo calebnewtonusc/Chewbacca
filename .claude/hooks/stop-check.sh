@@ -15,6 +15,15 @@ set -uo pipefail
 
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 
+# A home directory under git is somebody's dotfiles repo, and `git status`
+# there reports Library, Downloads, .ssh and every cache on the machine as
+# untracked work. That fired "183 uncommitted changes" at the end of every
+# turn in a session whose actual repos were clean and pushed, three times in a
+# row, which is exactly the unconditional-noise failure this hook was rewritten
+# to stop doing. Acting on it would stage the user's credentials.
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo)"
+[ "$REPO_ROOT" = "$HOME" ] && exit 0
+
 DIRTY_COUNT="$(git status --porcelain 2>/dev/null | grep -c . || true)"
 AHEAD_COUNT=0
 NO_UPSTREAM=0

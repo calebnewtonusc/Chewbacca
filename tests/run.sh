@@ -214,6 +214,11 @@ if group "hooks"; then
     name="$(basename "$h")"
     exits "$name survives empty input" 0 bash -c "echo '{}' | bash '$h'"
   done
+  # A home directory under git reports every cache and Library folder as
+  # untracked work. The reminder fired three times in a row in a session whose
+  # real repos were clean, and acting on it would stage the user's credentials.
+  check  "stop-check says nothing about a home-directory repo" \
+    bash -c "cd \"\$HOME\" && git rev-parse --show-toplevel 2>/dev/null | grep -qx \"\$HOME\" && [ -z \"\$(bash '$ROOT/.claude/hooks/stop-check.sh')\" ] || true"
   check  "the hook log was written" test -f "$CHEWBACCA_LOG_DIR/hooks.log"
   expect "log rows carry a duration" "|ok|" cat "$CHEWBACCA_LOG_DIR/hooks.log"
 fi
