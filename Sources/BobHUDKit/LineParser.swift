@@ -8,7 +8,8 @@ import Foundation
 ///     > <id> <child> [child ...]         give it children
 ///     d <pointer> <json>                 patch the data model
 ///     r <id>                             declare the root
-///     @ <surface> [at=region] [w=380]    open or switch to a surface
+///     @ <surface> [at=region] [w=380] [urgency=alert]
+///                                        open or switch to a surface
 ///     - <surface>                        close a surface
 ///
 /// A line is either complete or invisible, which is the whole reason this is the
@@ -180,13 +181,15 @@ public enum LineParser {
             }
             var region: Region?
             var width: Double?
+            var urgency: Urgency?
             for token in tokens.dropFirst(2) {
                 guard let (key, raw) = splitPair(token) else { continue }
                 let value = raw.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
                 if key == "at" { region = Region(rawValue: value) }
                 if key == "w" || key == "width" { width = Double(value) }
+                if key == "urgency" { urgency = Urgency(rawValue: value) }
             }
-            return .surface(id: tokens[1], region: region, width: width)
+            return .surface(id: tokens[1], region: region, width: width, urgency: urgency)
 
         case "-":
             guard tokens.count == 2 else {

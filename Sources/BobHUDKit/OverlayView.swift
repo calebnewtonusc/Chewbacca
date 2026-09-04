@@ -108,7 +108,29 @@ struct SurfaceCard: View {
     @State private var base: CGSize = .zero
 
     var body: some View {
-        SurfaceView(store: surface.store)
+        // Never taller than the screen.
+        //
+        // A surface that overflows does not merely look wrong, it centres itself
+        // off both edges and hides its own title, which is how the first
+        // dashboard lost its heading and its top chart at once. `ViewThatFits`
+        // takes the plain layout when it fits and swaps in a scrolling one when
+        // it does not, so a short panel is still sized to its content.
+        ViewThatFits(in: .vertical) {
+            SurfaceView(store: surface.store)
+            ScrollView(.vertical, showsIndicators: false) {
+                SurfaceView(store: surface.store)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+            .frame(maxHeight: surface.maxHeight)
+            // Hug the content vertically.
+            //
+            // The overlay proposes the whole screen to every surface, and
+            // `.position` keeps proposing it, so without this a card with four
+            // lines in it draws as a full-height slab with its content floating
+            // in the middle. `fixedSize` tells the card to take its ideal height
+            // and ignore the offer.
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -118,7 +140,12 @@ struct SurfaceCard: View {
                     // stay legible, and light text reads as emitted rather than
                     // printed.
                     VisualEffect(material: .hudWindow, blending: .behindWindow)
-                    Color.black.opacity(0.36)
+                    // Deep enough to read as a HUD over a *light* window too.
+                    //
+                    // At 0.36 the card was a pale grey rectangle over a white
+                    // editor, because a vibrancy material samples what is behind
+                    // it and there was not enough ink on top to win.
+                    Color.black.opacity(0.62)
 
                     // A wash of the accent from the top edge, as if lit from the
                     // hairline above it.
@@ -202,6 +229,25 @@ public enum HUD {
     public static let ink = Color.white
     public static let dim = Color.white.opacity(0.62)
     public static let faint = Color.white.opacity(0.38)
+
+    /// Warm colours for the two states that mean something, and the house cyan
+    /// for everything else.
+    ///
+    /// Four named tones and no free-form colour prop. A model given a hex field
+    /// will use it, and a dashboard whose panels each chose their own colour is
+    /// harder to read than one drawn entirely in one.
+    public static let good = Color(red: 0.45, green: 0.90, blue: 0.66)
+    public static let warn = Color(red: 0.99, green: 0.79, blue: 0.36)
+    public static let bad = Color(red: 1.00, green: 0.45, blue: 0.42)
+
+    public static func tone(_ name: String?) -> Color {
+        switch name {
+        case "good", "positive", "success": return good
+        case "warn", "warning": return warn
+        case "bad", "negative", "danger", "critical": return bad
+        default: return accent
+        }
+    }
 }
 
 struct CloseButton: View {
@@ -230,6 +276,10 @@ struct VisualEffect: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
+        // Pin the material to dark. `.environment(\.colorScheme, .dark)` governs
+        // SwiftUI only; an AppKit view keeps following the system appearance and
+        // turns the glass white for anyone not in dark mode.
+        view.appearance = NSAppearance(named: .darkAqua)
         view.material = material
         view.blendingMode = blending
         view.state = .active

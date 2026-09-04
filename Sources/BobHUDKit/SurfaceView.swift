@@ -74,6 +74,8 @@ public struct SurfaceView: View {
             return prose(element, p)
         case "Metric", "Table", "Status":
             return data(p, type: element.type)
+        case "Sparkline", "Bars", "Ring", "Events":
+            return chart(p, type: element.type)
         default:
             return control(element, p)
         }
@@ -157,6 +159,52 @@ public struct SurfaceView: View {
                 StatusView(
                     message: p["message"]?.display ?? "",
                     level: p["level"]?.stringValue ?? "info"))
+        }
+    }
+
+    /// The dashboard family.
+    ///
+    /// Kept apart from `data` for the same compile-time reason the other
+    /// families are split, and because it is the family with the most branches
+    /// still to come.
+    ///
+    /// Every one of these takes a `tone`, defaulting to the HUD accent. A
+    /// dashboard where each panel picks its own colour is unreadable, so the
+    /// model has to ask for a different one deliberately and gets the house cyan
+    /// when it does not.
+    private func chart(_ p: [String: JSON], type: String) -> AnyView {
+        let tone = HUD.tone(p["tone"]?.stringValue)
+        switch type {
+        case "Sparkline":
+            let points = (p["points"]?.arrayValue ?? []).compactMap(\.doubleValue)
+            return AnyView(
+                Sparkline(
+                    label: p["label"]?.display ?? "",
+                    points: points,
+                    value: p["value"]?.display ?? "",
+                    tone: tone))
+
+        case "Bars":
+            return AnyView(
+                BarsView(
+                    caption: p["caption"]?.display ?? "",
+                    rows: p["rows"]?.arrayValue ?? [],
+                    tone: tone))
+
+        case "Ring":
+            return AnyView(
+                RingView(
+                    label: p["label"]?.display ?? "",
+                    fraction: p["value"]?.doubleValue ?? 0,
+                    caption: p["caption"]?.display ?? "",
+                    tone: tone))
+
+        default:
+            return AnyView(
+                EventsView(
+                    caption: p["caption"]?.display ?? "",
+                    items: p["items"]?.arrayValue ?? [],
+                    tone: tone))
         }
     }
 
