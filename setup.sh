@@ -127,7 +127,7 @@ Behaviors, both off unless asked for:
 Re-running:
   --only <section>             Run one section. Safe to repeat.
                                prereq repos settings editor desktop mcp rules
-                               plugins tools plynn verify
+                               plugins tools nova plynn verify
   --dry-run                    Print what would run and exit.
   -h, --help                   This text.
 USAGE
@@ -1321,6 +1321,7 @@ time|uvx|mcp-server-time
 git|uvx|mcp-server-git
 sequential-thinking|npx|-y @modelcontextprotocol/server-sequential-thinking
 chart|npx|-y @antv/mcp-server-chart
+macos-automator|npx|-y @steipete/macos-automator-mcp@latest
 KEYLESS_MCP
 
   while IFS='|' read -r M_NAME M_CMD M_ARGS M_ENV; do
@@ -1530,6 +1531,62 @@ if [ -d "$PACK_DIR/skills" ]; then
   log "agent-scripts: $PACK_N skills linked"
 fi
 # END GENERATED: cli
+fi
+
+# Nova is the Mac control layer, folded in from calebnewtonusc/Nova. Chewbacca
+# already shipped peekaboo and mac-use, which are two of the seven layers Nova
+# knows about. This installs the rest of them plus the runtime that plans,
+# executes, verifies and logs, instead of improvising bash step by step.
+# ── Nova ──────────────────────────────────────────────────────────────────────
+if should_run nova; then
+section "Installing Nova, the Mac control stack"
+
+NOVA_SRC="$SCRIPT_DIR/nova"
+if [ ! -d "$NOVA_SRC" ]; then
+  warn "nova/ not found in this checkout, skipping"
+else
+  mkdir -p "$HOME/.local/bin"
+  ln -sf "$NOVA_SRC/bin/nova" "$HOME/.local/bin/nova"
+  chmod +x "$NOVA_SRC/bin/nova" 2>/dev/null || true
+  log "nova installed to ~/.local/bin/nova"
+
+  # Layer 3 is the accessibility-tree driver and it is the one worth having.
+  # Everything below degrades to a screenshot without it.
+  if command -v npm &>/dev/null; then
+    if command -v agent-desktop &>/dev/null; then
+      log "agent-desktop already installed"
+    elif npm install -g agent-desktop &>/dev/null; then
+      log "agent-desktop installed (accessibility driver)"
+    else
+      warn "could not install agent-desktop: npm install -g agent-desktop"
+    fi
+    # Layer 6, the Chrome DevTools bridge. Only when it has not been built yet.
+    if [ -d "$NOVA_SRC/bridge" ] && [ ! -d "$NOVA_SRC/bridge/node_modules" ]; then
+      (cd "$NOVA_SRC/bridge" && npm install --silent &>/dev/null) \
+        && log "web bridge ready" || warn "web bridge deps failed, nova web will not work"
+    fi
+  else
+    warn "npm missing, so the accessibility driver and web bridge are skipped"
+  fi
+
+  if command -v claude &>/dev/null; then
+    if claude mcp list 2>/dev/null | grep -q "^macos-automator:"; then
+      log "macos-automator already registered"
+    elif claude mcp add --scope user macos-automator \
+      -- npx -y @steipete/macos-automator-mcp@latest &>/dev/null; then
+      log "macos-automator registered (AppleScript and JXA over MCP)"
+    else
+      warn "could not register macos-automator"
+    fi
+  fi
+
+  # Accessibility and Screen Recording cannot be granted by any script. tccutil
+  # can remove a grant and never add one, and only an MDM profile can pre-grant.
+  # So this is a real handoff, not a checklist to feel bad about.
+  warn "Two toggles need a human, once: System Settings > Privacy & Security >"
+  warn "  Accessibility, and Screen Recording. Add whichever app runs Claude."
+  warn "  Run 'nova doctor' and it names the exact app and what is still missing."
+fi
 fi
 
 # ── Plynn ─────────────────────────────────────────────────────────────────────
