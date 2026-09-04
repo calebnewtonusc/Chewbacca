@@ -150,6 +150,7 @@ VENDORED = {
     "coursework": "Your syllabi as a ledger: deadlines, attendance math, per-course AI policy",
     "study-system": "Retrieval practice over rereading, exam run-ups, and the four-cause postmortem",
     "life-ops": "The weekly review, life admin with real deadlines, and what to cut",
+    "kit-builder": "Building a kit for a long bureaucratic process, and the test for when not to",
 }
 
 # A skill pack is one upstream repo holding many skills, symlinked in per skill

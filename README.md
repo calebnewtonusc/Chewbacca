@@ -228,7 +228,7 @@ it off is `--session-opener none`. To write your own, add it to `OPENERS` in
 | Piece                   | Details                                                                                                                                            |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **macOS tools**         | 8 installed alongside the kit: Anki, bd, mac, Maccy, mac-use, peekaboo, summarize, yt-transcript                                                   |
-| **Skills and plugins**  | 64 skills (8 shipped here, 3 cloned from upstream, 53 from 1 skill pack) plus 18 plugins across 3 marketplaces                                     |
+| **Skills and plugins**  | 65 skills (9 shipped here, 3 cloned from upstream, 53 from 1 skill pack) plus 18 plugins across 3 marketplaces                                     |
 | **Second brain**        | A private notes repo Claude reads at the start of every session and writes to as things change. Syncs to GitHub                                    |
 | **Coursework ledger**   | Your syllabi become deadlines, attendance budgets, and a per-course AI policy Claude checks before touching graded work                            |
 | **On-device dictation** | Installs [Plynn](https://github.com/31Carlton7/plynn): hold fn, talk, and clean text appears. Speech and cleanup run on your Mac, nothing uploaded |
@@ -416,6 +416,7 @@ anything graded. An unrecorded policy is treated as a ban.
 | -------------- | ------------------------------------------------------------------------------------------- |
 | `coursework`   | The ledger, syllabus intake, grading models including labor contracts, integrity rules      |
 | `study-system` | Retrieval practice over rereading, cards, exam run-ups, and the four-cause postmortem       |
+| `kit-builder`  | Build a kit for a long bureaucratic process, and the test for when not to                  |
 | `life-ops`     | The weekly review, life admin with real deadlines, and what to cut when a week does not fit |
 
 Full walkthrough: [docs/SCHOOL.md](docs/SCHOOL.md).
@@ -764,6 +765,7 @@ fires, which is the thing that matters most.
 | [skills/agent-setup](skills/agent-setup)                                                                  | Skill  | Finishing the install steps that need a browser or a permission dialog                         |
 | [skills/coursework](skills/coursework)                                                                    | Skill  | Your syllabi as a ledger: deadlines, attendance math, per-course AI policy                     |
 | [skills/graph-engineering](skills/graph-engineering)                                                      | Skill  | Knowledge graphs and agent task graphs, with teaching mode                                     |
+| [skills/kit-builder](skills/kit-builder)                                                                  | Skill  | Building a kit for a long bureaucratic process, and the test for when not to                   |
 | [skills/life-ops](skills/life-ops)                                                                        | Skill  | The weekly review, life admin with real deadlines, and what to cut                             |
 | [skills/second-brain](skills/second-brain)                                                                | Skill  | Reading, writing, and auditing your personal context repo                                      |
 | [skills/setup](skills/setup)                                                                              | Skill  | Installing the kit by conversation instead of a terminal questionnaire                         |
@@ -992,6 +994,7 @@ Chewbacca/
 │   ├── stack-rules/             # 12 stack standards, loaded on demand
 │   ├── coursework/              # Syllabus intake, grading models, integrity
 │   ├── study-system/            # Retrieval practice, exam prep, reading
+│   ├── kit-builder/            # Build a kit from kit-template, and when not to
 │   └── life-ops/                # Weekly review, capacity, what to cut
 ├── second-brain/
 │   ├── README.md                # Two-repo architecture explained
