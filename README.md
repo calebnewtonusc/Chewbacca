@@ -72,6 +72,7 @@
 
 - [What It Does](#what-it-does)
 - [The Idea](#the-idea)
+- [Nova: the Mac control stack](#nova-the-mac-control-stack)
 - [Why Not OpenClaw](#why-not-openclaw)
 - [Session Openers](#session-openers)
 - [What Gets Installed](#what-gets-installed)
@@ -144,6 +145,45 @@ handed to an agent rather than to you: see
 [agent-setup](skills/agent-setup).
 
 ---
+
+## Nova: the Mac control stack
+
+Folded in whole from [calebnewtonusc/Nova](https://github.com/calebnewtonusc/Nova).
+Chewbacca already shipped `peekaboo` and `mac-use`, which are two of the seven
+layers Nova knows about. This is the other five, plus the part that matters
+more than any of them: a runtime that plans a multi-step task, type-checks the
+plan, runs it, verifies it, and logs what actually happened.
+
+The seven layers exist because a screenshot is the most expensive way to read a
+screen and the least reliable way to click something. `nova see` returns the
+accessibility tree, which is text you can search and click by name. Vision is
+the fallback, not the default. The `mac-control` skill routes a request to the
+cheapest layer that can do it.
+
+| Verb                  | What it does                                        |
+| --------------------- | --------------------------------------------------- |
+| `nova see`            | The screen as an accessibility tree, not an image   |
+| `nova click` / `type` | Drive real UI by element name                       |
+| `nova run`            | AppleScript, or JXA with `--js`                     |
+| `nova texts`          | iMessage history with no UI at all                  |
+| `nova web`            | Read and drive web pages through Chrome DevTools    |
+| `nova plan run`       | A checked plan instead of improvised bash           |
+| `nova brief`          | Email, texts and calendar triaged into what is next |
+| `nova log`            | What Nova actually did, afterwards                  |
+| `nova doctor`         | Which permission is missing and for which app       |
+
+Nine skills come with it: `mac-control` to route, `mac-see`, `mac-act`,
+`mac-apps`, `mac-permissions`, `mac-debug`, `mac-followups`, `nova-runtime`,
+and `nova-brief`. The reference docs are in [docs/nova/](docs/nova/), one per
+layer, plus the operating manual.
+
+Two macOS toggles need a human once, because no API can grant them: Accessibility
+and Screen Recording, in System Settings under Privacy & Security. `nova doctor`
+names the exact app to add. Re-run just this piece with:
+
+```bash
+./setup.sh --only nova
+```
 
 ## Why not OpenClaw
 
