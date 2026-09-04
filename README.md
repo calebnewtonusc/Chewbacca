@@ -46,7 +46,7 @@
   <a href="https://github.com/calebnewtonusc/Chewbacca/commits/main"><img src="https://img.shields.io/github/last-commit/calebnewtonusc/Chewbacca" alt="Last Commit"></a>
 <!-- BEGIN GENERATED: badges -->
   <a href=".claude/commands"><img src="https://img.shields.io/badge/slash_commands-57-indigo" alt="Commands"></a>
-  <a href=".claude/rules"><img src="https://img.shields.io/badge/always_on_rules-11-green" alt="Rules"></a>
+  <a href=".claude/rules"><img src="https://img.shields.io/badge/always_on_rules-12-green" alt="Rules"></a>
   <a href="docs/EXTENSIONS.md"><img src="https://img.shields.io/badge/plugins-18-orange" alt="Plugins"></a>
 <!-- END GENERATED: badges -->
 </p>
@@ -54,7 +54,7 @@
 ---
 
 <!-- BEGIN GENERATED: counts -->
-One command installs **57 slash commands, 78 skills (22 written here, 3 cloned from upstream, 53 from a skill pack), 12 MCP servers, 9 hooks, 4 subagents, 8 command-line tools and 11 always-on standards.** 64,561 lines, every one of them plain text you can read.
+One command installs **57 slash commands, 78 skills (22 written here, 3 cloned from upstream, 53 from a skill pack), 12 MCP servers, 9 hooks, 4 subagents, 8 command-line tools and 12 always-on standards.** 65,255 lines, every one of them plain text you can read.
 <!-- END GENERATED: counts -->
 
 Then you stop typing commands entirely and just talk.

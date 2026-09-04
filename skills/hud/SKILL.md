@@ -137,6 +137,54 @@ Controls are live: `Button label="..." action="..."`, `Field label="..."
 bind=/pointer`, `Select`, `Checkbox`. A press writes locally and sends an event
 back, so it answers whether or not you are still listening.
 
+## Marking the screen
+
+A panel sits *beside* the work. A mark sits **on** it.
+
+```
+m <id> <x> <y> <w> <h> [label="..."] [tone=bad] [life=30]
+u [<id>]
+```
+
+Coordinates are **points with a top-left origin**, and points are not pixels: a
+Retina screenshot reports twice the number you want. Run `hud screen` to get the
+size before you place anything.
+
+```bash
+hud draw <<'EOF'
+m bug 420 260 380 90 label="This is the one failing" tone=bad
+EOF
+```
+
+Marks decay. The default life is twelve seconds, `life=0` pins one, and re-sending
+the same id with a new rectangle moves it rather than leaving a trail. That is
+deliberate and it is the rule that makes the layer trustworthy: a mark that
+outlives what it described is worse than no mark, because the person learns to
+disbelieve all of them.
+
+Twelve marks maximum. Past a dozen the screen is not annotated, it is hatched.
+
+## Panels that take themselves down
+
+`@ toast at=top life=6` closes after six seconds. Use it for something the person
+does not need to dismiss: a build finishing, a file saved, a reminder that stops
+being true.
+
+Leave `life` off for anything they will read or act on. A panel that vanishes
+mid-sentence is a bug they will blame on you.
+
+## Hearing them
+
+The display can listen. It is off until the person turns it on from the menu bar
+(hold the globe key to talk, or a wake word), and when it hears something it
+sends `h "what they said"` back up the socket.
+
+`hud listen` is the loop: it holds a connection open, and when something is said
+it asks a model to answer by drawing. Run it in the background of a session where
+you want the screen to be answerable out loud.
+
+Recognition is on-device. Do not add anything that ships audio somewhere.
+
 ## Changing something already up
 
 This is the part worth learning, because it is what makes the display feel alive
@@ -192,6 +240,10 @@ nothing will tell you.
 
 **Set the ring.** `p thinking` when you start something slow and `p dormant`
 when you are done. It is the only signal the user has that you are alive.
+
+**Get the screen size before placing a mark.** `hud screen`. Coordinates are
+points, and a Retina screenshot reports twice that. This is the single easiest
+way to put a mark in the wrong place.
 
 **Check `hud status` first** if you have not drawn this session, and `hud open`
 if it is not running.
