@@ -800,6 +800,25 @@ function cmdNote(argv) {
   const body = rest.join(" ").trim();
   if (!who || !body) die('Try: people note maggie "just got promoted" --dim financial');
   const p = findPerson(who);
+
+  // An agent writing on the user's behalf will sometimes run this twice for one
+  // spoken sentence, and the store then says a thing happened twice. The same
+  // words about the same person within the hour are one observation.
+  // --force writes it anyway, for the rare case where the repetition is real.
+  if (!flags.force) {
+    const dupe = db()
+      .prepare(
+        `SELECT id FROM observations
+          WHERE person_id = ? AND body = ? AND deleted_at IS NULL
+            AND julianday('now') - julianday(observed_at) < 0.042`,
+      )
+      .get(p.id, body);
+    if (dupe) {
+      say(c.dim(`already noted on ${p.name} within the hour, skipped`));
+      return;
+    }
+  }
+
   const { dims } = insertObservation({ personId: p.id, body, flags });
   const tag = dims.length ? c.dim(` [${dims.join(", ")}]`) : c.dim(" [no dimension]");
   say(`${c.grn("noted")} on ${c.b(p.name)}${tag}`);
