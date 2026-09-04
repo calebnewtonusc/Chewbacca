@@ -1,0 +1,318 @@
+#!/usr/bin/env bash
+# chewie - six verbs for controlling a Mac from an agent.
+# Climbs the layers: data, scripting, accessibility tree, synthetic input, vision.
+# https://github.com/calebnewtonusc/Chewbacca
+set -uo pipefail
+
+# Resolve through symlinks: install.sh links this into ~/.local/bin, and lib/ lives
+# next to the real script, not next to the link.
+_self="${BASH_SOURCE[0]}"
+while [ -L "$_self" ]; do
+  _dir=$(cd -P "$(dirname "$_self")" && pwd)
+  _self=$(readlink "$_self")
+  case "$_self" in /*) ;; *) _self="$_dir/$_self" ;; esac
+done
+CHEWIE_ROOT="${CHEWIE_ROOT:-$(cd -P "$(dirname "$_self")/.." && pwd)}"
+LIB="$CHEWIE_ROOT/lib"
+DRY=0
+JSON=""   # empty, not 0: ${JSON:+...} treats "0" as set
+
+die() { printf 'chewie: %s\n' "$*" >&2; exit 1; }
+have() { command -v "$1" >/dev/null 2>&1; }
+run() {
+  if [ "$DRY" = 1 ]; then printf '[dry-run] %s\n' "$*"; return 0; fi
+  "$@"
+}
+
+# Strip global flags from anywhere in the argument list.
+args=()
+for a in "$@"; do
+  case "$a" in
+    --dry-run) DRY=1 ;;
+    --json)    JSON=1 ;;
+    *)         args+=("$a") ;;
+  esac
+done
+set -- ${args+"${args[@]}"}
+
+usage() {
+cat <<'USAGE'
+chewie - control a Mac from an agent
+
+  chewie doctor [--secure-input]     permissions and tool health
+  chewie see    [--app NAME] [--force-ax]
+                                     accessibility tree (layer 3) - your default
+  chewie shot   [--app NAME] [--out PATH]
+                                     screenshot (layer 5) - only when 3 cannot see it
+  chewie click  <ref|label> [--app NAME]
+                                     click an element by ref or label
+  chewie type   <text> [--paste]     synthetic keystrokes, or clipboard paste
+  chewie run    <script> [--js]      AppleScript (layer 2), or JXA with --js
+  chewie texts  [--days N] [--who NAME] [--unanswered] [--json]
+                                     read iMessage history (layer 1, no UI)
+  chewie web    {read|eval|click|fill|goto|tabs} ...
+                                     read and drive web pages via Chrome DevTools (layer 6)
+  chewie plan   {check|run} <plan.json> [--yes]
+                                     type-check and run a formal plan (Genie-style)
+  chewie brief  [--days N] [--json]    the operator brief: email, texts, calendar
+  chewie log    [--runs]              read the run trace (what Chewbacca actually did)
+
+Global: --dry-run  print what would happen and change nothing
+        --json     machine-readable output where supported
+
+Read docs/DECISION-TREE.md before picking a layer.
+USAGE
+}
+
+# ---------- doctor ----------
+cmd_doctor() {
+  if [ "${1:-}" = "--secure-input" ]; then exec "$LIB/secure-input.sh"; fi
+
+  local fails=0 host="" pid=$$ depth=0 comm
+  # Walk up the process tree to the first .app bundle. TCC grants attach to that,
+  # not to the CLI, because a CLI binary has no bundle identity of its own.
+  while [ "$pid" -gt 1 ] && [ "$depth" -lt 12 ]; do
+    comm=$(ps -o comm= -p "$pid" 2>/dev/null)
+    case "$comm" in
+      # Keep the OUTERMOST .app, not the first one found. VS Code and Cursor nest
+      # "Code Helper (Plugin).app" inside "Visual Studio Code.app"; TCC wants the outer.
+      */*.app/*) host=$(printf '%s' "$comm" | sed -E 's|^(.*/)?([^/]+)\.app/.*|\2|') ;;
+    esac
+    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+    [ -z "$pid" ] && break
+    depth=$((depth+1))
+  done
+  [ -z "$host" ] && host=$(ps -o comm= -p $PPID 2>/dev/null | sed 's|.*/||')
+
+  echo "host app ............. ${host:-unknown}"
+  echo "  Grant the permissions below to this, in System Settings. Not to \"Claude\","
+  echo "  and not to the chewie binary: macOS attributes a CLI's requests to whatever"
+  echo "  .app is hosting it. Switch terminals tomorrow and the new one needs its own grant."
+  echo
+
+  echo "permissions"
+  if osascript -e 'tell application "System Events" to get name of first process' >/dev/null 2>&1; then
+    echo "  accessibility ...... GRANTED"
+  else
+    echo "  accessibility ...... MISSING  -> System Settings > Privacy & Security > Accessibility, add ${host:-your terminal}"
+    fails=$((fails+1))
+  fi
+
+  local tmp; tmp=$(mktemp -t chewieshot).png
+  if screencapture -x "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+    echo "  screen recording ... GRANTED"
+  else
+    echo "  screen recording ... MISSING  -> same panel, one row down"
+    fails=$((fails+1))
+  fi
+  rm -f "$tmp"
+
+  if sqlite3 "file:$HOME/Library/Messages/chat.db?mode=ro" "SELECT 1" >/dev/null 2>&1; then
+    echo "  full disk access ... GRANTED  (layer 1 available)"
+  else
+    echo "  full disk access ... missing  (optional; only needed for layer 1)"
+  fi
+
+  echo
+  echo "secure input"
+  "$LIB/secure-input.sh" | sed 's/^/  /'
+
+  echo
+  echo "tools"
+  for t in peekaboo agent-desktop cliclick osascript screencapture sqlite3; do
+    if have "$t"; then
+      printf '  %-16s ok   %s\n' "$t" "$(command -v "$t")"
+    else
+      printf '  %-16s --   not installed\n' "$t"
+    fi
+  done
+
+  echo
+  if [ "$fails" -gt 0 ]; then
+    echo "$fails required permission(s) missing. macOS has no API to grant these."
+    echo "A human has to click the toggle. Walk them through it one at a time."
+    return 1
+  fi
+  echo "Ready. Start with: chewie see --app <AppName>"
+}
+
+# ---------- see (layer 3) ----------
+cmd_see() {
+  local app="" force=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --app) app="${2:-}"; shift 2 ;;
+      --force-ax) force=1; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  if [ "$force" = 1 ]; then
+    if [ "$DRY" = 1 ]; then
+      echo "[dry-run] osascript -l JavaScript $LIB/force-ax.js ${app:-<all>}"
+    else
+      echo "# forcing accessibility tree on (Chromium/Electron build it lazily)" >&2
+      osascript -l JavaScript "$LIB/force-ax.js" ${app:+"$app"} >&2
+      sleep 0.4   # the tree does not populate instantly; re-reading too fast looks empty
+    fi
+  fi
+
+  if [ "$DRY" = 1 ]; then echo "[dry-run] chewie see --app ${app:-<frontmost>}"; return 0; fi
+
+  if have agent-desktop; then
+    local fa=""; [ "$force" = 1 ] && fa="--force-ax"
+    python3 "$LIB/see.py" ${app:+--app "$app"} $fa
+  elif have peekaboo; then
+    if [ "$force" = 1 ] && [ -n "$app" ]; then
+      osascript -l JavaScript "$LIB/force-ax.js" "$app" >/dev/null 2>&1; sleep 0.4
+    fi
+    if [ -n "$app" ]; then run peekaboo see --app "$app" ${JSON:+--json}
+    else run peekaboo see ${JSON:+--json}; fi
+  else
+    die "no accessibility driver. run install.sh, or: npm i -g agent-desktop"
+  fi
+}
+
+# ---------- brief (operator brief) ----------
+cmd_brief() {
+  [ -f "$CHEWIE_ROOT/lib/brief.py" ] || die "missing brief.py"
+  if [ "$DRY" = 1 ]; then echo "[dry-run] python3 brief.py $*"; return 0; fi
+  run python3 "$CHEWIE_ROOT/lib/brief.py" ${JSON:+--json} "$@"
+}
+
+# ---------- log (run trace) ----------
+cmd_log() {
+  local dir="$HOME/.chewie/runs"
+  mkdir -p "$dir"
+  case "${1:-}" in
+    --runs) ls -1t "$dir"/*.jsonl 2>/dev/null | head -20 | while read -r f; do
+              printf '%s  %s steps\n' "$(basename "$f" .jsonl)" "$(wc -l < "$f" | tr -d ' ')"
+            done ;;
+    *) local last; last=$(ls -1t "$dir"/*.jsonl 2>/dev/null | head -1)
+       [ -z "$last" ] && { echo "no runs yet"; return 0; }
+       echo "# $(basename "$last" .jsonl)"
+       if [ "$JSON" = 1 ]; then cat "$last"
+       else python3 "$CHEWIE_ROOT/lib/render_log.py" "$last"; fi ;;
+  esac
+}
+
+# ---------- plan (formal command layer) ----------
+cmd_plan() {
+  [ -f "$CHEWIE_ROOT/lib/run_plan.py" ] || die "missing run_plan.py"
+  if [ "$DRY" = 1 ]; then echo "[dry-run] python3 run_plan.py $*"; return 0; fi
+  run python3 "$CHEWIE_ROOT/lib/run_plan.py" "$@"
+}
+
+# ---------- web (layer 6) ----------
+cmd_web() {
+  local bridge="$CHEWIE_ROOT/bridge/web.js"
+  [ -f "$bridge" ] || die "web bridge missing. run: cd $CHEWIE_ROOT/bridge && npm install"
+  [ -d "$CHEWIE_ROOT/bridge/node_modules" ] || die "bridge deps missing. run: cd $CHEWIE_ROOT/bridge && npm install"
+  if [ "$DRY" = 1 ]; then echo "[dry-run] node $bridge $*"; return 0; fi
+  run node "$bridge" "$@"
+}
+
+# ---------- shot (layer 5) ----------
+cmd_shot() {
+  local app="" out=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --app) app="${2:-}"; shift 2 ;;
+      --out) out="${2:-}"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  [ -z "$out" ] && out="$(mktemp -t chewieshot).png"
+
+  echo "# layer 5. did you try 'chewie see' first? it is 40-100x cheaper" >&2
+
+  if [ -n "$app" ] && have peekaboo; then
+    run peekaboo image --app "$app" --path "$out" >/dev/null
+  else
+    run screencapture -x "$out"
+  fi
+  echo "$out"
+}
+
+# ---------- click (layers 3/4) ----------
+cmd_click() {
+  local target="${1:-}"; shift || true
+  [ -z "$target" ] && die "click needs a ref (@snapshot:e12) or a label (\"Sign In\")"
+  local app=""
+  while [ $# -gt 0 ]; do
+    case "$1" in --app) app="${2:-}"; shift 2 ;; *) shift ;; esac
+  done
+
+  case "$target" in
+    @*)                                   # an element ref from a snapshot
+      have agent-desktop || die "refs need agent-desktop: npm i -g agent-desktop"
+      run agent-desktop click "$target" ;;
+    [0-9]*,[0-9]*)                        # a raw coordinate, layer 4
+      echo "# coordinate click. on Retina, screenshot pixels are 2x screen points" >&2
+      if have cliclick; then run cliclick "c:$target"
+      elif have peekaboo; then run peekaboo click --coords "$target"
+      else die "no input driver: brew install cliclick"; fi ;;
+    *)                                    # a label, layer 3
+      if have peekaboo; then run peekaboo click "$target" ${app:+--app "$app"}
+      elif have agent-desktop; then
+        die "click by label needs peekaboo. with agent-desktop: 'find --name \"$target\"' then click the ref"
+      else die "no accessibility driver. run install.sh"; fi ;;
+  esac
+}
+
+# ---------- type (layer 4) ----------
+cmd_type() {
+  local text="${1:-}"; shift || true
+  [ -z "$text" ] && die "type needs text"
+  local paste=0
+  for a in "$@"; do [ "$a" = "--paste" ] && paste=1; done
+  # Anything long goes through the clipboard: fewer dropped events, much faster.
+  [ "${#text}" -gt 200 ] && paste=1
+
+  if ! "$LIB/secure-input.sh" >/dev/null 2>&1; then
+    echo "# WARNING: secure input is on. keystrokes will be silently dropped." >&2
+    echo "#          run 'chewie doctor --secure-input' for the holder." >&2
+  fi
+
+  if [ "$paste" = 1 ] && have peekaboo; then
+    if [ "$DRY" = 1 ]; then echo "[dry-run] pbcopy + peekaboo paste"; return 0; fi
+    printf '%s' "$text" | pbcopy
+    peekaboo paste
+  elif have peekaboo; then run peekaboo type "$text"
+  elif have cliclick; then run cliclick "t:$text"
+  else die "no input driver: brew install cliclick"; fi
+}
+
+# ---------- texts (layer 1) ----------
+cmd_texts() {
+  local py="$CHEWIE_ROOT/lib/texts.py"
+  [ -f "$py" ] || die "missing $py"
+  if [ "$DRY" = 1 ]; then echo "[dry-run] python3 $py $*"; return 0; fi
+  python3 "$py" ${JSON:+--json} "$@"
+}
+
+# ---------- run (layer 2) ----------
+cmd_run() {
+  local script="${1:-}"; shift || true
+  [ -z "$script" ] && die "run needs a script"
+  local js=0
+  for a in "$@"; do [ "$a" = "--js" ] && js=1; done
+  if [ "$js" = 1 ]; then run osascript -l JavaScript -e "$script"
+  else run osascript -e "$script"; fi
+}
+
+case "${1:-}" in
+  doctor) shift; cmd_doctor "$@" ;;
+  see)    shift; cmd_see "$@" ;;
+  shot)   shift; cmd_shot "$@" ;;
+  click)  shift; cmd_click "$@" ;;
+  type)   shift; cmd_type "$@" ;;
+  run)    shift; cmd_run "$@" ;;
+  texts)  shift; cmd_texts "$@" ;;
+  web)    shift; cmd_web "$@" ;;
+  plan)   shift; cmd_plan "$@" ;;
+  brief)  shift; cmd_brief "$@" ;;
+  log)    shift; cmd_log "$@" ;;
+  ""|-h|--help|help) usage ;;
+  *) die "unknown command: $1 (try: chewie --help)" ;;
+esac

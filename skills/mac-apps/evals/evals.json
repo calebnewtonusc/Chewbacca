@@ -1,0 +1,14 @@
+{
+  "skill": "mac-apps",
+  "cases": [
+    {"prompt": "What tab is open in Safari?", "expect_tools": ["osascript"], "reject": ["screenshot"]},
+    {"prompt": "Read my last 5 emails", "expect_tools": ["osascript", "Mail"]},
+    {"prompt": "Search my texts for 'dinner'", "expect_tools": ["sqlite3"],
+     "why": "SQL over chat.db beats scrolling the UI"},
+    {"prompt": "Send a text to Mom", "expect_behavior": "confirm before sending"},
+    {"prompt": "Post this in Slack", "expect_layer": 3,
+     "why": "Electron, no dictionary; and posting is outbound so confirm first"},
+    {"prompt": "Run my Daily Digest shortcut", "expect_tools": ["shortcuts run"],
+     "note": "check it has been pre-warmed"}
+  ]
+}

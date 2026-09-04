@@ -36,17 +36,19 @@ RULES = [
         ),
     ),
     (
+        # A bolded lead-in with prose after it on the same line is a definition
+        # entry, which is how reference documents have always been written. The
+        # drama beat is the one that stands alone as its own paragraph. Firing
+        # on both pinned every reference file in the repo at "rewrite" for using
+        # ordinary formatting, and a checker that is always red gets ignored.
+        # Chat is stricter, and handled separately below, because the house rule
+        # there does ban bold lead-ins as scaffolding.
         "bold-fragment-header",
         8,
-        "bolded fragment used as a drama beat: write it as a sentence",
-        re.compile(r"^\*\*[A-Z][^*\n]{0,70}[.!]\*\*", re.M),
+        "bolded fragment standing alone as a drama beat: write it as a sentence",
+        re.compile(r"^\*\*[A-Z][^*\n]{0,70}[.!]\*\*\s*$", re.M),
     ),
-    (
-        "colon-reveal",
-        10,
-        "colon reveal: state it as a sentence",
-        re.compile(r"^[A-Z][A-Za-z ]{2,28}: [a-z]", re.M),
-    ),
+
     (
         "binary-contrast",
         12,
@@ -153,6 +155,11 @@ def strip_code(text):
     text = re.sub(r"```.*?```", blank, text, flags=re.S)
     text = re.sub(r"^ {4,}\S.*$", "", text, flags=re.M)
     text = re.sub(r"`[^`\n]*`", "", text)
+    # Blockquotes are somebody else's sentence. Scoring them means telling the
+    # user their own quoted thesis is slop, and the only way to "fix" the
+    # finding is to misquote the person. A compiled corpus is mostly quotes, so
+    # without this the files that most need to stay verbatim score the worst.
+    text = re.sub(r"^\s*>.*$", "", text, flags=re.M)
     return text
 
 
@@ -197,6 +204,29 @@ def scan(text, chat=False):
         per_rule.setdefault("stacked-fragments", [10, 0])[1] += 1
 
     if chat:
+        # Scaffolding a reply with a bolded lead-in on every paragraph is the
+        # assistant-brain tell the house rules name, so chat counts them all,
+        # not just the standalone ones.
+        # A colon reveal is slop in a sentence ("The best part: it learns") and
+        # is a field label in a document ("Business model: hardware plus
+        # subscription"). The pattern cannot tell them apart, and reference
+        # files are mostly labels, so this is scored in conversation only.
+        for m in re.finditer(r"^[A-Z][A-Za-z ]{2,28}: [a-z]", prose, re.M):
+            findings.append({
+                "rule": "colon-reveal",
+                "line": prose[: m.start()].count("\n") + 1,
+                "why": "colon reveal: state it as a sentence",
+                "text": m.group(0)[:70].strip(),
+            })
+            per_rule.setdefault("colon-reveal", [10, 0])[1] += 1
+        for m in re.finditer(r"^\*\*[A-Z][^*\n]{0,70}[.!]\*\*\s+\S", prose, re.M):
+            findings.append({
+                "rule": "bold-lead-in",
+                "line": prose[: m.start()].count("\n") + 1,
+                "why": "bolded lead-in used as scaffolding: this is a conversation",
+                "text": m.group(0)[:70].strip(),
+            })
+            per_rule.setdefault("bold-lead-in", [8, 0])[1] += 1
         score = sum(w * c for w, c in per_rule.values())
         return min(int(score), 100), findings
 
@@ -214,6 +244,58 @@ CODE_SUFFIXES = {
     ".sh", ".bash", ".zsh", ".fish", ".sql", ".css", ".scss", ".html", ".xml",
     ".json", ".yml", ".yaml", ".toml", ".ini", ".lock",
 }
+
+
+def load_ignores(start):
+    """Read .slopignore, walking up from the file toward the repo root.
+
+    Verbatim material must not be scored. A source corpus, someone else's
+    teaching, or the user's own draft essay will always trip a style detector,
+    and the only two ways that ends are a permanently red report nobody reads
+    or an edit that corrupts a quote. Both are worse than an exemption.
+
+    Format is one glob per line, `#` comments, matched against the path
+    relative to the directory holding the .slopignore.
+    """
+    pats, root = [], start if start.is_dir() else start.parent
+    seen = set()
+    for d in [root, *root.parents]:
+        if d in seen or not d.exists():
+            break
+        seen.add(d)
+        f = d / ".slopignore"
+        if f.is_file():
+            for line in f.read_text(errors="replace").split("\n"):
+                # Strip trailing comments too. A pattern with an explanation
+                # glued to it matches nothing and fails silently, which is the
+                # exact failure mode this whole kit exists to refuse.
+                line = line.split("#")[0].strip()
+                if line:
+                    pats.append((d, line))
+        if (d / ".git").exists():
+            break
+    return pats
+
+
+def is_ignored(path, pats):
+    import fnmatch
+    rp = path.resolve()
+    for base, pat in pats:
+        try:
+            rel = rp.relative_to(base.resolve()).as_posix()
+        except ValueError:
+            continue
+        if fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(rel, pat.rstrip("/") + "/*"):
+            return True
+        if any(fnmatch.fnmatch(part, pat.rstrip("/")) for part in rel.split("/")[:-1]):
+            return True
+    return False
+
+
+def is_verbatim(text):
+    """Frontmatter opt-out, for a single file with no useful directory."""
+    head = text[:400]
+    return bool(re.search(r"^\s*verbatim:\s*true\s*$", head, re.M))
 
 
 def is_code(path, text):
@@ -279,6 +361,10 @@ def main():
         # does not look like the file passed.
         if is_code(pth, text):
             print(f"  --  {pth}  skipped (source code, not prose)")
+            continue
+        if is_ignored(pth, load_ignores(pth)) or is_verbatim(text):
+            if not a.json:
+                print(f"  --  {pth}  skipped (verbatim, not ours to edit)")
             continue
         targets.append((str(pth), text))
     if not targets:

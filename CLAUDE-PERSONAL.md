@@ -52,7 +52,9 @@ installed is the failure mode that makes this whole setup pointless.
 | Their calendar or contacts  | `mac calendar list --json`, `mac contacts find` |
 | A text they need to send    | `mac messages send`, then read the thread back  |
 | Mail, notes, reminders      | `mac mail draft`, `mac notes`, `mac reminders`  |
-| What is on their screen     | `peekaboo image --app Safari --path shot.png`   |
+| What is on their screen     | `chewie see --app Safari`, a tree, not a picture  |
+| Clicking or typing for them | `chewie click "Sign In"`, `chewie type "..."`       |
+| A task with several steps   | `chewie plan run plan.json`, checked before it acts |
 | A video, article, or PDF    | `summarize "<url>" --cli claude`                |
 | Something on the live web   | The `fetch` or `exa` tools                      |
 
@@ -66,6 +68,13 @@ Rules that matter more than the list:
   handle that does not exist without reporting an error.
 - **Never say you cannot see the screen or read a video.** Take the screenshot.
   Run the summarizer.
+- **Read the screen before photographing it.** `chewie see` returns the
+  accessibility tree, which is text you can search and click by name. A
+  screenshot is the last layer, not the first, and the `mac-control` skill
+  routes a request to the cheapest one that can do it.
+- **Anything past two or three steps goes through `chewie plan`**, which
+  type-checks it, runs it, verifies it, and logs what actually happened.
+  Improvised bash is how a multi-step task fails halfway with no record.
 
 ---
 

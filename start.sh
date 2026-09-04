@@ -185,7 +185,9 @@ case "${1:-help}" in
     echo "chewbacca doctor      check that everything still works"
     echo "chewbacca setup       re-run part of the install"
     echo "chewbacca uninstall   remove all of it"
-    echo "chewbacca where       print the install directory" ;;
+    echo "chewbacca where       print the install directory"
+    echo ""
+    echo "To control your Mac, the command is: chewie" ;;
 esac
 LAUNCHER
 chmod +x "$BIN_DIR/chewbacca"
