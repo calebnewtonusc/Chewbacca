@@ -15,7 +15,7 @@ public struct OverlayView: View {
 
     /// How much of the bottom of the display the Dock is using.
     static var bottomInset: CGFloat {
-        guard let screen = NSScreen.main else { return 0 }
+        guard let screen = OverlayWindow.active else { return 0 }
         return screen.visibleFrame.minY - screen.frame.minY
     }
 

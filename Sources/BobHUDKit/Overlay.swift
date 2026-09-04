@@ -80,9 +80,24 @@ public final class OverlayWindow: NSPanel {
 
     /// Follow the active display and any resolution change, so the glass always
     /// covers exactly what is in front of the person.
+    ///
+    /// "Active" means the screen the pointer is on, not `NSScreen.main`. Main is
+    /// the screen holding the key window, and this panel is never key, so on a
+    /// second display it reported whichever screen the person had last clicked
+    /// in. The glass would then cover the other monitor and every surface would
+    /// be laid out against the wrong bounds.
     public func fitToScreen() {
-        guard let screen = NSScreen.main else { return }
+        guard let screen = Self.active else { return }
+        guard frame != screen.frame else { return }
         setFrame(screen.frame, display: true)
+    }
+
+    /// The screen the pointer is on, falling back to main and then to the first.
+    public static var active: NSScreen? {
+        let mouse = NSEvent.mouseLocation
+        return NSScreen.screens.first { $0.frame.contains(mouse) }
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
     }
 
     public func show() {
