@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// What the panel sends back up the socket.
@@ -10,6 +11,7 @@ import Foundation
 ///     v <pointer> <json>                           a bound value changed
 ///     x                                            the panel was dismissed
 ///     h <json string>                              something was said to it
+///     g <x> <y> <w> <h>                            a region was pointed at
 ///
 /// Values echo the same encoding as inbound props, so `label="Send it"` means
 /// the same thing in both directions.
@@ -21,6 +23,9 @@ public enum OutboundEvent: Sendable, Equatable {
     /// never bare: an utterance has spaces in it and a listener splitting on
     /// whitespace would otherwise take the first word and drop the sentence.
     case heard(String)
+    /// A region of the screen the person pointed at, in points with a top-left
+    /// origin. Deixis: this is what makes "what is this" mean something.
+    case region(CGRect)
 
     public var line: String {
         switch self {
@@ -39,6 +44,12 @@ public enum OutboundEvent: Sendable, Equatable {
 
         case .heard(let text):
             return "h \(OutboundEvent.jsonString(text))"
+
+        case .region(let rect):
+            // Whole points. Sub-pixel precision in a gesture made with a hand
+            // is noise, and it makes the line harder to read in a terminal.
+            return "g \(Int(rect.minX)) \(Int(rect.minY)) "
+                + "\(Int(rect.width)) \(Int(rect.height))"
         }
     }
 

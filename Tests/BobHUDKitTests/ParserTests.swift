@@ -525,3 +525,22 @@ struct HeardTests {
         #expect(OutboundEvent.heard("x") == OutboundEvent.heard("x"))
     }
 }
+
+@Suite("Pointing")
+struct RegionTests {
+    @Test("a pointed region is whole points, top-left origin")
+    func regionLine() {
+        // Sub-pixel precision in a gesture made with a hand is noise, and it
+        // makes the line harder to read in a terminal.
+        let line = OutboundEvent.region(
+            CGRect(x: 100.4, y: 200.8, width: 320.2, height: 90.9)).line
+        #expect(line == "g 100 200 320 90")
+    }
+
+    @Test("a region and a request are different events")
+    func regionIsNotHeard() {
+        #expect(
+            OutboundEvent.region(CGRect(x: 0, y: 0, width: 1, height: 1))
+                != OutboundEvent.heard("g 0 0 1 1"))
+    }
+}

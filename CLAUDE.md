@@ -81,6 +81,24 @@ h "show me my week"
 Stay connected to receive it. Answer by drawing, not by writing prose back down
 the socket: nothing reads prose there.
 
+## Pointing
+
+Holding Option-Command and dragging outlines a region, and on release the
+display sends its coordinates up the socket:
+
+```
+g 420 260 380 90
+```
+
+That is deixis, and it is what makes a fragment work. "Why is this failing" while
+pointing at a stack trace carries more precise context than a paragraph of
+typing. When a request arrives shortly after a region, the two belong together
+and the request's "this" means whatever is in that rectangle.
+
+The display sends coordinates, not pixels. It has no screen recording permission
+and asking for one so it can crop a rectangle it already knows the bounds of
+would be a poor trade. Look at the region yourself if you need to see it.
+
 ## Marking the screen
 
 A panel sits *beside* the work. A mark sits **on** it.
