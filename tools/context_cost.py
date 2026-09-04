@@ -20,8 +20,20 @@ import sys
 from pathlib import Path
 
 HOME = Path.home()
+
 CLAUDE = HOME / ".claude"
-BUDGET_TOKENS = 15000  # what the kit may spend before the user's own work starts
+# What the kit may spend before the user's own work starts. Raise it in
+# ~/.chewbacca/context-budget if you deliberately load a large personal
+# context; a budget you cannot meet and will not change is just noise.
+def _budget():
+    f = Path.home() / ".chewbacca/context-budget"
+    try:
+        return int(f.read_text().strip())
+    except (OSError, ValueError):
+        return 15000
+
+
+BUDGET_TOKENS = _budget()
 
 
 def est_tokens(text):
@@ -46,17 +58,39 @@ def imports_of(text, base):
     return out
 
 
+def conditional_rules(claude_md):
+    """Rules the standards file itself says load on demand.
+
+    Counting a rule that only loads for UI work as always-on made a backend
+    session look like it was paying for the animation rules. It is not, and
+    saying it is would send someone trimming the wrong file.
+    """
+    # Only rules named inside a table row. A rule mentioned in prose ("see
+    # ~/.claude/rules/do-it-yourself.md") is still always-on, and treating a
+    # prose mention as a deferral undercounted the real cost by 677 tokens.
+    names = set()
+    for line in claude_md.splitlines():
+        if not line.strip().startswith("|"):
+            continue
+        for m in re.finditer(r"`~/\.claude/rules/([^`]+)`", line):
+            names.add(m.group(1))
+    return names
+
+
 def collect():
     items = []
     root = CLAUDE / "CLAUDE.md"
+    body = ""
     if root.is_file():
-        t = read(root)
-        items.append(("CLAUDE.md", root, est_tokens(t), "every session"))
-        for imp in imports_of(t, CLAUDE):
+        body = read(root)
+        items.append(("CLAUDE.md", root, est_tokens(body), "every session"))
+        for imp in imports_of(body, CLAUDE):
             if imp.is_file():
                 items.append((f"  import {imp.name}", imp, est_tokens(read(imp)), "every session"))
+    on_demand = conditional_rules(body)
     for f in sorted((CLAUDE / "rules").glob("*.md")):
-        items.append((f"rule {f.name}", f, est_tokens(read(f)), "every session"))
+        when = "on demand" if f.name in on_demand else "every session"
+        items.append((f"rule {f.name}", f, est_tokens(read(f)), when))
     mem = HOME / "second-brain/memory/MEMORY.md"
     if mem.is_file():
         items.append(("MEMORY.md", mem, est_tokens(read(mem)), "every session"))
@@ -76,13 +110,14 @@ def collect():
 def main():
     arg = sys.argv[1] if len(sys.argv) > 1 else ""
     items = collect()
-    total = sum(i[2] for i in items if not i[0].startswith("  "))
-    total += sum(i[2] for i in items if i[0].startswith("  "))
+    total = sum(i[2] for i in items if i[3] == "every session")
+    deferred = sum(i[2] for i in items if i[3] != "every session")
 
     if arg == "--json":
         print(json.dumps({
             "budget_tokens": BUDGET_TOKENS,
             "total_tokens": total,
+            "on_demand_tokens": deferred,
             "over_budget": total > BUDGET_TOKENS,
             "items": [{"name": a.strip(), "path": str(b), "tokens": c, "when": d}
                       for a, b, c, d in items],
@@ -99,9 +134,17 @@ def main():
 
     print("What loads before you type a word\n")
     for name, path, tokens, when in sorted(items, key=lambda i: -i[2]):
+        if when != "every session":
+            continue
         bar = "#" * min(40, tokens // 200)
         print(f"  {name:<32} {tokens:>7,} tok  {bar}")
-    print(f"\n  {'TOTAL':<32} {total:>7,} tok   budget {BUDGET_TOKENS:,}")
+    print(f"\n  {'ALWAYS ON':<32} {total:>7,} tok   budget {BUDGET_TOKENS:,}")
+    later = [i for i in items if i[3] != "every session"]
+    if later:
+        print(f"\n  Loaded only when the task calls for it, not counted above:")
+        for name, path, tokens, when in sorted(later, key=lambda i: -i[2]):
+            print(f"  {name:<32} {tokens:>7,} tok")
+        print(f"  {'':<32} {deferred:>7,} tok deferred")
     if total > BUDGET_TOKENS:
         over = total - BUDGET_TOKENS
         print(f"\n  Over by {over:,} tokens. Every session pays this before it starts.")
