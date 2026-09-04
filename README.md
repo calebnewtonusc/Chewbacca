@@ -37,7 +37,7 @@
 
 <p align="center">
   <h1 align="center">Chewbacca</h1>
-  <p align="center">Turns Claude into the world's best sidekick. Nothing to remember, nothing to type.</p>
+  <p align="center">Most people use Claude as a chat window. This one knows your life, reads your screen, and runs your Mac.</p>
 </p>
 
 <p align="center">
@@ -53,53 +53,62 @@
 
 ---
 
-## Install it
+One command installs **57 slash commands, 42 skills, 12 MCP servers, 8 hooks, 4
+subagents, 14 command-line tools and 7 always-on standards.** 54,000 lines,
+every one of them plain text you can read.
 
-Paste this into Terminal. That is the only command in this README.
+Then you stop typing commands entirely and just talk.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/start.sh | bash -s -- --full-send
-```
+## What that actually buys you
 
-Ten minutes, mostly downloading. Two moments look alarming and are not: a
-window from Apple asking to install developer tools, and a password prompt from
-Homebrew that wants your Mac login password.
+| You say                                       | What happens                                                             |
+| --------------------------------------------- | ------------------------------------------------------------------------ |
+| "who have I not replied to"                   | Reads your actual iMessage history and tells you who is waiting          |
+| "remind me who Sarah is before this coffee"   | Her job, her kids, what you last promised her, what she is going through |
+| "what did this video actually say"            | Pulls the transcript. Works on articles, PDFs, podcasts                  |
+| "look at my screen and tell me what's broken" | Screenshots it, reads the window's accessibility tree, clicks and types  |
+| "text Mom I'm running late"                   | Sends it through Messages, then reads the thread back to confirm         |
+| "what's due this week"                        | Reads the ledger built from your syllabi, with the attendance math       |
+| "remember I hate em dashes"                   | Writes it down so every future session already knows                     |
+| "why is this page slow"                       | The whole engineering stack: standards, review, profiling, deploy gate   |
 
-Do not know what Terminal is? Paste this repo's link at Claude and say "install
-this for me." It will do the rest, including that command.
+Nothing there is a command you look up. You describe what you want and the
+right skill loads itself.
 
-## Then just talk to it
+## It reads half a million of your texts
 
-You never type a command. You describe what you want and the right part of
-Chewbacca loads itself.
+Point it at your Mac and it indexes your entire iMessage history locally. On the
+author's machine that is **501,205 messages going back to 2018**, 74% of them
+matched to a real person in a contact store that also holds 1,165 people, 630
+recorded facts, and every interaction.
 
-| You say                                       | What happens                                                           |
-| --------------------------------------------- | ---------------------------------------------------------------------- |
-| "what did this video actually say"            | Pulls the transcript and summarizes it. Works on articles and PDFs too |
-| "what's on my calendar Thursday"              | Reads Calendar. Same for Contacts, Mail, Notes, and Reminders          |
-| "text Mom I'm running late"                   | Drafts it, sends it through Messages, reads the thread back to confirm |
-| "look at my screen and tell me what's broken" | Takes a screenshot, inspects the window, can click and type in it      |
-| "what's due this week"                        | Reads the ledger built from your syllabi, with attendance math         |
-| "remind me who Sarah is before this coffee"   | Everything you have ever told it about her, in one screen              |
-| "remember that I hate em dashes"              | Writes it to your notes so every future session already knows          |
-| "clean up this draft"                         | Returns the rewritten text, keeps your voice, strips the AI tells      |
+That is what makes the difference between an assistant and a chat window. It
+knows when you last spoke to someone, what you owe them, and who is slipping.
+It scores the people in your life across six dimensions with independent decay
+rates, because someone's job situation changes faster than their faith does.
 
-Hold `fn` and talk instead of typing, if you prefer. Dictation runs on your Mac
-and nothing is uploaded.
+None of it leaves your Mac. There is no server to send it to.
+
+## Talk to it without typing
+
+Hold `fn` and dictate. Transcription runs on-device, and a local 4B model
+cleans up the filler and the self-corrections before the text lands. Say
+"actually, scratch that" mid-sentence and the sentence fixes itself.
+
+Hold Option instead and you are talking to the agent rather than typing. Ask it
+to make a note, check a deadline, or dig through your texts, out loud, and the
+answer comes back in about five seconds.
 
 ## It is not a program
 
-This is the part people get wrong, so it goes first.
+Chewbacca does not run. No daemon, no gateway, no account, no server. It
+configures the Claude you already pay for and gets out of the way. Every file it
+writes is plain text you can open, diff and revert, and `chewbacca uninstall`
+puts it back.
 
-Chewbacca does not run. There is no daemon, no gateway, no account, and no
-server. It configures the Claude you already pay for and then gets out of the
-way. Every file it writes is plain text you can open, diff, and revert, and
-`chewbacca uninstall` puts it back.
-
-That matters because the obvious alternative,
-[OpenClaw](https://github.com/openclaw/openclaw), is a genuinely good project
-that asks you for something else first: model credentials you bring yourself,
-and a daemon you keep alive. Nothing here needs either.
+The obvious alternative, [OpenClaw](https://github.com/openclaw/openclaw), is a
+genuinely good project that asks for something else first: model credentials you
+bring yourself, and a daemon you keep alive. Nothing here needs either.
 
 |                     | Chewbacca                 | OpenClaw                       |
 | ------------------- | ------------------------- | ------------------------------ |
@@ -110,60 +119,56 @@ and a daemon you keep alive. Nothing here needs either.
 
 **Use OpenClaw instead** if you want an assistant that reaches you in WhatsApp
 or Telegram, if you are on Linux or Windows, or if you want to choose your own
-model. Those are real things this does not do. The
-[full comparison](docs/REFERENCE.md#why-not-openclaw) is honest about the rest.
+model. Those are real things this does not do.
 
-## What makes it different
+## Install
 
-**It remembers.** Most of what you tell an assistant dies when the window
-closes. Chewbacca writes what matters to a folder of plain text files you own,
-and reads them back at the start of every session. Tell it once that your sister
-is getting married in June and it knows in November.
+```bash
+curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/start.sh | bash -s -- --full-send
+```
 
-**It notices.** It reads your own texts and calendar locally, so it can tell you
-who you have not replied to, who is slipping, and what you promised someone last
-Tuesday.
+Ten minutes, mostly downloading. Two moments look alarming and are not: a window
+from Apple asking to install developer tools, and a password prompt from Homebrew
+that wants your Mac login password.
 
-**It does the thing.** It can see your screen, drive your apps, send the message,
-file the reminder. Not instructions for how you could do it. The thing.
+Never opened Terminal? Paste this repo's link at Claude and say "install this for
+me." It runs that command for you.
 
-**It stays yours.** Your notes are files on your disk, in a git repo you control.
-Your messages never leave the machine. There is no server and no account.
-
-## The one thing it will not do
+## It refuses to guess
 
 It will not tell you something it did not check. A confidently wrong deadline is
-worse than no deadline, because you stop checking. Every date it gives you comes
-from a syllabus it read, and every fact about a person comes from something you
-actually said. When it does not know, it says so.
+worse than no deadline, because you stop checking. Every date comes from a
+syllabus it read. Every fact about a person comes from something you actually
+said. When it does not know, it says so.
 
-## If something breaks
+That standard is enforced, not suggested. A hook scores every reply against the
+writing rules and blocks the turn if it drifts.
+
+## When something breaks
 
 ```bash
 chewbacca doctor
 ```
 
-It asserts rather than guesses: it runs each hook, formats a real file, and
-tells you exactly what is missing and the command that fixes it. Every silent
-failure this kit has ever shipped got a check added here afterwards.
+**55 checks that assert rather than guess.** It runs each hook for real, formats
+an actual file, and names the exact command that fixes what is missing. Every
+silent failure this kit has ever shipped got a check added here afterwards, which
+is why the number keeps going up.
 
 ## For developers
 
-There is a whole engineering half: always-on standards for git, security,
-writing, naming and TypeScript, a stack-rules skill covering Next.js, React,
-Supabase and Vercel, review and audit commands, and a deploy checklist. It loads
-only when the work touches it, so it costs nothing on the sessions that do not.
+Always-on standards for git, security, writing, naming and TypeScript. A
+stack-rules skill covering Next.js, React, Supabase and Vercel that loads only
+when the work touches it. Review, audit and deploy commands. Parallel subagents
+with a cost ceiling.
 
-Start with **[docs/REFERENCE.md](docs/REFERENCE.md)**, which is everything this
-README used to be: every skill, hook, command, plugin, and standard.
-
-| Where to look                              | For                                          |
-| ------------------------------------------ | -------------------------------------------- |
-| [docs/REFERENCE.md](docs/REFERENCE.md)     | The full inventory and how it fits together  |
-| [docs/MACOS-TOOLS.md](docs/MACOS-TOOLS.md) | Screen, apps, permissions, failure modes     |
-| [docs/SCHOOL.md](docs/SCHOOL.md)           | The coursework ledger and its AI policy gate |
-| [docs/METHODOLOGY.md](docs/METHODOLOGY.md) | Why it is built this way                     |
-| [CONTRIBUTING.md](.github/CONTRIBUTING.md) | Adding a skill or a tool                     |
+| Where                                              | For                                          |
+| -------------------------------------------------- | -------------------------------------------- |
+| [docs/REFERENCE.md](docs/REFERENCE.md)             | Every skill, hook, command and plugin        |
+| [docs/MACOS-TOOLS.md](docs/MACOS-TOOLS.md)         | Screen, apps, permissions, failure modes     |
+| [docs/SCHOOL.md](docs/SCHOOL.md)                   | The coursework ledger and its AI policy gate |
+| [docs/METHODOLOGY.md](docs/METHODOLOGY.md)         | Why it is built this way                     |
+| [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) | Adding a skill or a tool                     |
 
 ---
 
