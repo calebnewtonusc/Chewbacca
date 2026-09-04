@@ -264,7 +264,12 @@ MISSING=0
 # machine that might not have brew either. "Install: brew install gh" is a dead
 # end for the person this kit is aimed at. bootstrap.sh installs the lot, and
 # names the two steps that genuinely need a human.
-for pair in "gh:GitHub CLI" "git:git" "python3:python3" "jq:jq"; do
+# gh is only a prerequisite when we are going to talk to GitHub. Requiring the
+# GitHub CLI from someone who does not have a GitHub account is the same
+# blocker as requiring the account, one layer down.
+REQUIRED="git:git python3:python3 jq:jq"
+[ "$NO_GITHUB" -eq 0 ] && REQUIRED="gh:GitHub CLI $REQUIRED"
+for pair in $REQUIRED; do
   cmd="${pair%%:*}"
   command -v "$cmd" &>/dev/null || { err "missing: ${pair##*:} ($cmd)"; MISSING=1; }
 done
@@ -298,7 +303,7 @@ fi
 
 # gh auth login lets you decline git credential setup, and every remote this
 # script writes is HTTPS. Without this, push blocks on a username prompt.
-gh auth setup-git &>/dev/null || true
+[ "$NO_GITHUB" -eq 0 ] && { gh auth setup-git &>/dev/null || true; }
 
 # A clean macOS install has no git identity. Without one, every commit below
 # fails with "Author identity unknown", both repos get created and pushed empty,
