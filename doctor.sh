@@ -17,18 +17,67 @@
 set -uo pipefail
 
 GRN='\033[0;32m'; RED='\033[0;31m'; YLW='\033[1;33m'; BLD='\033[1m'; NC='\033[0m'
-QUIET=0
-[ "${1:-}" = "--quiet" ] && QUIET=1
+QUIET=0; JSON=0; FIX=0
+for a in "$@"; do
+  case "$a" in
+    --quiet) QUIET=1 ;;
+    --json) JSON=1; QUIET=1 ;;
+    --fix) FIX=1 ;;
+    -h|--help)
+      echo "chewbacca doctor: verify the install actually works"
+      echo
+      echo "  --quiet   only print failures"
+      echo "  --json    machine-readable, for anything that consumes this"
+      echo "  --fix     repair what can be repaired without asking"
+      echo
+      echo "Exit: 0 clean, 1 warnings only, 2 something is broken."
+      exit 0 ;;
+    *) echo "doctor: unknown argument '$a'. Try --help" >&2; exit 2 ;;
+  esac
+done
 
 PASS=0; FAIL=0; WARN=0
+FIXED=0
 
 declare -a PROBLEMS=()
+# Every result, for --json and for the history file. A check that only ever
+# printed to a terminal could not be consumed by anything, and nobody could
+# see that a check started failing three days ago.
+declare -a RESULTS=()
+json_escape() { printf '%s' "$1" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read())[1:-1])' 2>/dev/null || printf '%s' "$1"; }
+record() { RESULTS+=("$1|$2|$3|${SECTION:-general}"); }
+# Muted checks, one substring per line. A warning that will never clear on
+# this machine is noise, and noise is why real warnings get ignored.
+MUTE_FILE="$HOME/.chewbacca/doctor-mute"
+muted() { [ -f "$MUTE_FILE" ] && grep -qiF -- "$1" "$MUTE_FILE" 2>/dev/null; }
 logline() { echo "$*" >> "${LOG:-/dev/null}" 2>/dev/null || true; }
-ok()   { PASS=$((PASS+1)); logline "pass  $1"; [ "$QUIET" -eq 1 ] || echo -e "  ${GRN}pass${NC}  $1"; }
-bad()  { FAIL=$((FAIL+1)); logline "FAIL  $1${2:+ | fix: $2}"; PROBLEMS+=("$1${2:+ -> $2}")
-         echo -e "  ${RED}FAIL${NC}  $1"; [ -n "${2:-}" ] && echo -e "        ${YLW}fix:${NC} $2"; }
-warn() { WARN=$((WARN+1)); logline "warn  $1"; [ "$QUIET" -eq 1 ] || echo -e "  ${YLW}warn${NC}  $1"; }
-section() { logline ""; logline "== $1"; [ "$QUIET" -eq 1 ] || echo -e "\n${BLD}$1${NC}"; }
+ok()   { PASS=$((PASS+1)); record pass "$1" ""; logline "pass  $1"; [ "$QUIET" -eq 1 ] || echo -e "  ${GRN}pass${NC}  $1"; }
+# Third argument is severity: critical (the kit does not work), major (a
+# feature does not work), minor (cosmetic). A missing PATH entry and a missing
+# MCP server used to look identical.
+bad()  { local sev="${3:-major}"
+         if muted "$1"; then WARN=$((WARN+1)); record muted "$1" "$sev"; return 0; fi
+         FAIL=$((FAIL+1)); record fail "$1" "$sev"
+         logline "FAIL[$sev]  $1${2:+ | fix: $2}"; PROBLEMS+=("[$sev] $1${2:+ -> $2}")
+         [ "$JSON" -eq 1 ] || echo -e "  ${RED}FAIL${NC}  ${BLD}$sev${NC}  $1"
+         [ -n "${2:-}" ] && [ "$JSON" -eq 0 ] && echo -e "        ${YLW}fix:${NC} $2"
+         return 0; }
+warn() { if muted "$1"; then record muted "$1" minor; return 0; fi
+         WARN=$((WARN+1)); record warn "$1" "${2:-minor}"; logline "warn  $1"
+         [ "$QUIET" -eq 1 ] || echo -e "  ${YLW}warn${NC}  $1"; }
+section() { SECTION="$1"; logline ""; logline "== $1"; [ "$QUIET" -eq 1 ] || echo -e "\n${BLD}$1${NC}"; }
+# Run a repair when --fix is on, and say what it did. A checker that names a
+# problem and hands it back is doing half a job it could finish itself.
+fixable() {
+  local what="$1"; shift
+  if [ "$FIX" -eq 1 ]; then
+    if "$@" >/dev/null 2>&1; then
+      FIXED=$((FIXED+1)); echo -e "  ${GRN}fixed${NC} $what"; return 0
+    fi
+    echo -e "  ${RED}could not fix${NC} $what"; return 1
+  fi
+  return 1
+}
 
 CLAUDE_DIR="$HOME/.claude"
 
@@ -625,20 +674,143 @@ else
   ok "no hardcoded credentials in commands, rules, or skills"
 fi
 
+# ── Version ───────────────────────────────────────────────────────────────────
+section "Version"
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_VER="$(cat "$REPO_DIR/VERSION" 2>/dev/null || echo unknown)"
+INST_VER="$(cat "$HOME/.chewbacca/version" 2>/dev/null || echo unrecorded)"
+if [ "$REPO_VER" = "$INST_VER" ]; then
+  ok "installed version matches the repo ($REPO_VER)"
+elif [ "$INST_VER" = "unrecorded" ]; then
+  fixable "recorded the installed version" \
+    bash -c "mkdir -p '$HOME/.chewbacca' && cp '$REPO_DIR/VERSION' '$HOME/.chewbacca/version'" ||
+    warn "no installed version recorded. Run: chewbacca setup"
+else
+  bad "installed $INST_VER, repo is $REPO_VER" "chewbacca setup" minor
+fi
+
+if [ -f "$HOME/.chewbacca/install-manifest.json" ]; then
+  ok "install manifest present, uninstall knows what to remove"
+else
+  warn "no install manifest. Uninstall will fall back to pattern matching"
+fi
+
+# ── Hook health ───────────────────────────────────────────────────────────────
+section "Hook health"
+
+HOOK_LOG="$HOME/.chewbacca/logs/hooks.log"
+if [ ! -f "$HOME/.claude/hooks/lib.sh" ]; then
+  bad "hooks have no runtime library, so nothing is timed or logged" \
+      "chewbacca setup" minor
+elif [ ! -f "$HOOK_LOG" ]; then
+  warn "no hook runs logged yet. It fills as you use the kit"
+else
+  HOOK_RUNS=$(wc -l < "$HOOK_LOG" | tr -d ' ')
+  HOOK_FAILS=$(grep -cv '|ok|' "$HOOK_LOG" 2>/dev/null) || HOOK_FAILS=0
+  if [ "$HOOK_FAILS" -eq 0 ]; then
+    ok "$HOOK_RUNS hook runs logged, none failed"
+  else
+    bad "$HOOK_FAILS of $HOOK_RUNS hook runs failed" "chewbacca log errors" major
+  fi
+  # A hook over a second is a hook the user feels on every single session.
+  SLOWEST=$(awk -F'|' '{if($3+0>m){m=$3+0;n=$2}}END{print m"|"n}' "$HOOK_LOG")
+  SLOW_MS="${SLOWEST%%|*}"; SLOW_NAME="${SLOWEST##*|}"
+  if [ "${SLOW_MS:-0}" -gt 2000 ]; then
+    bad "$SLOW_NAME took ${SLOW_MS}ms, which every session pays" "chewbacca bench" minor
+  else
+    ok "slowest hook run ${SLOW_MS:-0}ms ($SLOW_NAME)"
+  fi
+fi
+
+for h in "$HOME/.claude/hooks"/*.sh; do
+  [ -f "$h" ] || continue
+  if [ ! -x "$h" ]; then
+    fixable "made $(basename "$h") executable" chmod +x "$h" ||
+      bad "$(basename "$h") is not executable, so it silently never runs" "chmod +x $h" major
+  fi
+done
+ok "every installed hook is executable"
+
+# ── Context budget ────────────────────────────────────────────────────────────
+section "Context budget"
+
+if [ -f "$REPO_DIR/tools/context_cost.py" ]; then
+  CTX="$(python3 "$REPO_DIR/tools/context_cost.py" --json 2>/dev/null)"
+  CTX_TOTAL="$(printf '%s' "$CTX" | python3 -c 'import json,sys;print(json.load(sys.stdin)["total_tokens"])' 2>/dev/null || echo 0)"
+  CTX_BUDGET="$(printf '%s' "$CTX" | python3 -c 'import json,sys;print(json.load(sys.stdin)["budget_tokens"])' 2>/dev/null || echo 15000)"
+  if [ "${CTX_TOTAL:-0}" -eq 0 ]; then
+    warn "could not measure the always-on context"
+  elif [ "$CTX_TOTAL" -gt "$CTX_BUDGET" ]; then
+    bad "$CTX_TOTAL tokens load before you type, budget is $CTX_BUDGET" \
+        "chewbacca context, then trim the largest file" minor
+  else
+    ok "$CTX_TOTAL tokens always-on, inside the $CTX_BUDGET budget"
+  fi
+fi
+
+# ── Full Disk Access ──────────────────────────────────────────────────────────
+section "Full Disk Access"
+
+# The permission most likely to be silently missing, and the one that makes
+# every message-reading feature fail with a confusing error instead of a clear
+# one. Reading the Messages database is the only honest test.
+CHAT_DB="$HOME/Library/Messages/chat.db"
+if [ ! -f "$CHAT_DB" ]; then
+  warn "no Messages database on this Mac, so nothing to read"
+elif sqlite3 "$CHAT_DB" "select count(*) from sqlite_master limit 1" >/dev/null 2>&1; then
+  ok "Full Disk Access granted, the texts features can work"
+else
+  bad "no Full Disk Access, so every message feature fails silently" \
+      "System Settings > Privacy & Security > Full Disk Access, add your terminal" major
+fi
+
 # ── Verdict ───────────────────────────────────────────────────────────────────
-echo ""
 logline ""
 logline "$PASS passed, $WARN warnings, $FAIL failures (profile: $PROFILE)"
+
+# History. "It started failing three days ago" was unanswerable.
+HIST="$HOME/.chewbacca/doctor-history.log"
+printf '%s|%s|%s|%s|%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$PASS" "$WARN" "$FAIL" "$PROFILE" \
+  >> "$HIST" 2>/dev/null || true
+[ -f "$HIST" ] && [ "$(wc -l < "$HIST" 2>/dev/null || echo 0)" -gt 500 ] &&
+  { tail -300 "$HIST" > "$HIST.tmp" && mv "$HIST.tmp" "$HIST"; } 2>/dev/null || true
+
+if [ "$JSON" -eq 1 ]; then
+  {
+    printf '{"pass":%s,"warn":%s,"fail":%s,"fixed":%s,"profile":"%s","version":"%s","checks":[' \
+      "$PASS" "$WARN" "$FAIL" "$FIXED" "$PROFILE" "$REPO_VER"
+    first=1
+    for r in "${RESULTS[@]}"; do
+      IFS='|' read -r status message severity sect <<< "$r"
+      [ $first -eq 0 ] && printf ','
+      printf '{"status":"%s","severity":"%s","section":"%s","message":"%s"}' \
+        "$status" "${severity:-}" "$(json_escape "$sect")" "$(json_escape "$message")"
+      first=0
+    done
+    printf ']}\n'
+  }
+  # 0 clean, 1 warnings only, 2 broken. One exit code for three states was not
+  # enough for anything to act on the result.
+  [ "$FAIL" -gt 0 ] && exit 2
+  [ "$WARN" -gt 0 ] && exit 1
+  exit 0
+fi
+
+echo ""
 
 if [ "$FAIL" -eq 0 ]; then
   echo -e "${GRN}${BLD}Everything works.${NC}${GRN} $PASS checks passed.${NC}"
   # A warning is not a failure, and saying so is the difference between someone
   # relaxing and someone thinking their install is broken.
+  [ "$FIXED" -gt 0 ] && echo -e "  ${GRN}$FIXED thing$([ "$FIXED" -eq 1 ] || echo s) repaired by --fix.${NC}"
   [ "$WARN" -gt 0 ] && echo -e "  $WARN warning$([ "$WARN" -eq 1 ] || echo s) about optional things. Nothing is broken."
+  echo -e "  ${BLD}Mute a warning that will never clear here:${NC} echo '<part of the text>' >> $MUTE_FILE"
+  [ "$WARN" -gt 0 ] && exit 1
   exit 0
 fi
 
-echo -e "${RED}${BLD}$FAIL thing$([ "$FAIL" -eq 1 ] || echo s) need fixing.${NC}${RED} $PASS checks passed.${NC}"
+echo -e "${RED}${BLD}$FAIL thing$([ "$FAIL" -eq 1 ] && echo " needs" || echo "s need") fixing.${NC}${RED} $PASS checks passed.${NC}"
 echo ""
 echo "  What is wrong:"
 for prob in "${PROBLEMS[@]}"; do
@@ -650,4 +822,5 @@ echo "    \"run chewbacca doctor and fix whatever it reports\""
 echo ""
 echo "  Claude can read every one of these and repair them. The full log is at"
 echo "    $LOG"
-exit 1
+[ "$FIX" -eq 0 ] && echo "  Or try: chewbacca doctor --fix"
+exit 2
