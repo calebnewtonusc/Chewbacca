@@ -440,6 +440,50 @@ else
   warn "coursework not on PATH, so /due, /week, and /attendance have no data source"
 fi
 
+# ── One context store, not two ────────────────────────────────────────────────
+# Two stores is the failure that prompted this check: a second context repo ran
+# alongside the first for months, both were written to, and neither was
+# authoritative. Nothing announced it, because each one looked fine alone.
+section "Context store"
+
+CTX_FOUND=()
+for d in "${PERSONAL_CONTEXT_DIR:-}" "$HOME/second-brain" "$HOME/caleb-context" "$HOME/brain"; do
+  [ -n "$d" ] && [ -d "$d/.git" ] && CTX_FOUND+=("$d")
+done
+# Resolve to real paths so a symlink and its target do not count twice.
+CTX_UNIQ="$(printf '%s\n' "${CTX_FOUND[@]:-}" | while read -r p; do
+  [ -n "$p" ] && (cd "$p" 2>/dev/null && pwd -P)
+done | sort -u)"
+CTX_N="$(printf '%s\n' "$CTX_UNIQ" | grep -c . || true)"
+
+if [ "$CTX_N" -eq 0 ]; then
+  warn "no context repo found, so nothing persists between sessions"
+elif [ "$CTX_N" -eq 1 ]; then
+  ok "one context store: $CTX_UNIQ"
+  NOWF=""
+  for rel in core/now.md NOW.md; do
+    [ -f "$CTX_UNIQ/$rel" ] && NOWF="$CTX_UNIQ/$rel" && break
+  done
+  if [ -n "$NOWF" ]; then
+    NOW_AGE="$(python3 -c "
+import datetime,re,sys,pathlib
+m=re.search(r'updated: (\d{4}-\d{2}-\d{2})', pathlib.Path(sys.argv[1]).read_text(errors='replace'))
+print((datetime.date.today()-datetime.date.fromisoformat(m.group(1))).days if m else -1)
+" "$NOWF" 2>/dev/null || echo -1)"
+    if [ "${NOW_AGE:--1}" -gt 30 ]; then
+      warn "$(basename "$NOWF") is ${NOW_AGE} days stale, and it is the file most likely to be quoted as current"
+    elif [ "${NOW_AGE:--1}" -ge 0 ]; then
+      ok "$(basename "$NOWF") updated ${NOW_AGE}d ago"
+    fi
+  else
+    warn "no now.md in $CTX_UNIQ, so nothing tracks what is current"
+  fi
+else
+  bad "$CTX_N context stores, so no single one is authoritative:
+$(printf '          %s\n' $CTX_UNIQ)" \
+    "pick one, fold the others into it, and archive them on GitHub"
+fi
+
 section "People"
 
 PEOPLE_HOME="${PEOPLE_DIR:-$HOME/.chewbacca/people}"
