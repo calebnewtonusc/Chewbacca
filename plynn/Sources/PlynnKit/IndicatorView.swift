@@ -21,6 +21,37 @@ enum IndicatorMetrics {
     /// capsule. Low enough to sit out of the way, clear enough not to look
     /// like it's falling off the edge.
     static let bottomMargin: CGFloat = 14
+
+    // MARK: - Chewie answers
+    //
+    // An answer is prose, not a status word, so the capsule stops being a fixed
+    // 168x34 badge and becomes a panel sized to what came back. It was clipping
+    // the text top and bottom: the stage frame below and the NSPanel content
+    // rect were both pinned to the badge size, so a three-line reply had one
+    // line of room.
+    static let answerWidth: CGFloat = 320
+    /// Past this it stops being a glance and should have been a document.
+    static let answerMaxHeight: CGFloat = 190
+    static let answerHPadding: CGFloat = 12
+    static let answerVPadding: CGFloat = 10
+
+    /// Measured, not guessed. SwiftUI will happily lay out taller than its
+    /// parent and let the window crop the difference, which is exactly the bug
+    /// this replaces, so the window has to know the height before it draws.
+    static func answerHeight(for text: String) -> CGFloat {
+        let font =
+            NSFont(descriptor:
+                NSFont.systemFont(ofSize: 11, weight: .medium).fontDescriptor
+                    .withDesign(.rounded) ?? NSFont.systemFont(ofSize: 11, weight: .medium)
+                    .fontDescriptor,
+                size: 11) ?? NSFont.systemFont(ofSize: 11, weight: .medium)
+        let usable = answerWidth - answerHPadding * 2
+        let box = (text as NSString).boundingRect(
+            with: NSSize(width: usable, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font])
+        return min(answerMaxHeight, max(height, ceil(box.height) + answerVPadding * 2))
+    }
 }
 
 /// Liquid Glass arrived in macOS 26. Below it the capsule uses a translucent
@@ -108,9 +139,20 @@ struct IndicatorView: View {
         // Fixed-width center-aligned stage: the capsule collapses toward its
         // own center instead of snapping to the panel's leading edge.
         .frame(
-            width: IndicatorMetrics.width, height: IndicatorMetrics.height,
+            width: stageSize.width, height: stageSize.height,
             alignment: .center)
         .padding(IndicatorMetrics.panelPadding)
+    }
+
+    /// Every phase but an answer is a fixed badge. An answer is as tall as it
+    /// needs to be, which is what the panel resizes itself to match.
+    private var stageSize: CGSize {
+        if case .answer(let text) = model.phase {
+            return CGSize(
+                width: IndicatorMetrics.answerWidth,
+                height: IndicatorMetrics.answerHeight(for: text))
+        }
+        return CGSize(width: IndicatorMetrics.width, height: IndicatorMetrics.height)
     }
 
     private var showsWave: Bool {
@@ -163,11 +205,10 @@ struct IndicatorView: View {
                 .font(.system(size: 11, weight: .medium, design: .rounded))
                 .foregroundStyle(.white.opacity(0.92))
                 .multilineTextAlignment(.leading)
-                .lineLimit(6)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .padding(.horizontal, IndicatorMetrics.answerHPadding)
+                .padding(.vertical, IndicatorMetrics.answerVPadding)
                 .transition(.opacity)
         case .done:
             AnimatedCheckmark()

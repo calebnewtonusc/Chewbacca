@@ -95,6 +95,27 @@ final class ChewieRouterTests: XCTestCase {
         XCTAssertTrue(p.lowercased().contains("never guess"))
     }
 
+    // MARK: - Pill sizing
+
+    /// The capsule was a fixed 168x34 for every phase, so a Chewie answer was
+    /// cropped top and bottom and you could read the middle line of three.
+    func testAnswerHeightGrowsWithTheText() {
+        let one = IndicatorMetrics.answerHeight(for: "4 texts owed.")
+        let many = IndicatorMetrics.answerHeight(
+            for: String(repeating: "standing by, no updates, no news. ", count: 6))
+        XCTAssertGreaterThan(many, one, "a longer answer must get a taller pill")
+        XCTAssertGreaterThanOrEqual(one, IndicatorMetrics.height,
+                                    "never shorter than the badge")
+    }
+
+    /// Past a point it stopped being a glance, so the growth is capped rather
+    /// than allowed to become a wall covering the screen.
+    func testAnswerHeightIsCapped() {
+        let huge = IndicatorMetrics.answerHeight(
+            for: String(repeating: "wall of text. ", count: 400))
+        XCTAssertLessThanOrEqual(huge, IndicatorMetrics.answerMaxHeight)
+    }
+
     // MARK: - Opener stripping
 
     func testPrayerOpenerIsRemoved() {
