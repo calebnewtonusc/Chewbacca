@@ -97,8 +97,32 @@ public final class IndicatorPanel: NSPanel {
 
     public func show() {
         model.isVisible = true
-        positionBottomCenter()
+        syncSize()
         orderFrontRegardless()
+    }
+
+    /// Resize the window to whatever the current phase needs, then re-anchor.
+    ///
+    /// SwiftUI will lay out taller than its host and let the window crop the
+    /// rest, silently, which is how a three-line Chewie answer ended up with
+    /// one line of room. So the window is told the size rather than asked.
+    /// Call this after any phase change that can alter the height.
+    public func syncSize() {
+        let stage: CGSize
+        if case .answer(let text) = model.phase {
+            stage = CGSize(
+                width: IndicatorMetrics.answerWidth,
+                height: IndicatorMetrics.answerHeight(for: text))
+        } else {
+            stage = CGSize(width: IndicatorMetrics.width, height: IndicatorMetrics.height)
+        }
+        let target = NSSize(
+            width: stage.width + IndicatorMetrics.panelPadding * 2,
+            height: stage.height + IndicatorMetrics.panelPadding * 2)
+        if abs(frame.width - target.width) > 0.5 || abs(frame.height - target.height) > 0.5 {
+            setContentSize(target)
+        }
+        positionBottomCenter()
     }
 
     public func hide() {

@@ -618,6 +618,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // typed anywhere; this pill plus the clipboard is the whole
             // delivery.
             model.phase = .answer(answer)
+            // The window is not told to grow by the phase alone; SwiftUI would
+            // draw the taller text and let the panel crop it.
+            panel.syncSize()
             let hold = min(9.0, 2.2 + Double(answer.count) / 22.0)
             DispatchQueue.main.asyncAfter(deadline: .now() + hold) { [weak self] in
                 guard let self, case .answer = self.model.phase else { return }
