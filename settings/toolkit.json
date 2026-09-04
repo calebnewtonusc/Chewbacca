@@ -124,9 +124,134 @@
   ],
   "mcp": [
     {
-      "name": "prompt-optimizer",
-      "url": "https://github.com/linshenkx/prompt-optimizer",
-      "description": "Rewrites and iterates on prompts through three MCP tools, self-hosted"
+      "url": "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch",
+      "description": "Pulls a URL down as markdown the agent can read, no key",
+      "cmd": "uvx",
+      "args": [
+        "mcp-server-fetch"
+      ],
+      "env": [],
+      "name": "fetch"
+    },
+    {
+      "url": "https://github.com/modelcontextprotocol/servers/tree/main/src/time",
+      "description": "Real current time and timezone conversion, no key",
+      "cmd": "uvx",
+      "args": [
+        "mcp-server-time"
+      ],
+      "env": [],
+      "name": "time"
+    },
+    {
+      "url": "https://github.com/modelcontextprotocol/servers/tree/main/src/git",
+      "description": "Reads, searches, and edits a git repo as structured calls, no key",
+      "cmd": "uvx",
+      "args": [
+        "mcp-server-git"
+      ],
+      "env": [],
+      "name": "git"
+    },
+    {
+      "url": "https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking",
+      "description": "Externalizes a long chain of reasoning into revisable steps, no key",
+      "cmd": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ],
+      "env": [],
+      "name": "sequential-thinking"
+    },
+    {
+      "url": "https://github.com/antvis/mcp-server-chart",
+      "description": "Renders 25 chart types from data, so an answer can be a picture, no key",
+      "cmd": "npx",
+      "args": [
+        "-y",
+        "@antv/mcp-server-chart"
+      ],
+      "env": [],
+      "name": "chart"
+    },
+    {
+      "url": "https://github.com/exa-labs/exa-mcp-server",
+      "description": "Web search built for agents rather than for people, from Exa",
+      "cmd": "npx",
+      "args": [
+        "-y",
+        "exa-mcp-server"
+      ],
+      "env": [
+        "EXA_API_KEY"
+      ],
+      "name": "exa"
+    },
+    {
+      "url": "https://github.com/tavily-ai/tavily-mcp",
+      "description": "Search plus extraction in one call, tuned for grounding answers",
+      "cmd": "npx",
+      "args": [
+        "-y",
+        "tavily-mcp"
+      ],
+      "env": [
+        "TAVILY_API_KEY"
+      ],
+      "name": "tavily"
+    },
+    {
+      "url": "https://github.com/firecrawl/firecrawl-mcp-server",
+      "description": "Crawls a whole site and returns clean markdown, not raw HTML",
+      "cmd": "npx",
+      "args": [
+        "-y",
+        "firecrawl-mcp"
+      ],
+      "env": [
+        "FIRECRAWL_API_KEY"
+      ],
+      "name": "firecrawl"
+    },
+    {
+      "url": "https://github.com/elevenlabs/elevenlabs-mcp",
+      "description": "Text to speech and voice cloning as tools the agent can call",
+      "cmd": "uvx",
+      "args": [
+        "elevenlabs-mcp"
+      ],
+      "env": [
+        "ELEVENLABS_API_KEY"
+      ],
+      "name": "elevenlabs"
+    },
+    {
+      "url": "https://github.com/browserbase/mcp-server-browserbase",
+      "description": "Drives a cloud browser, for sites that block a local one",
+      "cmd": "npx",
+      "args": [
+        "-y",
+        "@browserbasehq/mcp"
+      ],
+      "env": [
+        "BROWSERBASE_API_KEY",
+        "BROWSERBASE_PROJECT_ID"
+      ],
+      "name": "browserbase"
+    },
+    {
+      "url": "https://github.com/21st-dev/magic-mcp",
+      "description": "Generates a real UI component from a description, from 21st.dev",
+      "cmd": "npx",
+      "args": [
+        "-y",
+        "@21st-dev/magic"
+      ],
+      "env": [
+        "TWENTY_FIRST_API_KEY"
+      ],
+      "name": "magic"
     }
   ],
   "cli": [

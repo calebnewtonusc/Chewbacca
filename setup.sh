@@ -1179,8 +1179,73 @@ else
   warn "  ./setup.sh --only plugins"
 fi
 
-# Self-hosted MCP servers. Each needs its own service running; see docs/EXTENSIONS.md.
-#   prompt-optimizer: https://github.com/linshenkx/prompt-optimizer
+# MCP servers, curated from mcpmarket.com. See docs/EXTENSIONS.md.
+#
+# Two tiers on purpose. The keyless ones are installed outright. The ones
+# needing an account are installed only when their variables are already
+# exported, because `claude mcp add` will happily register a server that
+# fails on every call, and a broken tool in the list is worse than a
+# missing one: the agent keeps reaching for it.
+if command -v claude &>/dev/null; then
+  mcp_present() { claude mcp list 2>/dev/null | grep -q "^$1:"; }
+
+  while IFS='|' read -r M_NAME M_CMD M_ARGS; do
+    [ -n "$M_NAME" ] || continue
+    if mcp_present "$M_NAME"; then
+      log "$M_NAME already registered"
+      continue
+    fi
+    # shellcheck disable=SC2086  # M_ARGS is a deliberate argument list
+    if claude mcp add "$M_NAME" --scope user -- "$M_CMD" $M_ARGS &>/dev/null; then
+      log "$M_NAME registered"
+    else
+      warn "could not register $M_NAME"
+    fi
+  done <<'KEYLESS_MCP'
+fetch|uvx|mcp-server-fetch
+time|uvx|mcp-server-time
+git|uvx|mcp-server-git
+sequential-thinking|npx|-y @modelcontextprotocol/server-sequential-thinking
+chart|npx|-y @antv/mcp-server-chart
+KEYLESS_MCP
+
+  while IFS='|' read -r M_NAME M_CMD M_ARGS M_ENV; do
+    [ -n "$M_NAME" ] || continue
+    if mcp_present "$M_NAME"; then
+      log "$M_NAME already registered"
+      continue
+    fi
+    M_FLAGS=""; M_MISSING=""
+    for M_VAR in $M_ENV; do
+      M_VAL="$(eval "printf %s \"\${$M_VAR:-}\"")"
+      if [ -n "$M_VAL" ]; then
+        M_FLAGS="$M_FLAGS --env $M_VAR=$M_VAL"
+      else
+        M_MISSING="$M_MISSING $M_VAR"
+      fi
+    done
+    if [ -n "$M_MISSING" ]; then
+      warn "$M_NAME skipped, needs:$M_MISSING"
+      continue
+    fi
+    # shellcheck disable=SC2086  # both are deliberate argument lists
+    if claude mcp add "$M_NAME" --scope user $M_FLAGS -- "$M_CMD" $M_ARGS &>/dev/null; then
+      log "$M_NAME registered"
+    else
+      warn "could not register $M_NAME"
+    fi
+  done <<'KEYED_MCP'
+exa|npx|-y exa-mcp-server|EXA_API_KEY
+tavily|npx|-y tavily-mcp|TAVILY_API_KEY
+firecrawl|npx|-y firecrawl-mcp|FIRECRAWL_API_KEY
+elevenlabs|uvx|elevenlabs-mcp|ELEVENLABS_API_KEY
+browserbase|npx|-y @browserbasehq/mcp|BROWSERBASE_API_KEY BROWSERBASE_PROJECT_ID
+magic|npx|-y @21st-dev/magic|TWENTY_FIRST_API_KEY
+KEYED_MCP
+
+  log "MCP servers done. Anything skipped: export its key and re-run"
+  log "  ./setup.sh --only plugins"
+fi
 # END GENERATED: extensions
 fi
 
