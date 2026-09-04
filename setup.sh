@@ -1375,7 +1375,7 @@ section "Installing macOS tools"
 #   peekaboo: forces local execution, see docs/MACOS-TOOLS.md
 #   chrome-js: reads and clicks a Chrome tab through JavaScript
 mkdir -p "$HOME/.local/bin"
-for HELPER in peekaboo chrome-js slop-check ingest; do
+for HELPER in peekaboo chrome-js slop-check; do
   if [ -f "$SCRIPT_DIR/bin/$HELPER" ]; then
     cp "$SCRIPT_DIR/bin/$HELPER" "$HOME/.local/bin/$HELPER"
     chmod +x "$HOME/.local/bin/$HELPER"
