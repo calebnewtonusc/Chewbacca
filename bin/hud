@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# hud: put things on the screen.
+#
+# A thin wrapper over the Bob HUD socket. The wire format is the point of the
+# design and this does not hide it: `hud draw` takes Bob Lines on stdin and
+# passes them through untouched, so anything you can write by hand you can pipe,
+# and an agent streaming a surface gets it on screen at the rate it writes.
+#
+# Everything else here exists because typing a socket path is not work worth
+# doing twice.
+set -euo pipefail
+
+SOCK="${BOB_HUD_SOCKET:-$HOME/.bob/hud.sock}"
+
+usage() {
+  cat <<'USAGE'
+hud draw            read Bob Lines on stdin and draw them
+hud close <name>    take one surface off the screen
+hud clear           take everything off
+hud status          is the display running
+hud open            start the display
+
+Bob Lines, in full:
+
+  @ <surface> [at=region] [w=380] [urgency=alert] [chrome=bare]
+  c <id> <Type> prop=value ...
+  > <parent> <child> ...
+  d /pointer <json>
+  r <id>
+  - <surface>
+
+Regions: topLeft top topRight left center right bottomLeft bottom bottomRight
+Chrome:  card (default), bare (no panel at all), bracket (corner marks)
+
+  hud draw <<'EOF'
+  @ notes at=topRight w=360
+  c s Screen title="TODAY"
+  c m Metric label="Unread" value=12
+  > s m
+  r s
+  EOF
+USAGE
+}
+
+running() { [ -S "$SOCK" ]; }
+
+send() {
+  if ! running; then
+    echo "The display is not running. Start it with: hud open" >&2
+    exit 1
+  fi
+  # `nc -U` speaks Unix sockets on macOS and is present on every install.
+  # The HUD reads to EOF, so closing stdin is what ends the stream.
+  nc -U "$SOCK"
+}
+
+case "${1:-}" in
+  draw)   send ;;
+  close)  [ $# -ge 2 ] || { echo "hud close <name>" >&2; exit 2; }
+          printf -- '- %s\n' "$2" | send ;;
+  clear)  # Escape is the display's own gesture for this; sending it as a
+          # keystroke would need accessibility permission, so close by name is
+          # the scriptable route and this is the blunt one.
+          osascript -e 'tell application "System Events" to key code 53' 2>/dev/null || true ;;
+  status) if running; then echo "running: $SOCK"; else echo "not running"; fi ;;
+  open)   open -a BobHUD 2>/dev/null || { echo "BobHUD.app is not installed" >&2; exit 1; }
+          for _ in 1 2 3 4 5 6 7 8 9 10; do running && break; sleep 0.3; done
+          running && echo "running: $SOCK" || { echo "did not come up" >&2; exit 1; } ;;
+  ""|-h|--help|help) usage ;;
+  *)      echo "unknown: $1" >&2; usage >&2; exit 2 ;;
+esac
