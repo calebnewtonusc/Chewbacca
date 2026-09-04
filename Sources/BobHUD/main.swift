@@ -51,7 +51,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.server = server
 
-        model.onEvent = { [weak server] event in server?.send(event.line) }
+        // Every event goes up the socket, and if nobody is there the person is
+        // told rather than left wondering.
+        //
+        // Without this, asking for something with nothing listening did
+        // absolutely nothing: no panel, no error, no ring change. That is the
+        // worst failure a front door can have, because it is indistinguishable
+        // from the request having been understood and ignored.
+        model.onEvent = { [weak self, weak server] event in
+            let delivered = server?.send(event.line) ?? false
+            guard !delivered else { return }
+            switch event {
+            case .heard:
+                Task { @MainActor in self?.reportNobodyListening() }
+            default:
+                // A click on a panel nobody is listening to is not worth a
+                // notice: the control already wrote to the panel's own data and
+                // did the visible half of its job.
+                break
+            }
+        }
         setUpVoice()
 
         do {
@@ -188,6 +207,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onDismiss: { [weak self] in
                 Task { @MainActor in self?.restoreFocus() }
             })
+    }
+
+    /// Say that the request went nowhere.
+    ///
+    /// Drawn by the display itself, which is the only thing in this system that
+    /// can still speak when the other end is gone. It expires on its own,
+    /// because the panel is a notice rather than something to dismiss.
+    private func reportNobodyListening() {
+        model.setPresence(.failed, amplitude: 0)
+        for line in [
+            "@ nolistener at=top w=460 urgency=alert life=9",
+            #"c s Screen title="NOBODY IS LISTENING""#,
+            #"c t Text value="The display received your request and there is nothing connected to answer it." tone=muted"#,
+            #"c h Text value="Start the loop:  hud listen" "#,
+            "> s t h",
+            "r s",
+        ] {
+            if let op = try? LineParser.parse(line) { model.apply(op) }
+        }
     }
 
     /// Give the app back the focus the bar took.
