@@ -1,0 +1,205 @@
+import SwiftUI
+
+/// Everything drawn on the glass.
+///
+/// Surfaces are laid out by region rather than by coordinate, because an agent
+/// asking for "the calendar top left" does not know the size of the display and
+/// should not have to. Several in the same region stack downward with an offset
+/// so they read as a column rather than as one panel that failed to update.
+@MainActor
+public struct OverlayView: View {
+    let model: OverlayModel
+
+    public init(model: OverlayModel) { self.model = model }
+
+    public var body: some View {
+        ZStack {
+            // The glass itself is deliberately nothing. Any background here,
+            // even at low opacity, tints the entire display.
+            Color.clear
+
+            ForEach(model.surfaces) { surface in
+                SurfaceCard(surface: surface, onDismiss: { model.close(surface.id) })
+                    .frame(width: surface.width)
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear.onChange(of: proxy.size.height, initial: true) { _, height in
+                                model.report(height: height, for: surface.id)
+                            }
+                        }
+                    }
+                    .position(x: 0, y: 0)
+                    .offset(
+                        x: model.origin(for: surface).x,
+                        y: model.origin(for: surface).y)
+                    .transition(.asymmetric(
+                        insertion: .modifier(
+                            active: SurfaceEntrance(progress: 0, from: surface.region),
+                            identity: SurfaceEntrance(progress: 1, from: surface.region)),
+                        removal: .opacity.combined(with: .scale(scale: 0.96))))
+                    .zIndex(Double(surface.depth))
+            }
+        }
+        .animation(.spring(response: 0.42, dampingFraction: 0.78), value: model.revision)
+        .ignoresSafeArea()
+    }
+}
+
+/// How a surface arrives.
+///
+/// It slides in from whichever edge it is anchored to, so a panel in the bottom
+/// right comes up from the bottom right. Movement that agrees with position
+/// reads as the thing arriving; movement that fights it reads as a glitch.
+///
+/// Blur on entry does most of the work: it is what makes something feel like it
+/// resolved into place rather than being pasted there.
+nonisolated struct SurfaceEntrance: ViewModifier, Animatable {
+    var progress: Double
+    let from: Region
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        let travel = 26.0 * (1 - progress)
+        let anchor = from.anchor
+        return content
+            .opacity(progress)
+            .blur(radius: 9 * (1 - progress))
+            .scaleEffect(0.94 + 0.06 * progress)
+            .offset(
+                x: travel * (anchor.x - 0.5) * 2,
+                y: travel * (0.5 - anchor.y) * 2)
+    }
+}
+
+/// One surface: the material, the light, the edge.
+///
+/// This reads as a heads-up display rather than a settings panel, and the
+/// difference is almost entirely light. A HUD is dark so the content glows off
+/// it, it has a bright hairline along the top where the light source would be,
+/// and it sits in its own pool of shadow so it is unmistakably *above* the work
+/// rather than part of it.
+///
+/// Everything stays under about fifteen percent opacity, because this floats
+/// over somebody's real screen and a HUD that fights the work is a HUD that gets
+/// turned off.
+struct SurfaceCard: View {
+    let surface: OverlaySurface
+    let onDismiss: () -> Void
+    @State private var hovering = false
+    @State private var lit = false
+
+    var body: some View {
+        SurfaceView(store: surface.store)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                ZStack {
+                    // Dark and translucent: the wallpaper and windows underneath
+                    // stay legible, and light text reads as emitted rather than
+                    // printed.
+                    VisualEffect(material: .hudWindow, blending: .behindWindow)
+                    Color.black.opacity(0.36)
+
+                    // A wash of the accent from the top edge, as if lit from the
+                    // hairline above it.
+                    LinearGradient(
+                        colors: [HUD.accent.opacity(0.16), .clear],
+                        startPoint: .top, endPoint: .center)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(alignment: .top) {
+                // The light source. One bright hairline, brightest in the middle,
+                // which is what makes the whole card look lit instead of drawn.
+                LinearGradient(
+                    colors: [.clear, HUD.accent.opacity(0.85), .clear],
+                    startPoint: .leading, endPoint: .trailing)
+                    .frame(height: 1)
+                    .opacity(lit ? 1 : 0)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                HUD.accent.opacity(0.34),
+                                .white.opacity(0.07),
+                                .clear,
+                            ],
+                            startPoint: .top, endPoint: .bottom),
+                        lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.55), radius: 26, y: 12)
+            .shadow(color: HUD.accent.opacity(0.14), radius: 18)
+            .overlay(alignment: .topTrailing) {
+                CloseButton(action: onDismiss)
+                    .padding(9)
+                    .opacity(hovering ? 1 : 0)
+            }
+            .onHover { hovering = $0 }
+            .animation(.easeOut(duration: 0.14), value: hovering)
+            .task {
+                // The hairline strikes just after the card lands, so arriving
+                // reads as powering on rather than appearing.
+                try? await Task.sleep(for: .milliseconds(90))
+                withAnimation(.easeOut(duration: 0.5)) { lit = true }
+            }
+            // Force dark regardless of the system appearance: a light HUD over a
+            // dark desktop is a white rectangle, and there is no version of that
+            // which looks like anything but a bug.
+            .environment(\.colorScheme, .dark)
+    }
+}
+
+/// The palette, in one place so a surface and its parts cannot drift apart.
+public enum HUD {
+    /// Cyan rather than the system accent, which could be anything the person
+    /// picked and is usually wrong against a dark translucent card.
+    public static let accent = Color(red: 0.42, green: 0.83, blue: 0.96)
+    public static let ink = Color.white
+    public static let dim = Color.white.opacity(0.62)
+    public static let faint = Color.white.opacity(0.38)
+}
+
+struct CloseButton: View {
+    let action: () -> Void
+    @State private var hovering = false
+
+    public var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.secondary)
+                .frame(width: 18, height: 18)
+                .background(.quaternary, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .opacity(hovering ? 1 : 0.75)
+        .onHover { hovering = $0 }
+        .help("Dismiss")
+        .accessibilityLabel("Dismiss")
+    }
+}
+
+struct VisualEffect: NSViewRepresentable {
+    let material: NSVisualEffectView.Material
+    let blending: NSVisualEffectView.BlendingMode
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = blending
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.material = material
+        view.blendingMode = blending
+    }
+}

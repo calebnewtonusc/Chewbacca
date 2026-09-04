@@ -2,35 +2,38 @@ import AppKit
 import BobHUDKit
 import SwiftUI
 
-/// BobHUD: a floating surface that draws streamed interfaces as native views.
+/// BobHUD: a layer of glass over everything, with things drawn on it.
 ///
-/// The whole program is: listen on a Unix socket, parse Bob Lines, apply them to
-/// a store, and let SwiftUI redraw. No browser, no window that steals focus, no
-/// model in this process at all.
-///
-/// Run it with no arguments and it sits in the menu bar waiting. An agent writes
-/// lines to ~/.bob/hud.sock and the panel appears, assembles, and stays until
-/// something replaces it or you dismiss it.
+/// Listen on a Unix socket, parse Bob Lines, place surfaces around the screen,
+/// and send events back when someone uses a control. No browser, no window that
+/// steals focus, no model in this process at all.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let store = SurfaceStore()
-    private var panel: HUDPanel?
+    private let model = OverlayModel()
+    private var overlay: OverlayWindow?
     private var server: SocketServer?
     private var statusItem: NSStatusItem?
-    private var idleTimer: Timer?
+    private var hotKeyMonitor: Any?
+    private var escMonitor: Any?
+    private var mouseMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let panel = HUDPanel(store: store)
-        self.panel = panel
+        let overlay = OverlayWindow(content: OverlayView(model: model))
+        self.overlay = overlay
+        overlay.show()
 
         setUpMenuBar()
+        setUpKeys()
+        observeScreenChanges()
 
         let server = SocketServer(path: SocketServer.defaultPath) { [weak self] event in
-            // The socket runs on its own queue; every touch of the store and the
-            // panel has to happen on the main actor.
+            // The socket runs on its own queue; every touch of the model has to
+            // happen on the main actor.
             Task { @MainActor in self?.handle(event) }
         }
         self.server = server
+
+        model.onEvent = { [weak server] event in server?.send(event.line) }
 
         do {
             try server.start()
@@ -41,55 +44,108 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         server?.stop()
+        for monitor in [hotKeyMonitor, escMonitor, mouseMonitor].compactMap({ $0 }) {
+            NSEvent.removeMonitor(monitor)
+        }
     }
 
     private func handle(_ event: SocketServer.Event) {
         switch event.kind {
         case .began:
-            // A new stream replaces whatever was on screen. Two agents drawing
-            // to one panel is a race with a visible symptom, so the last one in
-            // wins and says so by clearing first.
-            idleTimer?.invalidate()
-            store.reset()
-            panel?.show()
+            model.reset()
+            overlay?.show()
 
         case .line(let line):
             do {
                 if let op = try LineParser.parse(line) {
-                    store.apply([op])
-                    resize()
+                    model.apply(op)
+                    updateInteractive()
                 }
             } catch {
-                // A malformed line degrades one component rather than killing
-                // the surface, which is the same choice the web renderer makes.
-                store.warn(String(describing: error))
+                // A malformed line degrades one component rather than clearing
+                // the glass, which is the same choice the web renderer makes.
+                model.warn(String(describing: error))
             }
 
         case .ended:
-            resize()
+            break
 
         case .failed(let message):
-            store.warn(message)
+            model.warn(message)
         }
     }
 
-    /// Let the panel grow to what the content needs, once the layout settles.
-    private func resize() {
-        guard let panel, let hosting = panel.contentView else { return }
-        let fitting = hosting.fittingSize
-        panel.fit(to: CGSize(width: fitting.width, height: fitting.height))
+    /// Option-Command-Space hides and shows everything. Escape clears it.
+    ///
+    /// Global monitors rather than a registered hot key, because registering one
+    /// system-wide needs Accessibility permission, and a panel you can summon is
+    /// not worth a permission prompt on first launch.
+    private func setUpKeys() {
+        hotKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) {
+            [weak self] event in
+            guard event.modifierFlags.contains([.option, .command]),
+                  event.keyCode == 49 // space
+            else { return }
+            Task { @MainActor in self?.toggle() }
+        }
+
+        escMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53 else { return } // escape
+            Task { @MainActor in self?.dismissAll() }
+        }
+
+        // Follow the pointer so the glass only becomes solid over a surface.
+        // Without this the overlay swallows every scroll on the display.
+        mouseMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.mouseMoved, .leftMouseDragged]
+        ) { [weak self] _ in
+            Task { @MainActor in self?.updateInteractive() }
+        }
+    }
+
+    private func updateInteractive() {
+        overlay?.updateInteractive(surfaces: model.frames, mouse: NSEvent.mouseLocation)
+    }
+
+    /// The glass has to follow the display it is over.
+    private func observeScreenChanges() {
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.overlay?.fitToScreen() }
+        }
+    }
+
+    private func toggle() {
+        guard let overlay else { return }
+        if overlay.isVisible { overlay.orderOut(nil) } else { overlay.show() }
+    }
+
+    private func dismissAll() {
+        guard !model.isEmpty else { return }
+        model.onEvent?(.dismissed)
+        model.reset()
     }
 
     private func setUpMenuBar() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(
-            systemSymbolName: "rectangle.on.rectangle", accessibilityDescription: "Bob HUD")
+            systemSymbolName: "sparkles.rectangle.stack",
+            accessibilityDescription: "Bob HUD")
 
         let menu = NSMenu()
-        menu.addItem(
-            withTitle: "Show", action: #selector(showPanel), keyEquivalent: "").target = self
-        menu.addItem(
-            withTitle: "Hide", action: #selector(hidePanel), keyEquivalent: "").target = self
+
+        let toggleItem = NSMenuItem(
+            title: "Show or hide", action: #selector(toggleFromMenu), keyEquivalent: " ")
+        toggleItem.keyEquivalentModifierMask = [.option, .command]
+        toggleItem.target = self
+        menu.addItem(toggleItem)
+
+        let clearItem = NSMenuItem(
+            title: "Clear everything", action: #selector(clearFromMenu), keyEquivalent: "\u{1b}")
+        clearItem.target = self
+        menu.addItem(clearItem)
         menu.addItem(.separator())
 
         let socket = NSMenuItem(title: SocketServer.defaultPath, action: nil, keyEquivalent: "")
@@ -103,8 +159,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = item
     }
 
-    @objc private func showPanel() { panel?.show() }
-    @objc private func hidePanel() { panel?.hide() }
+    @objc private func toggleFromMenu() { toggle() }
+    @objc private func clearFromMenu() { dismissAll() }
 
     private func presentFatal(_ error: Error) {
         let alert = NSAlert()
@@ -120,7 +176,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
-// Accessory rather than regular: no Dock icon, no app switcher entry, and
-// showing the panel never pulls focus away from what you were doing.
 app.setActivationPolicy(.accessory)
 app.run()

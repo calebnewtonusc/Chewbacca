@@ -111,6 +111,12 @@ public final class SurfaceStore {
     public private(set) var pending: Set<ComponentID> = []
     public private(set) var warnings: [String] = []
 
+    /// Where events go when someone uses a control.
+    ///
+    /// Set by whatever owns the socket. Nil means the panel is a display, which
+    /// is a legitimate state: a surface streamed and the agent walked away.
+    public var onEvent: ((OutboundEvent) -> Void)?
+
     /// Bumped on every change so SwiftUI redraws even though `spec` is a value
     /// type nested several levels deep.
     public private(set) var revision = 0
@@ -175,6 +181,11 @@ public final class SurfaceStore {
         case .root(let id):
             guard isValidID(id) else { return }
             spec.root = id
+
+        case .surface, .close:
+            // Placement is the overlay's business, not a surface's. A store that
+            // could move itself would be a store that can fight the layout.
+            break
         }
     }
 
@@ -214,6 +225,28 @@ public final class SurfaceStore {
             }
         }
         return out
+    }
+
+    /// Write a value back locally, then tell the agent.
+    ///
+    /// Local first is the whole point. A typed character that waits for a round
+    /// trip before appearing feels broken, and the agent may not even be
+    /// listening. The panel owns its own data model and the event is a
+    /// notification, not a request for permission.
+    public func write(_ pointer: String, _ value: JSON) {
+        Pointer.set(&spec.data, pointer, value)
+        revision += 1
+        onEvent?(.value(pointer: pointer, value: value))
+    }
+
+    public func fire(_ action: String, from component: ComponentID, payload: [String: JSON] = [:]) {
+        onEvent?(.action(name: action, component: component, payload: payload))
+    }
+
+    /// The pointer a component's prop is bound to, if any.
+    public func binding(_ node: ComponentNode, _ prop: String) -> String? {
+        if case .binding(let binding) = node.props[prop] { return binding.pointer }
+        return nil
     }
 
     private func compute(_ expression: Computed) -> Double {
