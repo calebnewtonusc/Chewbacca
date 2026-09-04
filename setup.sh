@@ -598,6 +598,24 @@ if [ -f "$SCRIPT_DIR/bin/coursework" ]; then
   echo "    Next: run /syllabus on a syllabus PDF to fill the ledger."
 fi
 
+# people keeps what you know about the people in your life: notes, circles, and
+# who you are drifting out of touch with. One SQLite file on this machine, no
+# account and no network. Needs node 22.5+ for the built-in sqlite module.
+if [ -f "$SCRIPT_DIR/bin/people" ]; then
+  mkdir -p "$HOME/.local/bin"
+  cp "$SCRIPT_DIR/bin/people" "$HOME/.local/bin/people"
+  chmod +x "$HOME/.local/bin/people"
+  PEOPLE_HOME="${PEOPLE_DIR:-$HOME/.chewbacca/people}"
+  mkdir -p "$PEOPLE_HOME"
+  if node -e "require('node:sqlite')" >/dev/null 2>&1; then
+    log "people installed to ~/.local/bin/, data at $PEOPLE_HOME"
+    echo "    Next: people import --mac to pull in your contacts."
+  else
+    warn "people installed, but this node has no node:sqlite (needs 22.5+)."
+    echo "    Fix with: brew upgrade node"
+  fi
+fi
+
 # Hooks read their paths from here instead of having them baked in by string
 # substitution. Edit this file to move your context repos later.
 cat > "$HOME/.claude/d1-config.sh" << D1CONFIG
