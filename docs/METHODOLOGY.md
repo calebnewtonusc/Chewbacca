@@ -127,7 +127,7 @@ Track these to know if your setup is working:
 
 ## Further Reading
 
-- [ECOSYSTEM.md](../ECOSYSTEM.md) for tools and repos in the space
+- [ECOSYSTEM.md](ECOSYSTEM.md) for tools and repos in the space
 - [docs/CLOUDFLARE.md](CLOUDFLARE.md) for D1-specific patterns
 - [docs/PROMPTS.md](PROMPTS.md) for example prompts
 - [docs/SYSTEM-PROMPTS.md](SYSTEM-PROMPTS.md) for writing the prompt that governs an agent across sessions

@@ -485,7 +485,8 @@ fi
 # whole file exists to refuse.
 section "Documented tools"
 
-for pair in "chewie:mac-followups, mac-see, mac-runtime" \
+for pair in "chewbacca:the README, every install path" \
+  "chewie:mac-followups, mac-see, mac-runtime" \
   "people:people, texts" \
   "coursework:coursework, study-system"; do
   tool="${pair%%:*}"
