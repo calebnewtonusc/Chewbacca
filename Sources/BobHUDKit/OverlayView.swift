@@ -18,6 +18,18 @@ public struct OverlayView: View {
             // even at low opacity, tints the entire display.
             Color.clear
 
+            // The ring, bottom right, above everything.
+            //
+            // It is the one thing on the glass that is always present, so it
+            // gets the corner least likely to hold work: the Dock is along the
+            // bottom on most machines but the far right of it is usually empty,
+            // and the eye finds a fixed point far faster than a moving one.
+            PresenceRing(presence: model.presence, amplitude: model.amplitude)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .padding(.trailing, 22)
+                .padding(.bottom, 16)
+                .zIndex(9999)
+
             ForEach(model.surfaces) { surface in
                 SurfaceCard(
                     surface: surface,

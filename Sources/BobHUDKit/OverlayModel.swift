@@ -56,6 +56,9 @@ public final class OverlayModel {
 
     private var current: String = "main"
     private var nextDepth = 0
+    /// Cancels the self-demote when the state changes before its patience runs
+    /// out, which is the normal case.
+    @ObservationIgnored private var patienceTask: Task<Void, Never>?
 
     /// Measured heights, reported by each card once laid out, so stacking uses
     /// real sizes rather than a guess.
@@ -82,6 +85,9 @@ public final class OverlayModel {
                 id, region: region, width: width.map { CGFloat($0) },
                 urgency: urgency, chrome: chrome)
 
+        case .presence(let state, let amplitude):
+            setPresence(state, amplitude: amplitude)
+
         case .close(let id):
             close(id)
 
@@ -101,7 +107,41 @@ public final class OverlayModel {
     /// in the menu. Connecting does not do this, because a surface has to
     /// outlive the connection that drew it for anything to be able to change it
     /// later.
+    /// What the assistant is doing, and how loud the person is talking.
+    public private(set) var presence: Presence = .dormant
+    public private(set) var amplitude: Double = 0
+
+    /// The most simultaneous surfaces the glass will hold.
+    ///
+    /// Twelve, from the annotation-layer spec, and it is a real limit rather
+    /// than a guideline: past about a dozen elements a heads-up display stops
+    /// being glanceable and becomes a second screen to read. When a thirteenth
+    /// arrives the oldest goes, because the newest is the one that was just
+    /// asked for.
+    public static let maxSurfaces = 12
+
+    /// Set the ring, and start the clock on states that claim progress.
+    public func setPresence(_ next: Presence, amplitude: Double?) {
+        presence = next
+        if let amplitude { self.amplitude = amplitude }
+        revision += 1
+
+        patienceTask?.cancel()
+        guard let patience = next.patience else { return }
+        // An indefinite spinner is a lie. If nothing has changed the state by
+        // the time its patience runs out, the ring stops claiming progress and
+        // says so instead.
+        patienceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: patience)
+            guard !Task.isCancelled, let self, self.presence == next else { return }
+            self.presence = .attention
+            self.revision += 1
+        }
+    }
+
     public func reset() {
+        presence = .dormant
+        patienceTask?.cancel()
         surfaces = []
         heights = [:]
         current = "main"
@@ -181,6 +221,12 @@ public final class OverlayModel {
             urgency: urgency ?? .normal, chrome: chrome ?? .card,
             maxHeight: OverlaySurface.ceiling)
         surfaces.append(surface)
+        // Drop the oldest rather than refusing the newest: the one just asked
+        // for is the one the person is looking for.
+        if surfaces.count > Self.maxSurfaces {
+            let evicted = surfaces.removeFirst()
+            heights[evicted.id] = nil
+        }
         relayout()
         return surface
     }

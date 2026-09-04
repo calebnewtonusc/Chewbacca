@@ -150,6 +150,12 @@ public final class SurfaceStore {
 
     private func applyOne(_ op: Op) {
         switch op {
+        case .surface, .close, .presence:
+            // Routed by the overlay, which owns which surface is current and
+            // what the ring is doing. A store knows about one surface's
+            // contents and deliberately nothing about the glass around it.
+            return
+
         case .component(let node):
             guard isValidID(node.id) else {
                 warn("Invalid component id \(node.id)")
@@ -237,6 +243,26 @@ public final class SurfaceStore {
         Pointer.set(&spec.data, pointer, value)
         revision += 1
         onEvent?(.value(pointer: pointer, value: value))
+    }
+
+    /// Write an edited file back, then say so.
+    ///
+    /// Bounded deliberately: the only path this can write is one that was
+    /// handed to a `File` component and then typed in by the person looking at
+    /// it. No path is constructed here and none is resolved against anything.
+    /// The event goes out either way, so an agent watching knows the document it
+    /// put on screen has changed underneath it.
+    public func saveFile(path: String, contents: String) {
+        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        do {
+            try contents.write(to: url, atomically: true, encoding: .utf8)
+            onEvent?(.action(
+                name: "file.saved",
+                component: "File",
+                payload: ["path": .string(path)]))
+        } catch {
+            warn("Could not save \(url.lastPathComponent)")
+        }
     }
 
     public func fire(_ action: String, from component: ComponentID, payload: [String: JSON] = [:]) {

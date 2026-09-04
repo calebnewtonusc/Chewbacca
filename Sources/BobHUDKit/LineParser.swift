@@ -10,7 +10,8 @@ import Foundation
 ///     r <id>                             declare the root
 ///     @ <surface> [at=region] [w=380] [urgency=alert] [chrome=bare]
 ///                                        open or switch to a surface
-///     - <surface>                        close a surface
+///     - <surface>
+///     p <state> [amp=0.4]                presence: what it is doing                        close a surface
 ///
 /// A line is either complete or invisible, which is the whole reason this is the
 /// right thing to put on a socket. There is no partial-value state to get wrong:
@@ -213,6 +214,22 @@ public enum LineParser {
                 throw LineParseError.malformed("`-` takes exactly one surface name", line: trimmed)
             }
             return .close(id: tokens[1])
+
+        case "p":
+            // `p thinking`, `p hearing amp=0.4`, `p dormant`.
+            guard tokens.count >= 2 else {
+                throw LineParseError.malformed("`p` needs a state", line: trimmed)
+            }
+            guard let presence = Presence(rawValue: tokens[1]) else {
+                throw LineParseError.malformed(
+                    "unknown presence state \(tokens[1])", line: trimmed)
+            }
+            var amplitude: Double?
+            for token in tokens.dropFirst(2) {
+                guard let (key, raw) = splitPair(token) else { continue }
+                if key == "amp" { amplitude = Double(raw) }
+            }
+            return .presence(presence, amplitude: amplitude)
 
         case "r":
             guard tokens.count == 2 else {
