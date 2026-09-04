@@ -47,6 +47,8 @@ people rank --dim financial       # who is struggling with what
 people search "hiking"
 people intro Anthropic            # who could introduce them
 people import --mac               # read the macOS Contacts app
+people task add maggie "send the book" --due 2026-09-20
+people ask maggie                 # what you still do not know about her
 ```
 
 `people help` has the rest. Add `--json` nowhere: this CLI prints for humans,
@@ -77,6 +79,24 @@ Things that should always produce a write:
 | They met someone new                  | `people add "Name" --met "where"`                         |
 | A group of people belongs together    | `people circle create` then `people circle add`           |
 | They want to hear from someone more   | `people update <who> --cadence 30`                        |
+| **They promised somebody something**  | `people task add <who> "..." --due DATE`                  |
+| A recurring date that is not a birthday | `people date add <who> "label" --on MM-DD`              |
+| Money or an object changed hands      | `people loan <who> --lent "..."` or `--borrowed`          |
+| Two people are related                | `people rel <a> <kind> <b>`                               |
+| Something is coming up for someone    | `people check-on <who> --in 14d --because "..."`          |
+| A durable one-liner about a person    | `people fact <who> <key> "value"`                         |
+
+The promise is the one that gets missed. Observations hold what is true and
+interactions hold what happened, and neither has anywhere for "I said I'd send
+him the book". When the user says they will do something for a named person, that is
+a `people task add`, not a note.
+
+`people rel maggie mother declan` writes both directions, so you never have to
+add the inverse yourself.
+
+`people check-on` refuses to run without `--because`. That is deliberate: a
+reminder with no reason is a default rather than a decision, and it surfaces in
+`people today` with the reason attached so it is actionable rather than nagging.
 
 `people update --company` is not the same as editing a field. It records the
 move as an observation, because a job change is news and worth congratulating
@@ -116,9 +136,16 @@ must be a short third-person statement true of every member and naming the topic
 so it is searchable. It is written onto each member and revoked automatically
 when membership changes or the circle is deleted.
 
-## Before drafting any message
+## Before coffee, a call, or a message
 
-Run `people show <who>` first. A message that references what someone is
+Run `people show <who>` first. It now carries the whole picture in one screen:
+quick facts, who they are related to, their dates, what you owe them, anything
+of theirs you still have, and the reason for the next check-in.
+
+Then run `people ask <who>`, which lists the questions from the template that
+are still blank for that person. That is what turns the completeness score into
+something you can act on: it names what to ask about rather than telling you a
+relationship is 40 percent known. A message that references what someone is
 actually going through beats a well-written generic one, and this is the
 difference between a tool that remembers and a tool that autocompletes.
 
