@@ -6,6 +6,7 @@ real commit; nothing here is written by hand.
 ## Unreleased
 
 ### Added
+- the listener understands pointing
 - one conversation per listening session
 - hud listen and hud context
 
@@ -16,6 +17,7 @@ real commit; nothing here is written by hand.
 - the component reference is generated from the catalog
 
 ### Other
+- tests: 69 of them, on a macOS runner, and they found five real bugs
 - security: a threat model, a data inventory, and a deny list that means it
 
 ## v1.0.0 - 2026-09-04
