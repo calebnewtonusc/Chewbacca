@@ -97,6 +97,12 @@ jobs:
           sys.exit(1 if bad else 0)
           PY
 
+      - name: README counts match the tree
+        run: |
+          # The README said 42 skills, the tree had 21, and doctor reported 79.
+          # Three numbers for one concept, none of them checked by anything.
+          python3 tools/counts.py --check
+
       - name: Writing rules
         run: |
           # 60, not 0. The worst file in the tree is vendored from another
