@@ -163,6 +163,10 @@ def strip_code(text):
     # finding is to misquote the person. A compiled corpus is mostly quotes, so
     # without this the files that most need to stay verbatim score the worst.
     text = re.sub(r"^\s*>.*$", "", text, flags=re.M)
+    # The README footer is a deliberate, documented exception to the emoji ban.
+    # Flagging it means the checker fails every personal repo on the one line it
+    # is supposed to have, which teaches people to ignore the checker.
+    text = re.sub(r"^.*All glory to God!.*$", "", text, flags=re.M)
     return text
 
 

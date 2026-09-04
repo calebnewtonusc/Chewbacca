@@ -980,8 +980,12 @@ def main():
         changed.append("settings/toolkit.json")
 
     readme = REPO / "README.md"
+    # The inventory tables live in the reference doc, not on the front door.
+    # A first-time reader does not need 40 rows of plugin names before the
+    # install command, and the generator does not care which file it writes.
+    reference = REPO / "docs" / "REFERENCE.md"
     touched = splice(
-        readme,
+        reference,
         "<!-- BEGIN GENERATED: extensions -->",
         "<!-- END GENERATED: extensions -->",
         md_table(upstream, vendored, packs, plugins, mcp),
@@ -989,7 +993,7 @@ def main():
     )
     if cli:
         touched |= splice(
-            readme,
+            reference,
             "<!-- BEGIN GENERATED: cli -->",
             "<!-- END GENERATED: cli -->",
             cli_table(cli),
@@ -1004,13 +1008,13 @@ def main():
         badge_block(plugins),
     )
     touched |= rewrite_row(
-        readme, "Skills and plugins", summary_row(upstream, vendored, packs, plugins, markets)
+        reference, "Skills and plugins", summary_row(upstream, vendored, packs, plugins, markets)
     )
     if cli:
         # Hand-written, this row said "Google Workspace" for a tool that had
         # already been dropped. Generate it from the same list as the table.
         touched |= rewrite_row(
-            readme,
+            reference,
             "macOS tools",
             f"{len(cli)} installed alongside the kit: "
             + ", ".join(c["display"] for c in cli),
