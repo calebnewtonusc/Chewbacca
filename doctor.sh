@@ -316,6 +316,24 @@ else
   warn "kits not installed, so anything built cannot be discovered later"
 fi
 
+# The router is what turns a built kit into a used one. It is easy for this to
+# be silently dead: it reads a JSON payload on stdin, and an earlier version
+# fed the heredoc to stdin instead, so it ran clean and never matched anything.
+if [ -x "$HOME/.claude/hooks/kit-route.sh" ]; then
+  ROUTE_PROBE=$(printf '{"prompt":"help me write my personal statement for grad school","cwd":"/"}' \
+    | "$HOME/.claude/hooks/kit-route.sh" 2>/dev/null)
+  case "$ROUTE_PROBE" in
+    *additionalContext*) ok "kit router matches a known prompt" ;;
+    *) if [ "${KIT_COUNT:-0}" -gt 0 ]; then
+         warn "kit router installed but matched nothing on a prompt it should catch"
+       else
+         ok "kit router installed (nothing to match yet)"
+       fi ;;
+  esac
+else
+  warn "kit-route.sh not installed, so prompts will not route into a kit"
+fi
+
 section "macOS tools"
 
 if [ "$(uname)" != "Darwin" ]; then
