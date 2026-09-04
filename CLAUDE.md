@@ -852,3 +852,22 @@ Use the auto-memory system for granular learnings:
 - `reference_*.md`: pointers to external systems
 
 The MEMORY.md index in that directory must stay current. When adding a new memory file, add a one-line pointer to MEMORY.md immediately.
+
+**MEMORY.md is the only part that loads into every session.** The memory files themselves are read
+on demand, so a fact that exists only in a file body is a fact you will not recall unless something
+else already made you go looking.
+
+That makes renames the failure case. When a repo, tool, product, or person gets a new name, three
+things have to change in the same turn:
+
+1. The **index line** in MEMORY.md, which must lead with the new name and keep the old one after it
+   so both resolve
+2. The **filename**, via `git mv`, and the `name:` and `description:` in its frontmatter
+3. Every `[[old-slug]]` backlink and every mention of the old name in other memory files
+
+Updating the body alone is what breaks: the fact is written down, correctly and in detail, and the
+session still does not recognize the word. Grep the whole brain for the old name before calling a
+rename done.
+
+A memory file also has to say what the thing **is** before it says what happened to it. An index
+line reading "X is public and its token leaked" tells you nothing when someone says "X".
