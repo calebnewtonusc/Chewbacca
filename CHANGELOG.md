@@ -5,7 +5,22 @@ real commit; nothing here is written by hand.
 
 ## Unreleased
 
+### Added
+- hud demo
+
+### Fixed
+- a request dropped while busy said nothing
+- hud clear no longer needs Accessibility
+- the listener died when the display restarted
+
+### Changed
+- regenerate checksums after the display tools landed
+
+### Documentation
+- send the root early
+
 ### Other
+- 1000: regenerate status and changelog
 - setup: --skip, and say what did not run
 
 ## v1.1.0 - 2026-09-04
