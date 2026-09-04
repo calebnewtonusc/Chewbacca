@@ -114,6 +114,19 @@ public enum LineParser {
         if let first = raw.first, first == "\"" || first == "{" || first == "[" {
             if let json = JSONDecoding.parse(raw) {
                 if let computed = Computed.from(json) { return .computed(computed) }
+                // `{"$bind":"/path"}` as well as `@/path`.
+                //
+                // `@` is the short form and the one to write, but the object
+                // form is what the JSON spec format uses and models reach for it
+                // constantly by analogy with `$count`. Rejecting it produced the
+                // worst possible failure: the prop parsed as a perfectly valid
+                // object literal, the component drew nothing, and nobody was
+                // told anything.
+                if let object = json.objectValue,
+                   let pointer = object["$bind"]?.stringValue,
+                   object.count == 1 {
+                    return .binding(DataBinding(pointer: pointer))
+                }
                 return .literal(json)
             }
         }

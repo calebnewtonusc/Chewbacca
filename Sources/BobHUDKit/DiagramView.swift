@@ -125,7 +125,30 @@ nonisolated struct DiagramCanvas: View, Animatable {
     }
 
     var body: some View {
-        Canvas { context, size in
+        // Edges in a Canvas, nodes as real views.
+        //
+        // Everything used to be drawn in the Canvas, and the nodes came out as
+        // flat black rectangles with a cyan outline: next to a card made of
+        // frosted material they looked like holes punched in the screen. A
+        // Canvas cannot sample what is behind the window, so a node painted
+        // inside one can never be glass, however it is filled. Lifting them out
+        // costs one view per node and makes them the same material as
+        // everything else on the display.
+        GeometryReader { proxy in
+            ZStack(alignment: .topLeading) {
+                edges(in: proxy.size)
+                ForEach(Array(shapes.enumerated()), id: \.offset) { index, shape in
+                    if shape.kind == .node || shape.kind == .box {
+                        chip(shape, index: index, in: proxy.size)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Lines, arrows, circles, dots and free labels.
+    private func edges(in size: CGSize) -> some View {
+        Canvas { context, _ in
             // Bloom, drawn as a blurred pass beneath a crisp one.
             //
             // This is what separates a lit interface from a technical drawing,
@@ -141,6 +164,62 @@ nonisolated struct DiagramCanvas: View, Animatable {
             }
             paint(&context, size: size, glowing: false)
         }
+    }
+
+    /// One node, as glass.
+    private func chip(_ shape: Primitive, index: Int, in size: CGSize) -> some View {
+        let start = index * Primitive.width
+        let values = start + Primitive.width <= channels.values.count
+            ? Array(channels.values[start..<(start + Primitive.width)])
+            : shape.channels
+        let colour = shape.toneName == nil ? tone : HUD.tone(shape.toneName)
+        let boxWidth = values[5] * size.width
+        let boxHeight = values[6] * size.height
+
+        return Text(shape.label)
+            .font(.system(size: 11, weight: .medium, design: .rounded))
+            .foregroundStyle(HUD.ink)
+            .lineLimit(2)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 6)
+            .frame(width: boxWidth, height: boxHeight)
+            // `.ultraThinMaterial` rather than the AppKit view the card uses:
+            // it is a plain SwiftUI shape style, so it works inside a
+            // nonisolated view, and the surface already forces a dark scheme
+            // around it so it frosts dark instead of white.
+            .background(.ultraThinMaterial, in: shell)
+            .background(Color.black.opacity(0.34), in: shell)
+            .overlay {
+                // The same sheen the cards have, scaled down. A node is a small
+                // pane of the same material and should catch the light the same
+                // way, or the diagram looks like it came from another program.
+                shell.fill(
+                    RadialGradient(
+                        colors: [.white.opacity(0.18), .clear],
+                        center: UnitPoint(x: 0.15, y: -0.1),
+                        startRadius: 0, endRadius: 90))
+            }
+            .overlay {
+                // Lit from above, like the card. A uniform outline on all four
+                // sides is what made these read as diagram boxes rather than as
+                // objects with a light on them.
+                shell.strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            colour.opacity(0.85),
+                            colour.opacity(0.30),
+                            .white.opacity(0.06),
+                        ],
+                        startPoint: .top, endPoint: .bottom),
+                    lineWidth: 0.9)
+            }
+            .shadow(color: colour.opacity(0.28), radius: 9)
+            .shadow(color: .black.opacity(0.45), radius: 12, y: 5)
+            .position(x: values[0] * size.width, y: values[1] * size.height)
+    }
+
+    private var shell: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 11, style: .continuous)
     }
 
     /// Draw every shape once.
@@ -206,31 +285,8 @@ nonisolated struct DiagramCanvas: View, Animatable {
                 with: .color(colour))
 
         case .box, .node:
-            let rect = CGRect(
-                x: from.x - values[5] * size.width / 2,
-                y: from.y - values[6] * size.height / 2,
-                width: values[5] * size.width,
-                height: values[6] * size.height)
-            let path = Path(roundedRect: rect, cornerRadius: 7, style: .continuous)
-            // Near-solid, not a tint.
-            //
-            // A translucent accent fill looks right over a dark desktop and
-            // turns to dirty grey over a white document, because it is sampling
-            // the page. Filling with near-black instead means a node reads as a
-            // lit object on any background, and the stroke can then run at full
-            // strength rather than being dulled to compensate.
-            if !glowing {
-                // Flat, not a ramp. A tinted gradient down the face of a node
-                // muddies at the top and reads as a button; the light on these
-                // comes from the stroke and the bloom around it.
-                context.fill(path, with: .color(.black.opacity(0.85)))
-            }
-            context.stroke(path, with: .color(colour), lineWidth: stroke)
-            if !shape.label.isEmpty && !glowing {
-                text(
-                    shape.label, at: from, size: 10.5,
-                    colour: HUD.ink, in: &context, backed: false)
-            }
+            // Drawn as a view in `chip`, because a Canvas cannot be glass.
+            return
 
         case .label:
             // Glow behind a word is a smudge, so text is drawn once, crisp.

@@ -69,6 +69,33 @@ more `c d Diagram` with different numbers, not a redraw.
 
 Take something down with `- <surface>` when the person is done with it.
 
+## Updating in real time
+
+Bind a prop to the data model and then push data at it. This is the cheap path
+and the one to use for anything that changes more than once: the component is
+sent once, and every update after that is a single short line.
+
+```
+c d Diagram aspect=2.4 parts=@/graph
+d /graph [{"t":"node","x":0.2,"y":0.5,"label":"A"}]
+d /graph [{"t":"node","x":0.2,"y":0.2,"label":"A"}]
+```
+
+The second `d` moves the node. It does not redraw it. The same works for a
+`Sparkline`'s points, a `Bars`'s rows, a `Table`'s rows, or any single value:
+
+```
+c m Metric label="Unread" value=@/counts/unread
+d /counts/unread 12
+```
+
+`@/pointer` is the binding. `{"$bind":"/pointer"}` is accepted as well, but the
+short form is a third of the tokens and harder to get wrong.
+
+A stream of `d` lines is how a panel tracks something live. Re-sending the whole
+component on every tick works and is the wrong instinct: it costs far more
+tokens and it throws away the animation.
+
 ## The vocabulary
 
 You can only draw these. There is no HTML and no styling prop.
@@ -154,7 +181,7 @@ A prop can read from the data model instead of carrying a literal, which is what
 lets a number update without rebuilding the component around it.
 
 ```
-c m Metric label="Unread" value={"$bind":"/counts/unread"}
+c m Metric label="Unread" value=@/counts/unread
 d /counts/unread 12
 ```
 
