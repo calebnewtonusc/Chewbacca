@@ -5,6 +5,11 @@ real commit; nothing here is written by hand.
 
 ## Unreleased
 
+### Other
+- setup: --skip, and say what did not run
+
+## v1.1.0 - 2026-09-04
+
 ### Added
 - the listener understands pointing
 - one conversation per listening session
@@ -23,6 +28,8 @@ real commit; nothing here is written by hand.
 - the component reference is generated from the catalog
 
 ### Other
+- contributing: what review is actually for when the kit runs as you
+- install: pin it, and check what landed against what is in git
 - install: stop destroying a CLAUDE.md somebody wrote by hand
 - 1000: regenerate the status file
 - 1000: a status file generated from the commit log, and twelve corrections
