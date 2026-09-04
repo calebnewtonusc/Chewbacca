@@ -26,6 +26,7 @@ import socket
 import subprocess
 import sys
 import threading
+import uuid
 from pathlib import Path
 
 SOCKET = os.environ.get("BOB_HUD_SOCKET", str(Path.home() / ".bob" / "hud.sock"))
@@ -109,6 +110,21 @@ class Listener:
         # `bare` means the model command has no tools and no skills, so it has
         # to be handed the vocabulary and can only answer in lines.
         self.bare = bare
+
+        # One conversation for the whole listening session.
+        #
+        # Without this every request starts from nothing, which is the amnesia
+        # that makes assistants verbose: a model with no memory of the last
+        # thirty seconds has to re-establish everything, so it hedges everything,
+        # so its answers are long. It also makes the obvious follow-up
+        # impossible. "Show me my week", then "just the overdue ones", only
+        # works if the second sentence lands in the same conversation.
+        #
+        # `--session-id` opens one and `--resume` continues it; passing
+        # `--session-id` twice is an error, which is why the flag changes after
+        # the first request rather than staying the same.
+        self.session = str(uuid.uuid4())
+        self.started = False
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.lock = threading.Lock()
         self.busy = False
@@ -131,7 +147,11 @@ class Listener:
             print(f"The display is not running ({err}). Start it with: hud open", file=sys.stderr)
             return 1
 
-        print(f"listening on {SOCKET} — say something to the display", file=sys.stderr)
+        print(
+            f"listening on {SOCKET} — say something to the display\n"
+            f"conversation: {self.session}",
+            file=sys.stderr,
+        )
         self.send("p attentive")
 
         buffer = b""
@@ -174,6 +194,22 @@ class Listener:
         self.busy = True
         threading.Thread(target=self._ask, args=(said,), daemon=True).start()
 
+    def command(self) -> list[str]:
+        """The model command, with continuity flags if it understands them.
+
+        Only Claude Code is given the flags, and only because they were checked
+        against the real binary rather than assumed. Any other command is run
+        exactly as the person wrote it: silently appending flags a program does
+        not know is how a working configuration turns into an unexplainable
+        failure.
+        """
+        argv = shlex.split(self.model_cmd)
+        if not argv or Path(argv[0]).name != "claude":
+            return argv
+        if self.started:
+            return argv + ["--resume", self.session]
+        return argv + ["--session-id", self.session]
+
     def _ask(self, said: str) -> None:
         try:
             self.send("p thinking")
@@ -201,7 +237,7 @@ class Listener:
                 )
             self.log("->", said)
             result = subprocess.run(
-                shlex.split(self.model_cmd),
+                self.command(),
                 input=prompt,
                 capture_output=True,
                 text=True,
@@ -209,6 +245,11 @@ class Listener:
             )
             # An agent with tools draws for itself and answers in prose, so
             # stray lines here are the exception rather than the payload.
+            # Only after a request has actually run, or a first attempt that
+            # failed would leave the listener resuming a session that was never
+            # opened, and every request after it would fail the same way.
+            if result.returncode == 0:
+                self.started = True
             for line in draw_lines(result.stdout):
                 self.send(line)
             self.send("p attentive")
