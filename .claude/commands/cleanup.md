@@ -47,5 +47,8 @@ If fixing:
 
 - Remove console.logs (unless they're part of a logger pattern)
 - Remove commented-out code blocks older than the current feature
-- Leave TODO comments but list them for the user to decide
+- A TODO that is a one-line fix: do it now and say so.
+- A TODO that is real work: open an issue for it rather than handing the
+  line back. Listing them for the user to decide contradicts
+  `~/.claude/rules/do-it-yourself.md`, which is always on.
 - Never auto-delete files, list them and ask

@@ -184,6 +184,18 @@ if group "hooks"; then
   expect "log rows carry a duration" "|ok|" cat "$CHEWBACCA_LOG_DIR/hooks.log"
 fi
 
+# ── the display ───────────────────────────────────────────────────────────────
+if group "hud"; then
+  check  "hud parses"         bash -n "$ROOT/bin/hud"
+  check  "hud-listen parses"  python3 -m py_compile "$ROOT/bin/hud-listen"
+  check  "hud-context parses" python3 -m py_compile "$ROOT/bin/hud-context"
+  # The loop itself, against a fake display and a fake model: no socket to a
+  # real app, no microphone, no tokens. It is the only test that covers what
+  # happens between hearing something and drawing it.
+  check  "the listen loop works end to end" python3 "$ROOT/tests/test_hud_listen.py"
+  expect "the skill teaches the wire format" "Bob Lines" cat "$ROOT/skills/hud/SKILL.md"
+fi
+
 # ── verdict ───────────────────────────────────────────────────────────────────
 echo ""
 if [ "$FAIL" -eq 0 ]; then

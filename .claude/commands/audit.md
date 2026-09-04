@@ -12,7 +12,10 @@ Deep audit of the project at $ARGUMENTS (or current directory). No shortcuts.
 
 ```bash
 # Check for secrets in code
-grep -r "sk-ant\|sk-proj\|ANTHROPIC_API_KEY\|ghp_\|eyJhbGci\|password\s*=\s*['\"]" --include="*.ts" --include="*.tsx" --include="*.js" --include="*.py" . 2>/dev/null | grep -v ".env" | grep -v "example"
+# The kit's own scanner, which matches on position rather than on three known
+# prefixes. The prefix list here missed a live Todoist token for 149 days
+# because that token is forty bare hex characters.
+secret-scan . 2>/dev/null || python3 bin/secret-scan .
 
 # Check .gitignore covers .env files
 cat .gitignore 2>/dev/null | grep "\.env"
@@ -41,7 +44,10 @@ grep -r ": any" --include="*.ts" --include="*.tsx" . 2>/dev/null | grep -v "// "
 grep -r "console\.log" --include="*.ts" --include="*.tsx" . 2>/dev/null | grep -v "\.test\." | grep -v "logger" | head -10
 
 # TODO/FIXME count
-grep -r "TODO\|FIXME\|HACK\|XXX" --include="*.ts" --include="*.tsx" --include="*.py" . 2>/dev/null | grep -v "node_modules"
+# Every language in the tree, not three. This grepped .ts, .tsx and .py in
+# repos that are mostly bash, Swift, or Go, and reported zero every time.
+grep -rIn "TODO\|FIXME\|HACK\|XXX" . 2>/dev/null \
+  | grep -vE "node_modules|\.git/|\.build/|DerivedData|dist/|vendor/"
 ```
 
 ## Step 4: Design quality (for UI projects)
