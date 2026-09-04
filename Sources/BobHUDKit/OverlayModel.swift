@@ -103,8 +103,12 @@ public final class OverlayModel {
             } else {
                 markers.removeAll { $0.id == id }
             }
-            sweepTask?.cancel()
-            sweepTask = nil
+            // The sweep is deliberately *not* cancelled here.
+            //
+            // It used to be, and that meant taking down one marker stopped every
+            // other marker and every surface with a lifetime from ever expiring.
+            // The sweep already stops itself when nothing left can expire, which
+            // is the only condition under which stopping it is correct.
             revision += 1
 
         case .close(let id):
