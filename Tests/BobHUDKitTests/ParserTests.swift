@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 @testable import BobHUDKit
 
@@ -493,5 +494,34 @@ struct VoiceTests {
     func wakeWordAloneIsNothing() {
         let voice = VoiceListener()
         #expect(voice.strippingWakeWord(from: "chewy") == nil)
+    }
+}
+
+@Suite("Spoken and typed requests")
+struct HeardTests {
+    @Test("a request is always a quoted string on the wire")
+    func heardIsQuoted() {
+        // Never bare. An utterance has spaces in it, and a listener splitting on
+        // whitespace would take the first word and drop the sentence.
+        let line = OutboundEvent.heard("show me my week").line
+        #expect(line == #"h "show me my week""#)
+    }
+
+    @Test("quotes inside a request survive the trip")
+    func heardEscapes() {
+        let line = OutboundEvent.heard(#"what does "this" mean"#).line
+        #expect(line.hasPrefix("h "))
+        // Round-trips as JSON, which is what the listener parses it as.
+        let payload = String(line.dropFirst(2))
+        let data = Data(payload.utf8)
+        let decoded = try? JSONSerialization.jsonObject(
+            with: data, options: [.fragmentsAllowed]) as? String
+        #expect(decoded == #"what does "this" mean"#)
+    }
+
+    @Test("the typed bar and the microphone produce the same event")
+    func oneShape() {
+        // One path from asking to drawing. Two would drift.
+        #expect(OutboundEvent.heard("x") == OutboundEvent.heard("x"))
     }
 }

@@ -14,11 +14,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var server: SocketServer?
     private var statusItem: NSStatusItem?
     private var voiceMenu: NSMenu?
+    private var commandBar: CommandBarWindow?
+    /// Which app was in front when the bar opened, so it can be given back.
+    private var previousApp: NSRunningApplication?
     private var hotKeyMonitor: Any?
     private var escMonitor: Any?
     private var mouseMonitor: Any?
     private var localMouseMonitor: Any?
     private var flagsMonitor: Any?
+    private var barMonitor: Any?
     private let voice = VoiceListener()
     /// Whether the push-to-talk key is currently down, so a flags change that
     /// does not involve it is ignored.
@@ -29,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.overlay = overlay
         overlay.show()
 
+        setUpCommandBar()
         setUpMenuBar()
         setUpKeys()
         observeScreenChanges()
@@ -53,7 +58,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         server?.stop()
         voice.setMode(.off)
-        let monitors = [hotKeyMonitor, escMonitor, mouseMonitor, localMouseMonitor, flagsMonitor]
+        let monitors = [
+            hotKeyMonitor, escMonitor, mouseMonitor,
+            localMouseMonitor, flagsMonitor, barMonitor,
+        ]
         for monitor in monitors.compactMap({ $0 }) {
             NSEvent.removeMonitor(monitor)
         }
@@ -111,6 +119,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in self?.toggle() }
         }
 
+        // Option-Space opens the command bar.
+        //
+        // Not Command-Space, which is Spotlight on every Mac, and not
+        // Option-Command-Space, which already hides the glass. This is a global
+        // monitor rather than a registered hot key for the same reason as the
+        // others: registering one system-wide needs Accessibility, and a front
+        // door is not worth a permission prompt on first launch.
+        barMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) {
+            [weak self] event in
+            guard event.modifierFlags.contains(.option),
+                  !event.modifierFlags.contains(.command),
+                  event.keyCode == 49
+            else { return }
+            Task { @MainActor in self?.showCommandBar() }
+        }
+
         escMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard event.keyCode == 53 else { return } // escape
             Task { @MainActor in self?.dismissAll() }
@@ -134,6 +158,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in self?.updateInteractive() }
             return event
         }
+    }
+
+    /// The typed front door.
+    ///
+    /// Built eagerly at launch rather than on first use. The spec puts the
+    /// strictest performance contract in the system on this surface, under
+    /// 100ms, and constructing an `NSPanel` with a SwiftUI hosting view the
+    /// first time somebody hits the key is well over that on a cold app.
+    private func setUpCommandBar() {
+        commandBar = CommandBarWindow(
+            onSubmit: { [weak self] asked in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.model.setPresence(.thinking, amplitude: 0)
+                    // The same event a spoken request produces, so there is one
+                    // path from asking to drawing rather than two that drift.
+                    self.model.onEvent?(.heard(asked))
+                    self.restoreFocus()
+                }
+            },
+            onDismiss: { [weak self] in
+                Task { @MainActor in self?.restoreFocus() }
+            })
+    }
+
+    /// Give the app back the focus the bar took.
+    ///
+    /// Summoning the bar activates this app, which is the honest cost of a
+    /// window you can type in. Not handing focus back afterwards would be the
+    /// dishonest part: the person was in the middle of something.
+    private func restoreFocus() {
+        previousApp?.activate()
+        previousApp = nil
+    }
+
+    private func showCommandBar() {
+        previousApp = NSWorkspace.shared.frontmostApplication
+        overlay?.show()
+        commandBar?.present()
     }
 
     /// Hearing, and what to do about it.
@@ -234,6 +297,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         toggleItem.target = self
         menu.addItem(toggleItem)
 
+        let askItem = NSMenuItem(
+            title: "Ask for something", action: #selector(askFromMenu), keyEquivalent: " ")
+        askItem.keyEquivalentModifierMask = [.option]
+        askItem.target = self
+        menu.addItem(askItem)
+
         let clearItem = NSMenuItem(
             title: "Clear everything", action: #selector(clearFromMenu), keyEquivalent: "\u{1b}")
         clearItem.target = self
@@ -286,6 +355,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if mode == .off { model.setPresence(.dormant, amplitude: 0) }
     }
 
+    @objc private func askFromMenu() { showCommandBar() }
     @objc private func toggleFromMenu() { toggle() }
     @objc private func clearFromMenu() { dismissAll() }
 
