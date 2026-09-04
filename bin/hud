@@ -18,6 +18,7 @@ hud draw            read Bob Lines on stdin and draw them
 hud close <name>    take one surface off the screen
 hud clear           take everything off
 hud listen          hear what is said to it and draw the answer
+hud demo            put one of everything on screen
 hud screen          the display size in points, for marker coordinates
 hud status          is the display running
 hud open            start the display
@@ -68,6 +69,42 @@ case "${1:-}" in
           # the scriptable route and this is the blunt one.
           osascript -e 'tell application "System Events" to key code 53' 2>/dev/null || true ;;
   listen) shift; exec "$(dirname "$0")/hud-listen" "$@" ;;
+  demo)
+    # One command that puts every kind of surface on screen at once.
+    #
+    # Worth having for a boring reason: "is this working" is otherwise answered
+    # by hand-writing a panel, and somebody evaluating this project should be
+    # able to see what it does in one word rather than reading a wire format
+    # first.
+    running || { echo "The display is not running. Start it with: hud open" >&2; exit 1; }
+    send <<'DEMO'
+p acting
+@ demo at=topRight w=400
+c s Screen title="THIS WEEK"
+c g Stack direction=grid cols=2 gap=3
+c m1 Metric label="Unread" value=12 thresholds=[{"at":10,"tone":"warn"}]
+c m2 Metric label="Overdue" value=4 thresholds=[{"at":1,"tone":"bad"}]
+c sp Sparkline label="Messages" points=[31,28,44,39,58,52,71] value="71"
+c br Bars caption="Time since last reply" rows=[{"label":"Sagar","value":2,"display":"2h"},{"label":"Langston","value":9,"display":"9h"},{"label":"Ava","value":31,"display":"1d"}]
+c ev Events caption="Due" items=[{"time":"Sep 9","text":"Origin Story","accent":true},{"time":"Sep 10","text":"Two assignments"}]
+> s g sp br ev
+> g m1 m2
+r s
+@ shape at=bottomLeft w=560 chrome=bare
+c d0 Screen title="HOW A REQUEST REACHES THE SCREEN"
+c d1 Diagram aspect=2.4 parts=[{"t":"node","x":0.16,"y":0.5,"w":0.24,"h":0.3,"label":"You"},{"t":"arrow","x":0.29,"y":0.5,"x2":0.43,"y2":0.5},{"t":"node","x":0.5,"y":0.5,"w":0.22,"h":0.3,"label":"Model"},{"t":"arrow","x":0.62,"y":0.5,"x2":0.76,"y2":0.5},{"t":"node","x":0.86,"y":0.5,"w":0.24,"h":0.3,"label":"Glass","tone":"good"}]
+> d0 d1
+r d0
+@ ring at=bottom w=240 chrome=bracket
+c r0 Screen title="BRACKET"
+c r1 Ring label="Attendance" value=0.82 caption="82%"
+> r0 r1
+r r0
+m demo1 60 60 420 120 label="A mark sits on the screen, not beside it" life=25
+p attentive
+DEMO
+    echo "drew four surfaces and a mark. hud clear takes them down."
+    ;;
   screen)
     # Points, not pixels.
     #
