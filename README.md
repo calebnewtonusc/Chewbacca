@@ -887,6 +887,7 @@ Chewbacca/
 ├── bin/
 │   ├── ai-scan                  # Scores prose for AI-writing tells, no model
 │   ├── skill-scan               # Scores skills on whether they will fire, no model
+│   ├── secret-scan              # Finds credentials committed as literals, no model
 │   ├── coursework               # Reads the semester ledger: due, attendance, grades, ics
 │   ├── mac-use                  # CLI for macOS-use, which ships none upstream
 │   ├── mac_use_claude.py        # Runs mac-use on the Claude CLI, no API key

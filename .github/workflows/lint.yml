@@ -51,7 +51,7 @@ jobs:
 
       - name: Python tools compile
         run: |
-          python3 -m py_compile bin/slop-check bin/mac_use_cli.py bin/mac_use_claude.py
+          python3 -m py_compile bin/slop-check bin/secret-scan bin/mac_use_cli.py bin/mac_use_claude.py
 
       - name: setup.sh takes no interactive input
         run: |
@@ -157,11 +157,37 @@ jobs:
           fi
           echo "No hardcoded personal paths found"
 
-      - name: Check for leaked secrets patterns
+      - name: Check for leaked secrets
         run: |
-          echo "Checking for potential secret leaks..."
-          if grep -rn "sk-ant-api\|ghp_[a-zA-Z0-9]\{36\}\|ak_[a-zA-Z0-9]" --include="*.md" --include="*.json" --include="*.sh" --include="*.ts" . | grep -v ".git/" | grep -v "example\|placeholder\|YOUR_"; then
-            echo "ERROR: Potential secrets found in committed files"
+          # The three prefixes this step used to grep for (sk-ant-api, ghp_,
+          # ak_) missed a live Todoist token that sat in .claude/commands/*.md
+          # for 149 days, because that token is forty bare hex characters
+          # and is indistinguishable by shape from a git commit SHA. bin/secret-scan
+          # matches on position instead: a long literal where a credential goes.
+
+          # Prove the scanner still fires before trusting a pass. A check that
+          # cannot fail is not a check. The fixture value is synthetic: the
+          # scanner keys on shape and position, so a real secret is never needed
+          # and must never be committed here.
+          mkdir -p /tmp/secret-fixture
+          # Assembled at runtime: a forty-character literal written here would
+          # be flagged by the very scanner this step is testing.
+          FAKE=$(python3 -c "print('0123456789abcdef' * 3)" | cut -c1-40)
+          printf '%s\n' \
+            "  -H \"Authorization: Bearer $FAKE\"" \
+            '  -H "Authorization: Bearer $TODOIST_API_TOKEN"' \
+            '  apiKey: process.env.ANTHROPIC_API_KEY' \
+            > /tmp/secret-fixture/sample.md
+          if python3 bin/secret-scan /tmp/secret-fixture > /tmp/fixture.out 2>&1; then
+            echo "secret-scan failed to flag a known credential literal"
+            cat /tmp/fixture.out
             exit 1
           fi
-          echo "No leaked secrets found"
+          test "$(grep -c ': credential literal' /tmp/fixture.out)" = 1 || {
+            echo "expected exactly 1 finding, env-var forms should not fire"
+            cat /tmp/fixture.out
+            exit 1
+          }
+          echo "ok  scanner catches literals and ignores env references"
+
+          python3 bin/secret-scan .
