@@ -38,6 +38,7 @@ be discovered.
 @~/.claude/rules/naming.md
 @~/.claude/rules/typescript.md
 @~/.claude/rules/review-discipline.md
+@~/.claude/rules/context-discipline.md
 
 The twelve stack-specific standards (components, api, database, deployment,
 design, performance, state, accessibility, scroll-effects, testing, ux-laws,
