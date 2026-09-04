@@ -9,11 +9,15 @@ real commit; nothing here is written by hand.
 - hud demo
 
 ### Fixed
+- Chewie answered once and then went deaf
+- a Chewie answer was crammed into the badge
 - a request dropped while busy said nothing
 - hud clear no longer needs Accessibility
 - the listener died when the display restarted
 
 ### Changed
+- ignore the coverage file swift test leaves behind
+- regenerate the changelog for the last two commits
 - regenerate the changelog
 - regenerate checksums after the display tools landed
 
@@ -22,6 +26,7 @@ real commit; nothing here is written by hand.
 - send the root early
 
 ### Other
+- stop-check: a home directory under git is not unfinished work
 - 1000: regenerate status and changelog
 - setup: --skip, and say what did not run
 
