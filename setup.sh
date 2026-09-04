@@ -822,6 +822,15 @@ h.setdefault("UserPromptSubmit", []).append({"hooks": [{
     "timeout": 10,
 }]})
 
+# A kit already built is worth nothing if the next session answers the question
+# in a chat window instead. This matches the prompt against every kit's
+# use-when line and says nothing at all unless there is a real match.
+h.setdefault("UserPromptSubmit", []).append({"hooks": [{
+    "type": "command",
+    "command": hooks_dir + "/kit-route.sh",
+    "timeout": 10,
+}]})
+
 h["PreToolUse"] = [{"matcher": "Write", "hooks": [{
     "type": "command",
     "command": hooks_dir + "/env-guard.sh",
