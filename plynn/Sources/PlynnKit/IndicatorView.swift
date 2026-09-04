@@ -72,14 +72,21 @@ private struct GlassContainer<Content: View>: View {
 
 private struct CapsuleGlass: ViewModifier {
     let namespace: Namespace.ID
+    /// Corner radius of the shape being glassed. Half the height is a capsule;
+    /// anything less is a rounded card, which is what a multi-line answer wants.
+    let radius: CGFloat
 
     func body(content: Content) -> some View {
         if #available(macOS 26, *) {
             content
-                .glassEffect(.regular.tint(.black.opacity(0.18)).interactive(), in: .capsule)
+                .glassEffect(
+                    .regular.tint(.black.opacity(0.18)).interactive(),
+                    in: .rect(cornerRadius: radius))
                 .glassEffectID("capsule", in: namespace)
         } else {
-            content.background(.ultraThinMaterial, in: Capsule())
+            content.background(
+                .ultraThinMaterial,
+                in: RoundedRectangle(cornerRadius: radius, style: .continuous))
         }
     }
 }
@@ -108,15 +115,20 @@ struct IndicatorView: View {
 
                 centerContent
             }
-            .frame(
-                width: isCompact ? IndicatorMetrics.compactWidth : IndicatorMetrics.width,
-                height: IndicatorMetrics.height)
-            .clipShape(Capsule())
-            .modifier(CapsuleGlass(namespace: glassNS))
+            // The capsule itself, not just the stage around it.
+            //
+            // This was pinned to the badge's 168x34 for every phase, so an
+            // answer laid its text out at about 144 points wide and then got
+            // clipped to one badge of height. The stage outside it was already
+            // growing correctly, which is why the panel looked the right size
+            // and the words inside it did not.
+            .frame(width: capsuleSize.width, height: capsuleSize.height)
+            .clipShape(shape)
+            .modifier(CapsuleGlass(namespace: glassNS, radius: cornerRadius))
             // Explicit glass character — a bright rim light along the top edge
             // and a soft specular sheen, visible on any background.
             .overlay(
-                Capsule().strokeBorder(
+                shape.strokeBorder(
                     LinearGradient(
                         stops: [
                             .init(color: .white.opacity(0.5), location: 0),
@@ -126,14 +138,14 @@ struct IndicatorView: View {
                         startPoint: .top, endPoint: .bottom),
                     lineWidth: 1))
             .overlay(
-                Capsule()
+                shape
                     .fill(
                         LinearGradient(
                             colors: [.white.opacity(0.10), .clear],
                             startPoint: .top, endPoint: .center))
                     .allowsHitTesting(false))
         }
-        .contentShape(Capsule())
+        .contentShape(shape)
         .onTapGesture { model.onTap?() }
         .animation(.spring(response: 0.38, dampingFraction: 0.82), value: model.phase)
         // Fixed-width center-aligned stage: the capsule collapses toward its
@@ -144,15 +156,33 @@ struct IndicatorView: View {
         .padding(IndicatorMetrics.panelPadding)
     }
 
-    /// Every phase but an answer is a fixed badge. An answer is as tall as it
-    /// needs to be, which is what the panel resizes itself to match.
-    private var stageSize: CGSize {
+    /// Every phase but an answer is a fixed badge. An answer is as wide and as
+    /// tall as it needs to be, which is what the panel resizes itself to match.
+    private var capsuleSize: CGSize {
+        if isCompact {
+            return CGSize(
+                width: IndicatorMetrics.compactWidth, height: IndicatorMetrics.height)
+        }
         if case .answer(let text) = model.phase {
             return CGSize(
                 width: IndicatorMetrics.answerWidth,
                 height: IndicatorMetrics.answerHeight(for: text))
         }
         return CGSize(width: IndicatorMetrics.width, height: IndicatorMetrics.height)
+    }
+
+    /// The stage is the capsule's own size: they were allowed to disagree once
+    /// and the disagreement is the whole bug.
+    private var stageSize: CGSize { capsuleSize }
+
+    /// Half the height is a capsule. Capped, so a tall answer becomes a rounded
+    /// card rather than a lozenge with 50-point ends.
+    private var cornerRadius: CGFloat {
+        min(capsuleSize.height / 2, 18)
+    }
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
     }
 
     private var showsWave: Bool {
