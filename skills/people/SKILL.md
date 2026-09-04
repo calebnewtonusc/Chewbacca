@@ -162,6 +162,47 @@ follows them to another machine. Tell them to make the repo **private**: it is
 everything they know about everyone. `people export` writes readable markdown
 next to the database, and `sync push` runs it first so the repo carries both.
 
+## Events: what actually happened, on the day it happened
+
+A relationship is made of things that happened on days. The store knew a
+message was sent on a date, but not that the two of them got In-N-Out that
+night, so a trajectory had nothing in it but message frequency.
+
+```
+people events scan --since 2025-01-01     read the messages, log what happened
+people events list "Sagar"                what you did together, newest first
+people events reset                       forget which days were read, not the events
+```
+
+`scan` is a two-stage funnel. A lexicon picks which person-DAYS are worth
+reading, which cuts hundreds of thousands of messages to a few thousand days;
+then Claude reads each day's conversation whole and says what happened. The
+lexicon is deliberately loose, because a day it misses is a day the model never
+sees, and precision is the model's job rather than the filter's.
+
+**The hard part is telling a plan from a memory,** and it is the whole reason
+this is not a regex. "6pm in n out?" and "grabbing in n out now with Shirley"
+are the same words about opposite facts. That distinction lands in
+`observations.modality`, which already existed for exactly this: `actual`,
+`planned`, `declined`. **Only `actual` is written by default**, because a plan
+that was never confirmed is noise on a timeline of a life.
+
+Two things it does that are easy to miss:
+
+- **Other people named as present get the event on their record too**, as
+  `third_party` rather than `told_directly`, because it came from somebody
+  else's message. A contact saved as "Sagar Tiwari GOAT" still resolves from
+  "Sagar", but only when exactly one person matches. Two people named Chris is
+  a reason to record neither.
+- **The person's own name is stripped from their own row.** "met Sagar at
+  village" reads wrong on Sagar's record, so it becomes "met at village". This
+  is done deterministically after the model answers, not by asking it again
+  more firmly.
+
+State is kept per person-day, so rescanning never re-asks about a day already
+read and never writes the same dinner twice. Runs take a while: budget roughly
+one Claude call per dozen days.
+
 ## Relationship graphs over time
 
 Everything else answers "where does this stand today". These three answer "is it

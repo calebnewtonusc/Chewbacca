@@ -14,11 +14,40 @@ index a109f2f..23ef70a 100644
      dependencies: [
          .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.15.5"),
          .package(url: "https://github.com/ml-explore/mlx-swift-examples.git", from: "2.29.1"),
+diff --git a/Sources/Plynn/SettingsWindow.swift b/Sources/Plynn/SettingsWindow.swift
+index b17d211..7d8cc78 100644
+--- a/Sources/Plynn/SettingsWindow.swift
++++ b/Sources/Plynn/SettingsWindow.swift
+@@ -65,7 +65,7 @@ struct SettingsPane: View {
+             }
+             Section {
+                 Picker("Activation key", selection: $hotkeyTrigger) {
+-                    ForEach(HotkeyTrigger.allCases) { trigger in
++                    ForEach(HotkeyTrigger.selectable) { trigger in
+                         Text(trigger.displayName).tag(trigger)
+                     }
+                 }
 diff --git a/Sources/Plynn/main.swift b/Sources/Plynn/main.swift
-index 10d7035..ed3c9e5 100644
+index 10d7035..ddea6ca 100644
 --- a/Sources/Plynn/main.swift
 +++ b/Sources/Plynn/main.swift
-@@ -27,6 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+@@ -5,6 +5,15 @@ import Sparkle
+ @MainActor
+ final class AppDelegate: NSObject, NSApplicationDelegate {
+     let hotkey = HotkeyMonitor(trigger: AppDelegate.storedHotkeyTrigger())
++    /// Hold Option to talk to Chewie instead of typing. The key is the router:
++    /// no wake word to mishear, no sentence about a dog sent to an agent, and
++    /// no twenty second wait on a dictation that was only ever meant to be
++    /// typed. fn types, Option asks.
++    let chewieHotkey = HotkeyMonitor(trigger: .option)
++    /// Set when the session was opened with the Chewie key, read when the
++    /// transcript comes back. Held here rather than in Session because the
++    /// state machine is about recording, not about where the words go.
++    var routeToChewie = false
+ 
+     static func storedHotkeyTrigger() -> HotkeyTrigger {
+         UserDefaults.standard.string(forKey: "hotkeyTrigger").flatMap(HotkeyTrigger.init) ?? .fn
+@@ -27,6 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
          ((try? store?.snippets()) ?? [], (try? store?.terms()) ?? [])
      })
      var pendingPressEnter = false
@@ -27,7 +56,88 @@ index 10d7035..ed3c9e5 100644
      var lastCaptureSeconds = 0.0
      /// Captured at fn-down so formatting uses the original target app.
      var pendingContext: ContextSnapshot?
-@@ -140,9 +142,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+@@ -63,10 +74,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+               Metrics.residentMB(), AXIsProcessTrusted() ? 1 : 0)
+         setUpStatusItem()
+ 
+-        if !Permissions.micGranted()
+-            || !Permissions.accessibilityGranted()
+-            || !engineManager.activeEngineReady {
+-            onboarding.show()
++        // No setup window on launch. The kit that installs this app already
++        // granted the permissions and downloaded the model, so a wizard here
++        // asks for work that is already done and puts itself in front of the
++        // user every cold start until macOS happens to agree.
++        //
++        // Something genuinely missing still has to be visible, so it goes to
++        // the pill this app already has, and the menu keeps "Setup" for anyone
++        // who wants to open it deliberately.
++        let missing = Self.missingPrerequisites(
++            engineReady: engineManager.activeEngineReady)
++        if let missing {
++            NSLog("plynn: not ready — %@", missing)
++            showError(missing)
++        }
++        if !engineManager.activeEngineReady {
++            Task { [engineManager] in _ = await engineManager.warmActiveEngine() }
+         }
+ 
+         // Picking a different activation key in Settings takes effect
+@@ -98,8 +121,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+ 
+         model.onTap = { [weak self] in self?.dispatch(.stopRequested) }
+ 
+-        hotkey.onFnDown = { [weak self] in self?.dispatch(.fnDown) }
++        hotkey.onFnDown = { [weak self] in
++            self?.routeToChewie = false
++            self?.dispatch(.fnDown)
++        }
+         hotkey.onFnUp = { [weak self] in self?.dispatch(.fnUp) }
++
++        chewieHotkey.onFnDown = { [weak self] in
++            guard let self, session.state == .idle else { return }
++            routeToChewie = true
++            dispatch(.fnDown)
++        }
++        chewieHotkey.onFnUp = { [weak self] in
++            guard let self, routeToChewie else { return }
++            dispatch(.fnUp)
++        }
+         hotkey.onKeyDown = { [weak self] keycode in
+             self?.dispatch(keycode == 53 ? .escape : .otherKeyDown)
+         }
+@@ -120,13 +156,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+         if !hotkey.start() {
+             NSLog("plynn: NO ACCESSIBILITY PERMISSION — grant in System Settings, then relaunch")
+         }
++        if !chewieHotkey.start() {
++            NSLog("plynn: could not tap the Option key; Chewie will not answer")
++        }
++    }
++
++    /// What is actually stopping this from working, in one line, or nil.
++    /// Ordered by what the user has to fix first: without the microphone
++    /// nothing is heard, and a model that has not finished downloading fixes
++    /// itself given a minute.
++    static func missingPrerequisites(engineReady: Bool) -> String? {
++        if !Permissions.micGranted() { return "Microphone access is off" }
++        if !Permissions.accessibilityGranted() { return "Accessibility access is off" }
++        if !engineReady { return "Still loading the speech model" }
++        return nil
+     }
+ 
+     func dispatch(_ event: Session.Event) {
+         if case .fnDown = event,
+             session.state == .idle,
+             !engineManager.activeEngineReady {
+-            onboarding.show()
++            // Say what is wrong in the pill rather than throwing a window in
++            // front of a held key. Warming it is usually all that is needed.
++            showError(Self.missingPrerequisites(engineReady: false) ?? "Not ready yet")
+             Task { [engineManager] in _ = await engineManager.warmActiveEngine() }
+             return
+         }
+@@ -140,9 +192,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
          }
          // Covers the no-effect paths back to idle (e.g. empty transcript → no
          // paste). The .done check state hides itself on a timer instead.
@@ -44,7 +154,7 @@ index 10d7035..ed3c9e5 100644
              model.phase != .meetingSaved {
              panel.hide()
          }
-@@ -280,6 +288,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+@@ -280,6 +338,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                            "\(transcriptionReleaseAt.duration(to: .now))", engine.displayName)
                  }
  
@@ -57,7 +167,14 @@ index 10d7035..ed3c9e5 100644
 +                // A selection does not win over the wake word; it becomes the
 +                // thing the request is pointing at, so "Chewie, make this
 +                // shorter" reaches Claude with the selection attached.
-+                if let chewiePrompt = ChewieRouter.prompt(from: raw) {
++                // The KEY is the router. Option opened this session, so these
++                // words are a request whatever they happen to start with.
++                // The wake word still works on fn, for anyone who says it out
++                // of habit, and is stripped either way.
++                let heldChewieKey = await MainActor.run { self.routeToChewie }
++                let spokenPrompt = ChewieRouter.prompt(from: raw)
++                if heldChewieKey || spokenPrompt != nil {
++                    let chewiePrompt = spokenPrompt ?? raw
 +                    let selection = context.selectedText
 +                    let canDeliver = await MainActor.run {
 +                        self.session.state == .transcribing
@@ -68,6 +185,7 @@ index 10d7035..ed3c9e5 100644
 +                        // Leaving this set leaked an Enter into the NEXT
 +                        // ordinary dictation.
 +                        self.pendingPressEnter = false
++                        self.routeToChewie = false
 +                        self.askChewie(
 +                            ChewieRouter.compose(prompt: chewiePrompt, selection: selection))
 +                    }
@@ -77,10 +195,11 @@ index 10d7035..ed3c9e5 100644
                  // Command mode: selection + spoken instruction → replace it.
                  if let selection = context.selectedText,
                      !raw.trimmingCharacters(in: .whitespaces).isEmpty {
-@@ -372,6 +406,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+@@ -372,6 +464,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
              stopMeeting()
  
          case .paste(let text):
++            routeToChewie = false
 +            // Wake-word routing happens upstream, on the raw transcript. This
 +            // is a backstop for any path that reaches paste without passing
 +            // through there, and it clears pendingPressEnter for the same
@@ -93,7 +212,7 @@ index 10d7035..ed3c9e5 100644
              let releaseTime = releasedAt
              let pasteResult = Paster.paste(
                  text,
-@@ -421,6 +464,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+@@ -421,6 +523,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
          }
      }
  
@@ -264,10 +383,10 @@ index 60e10ad..cc0b5f7 100644
      }
 diff --git a/Sources/PlynnKit/ChewieRouter.swift b/Sources/PlynnKit/ChewieRouter.swift
 new file mode 100644
-index 0000000..f611587
+index 0000000..2a4a1f1
 --- /dev/null
 +++ b/Sources/PlynnKit/ChewieRouter.swift
-@@ -0,0 +1,309 @@
+@@ -0,0 +1,325 @@
 +import Foundation
 +
 +/// Routes a dictation that starts with "Chewbacca" or "Chewie" to Claude Code
@@ -407,6 +526,7 @@ index 0000000..f611587
 +        case notInstalled
 +        case timedOut(seconds: Int)
 +        case failed(String)
++        case noFullDiskAccess
 +
 +        public var errorDescription: String? {
 +            switch self {
@@ -416,6 +536,8 @@ index 0000000..f611587
 +                return "Chewie took longer than \(s)s and was stopped."
 +            case .failed(let m):
 +                return m
++            case .noFullDiskAccess:
++                return "Give Plynn Full Disk Access, then Chewie can read your data."
 +            }
 +        }
 +    }
@@ -472,6 +594,19 @@ index 0000000..f611587
 +
 +            \(selection)
 +            """
++    }
++
++    /// Whether this process can read the files behind the user's own data.
++    ///
++    /// A subprocess is attributed to the app that launched it, so Chewie
++    /// inherits Plynn's privacy grants rather than the terminal's. Without Full
++    /// Disk Access every question about texts, mail or notes fails from Plynn
++    /// while the identical command works in a terminal, and the failure looks
++    /// like the agent being stupid rather than the app being fenced in.
++    public static func hasFullDiskAccess() -> Bool {
++        let probe = NSHomeDirectory() + "/Library/Messages/chat.db"
++        guard FileManager.default.fileExists(atPath: probe) else { return true }
++        return FileManager.default.isReadableFile(atPath: probe)
 +    }
 +
 +    public static func ask(_ prompt: String, timeout: Int = 180) async throws -> String {
@@ -687,6 +822,76 @@ index 984d4a0..34dbf72 100644
          }
          return editableRoles.contains(role ?? "")
      }
+diff --git a/Sources/PlynnKit/HotkeyTrigger.swift b/Sources/PlynnKit/HotkeyTrigger.swift
+index 56bae5b..4544399 100644
+--- a/Sources/PlynnKit/HotkeyTrigger.swift
++++ b/Sources/PlynnKit/HotkeyTrigger.swift
+@@ -10,6 +10,13 @@ import AppKit
+ /// modifier keys every keyboard reports the same way, as a working fallback.
+ public enum HotkeyTrigger: String, CaseIterable, Identifiable, Sendable {
+     case fn
++    /// Either Option key. This is the Chewie key: hold it and the dictation
++    /// goes to the agent instead of being typed. Nobody holding a key to talk
++    /// thinks about which Option they pressed.
++    ///
++    /// It deliberately overlaps `rightOption`, which is why that one is no
++    /// longer offered as a dictation trigger. See `selectable`.
++    case option
+     case rightOption
+     case rightCommand
+     case rightControl
+@@ -19,6 +26,7 @@ public enum HotkeyTrigger: String, CaseIterable, Identifiable, Sendable {
+     public var displayName: String {
+         switch self {
+         case .fn: return "fn (Globe)"
++        case .option: return "Option"
+         case .rightOption: return "Right Option"
+         case .rightCommand: return "Right Command"
+         case .rightControl: return "Right Control"
+@@ -29,6 +37,7 @@ public enum HotkeyTrigger: String, CaseIterable, Identifiable, Sendable {
+     var keycode: Int64 {
+         switch self {
+         case .fn: return 63
++        case .option: return 58
+         case .rightOption: return 61
+         case .rightCommand: return 54
+         case .rightControl: return 62
+@@ -40,6 +49,7 @@ public enum HotkeyTrigger: String, CaseIterable, Identifiable, Sendable {
+     var flagMask: CGEventFlags {
+         switch self {
+         case .fn: return .maskSecondaryFn
++        case .option: return .maskAlternate
+         case .rightOption: return .maskAlternate
+         case .rightCommand: return .maskCommand
+         case .rightControl: return .maskControl
+@@ -50,11 +60,26 @@ public enum HotkeyTrigger: String, CaseIterable, Identifiable, Sendable {
+     var nsFlag: NSEvent.ModifierFlags {
+         switch self {
+         case .fn: return .function
++        case .option: return .option
+         case .rightOption: return .option
+         case .rightCommand: return .command
+         case .rightControl: return .control
+         }
+     }
+ 
+-    func matches(keycode incoming: Int64) -> Bool { incoming == keycode }
++    func matches(keycode incoming: Int64) -> Bool {
++        // Option accepts both sides; every other trigger is side-specific.
++        if self == .option { return incoming == 58 || incoming == 61 }
++        return incoming == keycode
++    }
++
++    /// The triggers a user may pick for DICTATION in Settings.
++    ///
++    /// `option` is excluded because it is the Chewie key, and `rightOption` is
++    /// excluded because `option` already claims that keycode: offering it would
++    /// let someone configure a dictation key that fires the agent at the same
++    /// time.
++    public static var selectable: [HotkeyTrigger] {
++        allCases.filter { $0 != .option && $0 != .rightOption }
++    }
+ }
 diff --git a/Sources/PlynnKit/IndicatorPanel.swift b/Sources/PlynnKit/IndicatorPanel.swift
 index 4ffe3d2..5299905 100644
 --- a/Sources/PlynnKit/IndicatorPanel.swift
@@ -1180,11 +1385,52 @@ index 1e7696d..02678e3 100644
      }
  
      func testParakeetModelsAbsentInEmptyDir() {
+diff --git a/Tests/PlynnKitTests/HotkeyTriggerTests.swift b/Tests/PlynnKitTests/HotkeyTriggerTests.swift
+index 3b8e870..718e205 100644
+--- a/Tests/PlynnKitTests/HotkeyTriggerTests.swift
++++ b/Tests/PlynnKitTests/HotkeyTriggerTests.swift
+@@ -2,15 +2,31 @@ import XCTest
+ @testable import PlynnKit
+ 
+ final class HotkeyTriggerTests: XCTestCase {
+-    func testEachTriggerHasADistinctKeycode() {
+-        let codes = Set(HotkeyTrigger.allCases.map(\.keycode))
+-        XCTAssertEqual(codes.count, HotkeyTrigger.allCases.count, "keycodes must not collide")
++    /// The invariant that matters is about the keys a user can CHOOSE for
++    /// dictation. `option` is the Chewie key and deliberately shares a keycode
++    /// with `rightOption`, which is why that one is not selectable.
++    func testSelectableTriggersHaveDistinctKeycodes() {
++        let codes = Set(HotkeyTrigger.selectable.map(\.keycode))
++        XCTAssertEqual(
++            codes.count, HotkeyTrigger.selectable.count, "selectable keycodes must not collide")
++    }
++
++    func testChewieKeyIsNotOfferedForDictation() {
++        XCTAssertFalse(HotkeyTrigger.selectable.contains(.option))
++        XCTAssertFalse(HotkeyTrigger.selectable.contains(.rightOption))
++    }
++
++    /// Either Option wakes Chewie.
++    func testOptionMatchesBothSides() {
++        XCTAssertTrue(HotkeyTrigger.option.matches(keycode: 58))
++        XCTAssertTrue(HotkeyTrigger.option.matches(keycode: 61))
++        XCTAssertFalse(HotkeyTrigger.option.matches(keycode: 63))
+     }
+ 
+     func testMatchesOnlyItsOwnKeycode() {
+-        for trigger in HotkeyTrigger.allCases {
++        for trigger in HotkeyTrigger.selectable {
+             XCTAssertTrue(trigger.matches(keycode: trigger.keycode))
+-            for other in HotkeyTrigger.allCases where other != trigger {
++            for other in HotkeyTrigger.selectable where other != trigger {
+                 XCTAssertFalse(trigger.matches(keycode: other.keycode))
+             }
+         }
 diff --git a/scripts/Info.plist b/scripts/Info.plist
-index c65b3d6..778fe5f 100644
+index c65b3d6..ece580e 100644
 --- a/scripts/Info.plist
 +++ b/scripts/Info.plist
-@@ -30,11 +30,16 @@
+@@ -30,11 +30,21 @@
  	<key>CFBundleVersion</key>
  	<string>11</string>
  	<key>LSMinimumSystemVersion</key>
@@ -1192,13 +1438,29 @@ index c65b3d6..778fe5f 100644
 +	<string>15.0</string>
  	<key>LSUIElement</key>
  	<true/>
++	<key>NSAppleEventsUsageDescription</key>
++	<string>Plynn lets Chewie act on your Mac when you ask it to: reading your calendar, sending a message, filing a reminder.</string>
++	<key>NSCalendarsUsageDescription</key>
++	<string>Chewie reads your calendar when you ask what is coming up.</string>
++	<key>NSContactsUsageDescription</key>
++	<string>Chewie looks up the people you mention by name.</string>
  	<key>NSMicrophoneUsageDescription</key>
  	<string>Plynn records your voice while you hold the fn key to transcribe it on-device.</string>
-+	<!-- Upstream releases are built for macOS 26 and will not launch here, so
-+	     background update checks are off on this branch. The Check for Updates
-+	     menu item still works if you deliberately want an upstream build. -->
++	<key>NSRemindersUsageDescription</key>
++	<string>Chewie files reminders when you ask it to remember something.</string>
 +	<key>SUEnableAutomaticChecks</key>
 +	<false/>
  	<key>SUFeedURL</key>
  	<string>https://github.com/31Carlton7/plynn/releases/latest/download/appcast.xml</string>
  	<key>SUPublicEDKey</key>
+diff --git a/scripts/plynn.entitlements b/scripts/plynn.entitlements
+index efd1f01..b75582e 100644
+--- a/scripts/plynn.entitlements
++++ b/scripts/plynn.entitlements
+@@ -3,5 +3,6 @@
+ <plist version="1.0">
+ <dict>
+     <key>com.apple.security.device.audio-input</key><true/>
++    <key>com.apple.security.automation.apple-events</key><true/>
+ </dict>
+ </plist>

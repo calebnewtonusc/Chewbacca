@@ -341,6 +341,7 @@ function migrate(d) {
   d.exec(SCHEMA_V2);
   d.exec(SCHEMA_V3);
   d.exec(SCHEMA_V4);
+  d.exec(SCHEMA_V5);
   seedTemplate(d);
 }
 
@@ -474,6 +475,29 @@ CREATE TABLE IF NOT EXISTS score_history (
   PRIMARY KEY (person_id, as_of, kind)
 );
 CREATE INDEX IF NOT EXISTS sh_person_idx ON score_history (person_id, as_of);
+`;
+
+// Events. A relationship is made of things that happened on days, and until
+// now none of that was recorded: the store knew a message was sent on a date
+// but not that the two of you got In-N-Out that night.
+//
+// The messages are already local, so this is an extraction problem, and the
+// hard part is not finding "in n out" but telling a plan from a memory.
+// "6pm in n out?" and "grabbing in n out now with Shirley" are the same words
+// about opposite facts. That distinction is what `observations.modality`
+// already exists for, so events land there rather than in a table of their own.
+//
+// State is per person-day, not per event, so a rescan never re-asks a model
+// about a day it has already read, and never writes the same dinner twice.
+const SCHEMA_V5 = `
+CREATE TABLE IF NOT EXISTS event_scan_state (
+  person_id  TEXT NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+  day        TEXT NOT NULL,
+  scanned_at TEXT NOT NULL DEFAULT (datetime('now')),
+  found      INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (person_id, day)
+);
+CREATE INDEX IF NOT EXISTS ess_day_idx ON event_scan_state (day);
 `;
 
 const SEED_TEMPLATE = [
@@ -946,6 +970,287 @@ function cmdSnapshot(argv) {
   if (flags.json) return say(JSON.stringify({ frozen: n, as_of: asOf }));
   say(c.dim(`\n  froze ${n} people at ${asOf.slice(0, 16)}.`));
   say(c.dim("  these points stay put even if you edit the observations behind them.\n"));
+}
+
+// ------------------------------------------------------------------ events
+//
+// The lexicon is the cheap first pass: it decides which DAYS are worth reading,
+// not what happened on them. Precision does not matter here and recall does,
+// because a day this misses is a day the model never sees. Judging what
+// actually happened is the model's job, further down.
+const EVENT_LEXICON = [
+  // meals and drinks
+  "in n out", "in-n-out", "innout", "lunch", "dinner", "breakfast", "brunch",
+  "coffee", "boba", "chipotle", "ramen", "sushi", "pizza", "tacos", "burger",
+  "grab food", "grab a bite", "grab dinner", "grab lunch", "ate at", "eating at",
+  "dining hall", "parkside", "cava", "shake shack", "raising cane", "panda express",
+  // going somewhere together
+  "hang out", "hung out", "pull up", "pulled up", "came over", "come over",
+  "picked up", "pick you up", "dropped off", "drove to", "went to", "going to",
+  "on my way", "see you at", "meet at", "meeting at", "grabbed",
+  // named occasions
+  "birthday", "party", "concert", "movie", "game", "beach", "hike", "hiking",
+  "gym", "workout", "church", "bible study", "worship night", "retreat",
+  "formal", "banquet", "wedding", "funeral", "graduation", "interview",
+  // travel
+  "flight", "flying", "landed", "airport", "road trip", "driving up", "driving down",
+  // milestones worth remembering
+  "got the job", "got in", "accepted", "rejected", "committed to", "signed",
+  "moved in", "moved out", "quit", "started at", "launched", "shipped",
+];
+
+function eventCandidateSQL() {
+  return EVENT_LEXICON.map(() => "lower(body) LIKE ?").join(" OR ");
+}
+const EVENT_LEXICON_PARAMS = EVENT_LEXICON.map((w) => `%${w}%`);
+
+/// Everything said with one person on one day, so the model can see that "6pm?"
+/// was answered with "otw". A day judged from a single matching line is a day
+/// judged without the reply that settles it.
+function episodeTranscript(d, personId, day, cap = 40) {
+  const rows = d
+    .prepare(
+      `SELECT from_me, body, sent_at FROM messages
+        WHERE person_id = ? AND substr(sent_at,1,10) = ?
+        ORDER BY sent_at LIMIT ?`,
+    )
+    .all(personId, day, cap);
+  return rows
+    .map((r) => `${r.sent_at.slice(11, 16)} ${r.from_me ? "ME" : "THEM"}: ${r.body.replace(/\s+/g, " ").slice(0, 300)}`)
+    .join("\n");
+}
+
+const EVENT_SYSTEM = `You extract events from one day of text messages between the user and one other person.
+
+An EVENT is something that occupies time and place: a meal, a hangout, a drive, a workout, a service, a party, a trip, an interview, a milestone. Not a topic, not a feeling, not a link someone sent.
+
+For each event, decide MODALITY, which matters more than anything else here:
+- "actual": it happened, or is happening as they type. Past tense, or present tense narration ("grabbing in n out now"), or a later message that only makes sense if it happened ("that was fire", "sorry I was late").
+- "planned": agreed for a future time and not yet confirmed to have occurred.
+- "declined": proposed and refused, cancelled, or fell through.
+Drop anything you would have to guess about. A day with no clear event returns an empty array. Most days have none, and that is the correct answer.
+
+Return ONLY a JSON array, no prose, no code fence:
+[{"body":"got In-N-Out together","modality":"actual","kind":"experience","others":["Shirley","Jacob"]}]
+
+Rules for "body": one short past-tense clause, under 12 words, naming the specific thing. "got In-N-Out in Alhambra" not "had a meal". Do not name the other person in the body; the store already knows whose record this is.
+"others": people named in the text who were also there. Omit if none. Never invent a name.
+"kind": "experience" for something they did, "fact" for a durable milestone (got the job, moved in).`;
+
+async function classifyEpisodes(batch, model) {
+  const payload = batch
+    .map(
+      (e, i) =>
+        `### EPISODE ${i}\nPERSON: ${e.name}\nDATE: ${e.day}\n${e.transcript}`,
+    )
+    .join("\n\n");
+  const prompt =
+    `${payload}\n\nReturn a JSON array of arrays: one array of events per episode, in order, ${batch.length} entries total. Empty array for an episode with no event.`;
+
+  const out = await claudeJSON(prompt, EVENT_SYSTEM, model);
+  if (!out) return batch.map(() => []);
+  let parsed;
+  try {
+    const m = out.match(/\[[\s\S]*\]/);
+    parsed = JSON.parse(m ? m[0] : out);
+  } catch {
+    return batch.map(() => []);
+  }
+  if (!Array.isArray(parsed)) return batch.map(() => []);
+  return batch.map((_, i) => (Array.isArray(parsed[i]) ? parsed[i] : []));
+}
+
+/// One shot at Claude Code, headless. Same resolution problem the Plynn side
+/// has: a GUI-launched process has no nvm on PATH.
+function claudeBin() {
+  const cands = [
+    "/opt/homebrew/bin/claude",
+    "/usr/local/bin/claude",
+    path.join(HOME, ".local/bin/claude"),
+    path.join(HOME, ".claude/local/claude"),
+  ];
+  for (const c of cands) if (fs.existsSync(c)) return c;
+  try {
+    return execFileSync("/bin/zsh", ["-lc", "command -v claude"], { encoding: "utf8" }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+async function claudeJSON(prompt, system, model) {
+  const bin = claudeBin();
+  if (!bin) die("Claude Code is not installed, so events cannot be extracted.");
+  try {
+    const raw = execFileSync(
+      bin,
+      ["-p", "--output-format", "json", "--strict-mcp-config", "--model", model,
+       "--append-system-prompt", system, prompt],
+      { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 300000 },
+    );
+    const obj = JSON.parse(raw);
+    if (obj.is_error) return null;
+    return typeof obj.result === "string" ? obj.result : null;
+  } catch {
+    return null;
+  }
+}
+
+/// The model is told not to name the person whose record this is, and it does
+/// it anyway often enough that the rule cannot be the only defence. "met Sagar
+/// at village" reads wrong on Sagar's own row, so strip his name out of it
+/// here where the answer is certain rather than asking again more firmly.
+function stripOwnerName(body, fullName) {
+  const parts = String(fullName)
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && /^[A-Za-z][a-z]+$/.test(w));
+  if (!parts.length) return body;
+  let out = body;
+  for (const name of parts) {
+    const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // "with Sagar and Shirley" -> "with Shirley";  "with Sagar" -> ""
+    out = out.replace(new RegExp(`\\bwith ${n} and\\b`, "gi"), "with");
+    out = out.replace(new RegExp(`\\band ${n}\\b`, "gi"), "");
+    out = out.replace(new RegExp(`\\bwith ${n}\\b`, "gi"), "");
+    out = out.replace(new RegExp(`\\b${n}'s\\b`, "gi"), "their");
+    out = out.replace(new RegExp(`\\b${n}\\b`, "gi"), "");
+  }
+  return out.replace(/\s{2,}/g, " ").replace(/\s+([,.])/g, "$1").replace(/^[\s,]+|[\s,]+$/g, "").trim();
+}
+
+/// Contacts are saved as "Sagar Tiwari GOAT", and the model writes "Sagar", so
+/// an exact match resolves nobody. Match on a whole word inside the stored
+/// name, and only accept an unambiguous hit: two people called Chris is a
+/// reason to record neither, not to guess.
+function resolveOtherPerson(d, needle) {
+  const n = String(needle).trim();
+  if (n.length < 2) return null;
+  const exact = d
+    .prepare("SELECT id FROM people WHERE deleted_at IS NULL AND lower(name) = lower(?)")
+    .all(n);
+  if (exact.length === 1) return exact[0].id;
+  const hits = d
+    .prepare(
+      `SELECT id, name FROM people WHERE deleted_at IS NULL
+        AND (lower(name) LIKE lower(?) OR lower(name) LIKE lower(?))`,
+    )
+    .all(n + " %", "% " + n + " %");
+  return hits.length === 1 ? hits[0].id : null;
+}
+
+async function cmdEvents(argv) {
+  const sub = ["scan", "list", "reset"].includes(argv[0]) ? argv.shift() : "list";
+  const { flags, rest } = parseArgs(argv);
+  const d = db();
+
+  if (sub === "list") {
+    const who = rest.join(" ");
+    const person = who ? findPerson(who) : null;
+    const rows = d
+      .prepare(
+        `SELECT o.observed_at, o.body, o.modality, p.name
+           FROM observations o JOIN people p ON p.id = o.person_id
+          WHERE o.kind IN ('experience','fact') AND o.source = 'imported'
+            AND o.deleted_at IS NULL ${person ? "AND o.person_id = ?" : ""}
+          ORDER BY o.observed_at DESC LIMIT ?`,
+      )
+      .all(...(person ? [person.id] : []), Number(flags.limit || 40));
+    if (!rows.length) return say(c.dim("\n  no events logged yet. run: people events scan\n"));
+    say("");
+    for (const r of rows) {
+      const tag = r.modality === "actual" ? "" : c.dim(` (${r.modality})`);
+      say(`  ${c.dim(r.observed_at.slice(0, 10))}  ${r.name.slice(0, 20).padEnd(21)} ${r.body}${tag}`);
+    }
+    say("");
+    return;
+  }
+
+  if (sub === "reset") {
+    const n = d.prepare("DELETE FROM event_scan_state").run().changes;
+    return say(c.dim(`\n  cleared ${n} scanned days. events already written are kept.\n`));
+  }
+
+  // scan
+  const since = flags.since || (flags.days ? new Date(Date.now() - Number(flags.days) * 86400000).toISOString().slice(0, 10) : "2000-01-01");
+  const model = flags.model || "haiku";
+  const batchSize = Math.max(1, Math.min(30, Number(flags.batch || 12)));
+  const maxEpisodes = Number(flags.limit || 400);
+
+  const episodes = d
+    .prepare(
+      `SELECT m.person_id, p.name, substr(m.sent_at,1,10) AS day, COUNT(*) AS hits
+         FROM messages m JOIN people p ON p.id = m.person_id
+        WHERE m.person_id IS NOT NULL
+          AND substr(m.sent_at,1,10) >= ?
+          AND (${eventCandidateSQL()})
+          AND NOT EXISTS (SELECT 1 FROM event_scan_state s
+                           WHERE s.person_id = m.person_id AND s.day = substr(m.sent_at,1,10))
+        GROUP BY m.person_id, day
+        ORDER BY day DESC
+        LIMIT ?`,
+    )
+    .all(since, ...EVENT_LEXICON_PARAMS, maxEpisodes);
+
+  if (!episodes.length) {
+    return say(c.dim("\n  nothing new to read. `people events reset` to rescan from scratch.\n"));
+  }
+
+  say(c.dim(`\n  reading ${episodes.length} person-days with ${model}...`));
+  const markScanned = d.prepare(
+    "INSERT INTO event_scan_state (person_id, day, found) VALUES (?,?,?) ON CONFLICT DO NOTHING",
+  );
+
+  let written = 0, read = 0;
+  for (let i = 0; i < episodes.length; i += batchSize) {
+    const batch = episodes.slice(i, i + batchSize).map((e) => ({
+      ...e,
+      transcript: episodeTranscript(d, e.person_id, e.day),
+    }));
+    const results = await classifyEpisodes(batch, model);
+    for (let j = 0; j < batch.length; j++) {
+      const ep = batch[j];
+      const events = results[j] || [];
+      read++;
+      markScanned.run(ep.person_id, ep.day, events.length);
+      for (const ev of events) {
+        if (!ev || typeof ev.body !== "string" || !ev.body.trim()) continue;
+        const modality = ["actual", "planned", "declined"].includes(ev.modality) ? ev.modality : "actual";
+        // Only things that actually happened become part of the record. A
+        // plan that was never confirmed is noise on a timeline of a life.
+        if (flags["only-actual"] !== false && modality !== "actual") continue;
+        const at = `${ep.day} 12:00:00`;
+        const body = stripOwnerName(ev.body.trim(), ep.name);
+        if (body.length < 4) continue;
+        insertObservation({
+          personId: ep.person_id,
+          body,
+          flags: { kind: ev.kind === "fact" ? "fact" : "experience", modality,
+                   source: "imported", at, dim: "social" },
+        });
+        written++;
+        // Someone else named as present was there too, and their record should
+        // say so. Third-party rather than told_directly, because it came from
+        // somebody else's message.
+        for (const other of Array.isArray(ev.others) ? ev.others.slice(0, 6) : []) {
+          const otherId = resolveOtherPerson(d, other);
+          if (!otherId || otherId === ep.person_id) continue;
+          const otherName = d.prepare("SELECT name FROM people WHERE id=?").get(otherId).name;
+          const otherBody = stripOwnerName(ev.body.trim(), otherName);
+          if (otherBody.length < 4) continue;
+          insertObservation({
+            personId: otherId,
+            body: otherBody,
+            flags: { kind: "experience", modality, source: "third_party", at, dim: "social" },
+          });
+          written++;
+        }
+      }
+    }
+    say(c.dim(`  ${Math.min(i + batchSize, episodes.length)}/${episodes.length}  ${written} events`));
+  }
+  recomputeScores();
+  say(`\n  ${c.grn("logged")} ${written} events from ${read} person-days`);
+  say(c.dim("  people events list        to read them"));
+  say(c.dim("  people history <name>     to see them on the curve\n"));
 }
 
 function cmdAdd(argv) {
@@ -3082,6 +3387,8 @@ const COMMANDS = {
   trend: cmdTrend,
   drifting: cmdTrend,
   snapshot: cmdSnapshot,
+  events: cmdEvents,
+  timeline: (a) => cmdEvents(["list", ...a]),
   export: cmdExport,
   sync: cmdSync,
   check: cmdCheck,
