@@ -69,6 +69,18 @@ more `c d Diagram` with different numbers, not a redraw.
 
 Take something down with `- <surface>` when the person is done with it.
 
+## How a request reaches you
+
+You do not poll. A person asks for something by pressing Option-Space and typing,
+or by holding the globe key and speaking, and the display sends it up the socket:
+
+```
+h "show me my week"
+```
+
+Stay connected to receive it. Answer by drawing, not by writing prose back down
+the socket: nothing reads prose there.
+
 ## Marking the screen
 
 A panel sits *beside* the work. A mark sits **on** it.

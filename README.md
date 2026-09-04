@@ -79,12 +79,24 @@ d /graph [{"t":"node","x":0.6,"y":0.5,"label":"A"}]
 
 The second line moves the node. One line, no component re-sent.
 
-## Talking to it
+## Asking for something
 
-The display can listen, on-device, and it is off until you turn it on from the
-menu bar. Hold the globe key to talk, or enable a wake word. What it hears goes
-back up the socket as an event; `hud listen` is the loop that turns that into a
-drawing.
+Two front doors, and both produce the same event, so whatever is listening
+handles them the same way.
+
+**Option-Space** opens a command bar: one line, centred, a third of the way down.
+It shows what the assistant can already see before you type a word, which is the
+point of it. Not Command-Space, which is Spotlight, and not Option-Command-Space,
+which hides the glass.
+
+**The globe key**, held, listens. Recognition is on-device and the microphone is
+off until you turn it on from the menu bar.
+
+Either way the display sends `h "what they asked for"` up the socket. It holds no
+model and no key: something else has to be listening and answer by drawing.
+
+`hud listen`, in the Chewbacca kit, is the loop that turns those events into
+drawings.
 
 ## The wire
 
