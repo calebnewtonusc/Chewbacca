@@ -19,7 +19,11 @@ public struct OverlayView: View {
             Color.clear
 
             ForEach(model.surfaces) { surface in
-                SurfaceCard(surface: surface, onDismiss: { model.close(surface.id) })
+                SurfaceCard(
+                    surface: surface,
+                    onDismiss: { model.close(surface.id) },
+                    onDrag: { model.move(surface.id, by: $0) },
+                    onGrab: { model.raise(surface.id) })
                     .frame(width: surface.width)
                     .background {
                         GeometryReader { proxy in
@@ -28,10 +32,15 @@ public struct OverlayView: View {
                             }
                         }
                     }
-                    .position(x: 0, y: 0)
-                    .offset(
-                        x: model.origin(for: surface).x,
-                        y: model.origin(for: surface).y)
+                    // `.position` and not `.position(0,0).offset(...)`.
+                    //
+                    // `.offset` is a visual transform: it moves what you see and
+                    // leaves the hit region where the view was laid out. Every
+                    // card was therefore drawn in its corner while hit-testing at
+                    // the top-left of the screen, so nothing on any surface could
+                    // be clicked and dragging could never start. `.position`
+                    // moves the layout itself, which is what was wanted.
+                    .position(model.origin(for: surface))
                     .transition(.asymmetric(
                         insertion: .modifier(
                             active: SurfaceEntrance(progress: 0, from: surface.region),
@@ -89,8 +98,14 @@ nonisolated struct SurfaceEntrance: ViewModifier, Animatable {
 struct SurfaceCard: View {
     let surface: OverlaySurface
     let onDismiss: () -> Void
+    let onDrag: (CGSize) -> Void
+    let onGrab: () -> Void
+
     @State private var hovering = false
     @State private var lit = false
+    @State private var dragging = false
+    /// Where the drag stood when the current gesture began.
+    @State private var base: CGSize = .zero
 
     var body: some View {
         SurfaceView(store: surface.store)
@@ -141,8 +156,31 @@ struct SurfaceCard: View {
                     .padding(9)
                     .opacity(hovering ? 1 : 0)
             }
+            .scaleEffect(dragging ? 1.02 : 1)
             .onHover { hovering = $0 }
             .animation(.easeOut(duration: 0.14), value: hovering)
+            .animation(.easeOut(duration: 0.12), value: dragging)
+            // Drag to move. The gesture sits on the whole card and is
+            // `simultaneous` so it does not swallow taps on the controls inside:
+            // a HUD you can rearrange is worth much more than one you cannot,
+            // and a HUD whose buttons stopped working would be worth nothing.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 4, coordinateSpace: .global)
+                    .onChanged { value in
+                        if !dragging {
+                            dragging = true
+                            onGrab()
+                        }
+                        onDrag(CGSize(
+                            width: base.width + value.translation.width,
+                            height: base.height + value.translation.height))
+                    }
+                    .onEnded { value in
+                        dragging = false
+                        base = CGSize(
+                            width: base.width + value.translation.width,
+                            height: base.height + value.translation.height)
+                    })
             .task {
                 // The hairline strikes just after the card lands, so arriving
                 // reads as powering on rather than appearing.
