@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Everything drawn on the glass.
@@ -11,6 +12,12 @@ public struct OverlayView: View {
     let model: OverlayModel
 
     public init(model: OverlayModel) { self.model = model }
+
+    /// How much of the bottom of the display the Dock is using.
+    static var bottomInset: CGFloat {
+        guard let screen = NSScreen.main else { return 0 }
+        return screen.visibleFrame.minY - screen.frame.minY
+    }
 
     public var body: some View {
         ZStack {
@@ -26,8 +33,13 @@ public struct OverlayView: View {
             // and the eye finds a fixed point far faster than a moving one.
             PresenceRing(presence: model.presence, amplitude: model.amplitude)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                // Above the Dock, not behind it.
+                //
+                // The window covers the whole display including the Dock, so a
+                // plain bottom-trailing alignment put the one element that is
+                // always on screen in the one place it could never be seen.
                 .padding(.trailing, 22)
-                .padding(.bottom, 16)
+                .padding(.bottom, Self.bottomInset + 14)
                 .zIndex(9999)
 
             ForEach(model.surfaces) { surface in
