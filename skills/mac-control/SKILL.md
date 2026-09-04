@@ -1,6 +1,7 @@
 ---
 name: mac-control
 description: Control the user's Mac - click buttons, read the screen, drive apps, automate anything in the UI. Use when the user asks to click, open, close, read what is on screen, fill something in, navigate an app, or automate a task on their machine. Routes the request to the cheapest control layer that can do it, which is almost never a screenshot.
+requires: [chewie]
 ---
 
 # Controlling a Mac

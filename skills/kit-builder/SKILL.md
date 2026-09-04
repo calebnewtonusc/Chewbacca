@@ -1,6 +1,7 @@
 ---
 name: kit-builder
 description: Build a kit, a repo somebody lives inside for weeks while an agent walks them through a process they have never done and will not do again for years. Use when the user faces a long multi-session process with a deadline and an evaluator (applications, appeals, accommodations, estate admin, a job search, a fundraise, a thesis), when they ask for help with something bureaucratic they have never done, when they want to hand a process to a friend, or when they say "make a kit". Also use to decide whether an idea should be a kit at all, because most should stay skills.
+requires: [kits]
 ---
 
 # Kit builder

@@ -2,6 +2,7 @@
 name: setup
 description: "Install Chewbacca by talking, not by answering a terminal wizard. Use when the user wants to set up this kit, run setup.sh, finish a half-finished install, or add one tool that was skipped. Also use when they ask what the installer is about to change on their machine."
 license: MIT
+requires: [chewbacca]
 ---
 
 # Setting up Chewbacca

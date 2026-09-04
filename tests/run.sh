@@ -154,6 +154,7 @@ if group "tools"; then
   check  "changelog generates" python3 "$ROOT/tools/changelog.py"
   check  "memory compact dry run is safe" python3 "$ROOT/tools/memory_compact.py" --dry-run
   check  "secret scan finds nothing in the repo" python3 "$ROOT/bin/secret-scan" "$ROOT"
+  check  "skills declare their tool dependencies" bash -c "python3 '$ROOT/tools/skill_requires.py' | grep -q '^chewie:'"
   check  "AGENTS.md exports for other agents" python3 "$ROOT/tools/agents_md.py" "$TMP"
   check  "the export leaks no @imports" bash -c "! grep -q '^@' '$TMP/AGENTS.md'"
   check  "slop check holds the line" python3 "$ROOT/bin/slop-check" "$ROOT/docs" "$ROOT/skills" --max 60

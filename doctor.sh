@@ -534,10 +534,14 @@ fi
 # whole file exists to refuse.
 section "Documented tools"
 
-for pair in "chewbacca:the README, every install path" \
-  "chewie:mac-followups, mac-see, mac-runtime" \
-  "people:people, texts" \
-  "coursework:coursework, study-system"; do
+# Read from each skill's own frontmatter rather than a list maintained here.
+# A skill that starts needing a new tool is now checked without anybody
+# remembering to edit a different file.
+REPO_DIR_EARLY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TOOL_MAP="$(python3 "$REPO_DIR_EARLY/tools/skill_requires.py" 2>/dev/null)"
+[ -z "$TOOL_MAP" ] && TOOL_MAP="chewbacca:the README, every install path"
+while IFS= read -r pair; do
+  [ -z "$pair" ] && continue
   tool="${pair%%:*}"
   skills="${pair#*:}"
   if command -v "$tool" >/dev/null 2>&1; then
@@ -545,9 +549,9 @@ for pair in "chewbacca:the README, every install path" \
   else
     for_profile student || continue
     bad "$tool is missing but $skills tell the agent to run it" \
-      "./setup.sh, or: ln -sf \"\$PWD/mac/bin/$tool\" ~/.local/bin/$tool"
+      "./setup.sh, or: ln -sf \"\$PWD/mac/bin/$tool\" ~/.local/bin/$tool" major
   fi
-done
+done <<< "$TOOL_MAP"
 
 # ── One context store, not two ────────────────────────────────────────────────
 # Two stores is the failure that prompted this check: a second context repo ran

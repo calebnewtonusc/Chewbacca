@@ -1,6 +1,7 @@
 ---
 name: people
 description: Remember everything about the people in the user's life, and notice who is slipping. Use when they mention a person by name, tell you something about someone, ask who they know at a company or in a field, ask who to reconnect with, mention a birthday or a job change, come back from a meeting or a call, or ask what you know about someone. Also use before drafting any message to a named person, so the draft is grounded in what is actually true about them.
+requires: [people]
 ---
 
 # People

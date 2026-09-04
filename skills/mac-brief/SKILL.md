@@ -1,6 +1,7 @@
 ---
 name: mac-brief
 description: Generate the morning operator brief - triage the user's email, texts, and calendar into what is urgent, what needs a reply, and a suggested order for the day. Use when the user asks for their brief, their morning rundown, what they need to handle today, what is urgent, or who is waiting on them. Runs on a schedule at 8am via launchd.
+requires: [chewie, people, coursework]
 ---
 
 # The operator brief
