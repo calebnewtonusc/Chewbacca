@@ -31,7 +31,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const crypto = require("node:crypto");
-const { execFileSync } = require("node:child_process");
+const { execFileSync, execFile } = require("node:child_process");
 
 let DatabaseSync;
 try {
@@ -999,10 +999,30 @@ const EVENT_LEXICON = [
   "moved in", "moved out", "quit", "started at", "launched", "shipped",
 ];
 
-function eventCandidateSQL() {
-  return EVENT_LEXICON.map(() => "lower(body) LIKE ?").join(" OR ");
+/// The lexicon as ONE full-text query rather than sixty LIKE clauses.
+///
+/// `lower(body) LIKE '%lunch%'` cannot use an index, so sixty of them against
+/// half a million messages is sixty full scans, and the first attempt at this
+/// sat grinding for minutes without ever reaching the model. The same lexicon
+/// against the FTS index that already exists returns in about five
+/// milliseconds.
+///
+/// Prefix terms carry the inflections a LIKE got for free: FTS matches whole
+/// tokens, so `hike` alone would miss "hiking". Multi-word entries become
+/// phrases, and FTS drops punctuation, which makes "in-n-out" and "in n out"
+/// the same query.
+function eventMatchQuery() {
+  const seen = new Set();
+  const parts = [];
+  for (const term of EVENT_LEXICON) {
+    const clean = term.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+    if (!clean || seen.has(clean)) continue;
+    seen.add(clean);
+    if (clean.includes(" ")) parts.push(`"${clean}"`);
+    else parts.push(clean.length >= 4 ? `${clean}*` : clean);
+  }
+  return parts.join(" OR ");
 }
-const EVENT_LEXICON_PARAMS = EVENT_LEXICON.map((w) => `%${w}%`);
 
 /// Everything said with one person on one day, so the model can see that "6pm?"
 /// was answered with "otw". A day judged from a single matching line is a day
@@ -1077,22 +1097,47 @@ function claudeBin() {
   }
 }
 
-async function claudeJSON(prompt, system, model) {
+/// Async on purpose. execFileSync blocks the event loop, so batches could only
+/// ever run one at a time, and a full history is a few hundred calls at half a
+/// minute each. Most of that wait is Claude Code starting up rather than
+/// thinking, so it parallelises almost perfectly.
+function claudeJSON(prompt, system, model) {
   const bin = claudeBin();
   if (!bin) die("Claude Code is not installed, so events cannot be extracted.");
-  try {
-    const raw = execFileSync(
+  return new Promise((resolve) => {
+    execFile(
       bin,
       ["-p", "--output-format", "json", "--strict-mcp-config", "--model", model,
        "--append-system-prompt", system, prompt],
       { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 300000 },
+      (err, stdout) => {
+        if (err && !stdout) return resolve(null);
+        try {
+          const obj = JSON.parse(stdout);
+          resolve(obj.is_error ? null : (typeof obj.result === "string" ? obj.result : null));
+        } catch {
+          resolve(null);
+        }
+      },
     );
-    const obj = JSON.parse(raw);
-    if (obj.is_error) return null;
-    return typeof obj.result === "string" ? obj.result : null;
-  } catch {
-    return null;
-  }
+  });
+}
+
+/// Run `jobs` with at most `n` in flight. Results keep input order.
+async function pool(jobs, n, onDone) {
+  const out = new Array(jobs.length);
+  let next = 0, finished = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(n, jobs.length) }, async () => {
+      while (true) {
+        const i = next++;
+        if (i >= jobs.length) return;
+        out[i] = await jobs[i]();
+        onDone?.(++finished, jobs.length);
+      }
+    }),
+  );
+  return out;
 }
 
 /// The model is told not to name the person whose record this is, and it does
@@ -1178,17 +1223,19 @@ async function cmdEvents(argv) {
   const episodes = d
     .prepare(
       `SELECT m.person_id, p.name, substr(m.sent_at,1,10) AS day, COUNT(*) AS hits
-         FROM messages m JOIN people p ON p.id = m.person_id
-        WHERE m.person_id IS NOT NULL
+         FROM messages_fts f
+         JOIN messages m ON m.msg_id = f.rowid
+         JOIN people p ON p.id = m.person_id
+        WHERE f.messages_fts MATCH ?
+          AND m.person_id IS NOT NULL
           AND substr(m.sent_at,1,10) >= ?
-          AND (${eventCandidateSQL()})
           AND NOT EXISTS (SELECT 1 FROM event_scan_state s
                            WHERE s.person_id = m.person_id AND s.day = substr(m.sent_at,1,10))
         GROUP BY m.person_id, day
         ORDER BY day DESC
         LIMIT ?`,
     )
-    .all(since, ...EVENT_LEXICON_PARAMS, maxEpisodes);
+    .all(eventMatchQuery(), since, maxEpisodes);
 
   if (!episodes.length) {
     return say(c.dim("\n  nothing new to read. `people events reset` to rescan from scratch.\n"));
@@ -1199,13 +1246,27 @@ async function cmdEvents(argv) {
     "INSERT INTO event_scan_state (person_id, day, found) VALUES (?,?,?) ON CONFLICT DO NOTHING",
   );
 
-  let written = 0, read = 0;
+  const batches = [];
   for (let i = 0; i < episodes.length; i += batchSize) {
-    const batch = episodes.slice(i, i + batchSize).map((e) => ({
-      ...e,
-      transcript: episodeTranscript(d, e.person_id, e.day),
-    }));
-    const results = await classifyEpisodes(batch, model);
+    batches.push(
+      episodes.slice(i, i + batchSize).map((e) => ({
+        ...e,
+        transcript: episodeTranscript(d, e.person_id, e.day),
+      })),
+    );
+  }
+  const conc = Math.max(1, Math.min(8, Number(flags.concurrency || 4)));
+  say(c.dim(`  ${batches.length} batches, ${conc} at a time`));
+  const all = await pool(
+    batches.map((b) => () => classifyEpisodes(b, model)),
+    conc,
+    (done, total) => say(c.dim(`  batch ${done}/${total}`)),
+  );
+
+  let written = 0, read = 0;
+  for (let bi = 0; bi < batches.length; bi++) {
+    const batch = batches[bi];
+    const results = all[bi] || [];
     for (let j = 0; j < batch.length; j++) {
       const ep = batch[j];
       const events = results[j] || [];
@@ -1245,7 +1306,6 @@ async function cmdEvents(argv) {
         }
       }
     }
-    say(c.dim(`  ${Math.min(i + batchSize, episodes.length)}/${episodes.length}  ${written} events`));
   }
   recomputeScores();
   say(`\n  ${c.grn("logged")} ${written} events from ${read} person-days`);
