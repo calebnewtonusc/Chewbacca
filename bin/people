@@ -969,8 +969,21 @@ function cmdCircle(argv) {
 
   if (sub === "delete") {
     const ci = findCircle(rest.join(" "));
+    // Order matters. The ON DELETE CASCADE in the schema only fires on a hard
+    // delete, and this is a soft one, so the revoke has to be explicit and has
+    // to run after deleted_at is set: syncCircleFacts reads that flag to decide
+    // it is revoking rather than reconciling.
     d.prepare("UPDATE circles SET deleted_at=? WHERE id=?").run(nowISO(), ci.id);
-    say(`${c.red("deleted")} circle ${c.b(ci.name)}${c.dim("  its derived facts went with it")}`);
+    const revoked = d
+      .prepare(
+        "SELECT count(*) AS n FROM observations WHERE source_circle_id=? AND deleted_at IS NULL",
+      )
+      .get(ci.id).n;
+    syncCircleFacts(ci.id);
+    say(
+      `${c.red("deleted")} circle ${c.b(ci.name)}` +
+        (revoked ? c.dim(`  ${revoked} derived facts revoked`) : ""),
+    );
     recomputeScores();
     return;
   }
@@ -1185,8 +1198,26 @@ function cmdExport(argv) {
 
 // ---------------------------------------------------------------- sync
 
+// Returns stdout, or "" when there is none to capture. execFileSync hands back
+// null under stdio:"inherit", and calling .trim() on that throws a TypeError
+// that reads exactly like the git command itself having failed.
 function git(args, opts = {}) {
-  return execFileSync("git", ["-C", DIR, ...args], { encoding: "utf8", ...opts }).trim();
+  const out = execFileSync("git", ["-C", DIR, ...args], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    ...opts,
+  });
+  return typeof out === "string" ? out.trim() : "";
+}
+
+// For probes where a non-zero exit is a normal answer rather than a problem,
+// and git's own stderr would only confuse the person reading it.
+function gitQuiet(args) {
+  try {
+    return { ok: true, out: git(args, { stdio: ["ignore", "pipe", "ignore"] }) };
+  } catch {
+    return { ok: false, out: "" };
+  }
 }
 
 function cmdSync(argv) {
@@ -1207,9 +1238,7 @@ function cmdSync(argv) {
       path.join(DIR, ".gitignore"),
       ["people.db-wal", "people.db-shm", ""].join("\n"),
     );
-    try {
-      git(["remote", "remove", "origin"]);
-    } catch {}
+    gitQuiet(["remote", "remove", "origin"]);
     git(["remote", "add", "origin", url]);
     say(`${c.grn("linked")} ${url}`);
     say(c.dim("now: people sync push"));
@@ -1220,10 +1249,11 @@ function cmdSync(argv) {
     die("Not syncing yet. Run: people sync init <private-git-url>");
 
   if (sub === "pull") {
-    try {
-      git(["pull", "--ff-only", "origin", "main"], { stdio: "inherit" });
+    const branch = git(["rev-parse", "--abbrev-ref", "HEAD"]) || "main";
+    const pulled = gitQuiet(["pull", "--ff-only", "origin", branch]);
+    if (pulled.ok) {
       say(c.grn("pulled"));
-    } catch {
+    } else {
       die(
         "Pull was not a fast-forward. The database is a binary file, so git cannot merge it.\n" +
           "Whichever machine has the newer data should push with --force, and the other should\n" +
@@ -1241,25 +1271,33 @@ function cmdSync(argv) {
     if (!dirty) return say(c.dim("nothing changed"));
     const n = db().prepare("SELECT count(*) AS n FROM people WHERE deleted_at IS NULL").get().n;
     git(["commit", "-q", "-m", `people: ${n} people, ${nowISO().slice(0, 10)}`]);
-    try {
-      git(["push", "-q", "origin", "main"], { stdio: "inherit" });
-      say(c.grn("pushed"));
-    } catch {
-      die("Push failed. Is the remote reachable, and does the repo exist?");
-    }
+    const branch = git(["rev-parse", "--abbrev-ref", "HEAD"]) || "main";
+    const pushed = gitQuiet(["push", "origin", `${branch}:${branch}`]);
+    if (!pushed.ok)
+      die(
+        "Push failed, but the commit is safe on this machine.\n" +
+          "  Check the remote exists and you can reach it:\n" +
+          `    git -C ${DIR} push origin ${branch}`,
+      );
+    say(c.grn("pushed") + c.dim(`  ${n} people`));
     return;
   }
 
   if (sub === "status") {
     say(`  dir     ${DIR}`);
-    try {
-      say(`  remote  ${git(["remote", "get-url", "origin"])}`);
-      say(`  branch  ${git(["rev-parse", "--abbrev-ref", "HEAD"])}`);
-      const dirty = git(["status", "--porcelain"]);
-      say(`  state   ${dirty ? c.yel("uncommitted changes") : c.grn("clean")}`);
-    } catch {
-      say(c.dim("  no remote"));
+    const remote = gitQuiet(["remote", "get-url", "origin"]);
+    say(remote.ok ? `  remote  ${remote.out}` : `  remote  ${c.yel("none")}`);
+    const branch = gitQuiet(["rev-parse", "--abbrev-ref", "HEAD"]);
+    say(`  branch  ${branch.ok ? branch.out : "main"}`);
+    // No commits yet is a normal state on a freshly initialised directory, not
+    // an error, and must not be reported as a missing remote.
+    const head = gitQuiet(["rev-parse", "HEAD"]);
+    if (!head.ok) {
+      say(`  state   ${c.yel("nothing pushed yet")}${c.dim("  run: people sync push")}`);
+      return;
     }
+    const dirty = git(["status", "--porcelain"]);
+    say(`  state   ${dirty ? c.yel("uncommitted changes") : c.grn("clean")}`);
     return;
   }
 
@@ -1402,6 +1440,13 @@ function overdueList(limit = 20) {
   const now = nowISO();
   const out = [];
   for (const r of rows) {
+    // AN ADDRESS BOOK ENTRY IS NOT A RELATIONSHIP. After importing a thousand
+    // contacts everyone has zero observations and ties at zero, so without this
+    // the list is alphabetical noise: landlines, "??? USC", a dentist. Someone
+    // qualifies once there is a reason to think you care, which means you wrote
+    // something down, logged a conversation, or set a cadence by hand.
+    const known = (r.observation_count || 0) > 0 || r.cadence_days || r.last_interaction_at;
+    if (!known) continue;
     const score = r.base_score || 0;
     const cadence = r.cadence_days || Math.round(30 + (1 - score) * 300);
     const days = r.last_interaction_at ? daysBetween(r.last_interaction_at, now) : null;
@@ -1425,7 +1470,21 @@ function overdueList(limit = 20) {
 function cmdReconnect(argv) {
   const { flags } = parseArgs(argv);
   const rows = overdueList(Number(flags.limit || 15));
-  if (!rows.length) return say(c.grn("  nobody is overdue"));
+  if (!rows.length) {
+    const total = db().prepare("SELECT count(*) AS n FROM people WHERE deleted_at IS NULL").get().n;
+    const known = db()
+      .prepare(
+        "SELECT count(DISTINCT person_id) AS n FROM observations WHERE person_id IS NOT NULL AND deleted_at IS NULL",
+      )
+      .get().n;
+    if (total && !known)
+      return say(
+        c.dim(`  ${total} contacts, none with anything recorded yet.\n`) +
+          c.dim("  This ranks people you know things about, so start with:\n") +
+          `    people note <name> "..." --dim social`,
+      );
+    return say(c.grn("  nobody is overdue"));
+  }
   say("");
   for (const r of rows) {
     const when =
@@ -1837,7 +1896,16 @@ function main() {
 try {
   main();
 } catch (e) {
-  if (e && e.code === "SQLITE_CONSTRAINT_CHECK")
-    die("That value is not allowed. Run `people help` to see the valid options.");
-  die(e && e.message ? e.message : String(e));
+  const msg = e && e.message ? e.message : String(e);
+  // A raw "CHECK constraint failed: modality IN (...)" is the database talking
+  // to itself. Say which flag was wrong and what it accepts instead.
+  const check = msg.match(/CHECK constraint failed:\s*(\w+) IN \(([^)]*)\)/);
+  if (check) {
+    const opts = check[2].replace(/'/g, "").split(",").map((s) => s.trim()).join(", ");
+    die(`Not a valid --${check[1]}. Use one of: ${opts}`);
+  }
+  if (/FOREIGN KEY constraint failed/.test(msg))
+    die("That points at something that no longer exists. Run: people check");
+  if (/UNIQUE constraint failed/.test(msg)) die("That already exists.");
+  die(msg);
 }
