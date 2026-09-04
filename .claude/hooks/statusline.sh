@@ -23,15 +23,29 @@ if   [ "${PCT:-0}" -ge 80 ]; then CTX="\033[38;5;203m${PCT}%\033[0m"
 elif [ "${PCT:-0}" -ge 60 ]; then CTX="\033[38;5;179m${PCT}%\033[0m"
 else CTX="\033[38;5;245m${PCT}%\033[0m"; fi
 
-# staleness nudge: core/now.md is the file that rots
-STALE=$(python3 - <<'PY' 2>/dev/null
-import datetime,re,pathlib
-p=pathlib.Path.home()/'caleb-context/core/now.md'
-if p.exists():
-    m=re.search(r'updated: (\d{4}-\d{2}-\d{2})', p.read_text())
-    if m:
-        d=(datetime.date.today()-datetime.date.fromisoformat(m.group(1))).days
-        if d>14: print(f" \033[38;5;203m◍ now.md {d}d\033[0m")
+# Staleness nudge. now.md is the file that rots, and a rotted one is worse than
+# an empty one because it is quoted with confidence.
+#
+# This used to hardcode the author's own directory, so on anybody else's machine
+# the path did not exist, the nudge never fired, and nothing said so. Read the
+# configured location instead, and check both the current schema (core/now.md)
+# and the flat one setup.sh writes (NOW.md).
+[ -f "$HOME/.claude/d1-config.sh" ] && . "$HOME/.claude/d1-config.sh" 2>/dev/null
+STALE=$(PCD="${PERSONAL_CONTEXT_DIR:-}" python3 - <<'PY' 2>/dev/null
+import datetime, os, re, pathlib
+roots = [p for p in (os.environ.get("PCD", ""), str(pathlib.Path.home() / "second-brain")) if p]
+for root in roots:
+    for rel in ("core/now.md", "NOW.md"):
+        p = pathlib.Path(root) / rel
+        if not p.exists():
+            continue
+        m = re.search(r"updated: (\d{4}-\d{2}-\d{2})", p.read_text(errors="replace"))
+        if not m:
+            raise SystemExit
+        d = (datetime.date.today() - datetime.date.fromisoformat(m.group(1))).days
+        if d > 14:
+            print(f" \033[38;5;203m◍ {p.name} {d}d\033[0m")
+        raise SystemExit
 PY
 )
 
