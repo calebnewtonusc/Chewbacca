@@ -24,6 +24,10 @@ r <id>                                                     name the root, which 
 Nothing appears until `r`. Send `c` and `>` in any order: a child may arrive
 before its parent.
 
+**Send `r` as soon as the Screen exists, not at the end.** Children that arrive
+after the root still land, so a stream that gets cut off has drawn something.
+Putting `r` last means a long answer that ran out draws nothing at all.
+
 ## Where things go
 
 `at=` takes a region, never coordinates, because you do not know the size of the
@@ -259,7 +263,7 @@ spaces inside them: `points=[31,28,44]`, not `points=[31, 28, 44]`.
 
 ### Anything else
 
-- **Diagram** Reach for this whenever the answer is a shape rather than a number: how things connect, what flows into what, the parts of a system, a hierarchy. Draw it out of nodes and arrows in a unit square where x and y run 0 to 1. Explaining a structure in sentences when it could be drawn is the most common way a panel wastes the glance it gets. Not for anything Bars or Events already says.
+- **Diagram** Reach for this whenever the answer is a shape rather than a number: how things connect, what flows into what, the parts of a system, a hierarchy. Draw it out of nodes and arrows in a unit square where x and y run 0 to 1, and label the nodes. The drawing is the entire answer: do not put a written version of it beside the diagram, because a panel that says the same thing twice has wasted the one glance it gets. Not for anything Bars or Events already says.
 
   ```
   c d Diagram aspect=2.4 parts=[{"t":"node","x":0.2,"y":0.5,"w":0.22,"h":0.3,"label":"Model"},{"t":"arrow","x":0.32,"y":0.5,"x2":0.68,"y2":0.5},{"t":"node","x":0.8,"y":0.5,"w":0.22,"h":0.3,"label":"Glass"}]

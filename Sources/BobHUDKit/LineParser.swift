@@ -214,10 +214,18 @@ public enum LineParser {
                 urgency: urgency, chrome: chrome, life: life)
 
         case "-":
-            guard tokens.count == 2 else {
-                throw LineParseError.malformed("`-` takes exactly one surface name", line: trimmed)
+            // `- name` closes one. `-` on its own clears the glass.
+            //
+            // Clearing used to be reachable only by pressing Escape, which a
+            // script can only do by synthesising a keystroke, which needs
+            // Accessibility. Needing a permission to put something *away* is
+            // backwards: taking your screen back should be the cheapest thing
+            // in the system.
+            guard tokens.count <= 2 else {
+                throw LineParseError.malformed(
+                    "`-` takes one surface name, or none to clear", line: trimmed)
             }
-            return .close(id: tokens[1])
+            return .close(id: tokens.count == 2 ? tokens[1] : "")
 
         case "m":
             // `m <id> <x> <y> <w> <h> [label="..."] [tone=warn] [life=30]`
