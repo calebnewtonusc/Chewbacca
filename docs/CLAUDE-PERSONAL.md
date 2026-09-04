@@ -3,7 +3,7 @@
 This is the standards file for someone using Claude for their life rather than
 for shipping software. It is installed by `./setup.sh --profile personal`.
 
-The developer version is [CLAUDE.md](CLAUDE.md): 700 lines that mandate a
+The developer version is [CLAUDE.md](../CLAUDE.md): 700 lines that mandate a
 frontend stack, a visual design system, and a deploy checklist. Loading that
 into a session about someone's calendar costs tokens on every single prompt and
 changes the answers for the worse. If you write code often, use that one

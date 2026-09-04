@@ -1,6 +1,6 @@
 # Claude Quick Start
 
-Drop this into any project as `CLAUDE.md` for instant quality improvement. For the full 700-line version, see [CLAUDE.md](CLAUDE.md).
+Drop this into any project as `CLAUDE.md` for instant quality improvement. For the full 700-line version, see [CLAUDE.md](../CLAUDE.md).
 
 ## Stack
 

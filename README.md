@@ -137,7 +137,7 @@ README used to be: every skill, hook, command, plugin, and standard.
 | [docs/MACOS-TOOLS.md](docs/MACOS-TOOLS.md) | Screen, apps, permissions, failure modes     |
 | [docs/SCHOOL.md](docs/SCHOOL.md)           | The coursework ledger and its AI policy gate |
 | [docs/METHODOLOGY.md](docs/METHODOLOGY.md) | Why it is built this way                     |
-| [CONTRIBUTING.md](CONTRIBUTING.md)         | Adding a skill or a tool                     |
+| [CONTRIBUTING.md](.github/CONTRIBUTING.md)         | Adding a skill or a tool                     |
 
 ---
 

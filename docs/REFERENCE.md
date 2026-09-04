@@ -107,8 +107,8 @@ back afterwards.
 
 Nine skills cover it: `mac-control` to route, then `mac-see`, `mac-act`,
 `mac-apps`, `mac-permissions`, `mac-debug`, `mac-followups`, `mac-runtime`, and
-`mac-brief`. Reference docs are in [docs/mac/](docs/mac/), one per layer, plus
-the [operating manual](docs/mac/OPERATING-MANUAL.md).
+`mac-brief`. Reference docs are in [docs/mac/](mac/), one per layer, plus
+the [operating manual](mac/OPERATING-MANUAL.md).
 
 Two macOS toggles need a human once, because no API can grant them:
 Accessibility and Screen Recording, in System Settings under Privacy & Security.
@@ -400,7 +400,7 @@ anything graded. An unrecorded policy is treated as a ban.
 | `kit-builder`  | Build a kit for a long bureaucratic process, and the test for when not to                   |
 | `life-ops`     | The weekly review, life admin with real deadlines, and what to cut when a week does not fit |
 
-Full walkthrough: [docs/SCHOOL.md](docs/SCHOOL.md).
+Full walkthrough: [docs/SCHOOL.md](SCHOOL.md).
 
 ---
 
@@ -420,7 +420,7 @@ claude-context/      PUBLIC: how Claude should behave
 
 Claude loads your personal context every session via the `SessionStart` hook. Every time Claude writes to a context file, the `PostToolUse` hook auto-commits and auto-pushes. Your brain stays current without you touching it.
 
-See [second-brain/README.md](second-brain/README.md) for full architecture details.
+See [second-brain/README.md](../second-brain/README.md) for full architecture details.
 
 ---
 
@@ -666,18 +666,18 @@ The vibe coding landscape is growing fast. **[ECOSYSTEM.md](ECOSYSTEM.md)** is o
 
 | Doc                                                        | What It Covers                                                                                                            |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| [docs/METHODOLOGY.md](docs/METHODOLOGY.md)                 | The five principles of vibe coding, the D1 workflow loop, anti-patterns, measuring effectiveness                          |
-| [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md)                   | D1 query patterns, migrations, Drizzle ORM, Worker routing (vanilla + Hono), D1 + KV + R2, deployment                     |
-| [docs/PROMPTS.md](docs/PROMPTS.md)                         | 20+ real prompts for scaffolding, features, debugging, database work, UI design, deployment                               |
-| [docs/SCHOOL.md](docs/SCHOOL.md)                           | Running a semester: the coursework ledger, the CLI, the three skills, and the per-course AI policy gate                   |
-| [docs/SYSTEM-PROMPTS.md](docs/SYSTEM-PROMPTS.md)           | Eight techniques for agent-governing prompts: priority order, confidence thresholds, format contracts, and what to delete |
-| [docs/INTERNALS.md](docs/INTERNALS.md)                     | How Claude Code works under the hood: CLAUDE.md loading, hooks, tools, agents, context compression                        |
-| [docs/SKILLS.md](docs/SKILLS.md)                           | What this kit ships, the four public skill registries, the licensing traps in them, and how to write your own             |
-| [docs/EXTENSIONS.md](docs/EXTENSIONS.md)                   | Skills, plugins, and MCP: what each layer is for, what setup.sh installs, and which to reach for first                    |
-| [docs/STARRED-AUDIT.md](docs/STARRED-AUDIT.md)             | Every repo the author starred, checked against what setup.sh installs, with a reason for each                             |
-| [docs/MACOS-TOOLS.md](docs/MACOS-TOOLS.md)                 | The five macOS tools setup.sh installs: permissions, auth, usage, and the agent-scripts skill pack                        |
-| [docs/SWIFT-MACOS-PORTING.md](docs/SWIFT-MACOS-PORTING.md) | Running a Swift app below its declared macOS floor: availability gating, weak linking, verifying with otool               |
-| [docs/MACOS-APP-CONTROL.md](docs/MACOS-APP-CONTROL.md)     | Driving Calendar, Contacts, Mail, Messages, and Notes from an agent: the TCC model, the JSON contract, where it is weak   |
+| [docs/METHODOLOGY.md](METHODOLOGY.md)                 | The five principles of vibe coding, the D1 workflow loop, anti-patterns, measuring effectiveness                          |
+| [docs/CLOUDFLARE.md](CLOUDFLARE.md)                   | D1 query patterns, migrations, Drizzle ORM, Worker routing (vanilla + Hono), D1 + KV + R2, deployment                     |
+| [docs/PROMPTS.md](PROMPTS.md)                         | 20+ real prompts for scaffolding, features, debugging, database work, UI design, deployment                               |
+| [docs/SCHOOL.md](SCHOOL.md)                           | Running a semester: the coursework ledger, the CLI, the three skills, and the per-course AI policy gate                   |
+| [docs/SYSTEM-PROMPTS.md](SYSTEM-PROMPTS.md)           | Eight techniques for agent-governing prompts: priority order, confidence thresholds, format contracts, and what to delete |
+| [docs/INTERNALS.md](INTERNALS.md)                     | How Claude Code works under the hood: CLAUDE.md loading, hooks, tools, agents, context compression                        |
+| [docs/SKILLS.md](SKILLS.md)                           | What this kit ships, the four public skill registries, the licensing traps in them, and how to write your own             |
+| [docs/EXTENSIONS.md](EXTENSIONS.md)                   | Skills, plugins, and MCP: what each layer is for, what setup.sh installs, and which to reach for first                    |
+| [docs/STARRED-AUDIT.md](STARRED-AUDIT.md)             | Every repo the author starred, checked against what setup.sh installs, with a reason for each                             |
+| [docs/MACOS-TOOLS.md](MACOS-TOOLS.md)                 | The five macOS tools setup.sh installs: permissions, auth, usage, and the agent-scripts skill pack                        |
+| [docs/SWIFT-MACOS-PORTING.md](SWIFT-MACOS-PORTING.md) | Running a Swift app below its declared macOS floor: availability gating, weak linking, verifying with otool               |
+| [docs/MACOS-APP-CONTROL.md](MACOS-APP-CONTROL.md)     | Driving Calendar, Contacts, Mail, Messages, and Notes from an agent: the TCC model, the JSON contract, where it is weak   |
 
 ---
 
@@ -798,7 +798,7 @@ skill reaches this list only if it carries a public upstream URL or ships in thi
 repo, so a personal skill added locally stays local. MCP servers are opt-in by
 name for the same reason.
 
-Full breakdown of which layer to reach for, and why, in [docs/EXTENSIONS.md](docs/EXTENSIONS.md).
+Full breakdown of which layer to reach for, and why, in [docs/EXTENSIONS.md](EXTENSIONS.md).
 
 ---
 
@@ -835,7 +835,7 @@ claude "run the agent-setup skill and finish whatever doctor.sh says is missing"
 
 and Claude does the CLI work itself, stopping only at the checkbox that is
 genuinely yours to click. Setup, permissions,
-and the failure modes are in [docs/MACOS-TOOLS.md](docs/MACOS-TOOLS.md).
+and the failure modes are in [docs/MACOS-TOOLS.md](MACOS-TOOLS.md).
 
 That table is generated the same way the extension table is: a tool appears only
 once the generator finds it on the machine, so an entry here is proof of an
@@ -869,9 +869,9 @@ PLYNN_BUILD_FROM_SOURCE=1 ./bin/install-plynn.sh
 ```
 
 What was changed and why it is carried here instead of patched at install time
-is in [plynn/NOTICE.md](plynn/NOTICE.md). The general technique, for any Swift
+is in [plynn/NOTICE.md](../plynn/NOTICE.md). The general technique, for any Swift
 app whose declared macOS floor is higher than it needs to be, is in
-[docs/SWIFT-MACOS-PORTING.md](docs/SWIFT-MACOS-PORTING.md).
+[docs/SWIFT-MACOS-PORTING.md](SWIFT-MACOS-PORTING.md).
 
 `PLYNN_FORCE=1` reinstalls over an existing copy.
 
@@ -909,7 +909,7 @@ It prints the declared license before installing, and warns loudly on
 Proprietary or AGPL. That check is not theoretical: one popular skills repo
 advertises Apache 2.0 while shipping four skills marked Proprietary and one
 under AGPL-3.0, which would relicense an MIT project by contagion.
-[docs/SKILLS.md](docs/SKILLS.md) has the full map of what is out there.
+[docs/SKILLS.md](SKILLS.md) has the full map of what is out there.
 
 ---
 
@@ -928,7 +928,7 @@ wrangler dev
 
 Then hit `http://localhost:8787/api/todos` to see it running.
 
-See [examples/todo-app/README.md](examples/todo-app/README.md) for full details.
+See [examples/todo-app/README.md](../examples/todo-app/README.md) for full details.
 
 ---
 
@@ -1020,7 +1020,7 @@ See [ECOSYSTEM.md](ECOSYSTEM.md) for the full list.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). PRs welcome. The bar: does this work for every developer, not just one person?
+See [CONTRIBUTING.md](../.github/CONTRIBUTING.md). PRs welcome. The bar: does this work for every developer, not just one person?
 
 ---
 

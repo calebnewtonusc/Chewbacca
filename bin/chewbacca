@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# chewbacca: the one command. Everything else is implementation.
+#
+# The repo root used to be six shell scripts with similar names, and a new
+# reader had to work out which of start.sh, install.sh and setup.sh was theirs.
+# It also meant the README documented `chewbacca doctor`, a command that did not
+# exist, which is the same failure the kit adds doctor checks for.
+#
+# So: one verb-shaped entry point that finds the repo wherever it lives.
+
+set -uo pipefail
+
+# Where the kit actually is. Follows the symlink this is usually installed as,
+# so `chewbacca` works from ~/.local/bin without hardcoding a clone path.
+resolve_root() {
+  if [ -n "${CHEWBACCA_ROOT:-}" ] && [ -d "$CHEWBACCA_ROOT" ]; then
+    printf '%s' "$CHEWBACCA_ROOT"
+    return
+  fi
+  local src="${BASH_SOURCE[0]}"
+  while [ -L "$src" ]; do
+    local dir
+    dir="$(cd -P "$(dirname "$src")" && pwd)"
+    src="$(readlink "$src")"
+    [[ $src != /* ]] && src="$dir/$src"
+  done
+  cd -P "$(dirname "$src")/.." && pwd
+}
+
+ROOT="$(resolve_root)"
+
+usage() {
+  cat <<EOF
+chewbacca: your Claude Code kit
+
+  chewbacca doctor        check the install and say what is broken
+  chewbacca setup         full setup on this machine (asks nothing)
+  chewbacca update        pull the latest and re-run setup
+  chewbacca add-skill     add a skill to the kit
+  chewbacca install       copy the standards into the current project
+  chewbacca uninstall     remove what setup put on this machine
+  chewbacca where         print where the kit is installed
+
+Nothing here is required day to day. You talk to Claude; it loads what it needs.
+EOF
+}
+
+run() {
+  local script="$ROOT/$1"
+  shift
+  if [ ! -f "$script" ]; then
+    echo "chewbacca: missing $script" >&2
+    echo "  The kit may have moved. Set CHEWBACCA_ROOT, or re-run the installer." >&2
+    exit 1
+  fi
+  bash "$script" "$@"
+}
+
+case "${1:-}" in
+doctor)
+  shift
+  run doctor.sh "$@"
+  ;;
+setup)
+  shift
+  run setup.sh "$@"
+  ;;
+add-skill)
+  shift
+  run add-skill.sh "$@"
+  ;;
+install)
+  shift
+  run install.sh "$@"
+  ;;
+uninstall)
+  shift
+  run uninstall.sh "$@"
+  ;;
+update)
+  shift
+  git -C "$ROOT" pull --ff-only || {
+    echo "chewbacca: could not fast-forward. Fix the working tree first:" >&2
+    echo "  cd $ROOT && git status" >&2
+    exit 1
+  }
+  run setup.sh "$@"
+  ;;
+where)
+  printf '%s\n' "$ROOT"
+  ;;
+"" | -h | --help | help)
+  usage
+  ;;
+*)
+  echo "chewbacca: unknown command '$1'" >&2
+  echo >&2
+  usage >&2
+  exit 1
+  ;;
+esac
