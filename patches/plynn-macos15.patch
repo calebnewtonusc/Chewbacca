@@ -14,8 +14,154 @@ index a109f2f..23ef70a 100644
      dependencies: [
          .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.15.5"),
          .package(url: "https://github.com/ml-explore/mlx-swift-examples.git", from: "2.29.1"),
+diff --git a/Sources/Plynn/main.swift b/Sources/Plynn/main.swift
+index 10d7035..ed3c9e5 100644
+--- a/Sources/Plynn/main.swift
++++ b/Sources/Plynn/main.swift
+@@ -27,6 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+         ((try? store?.snippets()) ?? [], (try? store?.terms()) ?? [])
+     })
+     var pendingPressEnter = false
++    /// Guards against two Chewie round trips overlapping.
++    var chewieInFlight = false
+     var lastCaptureSeconds = 0.0
+     /// Captured at fn-down so formatting uses the original target app.
+     var pendingContext: ContextSnapshot?
+@@ -140,9 +142,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+         }
+         // Covers the no-effect paths back to idle (e.g. empty transcript → no
+         // paste). The .done check state hides itself on a timer instead.
++        // .thinking and .answer hide themselves when Chewie finishes. Leaving
++        // them out of this list is what made the pill vanish the instant a
++        // wake-word dictation started, which read as the app swallowing it.
++        var isChewiePhase = false
++        if case .thinking = model.phase { isChewiePhase = true }
++        if case .answer = model.phase { isChewiePhase = true }
+         if session.state == .idle, recorder == nil,
+             model.phase != .secure, model.phase != .done, model.phase != .micUnavailable,
+-            !isErrorPhase,
++            !isErrorPhase, !isChewiePhase,
+             model.phase != .meetingSaved {
+             panel.hide()
+         }
+@@ -280,6 +288,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+                           "\(transcriptionReleaseAt.duration(to: .now))", engine.displayName)
+                 }
+ 
++                // Chewie is decided HERE, on the raw transcript, before any
++                // local model sees it. Two reasons. The polish model rewrites
++                // text, and it was rewriting the very word the wake-word match
++                // depends on. And a request bound for Claude should not pay
++                // local-model latency first to be reworded on the way.
++                //
++                // A selection does not win over the wake word; it becomes the
++                // thing the request is pointing at, so "Chewie, make this
++                // shorter" reaches Claude with the selection attached.
++                if let chewiePrompt = ChewieRouter.prompt(from: raw) {
++                    let selection = context.selectedText
++                    let canDeliver = await MainActor.run {
++                        self.session.state == .transcribing
++                    }
++                    guard canDeliver else { return }
++                    await MainActor.run {
++                        // Not a paste, so no stray Return is owed to anyone.
++                        // Leaving this set leaked an Enter into the NEXT
++                        // ordinary dictation.
++                        self.pendingPressEnter = false
++                        self.askChewie(
++                            ChewieRouter.compose(prompt: chewiePrompt, selection: selection))
++                    }
++                    return
++                }
++
+                 // Command mode: selection + spoken instruction → replace it.
+                 if let selection = context.selectedText,
+                     !raw.trimmingCharacters(in: .whitespaces).isEmpty {
+@@ -372,6 +406,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+             stopMeeting()
+ 
+         case .paste(let text):
++            // Wake-word routing happens upstream, on the raw transcript. This
++            // is a backstop for any path that reaches paste without passing
++            // through there, and it clears pendingPressEnter for the same
++            // reason the upstream branch does.
++            if let chewiePrompt = ChewieRouter.prompt(from: text) {
++                pendingPressEnter = false
++                askChewie(chewiePrompt)
++                return
++            }
+             let releaseTime = releasedAt
+             let pasteResult = Paster.paste(
+                 text,
+@@ -421,6 +464,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+         }
+     }
+ 
++    /// Send a wake-word dictation to Claude Code and SHOW what comes back.
++    ///
++    /// The answer is never pasted. It is a reply to a question, not dictated
++    /// text, and synthesising Cmd-V for it dropped it into whatever happened to
++    /// have focus. It goes on the clipboard instead, so the pill can time out
++    /// without the answer being lost, and Cmd-V remains the user's own choice.
++    ///
++    /// This takes tens of seconds where a normal paste takes milliseconds, so
++    /// the panel stays up for the whole round trip. Leaving it hidden would
++    /// look like the dictation was simply swallowed.
++    private func askChewie(_ prompt: String) {
++        // One at a time. Two in flight both finished, both overwrote the
++        // clipboard, and the first one's hide timer dismissed the second's
++        // answer while it was still being read.
++        guard !chewieInFlight else {
++            Feedback.play(.failure)
++            return
++        }
++        chewieInFlight = true
++        model.phase = .thinking
++        panel.show()
++        Task { @MainActor in
++            defer { chewieInFlight = false }
++            var answer: String
++            do {
++                answer = try await ChewieRouter.ask(prompt)
++            } catch {
++                // Claude is the default and the local model is the fallback,
++                // not the other way round. It only runs when Claude could not:
++                // missing binary, non-zero exit, or the watchdog killed it.
++                NSLog("plynn: chewie failed (%@), trying the local model",
++                      error.localizedDescription)
++                guard let local = await formatter.complete(
++                    ChewieRouter.localFallbackPrompt(prompt))
++                else {
++                    showError(error.localizedDescription)
++                    Paster.copy(prompt)
++                    return
++                }
++                answer = local.trimmingCharacters(in: .whitespacesAndNewlines)
++            }
++            guard !answer.isEmpty else {
++                showError("Chewie had nothing to say.")
++                Paster.copy(prompt)
++                return
++            }
++            Paster.copy(answer)
++            Feedback.play(.success)
++            // Sized to the text and held long enough to read. Nothing was
++            // typed anywhere; this pill plus the clipboard is the whole
++            // delivery.
++            model.phase = .answer(answer)
++            let hold = min(9.0, 2.2 + Double(answer.count) / 22.0)
++            DispatchQueue.main.asyncAfter(deadline: .now() + hold) { [weak self] in
++                guard let self, case .answer = self.model.phase else { return }
++                self.panel.hide()
++            }
++        }
++    }
++
+     private func handlePasteFailure(
+         _ text: String, result: PasteResult, releaseTime: ContinuousClock.Instant?
+     ) {
 diff --git a/Sources/PlynnKit/AppleFMFormatter.swift b/Sources/PlynnKit/AppleFMFormatter.swift
-index 8d91216..f70d820 100644
+index a865008..4f28490 100644
 --- a/Sources/PlynnKit/AppleFMFormatter.swift
 +++ b/Sources/PlynnKit/AppleFMFormatter.swift
 @@ -4,6 +4,9 @@ import FoundationModels
@@ -42,6 +188,395 @@ index e310658..3fa1d5d 100644
  public actor AppleSpeechEngine: DictationEngine {
      public enum EngineError: Error { case assetUnavailable, notStarted }
  
+diff --git a/Sources/PlynnKit/AudioRecorder.swift b/Sources/PlynnKit/AudioRecorder.swift
+index 60e10ad..cc0b5f7 100644
+--- a/Sources/PlynnKit/AudioRecorder.swift
++++ b/Sources/PlynnKit/AudioRecorder.swift
+@@ -64,6 +64,21 @@ public final class AudioRecorder {
+     private let lock = NSLock()
+     private var configObserver: NSObjectProtocol?
+ 
++    /// Serialises every mutation of the engine graph.
++    ///
++    /// The configuration-change notification is posted with `queue: nil`, which
++    /// means it is delivered on whichever thread CoreAudio happened to post it
++    /// from, not the main one. That handler re-arms the tap while `stop()` may
++    /// be tearing the same graph down from the main thread, and two threads
++    /// inside AVAudioEngine's stop path is a null dereference in
++    /// `AudioOutputUnitStop`. That is the 2026-09-02 segfault.
++    private let graphLock = NSLock()
++
++    /// False once `stop()` has run, so a configuration change that arrives
++    /// during teardown does not resurrect the engine after the caller has
++    /// already taken its samples and moved on.
++    private var isCapturing = false
++
+     /// Called on the audio tap thread with each converted 16 kHz chunk —
+     /// feeds both the streaming transcriber and the UI level meter.
+     public var onChunk: (([Float]) -> Void)?
+@@ -72,6 +87,9 @@ public final class AudioRecorder {
+ 
+     public func start() throws {
+         samples.removeAll(keepingCapacity: true)
++        graphLock.lock()
++        isCapturing = true
++        graphLock.unlock()
+         try armAndStart()
+         // A device reconfiguration (another app grabbing/releasing the mic)
+         // stops the engine without an error; rebuild the graph when it does.
+@@ -84,8 +102,15 @@ public final class AudioRecorder {
+     }
+ 
+     /// Install the tap for the current hardware format and (re)start the engine.
+-    /// Safe to call again after a configuration change.
++    /// Safe to call again after a configuration change, and safe to call while
++    /// `stop()` is running on another thread.
+     private func armAndStart() throws {
++        graphLock.lock()
++        defer { graphLock.unlock() }
++        // A configuration change can land between stop() taking the lock and
++        // the caller believing capture is over. Re-arming here would restart a
++        // microphone the user thinks they switched off.
++        guard isCapturing else { return }
+         let input = engine.inputNode
+         engine.stop()
+         input.removeTap(onBus: 0)
+@@ -107,12 +132,20 @@ public final class AudioRecorder {
+     }
+ 
+     public func stop() -> [Float] {
++        // Drop the observer first so no new re-arm can be scheduled, then take
++        // the graph lock so any re-arm already in flight finishes before the
++        // teardown starts. Doing it the other way round leaves a window where
++        // both threads are inside AVAudioEngine at once.
+         if let configObserver {
+             NotificationCenter.default.removeObserver(configObserver)
+             self.configObserver = nil
+         }
++        graphLock.lock()
++        isCapturing = false
+         engine.inputNode.removeTap(onBus: 0)
+         engine.stop()
++        graphLock.unlock()
++
+         lock.lock(); defer { lock.unlock() }
+         return samples
+     }
+diff --git a/Sources/PlynnKit/ChewieRouter.swift b/Sources/PlynnKit/ChewieRouter.swift
+new file mode 100644
+index 0000000..f611587
+--- /dev/null
++++ b/Sources/PlynnKit/ChewieRouter.swift
+@@ -0,0 +1,309 @@
++import Foundation
++
++/// Routes a dictation that starts with "Chewbacca" or "Chewie" to Claude Code
++/// instead of pasting it.
++///
++/// What comes back is SHOWN and copied, never typed. An answer to a question is
++/// not dictated text, and synthesising Cmd-V for it drops it into whatever
++/// happened to have focus.
++///
++/// The point is that dictation and conversation are the same gesture. Holding
++/// fn and saying "Chewie, make a note with all the texts I need to answer" runs
++/// a real agent with real tools against the machine, and what lands in the field
++/// is the answer rather than the sentence.
++///
++/// Everything else still pastes exactly as before. This only fires on the wake
++/// word, because an agent round trip costs twenty seconds and nobody wants that
++/// on an ordinary sentence.
++public enum ChewieRouter {
++
++    // MARK: - Wake word
++
++    /// Words that hand the transcript to Claude. Speech recognisers hear the
++    /// name several ways, and a wake word that only works when the recogniser
++    /// spells it correctly is a wake word that does not work.
++    private static let wakeWords = [
++        "chewbacca", "chewie", "chewy", "chubaka", "chewbaca", "chubacca",
++    ]
++
++    /// Returns the prompt with the wake word removed, or nil when this is an
++    /// ordinary dictation that should paste.
++    public static func prompt(from transcript: String) -> String? {
++        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
++        guard !trimmed.isEmpty else { return nil }
++        let lower = trimmed.lowercased()
++
++        for word in wakeWords {
++            guard lower.hasPrefix(word) else { continue }
++            // The wake word has to END there. Without this check "Chewy's bowl
++            // is empty" matches the prefix, the apostrophe survives the trim,
++            // and a sentence about a dog goes to an agent instead of the page.
++            let after = lower.dropFirst(word.count).first
++            if let after, !" ,.:;!?-\u{2014}\n\t".contains(after) { continue }
++            var rest = String(trimmed.dropFirst(word.count))
++            // "Chewie, make a note" and "Chewbacca: do the thing" both leave
++            // punctuation behind that is addressed to the assistant, not part
++            // of the request.
++            rest = rest.trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;!?-\u{2014}\n\t"))
++            // A bare "Chewie" with nothing after it is someone testing the mic,
++            // not a request. Pasting it is the right answer.
++            guard rest.count >= 2 else { return nil }
++            return rest
++        }
++        return nil
++    }
++
++    // MARK: - Running the agent
++
++    /// What comes back lands at a cursor, in whatever the user was typing in.
++    /// A chat-shaped reply is wrong there: no preamble, no restating the
++    /// request, no offer of next steps. Say what happened, or give the answer,
++    /// and stop.
++    static let voiceStyle = """
++        You are Chewie, reached by voice through a dictation key. Act, do not \
++        deliberate. The user is holding a key waiting.
++
++        REACH FOR THE LOCAL CLI FIRST. These read and write the user's own \
++        machine, and they are almost always the right answer:
++
++        - `people` for anyone in their life: `people show <name>`, \
++          `people note <name> "..." --dim <dimension>`, `people log <name>`, \
++          `people task add <name> "..." --due <date>`, `people reconnect`, \
++          `people today`, `people texts --days 3`, `people texts --who <name>`, \
++          `people texts search "..."`, `people stats`. This is a local SQLite \
++          file. It is NOT Medha, NOT Amber, and NOT any MCP server: do not \
++          reach for those for a question about the user's own contacts.
++        - `coursework due`, `coursework today`, `coursework policy <course> ai` \
++          for anything about classes. Never state a deadline you did not read.
++        - `mac` for Calendar, Reminders, Contacts, Mail, Messages, Notes.
++        - The second brain at ~/second-brain for durable facts about their life.
++
++        WHEN THEY ARE JUST TALKING ABOUT THEIR LIFE, WRITE IT DOWN. A voice note \
++        about a person becomes `people note`. Something they promised somebody \
++        becomes `people task add`. A durable fact about themselves goes to \
++        ~/second-brain. Do it in the same turn, then say in one line what you \
++        recorded and where. Do not ask whether they want it saved.
++
++        WHEN THEY ASK FOR SOMETHING DONE ON THE COMPUTER, DO IT. You have the \
++        tools. Do not describe how they could do it themselves.
++
++        Never invent a fact about a person, a number, or a date. If a lookup \
++        fails, say the lookup failed. A confidently wrong answer here is worse \
++        than no answer, because it is read at a glance and believed.
++
++        The reply is SHOWN to the user on a small on-screen pill and copied \
++        to their clipboard. It is not typed into anything. So:
++
++        - Answer in one or two sentences. Three is already too many.
++        - No preamble, no session opener, no prayer, no restating the question, \
++          no offer of further help. Start with the answer.
++        - If you performed an action, say what you did in one short line, past \
++          tense, with the specific thing named. "Noted 4 unanswered texts: \
++          Sagar, Maggie, Declan, Emma." Not "I have created a note for you."
++        - No markdown headers, no bullet lists unless the answer genuinely is a \
++          list, and then keep it under five short items.
++        - If you could not do it, say so in one line and name what blocked you.
++
++        The user is holding a key waiting for this. Brevity is the whole job.
++        """
++
++    /// What the on-device model gets when Claude could not run.
++    ///
++    /// It has no tools, no CLIs and no filesystem, so the honest thing is to
++    /// tell it that and let it say it cannot rather than invent a contact, a
++    /// deadline, or a number. A wrong answer here is worse than no answer,
++    /// because it arrives looking exactly like a real one.
++    public static func localFallbackPrompt(_ prompt: String) -> String {
++        """
++        You are a small on-device model standing in for an agent that could not \
++        be reached. You have NO tools: no shell, no files, no contacts, no \
++        calendar, no notes, no internet.
++
++        Answer in one or two sentences if the request is something you can \
++        genuinely answer from general knowledge alone.
++
++        If it needs the user's own data or an action on their computer, say so \
++        in one short line and stop. For example: "Can't reach Claude, and I \
++        can't read your contacts from here." Never guess a name, a number, a \
++        date, or a file. Never claim you did something.
++
++        The request:
++
++        \(prompt)
++        """
++    }
++
++    public enum ChewieError: LocalizedError {
++        case notInstalled
++        case timedOut(seconds: Int)
++        case failed(String)
++
++        public var errorDescription: String? {
++            switch self {
++            case .notInstalled:
++                return "Claude Code is not installed, so Chewie has nothing to ask."
++            case .timedOut(let s):
++                return "Chewie took longer than \(s)s and was stopped."
++            case .failed(let m):
++                return m
++            }
++        }
++    }
++
++    /// The app is launched by Finder, which gives it a short PATH that has no
++    /// nvm, no Homebrew and therefore no `claude`. Resolving it by hand is the
++    /// difference between this working and failing with "not installed" on a
++    /// machine where it is plainly installed.
++    static func claudeExecutable() -> String? {
++        let fm = FileManager.default
++        var candidates = [
++            "/opt/homebrew/bin/claude",
++            "/usr/local/bin/claude",
++            NSHomeDirectory() + "/.local/bin/claude",
++            NSHomeDirectory() + "/.claude/local/claude",
++        ]
++        // Any nvm-managed node install, newest first.
++        let nvm = NSHomeDirectory() + "/.nvm/versions/node"
++        if let versions = try? fm.contentsOfDirectory(atPath: nvm) {
++            for v in versions.sorted(by: >) { candidates.append("\(nvm)/\(v)/bin/claude") }
++        }
++        for path in candidates where fm.isExecutableFile(atPath: path) { return path }
++
++        // Last resort: ask a login shell, which sources the user's profile.
++        let probe = Process()
++        probe.executableURL = URL(fileURLWithPath: "/bin/zsh")
++        probe.arguments = ["-lc", "command -v claude"]
++        let pipe = Pipe()
++        probe.standardOutput = pipe
++        probe.standardError = FileHandle.nullDevice
++        guard (try? probe.run()) != nil else { return nil }
++        probe.waitUntilExit()
++        let out = String(
++            data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
++            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
++        return fm.isExecutableFile(atPath: out) ? out : nil
++    }
++
++    /// Ask Claude Code, with the user's own instructions, skills and tools.
++    ///
++    /// Runs in the home directory on purpose: that is where CLAUDE.md, the
++    /// skills and the CLIs live, so "make a note" reaches the same tools it
++    /// would in a terminal session.
++    /// Selected text travels with the request. "Chewie, make this shorter" is
++    /// meaningless without the thing being pointed at.
++    public static func compose(prompt: String, selection: String?) -> String {
++        guard let selection, !selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
++        else { return prompt }
++        return """
++            \(prompt)
++
++            The user had this text selected when they asked. It is what "this", \
++            "that" and "it" refer to:
++
++            \(selection)
++            """
++    }
++
++    public static func ask(_ prompt: String, timeout: Int = 180) async throws -> String {
++        guard let exe = claudeExecutable() else { throw ChewieError.notInstalled }
++
++        let proc = Process()
++        proc.executableURL = URL(fileURLWithPath: exe)
++        // --strict-mcp-config loads no MCP servers. That cuts the work by about
++        // four times, and it also stops the agent wandering: asked how many
++        // people were in the local store, a build with the servers loaded
++        // reached for a remote CRM and invented an answer about somebody else's
++        // contacts. The local CLIs named in voiceStyle are what this needs.
++        //
++        // Sonnet, not Haiku. The answer no longer blocks a paste, so the user
++        // is not holding a key waiting to type, and the requests that matter
++        // here chain several CLI calls together, which is exactly where Haiku
++        // got lost. About twenty seconds of the round trip is Claude Code
++        // starting up and cannot be removed from here anyway. Override with
++        // `defaults write co.charmtechnologies.plynn.spike chewieModel haiku`.
++        let model = UserDefaults.standard.string(forKey: "chewieModel") ?? "sonnet"
++        proc.arguments = [
++            "-p", "--output-format", "json",
++            "--strict-mcp-config",
++            "--model", model,
++            "--append-system-prompt", voiceStyle,
++            prompt,
++        ]
++        proc.currentDirectoryURL = URL(fileURLWithPath: NSHomeDirectory())
++        var env = ProcessInfo.processInfo.environment
++        env["PATH"] =
++            "\(NSHomeDirectory())/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:"
++            + (env["PATH"] ?? "")
++        proc.environment = env
++
++        let out = Pipe()
++        proc.standardOutput = out
++        proc.standardError = FileHandle.nullDevice
++
++        try proc.run()
++
++        // Drain on a background queue, because a prompt that produces more
++        // output than the pipe buffer holds deadlocks if nobody reads it.
++        //
++        // The read has to RACE the deadline rather than precede it.
++        // readDataToEndOfFile returns only when the child closes stdout, so
++        // awaiting it first meant the timeout loop did not start until the
++        // process had already finished: a genuinely hung `claude` blocked here
++        // forever and the timeout was unreachable in the one case it existed
++        // for. Kill on the deadline, and the blocked read then returns on EOF.
++        let reader = Task.detached(priority: .userInitiated) { () -> Data in
++            out.fileHandleForReading.readDataToEndOfFile()
++        }
++        let watchdog = Task.detached(priority: .utility) {
++            let deadline = Date().addingTimeInterval(TimeInterval(timeout))
++            while Date() < deadline {
++                if Task.isCancelled { return }
++                if !proc.isRunning { return }
++                try? await Task.sleep(nanoseconds: 200_000_000)
++            }
++            if proc.isRunning { proc.terminate() }
++        }
++        let data = await reader.value
++        proc.waitUntilExit()
++        watchdog.cancel()
++        // terminate() is SIGTERM, so a process the watchdog killed is the one
++        // that died to a signal. Anything else exited on its own terms.
++        if proc.terminationReason == .uncaughtSignal {
++            throw ChewieError.timedOut(seconds: timeout)
++        }
++
++        guard
++            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
++        else {
++            let raw = String(data: data, encoding: .utf8) ?? ""
++            throw ChewieError.failed(
++                raw.isEmpty ? "Chewie returned nothing." : String(raw.prefix(300)))
++        }
++        if let isError = obj["is_error"] as? Bool, isError {
++            throw ChewieError.failed((obj["result"] as? String) ?? "Chewie failed.")
++        }
++        guard let result = obj["result"] as? String else {
++            throw ChewieError.failed("Chewie returned no result.")
++        }
++        return stripOpener(result).trimmingCharacters(in: .whitespacesAndNewlines)
++    }
++
++    /// Remove a session opener before the answer reaches the user's cursor.
++    ///
++    /// The user's CLAUDE.md requires every reply to open with a prayer. That is
++    /// right for a chat window and wrong for a paste: what belongs in the text
++    /// field is the answer. The opener is the first paragraph and ends in
++    /// "Amen", so this drops exactly that and nothing else. When there is no
++    /// opener the text is returned untouched.
++    static func stripOpener(_ text: String) -> String {
++        let paragraphs = text.components(separatedBy: "\n\n")
++        guard let first = paragraphs.first else { return text }
++        let normalized =
++            first
++            .trimmingCharacters(in: .whitespacesAndNewlines)
++            .lowercased()
++            .trimmingCharacters(in: CharacterSet(charactersIn: ".!\"'*_ "))
++        guard normalized.hasSuffix("amen"), paragraphs.count > 1 else { return text }
++        return paragraphs.dropFirst().joined(separator: "\n\n")
++    }
++}
 diff --git a/Sources/PlynnKit/EngineManager.swift b/Sources/PlynnKit/EngineManager.swift
 index d07e250..811bf46 100644
 --- a/Sources/PlynnKit/EngineManager.swift
@@ -84,8 +619,96 @@ index d07e250..811bf46 100644
          self.warmUpTimeoutSeconds = max(0, warmUpTimeoutSeconds)
          self.preferred = preferred
              ?? (EngineChoice(
+diff --git a/Sources/PlynnKit/FieldReader.swift b/Sources/PlynnKit/FieldReader.swift
+index 984d4a0..34dbf72 100644
+--- a/Sources/PlynnKit/FieldReader.swift
++++ b/Sources/PlynnKit/FieldReader.swift
+@@ -22,18 +22,61 @@ public enum FieldReader {
+         return subroleRef as? String == "AXSecureTextField"
+     }
+ 
++    /// Whether it is safe to synthesise Cmd-V at whatever has keyboard focus.
++    ///
++    /// This used to try to prove the target was editable before pasting, and it
++    /// was wrong far more often than it was right. Accessibility cannot see
++    /// into Chromium, Electron, or anything drawing its own text stack, so the
++    /// proof failed on Slack, VS Code, Notion, every web text box and the
++    /// browser in the screenshot that started this, and the dictation went to
++    /// the clipboard with a "press Cmd-V" nag instead of into the field.
++    ///
++    /// A dictation tool that sometimes types and sometimes asks you to paste is
++    /// worse than one that always types, because you cannot build a habit on
++    /// it. So the only thing that blocks a paste now is a secure field, which
++    /// is the one case where getting it wrong actually harms the user. If the
++    /// keystroke lands somewhere that ignores it, nothing happens, which is a
++    /// recoverable disappointment rather than a leaked password.
+     @MainActor
+     public static func focusedFieldAvailable() -> Bool {
++        guard let element = focusedElement() else {
++            // No focused element at all. Accessibility often cannot name the
++            // target in exactly the apps that accept Cmd-V perfectly well, so
++            // this is not evidence there is nowhere to type.
++            return true
++        }
++        return !isSecureField(element)
++    }
++
++    /// Kept for callers that genuinely need to know whether the value can be
++    /// written through Accessibility, as opposed to whether a paste is safe.
++    @MainActor
++    static func focusedValueIsSettable() -> Bool {
+         guard let element = focusedElement() else { return false }
+         guard !isSecureField(element) else { return false }
+         var roleRef: CFTypeRef?
+         AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef)
+         let role = roleRef as? String
+ 
++        // A settable AXValue is proof the target takes text. It is not the only
++        // proof, and treating it as the only proof is what made dictation land
++        // on the clipboard instead of in the field.
++        //
++        // Chromium, Electron and anything else drawing its own text stack
++        // answers this call with .success and settable = false on a text area
++        // that accepts Cmd-V perfectly well: the value is not writable through
++        // Accessibility even though the field is editable. Returning early on
++        // that answer threw away the role, so Slack, VS Code, Discord, Notion
++        // and every web text box fell to the clipboard fallback.
++        //
++        // So a known editable role is accepted as the second proof. The paste
++        // stays guarded by the two checks that actually prevent damage: there
++        // has to be a focused element, and it must not be a secure field.
+         var settable = DarwinBoolean(false)
+         if AXUIElementIsAttributeSettable(
+-            element, kAXValueAttribute as CFString, &settable) == .success {
+-            return settable.boolValue
++            element, kAXValueAttribute as CFString, &settable) == .success,
++            settable.boolValue {
++            return true
+         }
+         return editableRoles.contains(role ?? "")
+     }
+diff --git a/Sources/PlynnKit/IndicatorPanel.swift b/Sources/PlynnKit/IndicatorPanel.swift
+index 4ffe3d2..5299905 100644
+--- a/Sources/PlynnKit/IndicatorPanel.swift
++++ b/Sources/PlynnKit/IndicatorPanel.swift
+@@ -19,6 +19,15 @@ public final class IndicatorModel {
+         case meeting(elapsed: Int)
+         /// Meeting ended, transcript saved, notes being written in the background.
+         case meetingSaved
++        /// A wake-word dictation was handed to Chewie and the agent is working.
++        /// This takes tens of seconds where a paste takes milliseconds, so it
++        /// needs its own visible state: the first build reused `.transcribing`
++        /// and the dispatch loop's tidy-up hid the panel immediately, which
++        /// looked exactly like the dictation had been swallowed.
++        case thinking
++        /// Chewie answered. The pill grows to fit the text and holds long
++        /// enough to read before it pastes.
++        case answer(String)
+     }
+     public var phase: Phase = .recording(handsFree: false)
+     /// True only while the panel is on screen. The waveform uses this to
 diff --git a/Sources/PlynnKit/IndicatorView.swift b/Sources/PlynnKit/IndicatorView.swift
-index ec9dc7a..5e10b5e 100644
+index ec9dc7a..debd723 100644
 --- a/Sources/PlynnKit/IndicatorView.swift
 +++ b/Sources/PlynnKit/IndicatorView.swift
 @@ -23,6 +23,36 @@ enum IndicatorMetrics {
@@ -144,6 +767,76 @@ index ec9dc7a..5e10b5e 100644
              // Explicit glass character — a bright rim light along the top edge
              // and a soft specular sheen, visible on any background.
              .overlay(
+@@ -88,7 +117,8 @@ struct IndicatorView: View {
+         guard model.isVisible else { return false }
+         switch model.phase {
+         case .recording, .meeting: return true
+-        case .transcribing, .done, .secure, .micUnavailable, .error, .meetingSaved:
++        case .transcribing, .done, .secure, .micUnavailable, .error, .meetingSaved,
++            .thinking, .answer:
+             return false
+         }
+     }
+@@ -110,6 +140,35 @@ struct IndicatorView: View {
+         case .transcribing:
+             PolishingLabel()
+                 .transition(.opacity)
++        case .thinking:
++            HStack(spacing: 6) {
++                ProgressView()
++                    .controlSize(.small)
++                    .scaleEffect(0.6)
++                    .tint(.white.opacity(0.8))
++                Text("Chewie is on it\u{2026}")
++                    .font(
++                        .system(
++                            size: IndicatorMetrics.textSize, weight: .medium, design: .rounded)
++                    )
++                    .foregroundStyle(.white.opacity(0.75))
++                    .lineLimit(1)
++            }
++            .padding(.horizontal, IndicatorMetrics.inset)
++            .transition(.opacity)
++        case .answer(let text):
++            // Wraps rather than scrolls: the answer is the point, and a single
++            // scrolling line makes you wait to read something already on screen.
++            Text(text)
++                .font(.system(size: 11, weight: .medium, design: .rounded))
++                .foregroundStyle(.white.opacity(0.92))
++                .multilineTextAlignment(.leading)
++                .lineLimit(6)
++                .fixedSize(horizontal: false, vertical: true)
++                .frame(maxWidth: .infinity, alignment: .leading)
++                .padding(.horizontal, 10)
++                .padding(.vertical, 6)
++                .transition(.opacity)
+         case .done:
+             AnimatedCheckmark()
+         case .secure:
+diff --git a/Sources/PlynnKit/Paster.swift b/Sources/PlynnKit/Paster.swift
+index 92549b6..431f4fd 100644
+--- a/Sources/PlynnKit/Paster.swift
++++ b/Sources/PlynnKit/Paster.swift
+@@ -60,6 +60,19 @@ public enum Paster {
+         return .scheduled
+     }
+ 
++    /// Put text on the clipboard and leave it there, with no Cmd-V and no
++    /// restore. This is how a Chewie answer reaches the user: it is a reply to
++    /// a question, not dictated text, so it must never be typed into whatever
++    /// happened to have focus. Not transient either, unlike the paste path,
++    /// because the user is meant to be able to reach for it afterwards.
++    @discardableResult
++    @MainActor
++    public static func copy(_ text: String) -> Bool {
++        let pb = NSPasteboard.general
++        guard pb.clearContents() != 0 else { return false }
++        return pb.setString(text, forType: .string)
++    }
++
+     /// Leave text available for an explicit Cmd-V when automatic paste cannot
+     /// safely target an editable field.
+     @MainActor
 diff --git a/Sources/PlynnKit/TranscriptFormatter.swift b/Sources/PlynnKit/TranscriptFormatter.swift
 index c001dbc..be1d025 100644
 --- a/Sources/PlynnKit/TranscriptFormatter.swift
@@ -311,6 +1004,139 @@ index 688cf74..d8c21e3 100644
          let engine = AppleSpeechEngine()
          do { try await engine.start() } catch AppleSpeechEngine.EngineError.assetUnavailable {
              throw XCTSkip("English speech asset unavailable on this machine")
+diff --git a/Tests/PlynnKitTests/ChewieRouterTests.swift b/Tests/PlynnKitTests/ChewieRouterTests.swift
+new file mode 100644
+index 0000000..6c8c6db
+--- /dev/null
++++ b/Tests/PlynnKitTests/ChewieRouterTests.swift
+@@ -0,0 +1,127 @@
++import XCTest
++
++@testable import PlynnKit
++
++final class ChewieRouterTests: XCTestCase {
++
++    // MARK: - Wake word
++
++    func testPlainDictationIsNotRouted() {
++        XCTAssertNil(ChewieRouter.prompt(from: "send the deck to maggie tomorrow"))
++        XCTAssertNil(ChewieRouter.prompt(from: ""))
++        XCTAssertNil(ChewieRouter.prompt(from: "   "))
++    }
++
++    func testWakeWordIsStripped() {
++        XCTAssertEqual(
++            ChewieRouter.prompt(from: "Chewie, make a note with the texts I need to answer"),
++            "make a note with the texts I need to answer")
++        XCTAssertEqual(
++            ChewieRouter.prompt(from: "Chewbacca what is due this week"),
++            "what is due this week")
++    }
++
++    /// A speech recogniser will not spell the name the same way twice, and a
++    /// wake word that only fires on the correct spelling does not fire.
++    func testMisheardSpellingsStillWake() {
++        for heard in ["chewy", "Chubaka", "chewbaca", "CHUBACCA"] {
++            XCTAssertEqual(
++                ChewieRouter.prompt(from: "\(heard): open the door"), "open the door",
++                "\(heard) should have woken the router")
++        }
++    }
++
++    func testLeadingPunctuationIsDropped() {
++        XCTAssertEqual(ChewieRouter.prompt(from: "Chewie -- do the thing"), "do the thing")
++        XCTAssertEqual(ChewieRouter.prompt(from: "Chewie... do the thing"), "do the thing")
++    }
++
++    /// Saying the name alone is someone testing the microphone. Pasting it is
++    /// the right answer, and a twenty second agent round trip is not.
++    func testBareWakeWordDoesNotRoute() {
++        XCTAssertNil(ChewieRouter.prompt(from: "Chewie"))
++        XCTAssertNil(ChewieRouter.prompt(from: "chewbacca."))
++    }
++
++    /// The word has to open the sentence. Dictating a sentence that mentions
++    /// him must still paste as text.
++    func testWakeWordMustBeFirst() {
++        XCTAssertNil(ChewieRouter.prompt(from: "tell Chewie I said hello"))
++        XCTAssertNil(ChewieRouter.prompt(from: "my dog is called Chewie"))
++    }
++
++    /// The wake word has to end where it ends. "Chewy's bowl is empty" matched
++    /// the prefix, the apostrophe survived the punctuation trim, and a sentence
++    /// about a dog was sent to an agent instead of being typed.
++    func testWordsThatMerelyStartWithTheWakeWordDoNotRoute() {
++        XCTAssertNil(ChewieRouter.prompt(from: "Chewy's bowl is empty"))
++        XCTAssertNil(ChewieRouter.prompt(from: "chewbaccas are fictional"))
++        XCTAssertNil(ChewieRouter.prompt(from: "Chewieness is not a word"))
++    }
++
++    /// ...while a real separator still wakes it.
++    func testSeparatorsAfterTheWakeWordStillRoute() {
++        for opener in ["Chewie ", "Chewie, ", "Chewie: ", "Chewie- ", "Chewie\n"] {
++            XCTAssertEqual(
++                ChewieRouter.prompt(from: opener + "open the door"), "open the door",
++                "\(opener.debugDescription) should have woken the router")
++        }
++    }
++
++    // MARK: - Selection as context
++
++    /// "Chewie, make this shorter" is meaningless without the thing being
++    /// pointed at, so a live selection travels with the request.
++    func testSelectionIsAttachedToThePrompt() {
++        let composed = ChewieRouter.compose(
++            prompt: "make this shorter", selection: "The quarterly report is attached herewith.")
++        XCTAssertTrue(composed.hasPrefix("make this shorter"))
++        XCTAssertTrue(composed.contains("The quarterly report is attached herewith."))
++    }
++
++    func testNoSelectionLeavesThePromptAlone() {
++        XCTAssertEqual(ChewieRouter.compose(prompt: "what is due", selection: nil), "what is due")
++        XCTAssertEqual(ChewieRouter.compose(prompt: "what is due", selection: "   "), "what is due")
++    }
++
++    // MARK: - Local fallback
++
++    /// The on-device model has no tools, and a fallback that invents a contact
++    /// or a deadline is worse than one that admits it cannot look.
++    func testLocalFallbackPromptForbidsGuessingAndCarriesTheRequest() {
++        let p = ChewieRouter.localFallbackPrompt("how many texts do I owe")
++        XCTAssertTrue(p.contains("how many texts do I owe"))
++        XCTAssertTrue(p.contains("NO tools"))
++        XCTAssertTrue(p.lowercased().contains("never guess"))
++    }
++
++    // MARK: - Opener stripping
++
++    func testPrayerOpenerIsRemoved() {
++        let reply = "Lord Jesus, thank You for this work. Amen.\n\nNoted 4 unanswered texts."
++        XCTAssertEqual(ChewieRouter.stripOpener(reply), "Noted 4 unanswered texts.")
++    }
++
++    func testAnswerWithoutAnOpenerIsUntouched() {
++        XCTAssertEqual(ChewieRouter.stripOpener("Noted 4 texts."), "Noted 4 texts.")
++    }
++
++    /// A one-paragraph reply that happens to be the opener is not stripped to
++    /// nothing: an empty paste is worse than a strange one.
++    func testOpenerOnlyReplyIsKept() {
++        let onlyPrayer = "Father, be with him. Amen."
++        XCTAssertEqual(ChewieRouter.stripOpener(onlyPrayer), onlyPrayer)
++    }
++
++    func testStrippingSurvivesTrailingPunctuationAndEmphasis() {
++        let reply = "**Thank You, Lord. Amen.**\n\nDone."
++        XCTAssertEqual(ChewieRouter.stripOpener(reply), "Done.")
++    }
++
++    /// A real answer whose first paragraph merely contains the word must
++    /// survive. Only a paragraph ENDING in the word is an opener.
++    func testParagraphMentioningAmenIsNotAnOpener() {
++        let reply = "The word amen means so be it.\n\nThat is the whole answer."
++        XCTAssertEqual(ChewieRouter.stripOpener(reply), reply)
++    }
++}
 diff --git a/Tests/PlynnKitTests/EngineManagerTests.swift b/Tests/PlynnKitTests/EngineManagerTests.swift
 index 1e7696d..02678e3 100644
 --- a/Tests/PlynnKitTests/EngineManagerTests.swift
@@ -355,12 +1181,12 @@ index 1e7696d..02678e3 100644
  
      func testParakeetModelsAbsentInEmptyDir() {
 diff --git a/scripts/Info.plist b/scripts/Info.plist
-index 2cf873f..167fce3 100644
+index c65b3d6..778fe5f 100644
 --- a/scripts/Info.plist
 +++ b/scripts/Info.plist
 @@ -30,11 +30,16 @@
  	<key>CFBundleVersion</key>
- 	<string>10</string>
+ 	<string>11</string>
  	<key>LSMinimumSystemVersion</key>
 -	<string>26.0</string>
 +	<string>15.0</string>
