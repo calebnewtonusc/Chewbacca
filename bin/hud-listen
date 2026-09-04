@@ -151,32 +151,69 @@ class Listener:
                 pass
 
     def run(self) -> int:
-        try:
-            self.sock.connect(SOCKET)
-        except OSError as err:
-            print(f"The display is not running ({err}). Start it with: hud open", file=sys.stderr)
-            return 1
+        """Stay connected for as long as the person is working.
 
+        The display gets rebuilt, relaunched, and killed constantly, and the
+        first version exited the moment its socket closed. A loop that dies
+        silently when the thing it watches restarts is worse than no loop: the
+        person keeps talking to a display that has nothing behind it any more,
+        and the only symptom is that nothing happens.
+
+        So: reconnect, with a backoff that gives up on the *message* rather than
+        on the loop. It keeps trying quietly, and says so once at the top.
+        """
         print(
             f"listening on {SOCKET} — say something to the display\n"
             f"conversation: {self.session}",
             file=sys.stderr,
         )
-        self.send("p attentive")
 
-        buffer = b""
+        delay = 0.5
+        announced = False
         while True:
             try:
-                chunk = self.sock.recv(4096)
-            except (OSError, KeyboardInterrupt):
-                break
-            if not chunk:
-                break
-            buffer += chunk
-            while b"\n" in buffer:
-                raw, buffer = buffer.split(b"\n", 1)
-                self.handle(raw.decode("utf-8", "replace").strip())
-        return 0
+                self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                self.sock.connect(SOCKET)
+            except OSError:
+                if not announced:
+                    print(
+                        "waiting for the display (hud open) …", file=sys.stderr
+                    )
+                    announced = True
+                try:
+                    time.sleep(delay)
+                except KeyboardInterrupt:
+                    return 0
+                # Capped, because a display that comes back after an hour should
+                # be picked up within seconds, not within another hour.
+                delay = min(delay * 2, 5.0)
+                continue
+
+            delay = 0.5
+            if announced:
+                print("connected", file=sys.stderr)
+                announced = False
+            self.send("p attentive")
+
+            buffer = b""
+            try:
+                while True:
+                    chunk = self.sock.recv(4096)
+                    if not chunk:
+                        break
+                    buffer += chunk
+                    while b"\n" in buffer:
+                        raw, buffer = buffer.split(b"\n", 1)
+                        self.handle(raw.decode("utf-8", "replace").strip())
+            except KeyboardInterrupt:
+                return 0
+            except OSError:
+                pass
+            finally:
+                try:
+                    self.sock.close()
+                except OSError:
+                    pass
 
     def handle(self, line: str) -> None:
         if not line:
