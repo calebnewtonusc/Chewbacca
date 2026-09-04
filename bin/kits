@@ -1,0 +1,71 @@
+#!/bin/sh
+# Find every kit on this machine.
+#
+# A kit is a repo somebody lives inside for weeks while an agent walks them
+# through a process. Building one is only half the loop: a kit that cannot be
+# discovered is a kit that gets rebuilt, or worse, gets ignored while the agent
+# answers the same question turn by turn in a chat window.
+#
+# So every kit carries a .kit marker at its root, and this finds them.
+#
+# Usage:
+#   kits              human-readable list
+#   kits --context    one line for a session hook
+#   kits --paths      just the directories
+#
+# Searches, in order: $KITS_DIR, $REPO_DIR, ~/dev, ~/Desktop, ~/Projects, ~/kits.
+# Set KITS_DIR to override. Depth-limited, so a deep node_modules cannot slow it.
+
+MODE="${1:-list}"
+
+ROOTS="${KITS_DIR:-} ${REPO_DIR:-} $HOME/dev $HOME/Desktop $HOME/Projects $HOME/kits"
+
+FOUND=""
+for root in $ROOTS; do
+  [ -n "$root" ] || continue
+  [ -d "$root" ] || continue
+  # maxdepth 4 reaches ~/Desktop/2026-Code/projects/<kit>/.kit and no further.
+  for m in $(find "$root" -maxdepth 4 -name '.kit' -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null); do
+    case " $FOUND " in *" $m "*) continue ;; esac
+    FOUND="$FOUND $m"
+  done
+done
+
+if [ -z "$FOUND" ]; then
+  [ "$MODE" = "--context" ] && exit 0
+  echo "No kits found."
+  echo "Build one from https://github.com/calebnewtonusc/kit-template, or load the kit-builder skill."
+  exit 0
+fi
+
+field() { grep -m1 "^$2:" "$1" 2>/dev/null | sed "s/^$2: *//"; }
+
+case "$MODE" in
+  --paths)
+    for m in $FOUND; do dirname "$m"; done
+    ;;
+  --context)
+    # One line, for injection into a session. Templates are excluded: nobody
+    # should be routed into the empty spine.
+    OUT=""
+    for m in $FOUND; do
+      [ "$(field "$m" status)" = "template" ] && continue
+      n=$(field "$m" name); u=$(field "$m" use-when); d=$(dirname "$m")
+      [ -n "$n" ] || continue
+      OUT="$OUT$n ($d) for: $u. "
+    done
+    if [ -n "$OUT" ]; then
+      printf 'Kits installed on this machine: %sIf what they are asking for matches one, work inside that kit rather than answering turn by turn, and cd there first. If it matches none and the work is kit-shaped, load kit-builder.\n' "$OUT"
+    fi
+    exit 0
+    ;;
+  *)
+    echo ""
+    for m in $FOUND; do
+      n=$(field "$m" name); dm=$(field "$m" domain); s=$(field "$m" status); d=$(dirname "$m")
+      printf "  %-22s %s\n" "${n:-$(basename "$d")}" "${s:-ready}"
+      [ -n "$dm" ] && printf "  %-22s %s\n" "" "$dm"
+      printf "  %-22s %s\n\n" "" "$d"
+    done
+    ;;
+esac

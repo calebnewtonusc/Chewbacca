@@ -42,6 +42,16 @@ Score it before writing a single file. Say the score and say which properties fa
 it scores four or lower, say so and write a skill instead. That refusal is the most
 valuable thing in this file.
 
+## Before anything: check what exists
+
+```
+kits
+```
+
+Finds every kit on this machine by its `.kit` marker. **If one already covers this, `cd`
+there and work inside it.** It holds their state and their deadlines, and working outside
+it throws that away.
+
 ## Then build from the template
 
 ```
@@ -121,6 +131,29 @@ confirm the briefing surfaces it.** Cold start and returning user are different 
 paths and only one gets exercised while you build. A real bug shipped this way: the
 `TEMPLATE: unfilled` check ran inside awk, but the marker sits at the bottom of the file,
 so awk had already processed every row above it. Empty templates hid it completely.
+
+## Write the marker, or it will get rebuilt
+
+Every kit carries a `.kit` file at its root. This is not optional. It is what makes the
+kit discoverable by `kits` and by the session briefing, and it is the difference between a
+tool that extends itself and one that builds the same thing twice.
+
+```
+name: <domain>-kit
+domain: <one line, what it covers>
+use-when: <concrete phrases somebody would actually say, comma separated>
+status: ready
+```
+
+**Keep `use-when` in their words, not yours.** It gets matched against what somebody types
+at three in the morning. "a professor ignoring an accommodation letter" routes correctly.
+"post-approval implementation failures" does not.
+
+Then confirm it took:
+
+```
+kits --context
+```
 
 ## Then push it
 
