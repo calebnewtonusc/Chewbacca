@@ -136,7 +136,7 @@ USAGE
 NAME=""; GITHUB_USER=""; REPO_DIR=""; ANTHROPIC_KEY=""; GITHUB_PAT=""
 TODOIST_TOKEN=""; COMPOSIO_URL=""; COMPOSIO_KEY=""; ANSWERS=""
 SESSION_OPENER="none"; BYPASS_PERMS="no"; ONLY=""; DRY_RUN=0
-PROFILE="developer"; NO_GITHUB=0
+PROFILE="developer"; NO_GITHUB=0; ONLY_PORTABLE=0
 # Only these reach settings.json, and only when passed here in this run.
 declare -a CREDS_WRITTEN=()
 
@@ -153,7 +153,20 @@ while [ $# -gt 0 ]; do
     --answers) ANSWERS="${2:-}"; shift 2 ;;
     --session-opener) SESSION_OPENER="${2:-none}"; shift 2 ;;
     --bypass-permissions) BYPASS_PERMS="yes"; shift ;;
-    --profile) PROFILE="${2:-developer}"; shift 2 ;;
+    --profile)
+      PROFILE="${2:-developer}"
+      case "$PROFILE" in
+        personal|student|developer|portable) ;;
+        *) err "unknown profile: $PROFILE"
+           err "  one of: personal, student, developer, portable"
+           exit 2 ;;
+      esac
+      # portable is the neutral half: standards, skills, commands, subagents.
+      # No Homebrew, no Mac tools, no MCP, no permissions, no repos. It is the
+      # only profile that works on a machine this kit does not otherwise run on,
+      # and the only one that touches nothing outside ~/.claude.
+      if [ "$PROFILE" = portable ]; then NO_GITHUB=1; ONLY_PORTABLE=1; fi
+      shift 2 ;;
     --no-github) NO_GITHUB=1; shift ;;
     --full-send) BYPASS_PERMS="yes"; shift ;;
     --only) ONLY="${2:-}"; shift 2 ;;
@@ -168,8 +181,11 @@ done
 # reachable with --only and the whole thing stays one file.
 case "$PROFILE" in
   personal|student) NO_GITHUB=1 ;;
+  portable) NO_GITHUB=1; ONLY_PORTABLE=1 ;;
   developer) ;;
-  *) err "unknown profile: $PROFILE (personal, student, developer)"; exit 2 ;;
+  *) err "unknown profile: $PROFILE"
+     err "  one of: personal, student, developer, portable"
+     exit 2 ;;
 esac
 
 # The answers file fills anything a flag did not. Flags win, so a one-off
@@ -238,11 +254,17 @@ if [ -n "$ONLY" ]; then
     *) err "unknown section: $ONLY"; err "one of: $SECTIONS"; exit 2 ;;
   esac
 fi
-should_run() { [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; }
+PORTABLE_SECTIONS=" settings rules manifest verify "
+should_run() {
+  if [ "$ONLY_PORTABLE" -eq 1 ]; then
+    case "$PORTABLE_SECTIONS" in *" $1 "*) ;; *) return 1 ;; esac
+  fi
+  [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]
+}
 
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "Would run: ${ONLY:-all sections}"
-  echo "  profile:         $PROFILE"
+  echo "  profile:         $PROFILE$([ "$ONLY_PORTABLE" -eq 1 ] && echo "  (~/.claude only, no Mac tools)")"
   echo "  github:          $([ "$NO_GITHUB" -eq 1 ] && echo "skipped, brain stays local" || echo "two repos created and pushed")"
   echo "  name:            ${USER_NAME:-<unset>}"
   echo "  repo dir:        $WORKSPACE_DIR"

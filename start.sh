@@ -85,7 +85,18 @@ fi
 step "Checking this Mac"
 
 if [ "$(uname -s)" != "Darwin" ]; then
-  bad "This is macOS only. You are on $(uname -s)."
+  bad "The full install is macOS only. You are on $(uname -s)."
+  echo
+  echo "  Half of this kit is macOS automation and none of that will work here."
+  echo "  The other half is platform-neutral: the standards, the skills, the"
+  echo "  slash commands and the subagents are plain text a Claude Code session"
+  echo "  reads on any OS. To install only that part:"
+  echo
+  echo "    git clone https://github.com/calebnewtonusc/Chewbacca"
+  echo "    cd Chewbacca && ./setup.sh --profile portable"
+  echo
+  echo "  That writes ~/.claude and nothing else. No Homebrew, no Mac tools, no"
+  echo "  permissions. Tracked as items 671-675 in docs/1000.md."
   exit 1
 fi
 ok "macOS $(sw_vers -productVersion)"

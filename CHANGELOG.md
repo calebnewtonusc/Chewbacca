@@ -14,6 +14,7 @@ real commit; nothing here is written by hand.
 - hud-listen did not parse
 
 ### Documentation
+- an index, a troubleshooting page, and five things that did not exist
 - the component reference is generated from the catalog
 
 ### Other
