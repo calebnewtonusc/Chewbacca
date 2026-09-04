@@ -17,3 +17,6 @@ Thumbs.db
 # Python bytecode from bin/ tools
 __pycache__/
 *.pyc
+
+# Vendored Plynn build output
+plynn/.build/

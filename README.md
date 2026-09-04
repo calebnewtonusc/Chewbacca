@@ -272,19 +272,19 @@ it off is `--session-opener none`. To write your own, add it to `OPENERS` in
 
 ## What gets installed
 
-| Piece                   | Details                                                                                                                                            |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **macOS tools**         | 8 installed alongside the kit: Anki, bd, mac, Maccy, mac-use, peekaboo, summarize, yt-transcript                                                   |
-| **Skills and plugins**  | 75 skills (19 shipped here, 3 cloned from upstream, 53 from 1 skill pack) plus 18 plugins across 3 marketplaces                                    |
-| **Second brain**        | A private notes repo Claude reads at the start of every session and writes to as things change. Syncs to GitHub                                    |
-| **Coursework ledger**   | Your syllabi become deadlines, attendance budgets, and a per-course AI policy Claude checks before touching graded work                            |
-| **On-device dictation** | Installs [Plynn](https://github.com/31Carlton7/plynn): hold fn, talk, and clean text appears. Speech and cleanup run on your Mac, nothing uploaded |
-| **Smart hooks**         | Format on save, sync your notes, warn on `.env` writes, and flag unpushed work only when there is any                                              |
-| **4 subagents**         | context-keeper, code-reviewer, debugger, and explorer, each scoped to one job with its own tool set                                                |
-| **Output styles**       | Drop the software-engineering instructions entirely when the work is notes or prose                                                                |
-| **18 standards files**  | 6 loaded every session; 12 stack-specific ones that load only when the work touches them                                                           |
-| **Full design system**  | Dark mode, shadcn/ui, Tailwind, scroll-aware navbar, real typography, for when you are building something                                          |
-| **48 slash commands**   | For when you want a specific routine on purpose. You never need one to get the rows above                                                          |
+| Piece                   | Details                                                                                                                 |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **macOS tools**         | 8 installed alongside the kit: Anki, bd, mac, Maccy, mac-use, peekaboo, summarize, yt-transcript                        |
+| **Skills and plugins**  | 75 skills (19 shipped here, 3 cloned from upstream, 53 from 1 skill pack) plus 18 plugins across 3 marketplaces         |
+| **Second brain**        | A private notes repo Claude reads at the start of every session and writes to as things change. Syncs to GitHub         |
+| **Coursework ledger**   | Your syllabi become deadlines, attendance budgets, and a per-course AI policy Claude checks before touching graded work |
+| **On-device dictation** | Builds `plynn/`: hold fn to type, hold left Option to ask Chewie. Speech and cleanup run on your Mac, nothing uploaded  |
+| **Smart hooks**         | Format on save, sync your notes, warn on `.env` writes, and flag unpushed work only when there is any                   |
+| **4 subagents**         | context-keeper, code-reviewer, debugger, and explorer, each scoped to one job with its own tool set                     |
+| **Output styles**       | Drop the software-engineering instructions entirely when the work is notes or prose                                     |
+| **18 standards files**  | 6 loaded every session; 12 stack-specific ones that load only when the work touches them                                |
+| **Full design system**  | Dark mode, shadcn/ui, Tailwind, scroll-aware navbar, real typography, for when you are building something               |
+| **48 slash commands**   | For when you want a specific routine on purpose. You never need one to get the rows above                               |
 
 ---
 
@@ -907,37 +907,39 @@ That table is generated the same way the extension table is: a tool appears only
 once the generator finds it on the machine, so an entry here is proof of an
 install rather than an intention.
 
-### Plynn: on-device dictation
+### Plynn: on-device dictation, and talking to Chewie
 
-Setup also installs [Plynn](https://github.com/31Carlton7/plynn) by Carlton
-Aikins (MIT). Hold the fn key, talk, release, and cleaned-up text lands wherever
-your cursor is. Speech recognition, AI cleanup, your dictionary, and your history
-all run on your Mac. There is no account and no transcript upload.
+`plynn/` is a fork of [Plynn](https://github.com/31Carlton7/plynn) by Carlton
+Aikins (MIT), vendored here. Hold the fn key, talk, release, and cleaned-up text
+lands wherever your cursor is. Speech recognition, AI cleanup, your dictionary
+and your history all run on your Mac. There is no account and no transcript
+upload.
 
 Talking is faster than typing, and a prompt you dictate tends to carry more
 context than one you type. That is the whole reason it is in a Claude Code kit.
 
-It needs Apple Silicon. Which path setup takes depends on your macOS version:
+**Hold left Option instead of fn, or just say "Chewie", and it stops
+transcribing and starts answering.** The request goes to Claude Code with your
+own CLIs, skills and second brain behind it, so "Chewie, what do I owe people
+this week" reaches the same `people` and `coursework` commands you would run in
+a terminal. Answers appear on the pill and go to your clipboard; they are never
+typed into whatever had focus, because a reply to a question is not dictated
+text.
 
-| Your macOS          | What happens                                                       |
-| ------------------- | ------------------------------------------------------------------ |
-| 26 (Tahoe) or newer | Downloads Carlton's notarized release. Fast, nothing to build.     |
-| 15 (Sequoia)        | Skipped by default. Upstream targets 26, so it has to be compiled. |
-
-On macOS 15 it does run, it just has to be built with a compatibility patch
-(about 20 minutes, needs Xcode 26):
+It needs Apple Silicon and macOS 15 or newer, and it is always compiled from
+`plynn/` rather than downloaded, because the upstream release does not contain
+Chewie. That is about 20 minutes and needs Xcode 26, so it is opt-in:
 
 ```bash
 PLYNN_BUILD_FROM_SOURCE=1 ./bin/install-plynn.sh
 ```
 
-What that patch does and what the fallbacks cost is in
-[patches/README.md](patches/README.md). The general technique, for any Swift app
-whose declared macOS floor is higher than it needs to be, is in
+What was changed and why it is carried here instead of patched at install time
+is in [plynn/NOTICE.md](plynn/NOTICE.md). The general technique, for any Swift
+app whose declared macOS floor is higher than it needs to be, is in
 [docs/SWIFT-MACOS-PORTING.md](docs/SWIFT-MACOS-PORTING.md).
 
-Plynn is installed from Carlton's repository and releases, never vendored into
-this one. `PLYNN_FORCE=1` reinstalls over an existing copy.
+`PLYNN_FORCE=1` reinstalls over an existing copy.
 
 ---
 
@@ -1043,7 +1045,7 @@ Chewbacca/
 │   └── mac_use_cli.py           # The agent loop behind mac-use
 ├── examples/
 │   └── todo-app/                # Working Worker + D1 example (deploy in 60s)
-├── patches/                     # plynn-macos15.patch, applied to upstream at install
+├── plynn/                       # vendored dictation app + Chewie (MIT, Carlton Aikins)
 ├── templates/                   # Full starter files (Worker, migration, components)
 │   └── coursework/              # semester.yml and course.yml, the ledger shape
 ├── snippets/                    # Copy-paste patterns (Drizzle, wrangler, hooks)

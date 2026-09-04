@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
-# Installs Plynn, a fully on-device Mac dictation app by Carlton Aikins.
-# Upstream: https://github.com/31Carlton7/plynn (MIT). This script installs it,
-# it does not vendor it: the binary comes from Carlton's signed releases, and the
-# macOS 15 path builds his source with a compatibility patch.
+# Installs Plynn, a fully on-device Mac dictation app, forked from Carlton
+# Aikins' work (https://github.com/31Carlton7/plynn, MIT) and vendored at
+# plynn/ in this repo. See plynn/NOTICE.md for what we changed and why it is
+# carried here rather than patched at install time.
 #
-# Two paths, picked by OS:
-#   macOS 26+  download the notarized DMG. Fast, nothing to build.
-#   macOS 15   build from source with patches/plynn-macos15.patch, because
-#              upstream targets 26. Opt in with PLYNN_BUILD_FROM_SOURCE=1.
+# It is always built from the vendored source. The upstream DMG is not used
+# even on macOS 26, because it does not contain Chewie.
 #
 # Safe to re-run. Never overwrites an existing /Applications/Plynn.app.
 set -uo pipefail
@@ -18,9 +16,8 @@ warn() { echo -e "  ${YLW}!${NC} $1"; }
 err()  { echo -e "  ${RED}✗${NC} $1"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PATCH="$SCRIPT_DIR/patches/plynn-macos15.patch"
+SRC="$SCRIPT_DIR/plynn"
 APP="/Applications/Plynn.app"
-DMG_URL="https://github.com/31Carlton7/plynn/releases/latest/download/Plynn.dmg"
 
 # ── Guards ────────────────────────────────────────────────────────────────────
 [ "$(uname -s)" = "Darwin" ] || { warn "Plynn is macOS only, skipping"; exit 0; }
@@ -37,45 +34,22 @@ fi
 
 MACOS_MAJOR="$(sw_vers -productVersion | cut -d. -f1)"
 
-# ── macOS 26+: the notarized DMG ──────────────────────────────────────────────
-if [ "$MACOS_MAJOR" -ge 26 ]; then
-  TMP="$(mktemp -d)"
-  trap 'hdiutil detach "$TMP/mnt" -quiet 2>/dev/null; rm -rf "$TMP"' EXIT
-  if ! curl -fsSL "$DMG_URL" -o "$TMP/Plynn.dmg"; then
-    err "could not download Plynn.dmg, get it from github.com/31Carlton7/plynn/releases"
-    exit 0
-  fi
-  mkdir -p "$TMP/mnt"
-  if ! hdiutil attach "$TMP/Plynn.dmg" -mountpoint "$TMP/mnt" -nobrowse -quiet; then
-    err "could not mount Plynn.dmg"
-    exit 0
-  fi
-  if [ -d "$TMP/mnt/Plynn.app" ]; then
-    rm -rf "$APP"
-    ditto "$TMP/mnt/Plynn.app" "$APP" && log "Plynn installed (notarized release)"
-  else
-    err "Plynn.app not found inside the DMG"
-    exit 0
-  fi
-  echo "    Launch it, grant microphone and accessibility, then hold fn and talk."
-  exit 0
-fi
-
-# ── macOS 15: build the port ──────────────────────────────────────────────────
+# ── Build the vendored source ─────────────────────────────────────────────────
 if [ "$MACOS_MAJOR" -lt 15 ]; then
   warn "Plynn needs macOS 15 or newer, skipping"
   exit 0
 fi
 
+# Compiling is a 20 minute step, so it stays opt-in rather than something
+# setup.sh springs on someone who only wanted the CLIs.
 if [ "${PLYNN_BUILD_FROM_SOURCE:-0}" != "1" ]; then
-  warn "Plynn skipped: upstream targets macOS 26, you are on $(sw_vers -productVersion)"
-  echo "    It runs here, but it has to be compiled (Xcode 26, roughly 20 minutes)."
+  warn "Plynn skipped: it has to be compiled (Xcode 26, roughly 20 minutes)"
   echo "    To install it:  PLYNN_BUILD_FROM_SOURCE=1 $SCRIPT_DIR/bin/install-plynn.sh"
   exit 0
 fi
 
 command -v xcodebuild &>/dev/null || { err "Xcode 26 required to build Plynn"; exit 0; }
-[ -f "$PATCH" ] || { err "missing $PATCH"; exit 0; }
+[ -d "$SRC/Sources" ] || { err "missing vendored source at $SRC"; exit 0; }
 
 if ! xcodebuild -showComponent MetalToolchain 2>/dev/null | grep -q "Status: installed"; then
   warn "downloading the Metal toolchain (MLX's shaders need it, this is large)"
@@ -83,24 +57,8 @@ if ! xcodebuild -showComponent MetalToolchain 2>/dev/null | grep -q "Status: ins
     || { err "could not install the Metal toolchain"; exit 0; }
 fi
 
-SRC="${PLYNN_SRC:-$HOME/Projects/plynn}"
-if [ -d "$SRC/.git" ]; then
-  log "plynn source already at $SRC"
-else
-  git clone -q https://github.com/31Carlton7/plynn.git "$SRC" \
-    || { err "could not clone plynn"; exit 0; }
-  log "plynn cloned to $SRC"
-fi
-
 cd "$SRC" || exit 0
-if git apply --check "$PATCH" 2>/dev/null; then
-  git apply "$PATCH" && log "macOS 15 compatibility patch applied"
-elif git apply --reverse --check "$PATCH" 2>/dev/null; then
-  log "patch already applied"
-else
-  err "patch does not apply, upstream has moved. Open an issue on Chewbacca."
-  exit 0
-fi
+log "building the vendored source at $SRC"
 
 # A real certificate beats ad-hoc here: macOS keys accessibility and microphone
 # grants to the signature, and ad-hoc is identified by its hash, so every
