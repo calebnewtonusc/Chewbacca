@@ -240,6 +240,18 @@ being true.
 Leave `life` off for anything they will read or act on. A panel that vanishes
 mid-sentence is a bug they will blame on you.
 
+## Pointing
+
+Holding Option-Command and dragging outlines a region on screen, and the display
+sends `g <x> <y> <w> <h>` when it is released. If a request arrives shortly
+after, its "this" or "that" means whatever is in that rectangle. `hud listen`
+attaches it to the prompt for thirty seconds and then forgets it, because
+pointing at something and asking about it a minute later is a coincidence rather
+than a reference.
+
+The display sends coordinates, never pixels. Look at the region yourself if you
+need to see it.
+
 ## Hearing them
 
 The display can listen. It is off until the person turns it on from the menu bar
