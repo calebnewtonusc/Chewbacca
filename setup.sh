@@ -580,6 +580,34 @@ if [ -n "$_installed_scanners" ]; then
 fi
 unset _tool _installed_scanners
 
+# The display: hud draws interfaces on top of everything on screen, hud-listen
+# turns what is said to it into a drawing, hud-context reports what is in front
+# of the person. All three go in together because hud calls the other two by
+# path, so installing one of them alone gives a command that fails halfway.
+_installed_hud=""
+for _tool in hud hud-listen hud-context; do
+  if [ -f "$SCRIPT_DIR/bin/$_tool" ]; then
+    mkdir -p "$HOME/.local/bin"
+    cp "$SCRIPT_DIR/bin/$_tool" "$HOME/.local/bin/$_tool"
+    chmod +x "$HOME/.local/bin/$_tool"
+    _installed_hud="$_installed_hud $_tool"
+  fi
+done
+if [ -n "$_installed_hud" ]; then
+  log "Installed to ~/.local/bin/:$_installed_hud"
+  # The commands are useless without the app that draws. Say so once, here,
+  # rather than letting the first `hud draw` fail with a socket error.
+  if [ ! -d "/Applications/BobHUD.app" ] && [ ! -d "$HOME/Applications/BobHUD.app" ]; then
+    warn "BobHUD.app is not installed, so hud has nothing to draw on."
+    warn "Build it: git clone https://github.com/calebnewtonusc/bob-the-builder && cd bob-the-builder/hud && ./scripts/bundle.sh"
+  fi
+  case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) warn "~/.local/bin is not on your PATH. Add it to run$_installed_hud by name." ;;
+  esac
+fi
+unset _tool _installed_hud
+
 # coursework reads a semester ledger built from your syllabi: what is due, what
 # an absence costs, what each course allows you to use AI for. Deterministic, so
 # Claude spends its tokens on judgment instead of re-reading a PDF.

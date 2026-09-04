@@ -121,6 +121,19 @@ bring yourself, and a daemon you keep alive. Nothing here needs either.
 or Telegram, if you are on Linux or Windows, or if you want to choose your own
 model. Those are real things this does not do.
 
+## Is this for you
+
+**Yes** if you have a Mac, pay for Claude, and want it to know your life instead
+of starting from nothing every session.
+
+**Not yet** if you are on Linux or Windows, if you cannot grant Full Disk Access
+on your machine, or if you want nothing reading your messages. Half of this is
+macOS automation and none of it works without those.
+
+**Read first, if you want to know what it changes:** what it reads and stores is
+in [docs/PRIVACY.md](docs/PRIVACY.md), what it does not protect you from is in
+[docs/THREAT-MODEL.md](docs/THREAT-MODEL.md).
+
 ## Install
 
 ```bash
@@ -133,6 +146,28 @@ that wants your Mac login password.
 
 Never opened Terminal? Paste this repo's link at Claude and say "install this for
 me." It runs that command for you.
+
+### What it costs
+
+Nothing beyond the Claude subscription. It does spend context before you type:
+`chewbacca context` prints the number, and the kit holds itself to a budget it
+can fail. There is no account and no server, so there is nothing to bill you.
+
+### What it changes on your machine
+
+Files under `~/.claude`, tools in `~/.local/bin`, a state directory at
+`~/.chewbacca`, and some Homebrew packages. Setup records every one of them in
+an install manifest. Nothing runs in the background afterwards.
+
+### To undo it
+
+```bash
+chewbacca uninstall --dry-run   # everything it would remove
+chewbacca uninstall             # do it
+```
+
+Your data is exported to a tarball before anything is removed, and your context
+repo, git identity, Homebrew, node and the claude CLI are never touched.
 
 ## It refuses to guess
 
@@ -150,10 +185,13 @@ writing rules and blocks the turn if it drifts.
 chewbacca doctor
 ```
 
-**55 checks that assert rather than guess.** It runs each hook for real, formats
-an actual file, and names the exact command that fixes what is missing. Every
-silent failure this kit has ever shipped got a check added here afterwards, which
-is why the number keeps going up.
+**Checks that assert rather than guess.** It runs each hook for real, formats an
+actual file, reads the Messages database to prove Full Disk Access is really
+granted, and names the exact command that fixes what is missing. Every silent
+failure this kit has ever shipped got a check added here afterwards.
+
+`--fix` repairs what can be repaired without asking. `--json` gives the result
+to anything that wants to act on it. Exit 0 clean, 1 warnings, 2 broken.
 
 ## For developers
 
@@ -169,6 +207,12 @@ with a cost ceiling.
 | [docs/SCHOOL.md](docs/SCHOOL.md)                   | The coursework ledger and its AI policy gate |
 | [docs/METHODOLOGY.md](docs/METHODOLOGY.md)         | Why it is built this way                     |
 | [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) | Adding a skill or a tool                     |
+| [docs/](docs/README.md)                            | Index of everything below                    |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | When something is broken, by symptom         |
+| [docs/FAQ.md](docs/FAQ.md)                         | The short answers                            |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)       | How the pieces fit together                  |
+| [docs/1000.md](docs/1000.md)                       | Every known gap, numbered                    |
+| [docs/ROADMAP.md](docs/ROADMAP.md)                 | Which of those are next                      |
 
 ---
 
