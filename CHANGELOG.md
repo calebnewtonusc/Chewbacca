@@ -17,12 +17,8 @@ real commit; nothing here is written by hand.
 
 ### Changed
 - ignore the coverage file swift test leaves behind
-- regenerate the changelog for the last two commits
-- regenerate the changelog
-- regenerate checksums after the display tools landed
 
 ### Documentation
-- regenerate the component reference for the diagram layout convention
 - send the root early
 
 ### Other
@@ -43,7 +39,6 @@ real commit; nothing here is written by hand.
 ### Changed
 - the hud skill declares the tool it needs
 - notice the same person twice, and merge them without losing anything
-- regenerate the README counts
 
 ### Documentation
 - an index, a troubleshooting page, and five things that did not exist
