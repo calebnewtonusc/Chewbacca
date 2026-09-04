@@ -106,16 +106,21 @@ handed to an agent rather than to you: see
 ## Why not OpenClaw
 
 [OpenClaw](https://github.com/openclaw/openclaw) is the obvious alternative and
-a genuinely good project. It is also a different kind of thing, and the
-difference is the whole argument for this one.
+a genuinely good project. The difference that matters is not architecture. It
+is what the two ask of you before they do anything.
 
-OpenClaw is an assistant. You install a runtime, run an onboarding wizard, and
-leave a gateway daemon running that brokers your models, your credentials, and
-your chat channels. Chewbacca is not a program. It configures the Claude Code
-you already have and then gets out of the way.
+OpenClaw asks you to bring model credentials, run an onboarding wizard, and
+keep a gateway daemon alive that brokers your models, your keys, and your chat
+channels. That is a reasonable ask if you already run your own services, and
+it is why the people who love it mostly already do.
+
+Chewbacca asks you to have a Claude subscription. It is not a program. It
+configures the Claude you are already paying for and then gets out of the way.
+Nobody is choosing a model provider, holding a key, or keeping a daemon up.
 
 |                                    | Chewbacca                                                  | OpenClaw                                    |
 | ---------------------------------- | ---------------------------------------------------------- | ------------------------------------------- |
+| What it asks of you first          | A Claude subscription                                      | Model credentials you bring yourself        |
 | What you install                   | Config files, skills, and CLI tools                        | A runtime and a gateway daemon              |
 | Processes left running             | MCP servers, started and stopped by Claude Code            | A daemon, kept alive                        |
 | Where your credentials sit         | Your own `~/.claude` and keychain                          | Brokered through the gateway                |
@@ -126,7 +131,11 @@ you already have and then gets out of the way.
 | To undo it                         | Edit or revert the files it wrote                          | Uninstall the runtime                       |
 | Size of the thing you are trusting | About 2,600 lines of bash and Python, all readable         | A platform                                  |
 
-Three practical consequences.
+Four practical consequences.
+
+**The subscription you already pay for is the whole setup.** There is no
+provider to pick, no key to paste, and no per-token bill arriving later for
+something you left running. If Claude works for you today, this works.
 
 **There is no daemon holding your state.** The MCP servers this wires up are
 children of Claude Code and stop when it stops. Nothing runs between sessions,
