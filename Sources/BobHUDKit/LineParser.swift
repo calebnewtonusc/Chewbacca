@@ -8,6 +8,8 @@ import Foundation
 ///     > <id> <child> [child ...]         give it children
 ///     d <pointer> <json>                 patch the data model
 ///     r <id>                             declare the root
+///     @ <surface> [at=region] [w=380]    open or switch to a surface
+///     - <surface>                        close a surface
 ///
 /// A line is either complete or invisible, which is the whole reason this is the
 /// right thing to put on a socket. There is no partial-value state to get wrong:
@@ -99,7 +101,7 @@ public enum LineParser {
 
     static func parseValue(_ raw: String) -> PropValue {
         if raw.hasPrefix("@") {
-            return .binding(Binding(pointer: String(raw.dropFirst())))
+            return .binding(DataBinding(pointer: String(raw.dropFirst())))
         }
         if raw.hasPrefix("!") {
             return .literal(.string(String(raw.dropFirst())))
@@ -171,6 +173,26 @@ public enum LineParser {
                 return .data(path: path, value: nil)
             }
             return .data(path: path, value: json)
+
+        case "@":
+            guard tokens.count >= 2 else {
+                throw LineParseError.malformed("`@` needs a surface name", line: trimmed)
+            }
+            var region: Region?
+            var width: Double?
+            for token in tokens.dropFirst(2) {
+                guard let (key, raw) = splitPair(token) else { continue }
+                let value = raw.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                if key == "at" { region = Region(rawValue: value) }
+                if key == "w" || key == "width" { width = Double(value) }
+            }
+            return .surface(id: tokens[1], region: region, width: width)
+
+        case "-":
+            guard tokens.count == 2 else {
+                throw LineParseError.malformed("`-` takes exactly one surface name", line: trimmed)
+            }
+            return .close(id: tokens[1])
 
         case "r":
             guard tokens.count == 2 else {

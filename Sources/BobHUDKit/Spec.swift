@@ -62,7 +62,11 @@ public enum JSON: Sendable, Equatable {
 }
 
 /// A prop that reads from the data model rather than carrying a literal.
-public struct Binding: Sendable, Equatable {
+///
+/// Named `DataBinding` rather than `Binding` because SwiftUI owns that name, and
+/// a shadowed `Binding` inside a view file produces errors that point at the
+/// call site rather than the collision.
+public struct DataBinding: Sendable, Equatable {
     public let pointer: String
     public init(pointer: String) { self.pointer = pointer }
 }
@@ -78,7 +82,7 @@ public enum Computed: Sendable, Equatable {
 
 public enum PropValue: Sendable, Equatable {
     case literal(JSON)
-    case binding(Binding)
+    case binding(DataBinding)
     case computed(Computed)
 }
 
@@ -118,10 +122,43 @@ public struct Spec: Sendable, Equatable {
     }
 }
 
-/// The four things a stream can say.
+/// Where a surface sits on screen.
+///
+/// Regions rather than coordinates, because an agent does not know the size of
+/// the display and should not have to. "Put the calendar top left and the people
+/// bottom right" is the actual intent; pixels are this program's problem.
+public enum Region: String, Sendable, CaseIterable {
+    case topLeft, top, topRight
+    case left, center, right
+    case bottomLeft, bottom, bottomRight
+
+    public var anchor: (x: Double, y: Double) {
+        switch self {
+        case .topLeft:     return (0.0, 1.0)
+        case .top:         return (0.5, 1.0)
+        case .topRight:    return (1.0, 1.0)
+        case .left:        return (0.0, 0.5)
+        case .center:      return (0.5, 0.5)
+        case .right:       return (1.0, 0.5)
+        case .bottomLeft:  return (0.0, 0.0)
+        case .bottom:      return (0.5, 0.0)
+        case .bottomRight: return (1.0, 0.0)
+        }
+    }
+}
+
+/// What a stream can say.
+///
+/// The first four build a surface. The last two say *which* surface, which is
+/// what lets one connection light up several panels across the screen at once
+/// instead of replacing one over and over.
 public enum Op: Sendable, Equatable {
     case component(ComponentNode)
     case children(id: ComponentID, children: [ComponentID])
     case data(path: String, value: JSON?)
     case root(id: ComponentID)
+    /// Open or switch to a named surface. Everything after this targets it.
+    case surface(id: String, region: Region?, width: Double?)
+    /// Close a surface and take it off the screen.
+    case close(id: String)
 }

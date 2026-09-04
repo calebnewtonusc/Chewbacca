@@ -75,7 +75,7 @@ public struct SurfaceView: View {
         case "Metric", "Table", "Status":
             return data(p, type: element.type)
         default:
-            return control(p, type: element.type)
+            return control(element, p)
         }
     }
 
@@ -86,7 +86,9 @@ public struct SurfaceView: View {
             return AnyView(
                 VStack(alignment: .leading, spacing: 14) {
                     Text(p["title"]?.display ?? "")
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .kerning(0.4)
+                        .foregroundStyle(HUD.ink)
                     children(of: element, ancestors: ancestors)
                 })
         }
@@ -110,7 +112,8 @@ public struct SurfaceView: View {
             let level = Int(p["level"]?.doubleValue ?? 2)
             return AnyView(
                 Text(p["text"]?.display ?? "")
-                    .font(.system(size: level == 1 ? 16 : 13, weight: .semibold))
+                    .font(.system(size: level == 1 ? 14 : 11.5, weight: .semibold))
+                    .foregroundStyle(HUD.dim)
                     .padding(.top, 2))
 
         case "Text":
@@ -118,7 +121,7 @@ public struct SurfaceView: View {
             return AnyView(
                 Text(p["value"]?.display ?? "")
                     .font(.system(size: 12.5))
-                    .foregroundStyle(muted ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                    .foregroundStyle(muted ? HUD.faint : HUD.ink.opacity(0.9))
                     .fixedSize(horizontal: false, vertical: true))
 
         default:
@@ -157,32 +160,89 @@ public struct SurfaceView: View {
         }
     }
 
-    private func control(_ p: [String: JSON], type: String) -> AnyView {
-        switch type {
+    /// Live controls, not pictures of controls.
+    ///
+    /// The first version drew a button as a capsule of text, on the reasoning
+    /// that a HUD is glanced at rather than used. That was wrong: a panel that
+    /// cannot answer is a poster. A control writes to the local data model
+    /// immediately and sends an event up the socket, so it responds at typing
+    /// speed whether or not an agent is still listening.
+    private func control(_ element: ComponentNode, _ p: [String: JSON]) -> AnyView {
+        switch element.type {
         case "Button":
-            // A HUD is a display surface, so a button shows its label and shape
-            // without pretending to be wired to anything. Claiming an action it
-            // cannot perform would be worse than showing none.
+            let action = p["action"]?.stringValue ?? ""
+            var payload: [String: JSON] = [:]
+            if let collection = p["collection"] { payload["collection"] = collection }
+            let primary = p["variant"]?.stringValue == "primary"
             return AnyView(
-                Text(p["label"]?.display ?? "")
-                    .font(.system(size: 12, weight: .medium))
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 5)
-                    .background(.quaternary, in: Capsule())
-                    .foregroundStyle(.secondary))
-
-        case "Field", "Select", "Checkbox":
-            return AnyView(
-                HStack(spacing: 6) {
+                Button {
+                    store.fire(action, from: element.id, payload: payload)
+                } label: {
                     Text(p["label"]?.display ?? "")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                    Text(p["value"]?.display ?? "—")
                         .font(.system(size: 12, weight: .medium))
+                }
+                .buttonStyle(HUDButtonStyle(primary: primary)))
+
+        case "Checkbox":
+            let pointer = store.binding(element, "value")
+            return AnyView(
+                Toggle(
+                    isOn: Binding(
+                        get: { p["value"] == .bool(true) },
+                        set: { next in
+                            guard let pointer else { return }
+                            store.write(pointer, .bool(next))
+                        })
+                ) {
+                    Text(p["label"]?.display ?? "").font(.system(size: 12))
+                }
+                .toggleStyle(.checkbox)
+                .disabled(pointer == nil))
+
+        case "Select":
+            let pointer = store.binding(element, "value")
+            let options = (p["options"]?.arrayValue ?? []).map(\.display)
+            return AnyView(
+                LabeledControl(label: p["label"]?.display ?? "") {
+                    Picker("", selection: Binding(
+                        get: { p["value"]?.display ?? "" },
+                        set: { next in
+                            guard let pointer else { return }
+                            store.write(pointer, .string(next))
+                        })
+                    ) {
+                        Text("—").tag("")
+                        ForEach(options, id: \.self) { Text($0).tag($0) }
+                    }
+                    .labelsHidden()
+                    .disabled(pointer == nil)
+                })
+
+        case "Field":
+            let pointer = store.binding(element, "value")
+            let numeric = p["kind"]?.stringValue == "number"
+            return AnyView(
+                LabeledControl(label: p["label"]?.display ?? "") {
+                    TextField(
+                        p["placeholder"]?.display ?? "",
+                        text: Binding(
+                            get: { p["value"]?.display ?? "" },
+                            set: { next in
+                                guard let pointer else { return }
+                                // A number field that stores its text would make
+                                // every count downstream wrong, so coerce here.
+                                store.write(
+                                    pointer,
+                                    numeric ? .number(Double(next) ?? 0) : .string(next))
+                            })
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+                    .disabled(pointer == nil)
                 })
 
         default:
-            // A component the HUD does not know draws nothing rather than an
+            // A component the panel does not know draws nothing rather than an
             // error box. A newer catalog should degrade, not shout.
             return AnyView(EmptyView())
         }
@@ -196,6 +256,37 @@ struct Column: Hashable {
     let label: String
 }
 
+/// A label above its control, so a narrow panel does not squeeze the input.
+struct LabeledControl<Content: View>: View {
+    let label: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+            content
+        }
+    }
+}
+
+struct HUDButtonStyle: ButtonStyle {
+    let primary: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .background(
+                primary ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary),
+                in: Capsule())
+            .foregroundStyle(primary ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+    }
+}
+
 struct ListView: View {
     let items: [JSON]
     let ordered: Bool
@@ -204,11 +295,12 @@ struct ListView: View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                 HStack(alignment: .top, spacing: 7) {
-                    Text(ordered ? "\(index + 1)." : "•")
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(.tertiary)
+                    Text(ordered ? "\(index + 1)." : "▸")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(HUD.accent.opacity(0.8))
                     Text(item.display)
                         .font(.system(size: 12.5))
+                        .foregroundStyle(HUD.ink.opacity(0.9))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -224,20 +316,28 @@ struct MetricView: View {
     let unit: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
+        VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline, spacing: 3) {
                 Text(value)
-                    .font(.system(size: 22, weight: .semibold, design: .rounded))
+                    // Monospaced digits so a number changing in place does not
+                    // shove everything beside it sideways.
+                    .font(.system(size: 26, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(HUD.ink)
+                    .shadow(color: HUD.accent.opacity(0.5), radius: 9)
                     .contentTransition(.numericText())
                 if let unit {
-                    Text(unit).font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text(unit)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(HUD.faint)
                 }
             }
-            Text(label)
-                .font(.system(size: 10.5))
-                .foregroundStyle(.secondary)
+            Text(label.uppercased())
+                .font(.system(size: 9, weight: .semibold))
+                .kerning(0.9)
+                .foregroundStyle(HUD.faint)
         }
-        .frame(minWidth: 64, alignment: .leading)
+        .frame(minWidth: 62, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label): \(value)")
     }
@@ -252,8 +352,8 @@ struct TableView: View {
         VStack(alignment: .leading, spacing: 6) {
             if !caption.isEmpty {
                 Text(caption)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(HUD.dim)
             }
 
             if rows.isEmpty {
@@ -265,8 +365,9 @@ struct TableView: View {
                     GridRow {
                         ForEach(columns, id: \.self) { column in
                             Text(column.label.uppercased())
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(.tertiary)
+                                .font(.system(size: 8.5, weight: .semibold))
+                                .kerning(0.9)
+                                .foregroundStyle(HUD.accent.opacity(0.75))
                         }
                     }
                     ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
@@ -274,6 +375,7 @@ struct TableView: View {
                             ForEach(columns, id: \.self) { column in
                                 Text(row.objectValue?[column.field]?.display ?? "")
                                     .font(.system(size: 12))
+                                    .foregroundStyle(HUD.ink.opacity(0.92))
                                     .lineLimit(1)
                                     .truncationMode(.tail)
                             }
