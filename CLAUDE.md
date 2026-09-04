@@ -12,7 +12,8 @@ Every line is one op. A line is either complete or invisible, so a half-written
 line never draws a half-built panel.
 
 ```
-@ <surface> [at=<region>] [w=<points>] [urgency=<level>]   open or switch to a surface
+@ <surface> [at=<region>] [w=<points>] [urgency=<level>] [chrome=<kind>]
+                                                           open or switch to a surface
 c <id> <Type> prop=value ...                               create a component
 > <parent> <child> <child> ...                             attach children
 d /pointer <json>                                          set data
@@ -40,6 +41,33 @@ Only `critical` appears when the person has hidden the HUD, and it defaults to
 the centre of the screen. Spend it on something that is genuinely worth
 overriding a person who asked for quiet: a payment failing, a deploy breaking,
 a meeting starting in one minute. A system that cries wolf gets switched off.
+
+## How much of a window to be
+
+`chrome=` is `card` (the default), `bare`, or `bracket`.
+
+`bare` draws no panel at all. The content sits directly on the screen with a
+halo behind it, which is what a heads-up display is actually for and what a
+window can never do. Use it for a diagram, a figure, a single line of status.
+`bracket` puts four corner marks around a region without covering it.
+
+## Saying it again
+
+A surface stays on the glass after you disconnect, and re-addressing it by name
+updates it in place. Anything you leave off is kept:
+
+```
+@ notes at=bottomLeft chrome=bare    first time: places it, no panel
+@ notes                              later: still bottom left, still bare
+```
+
+This is what makes a follow-up work. Send a `c` for a component id that is
+already on screen and it changes rather than being replaced, and a `Diagram`
+whose coordinates changed **animates between the two**: nodes travel to their
+new positions, they do not cut. So "put the socket underneath instead" is one
+more `c d Diagram` with different numbers, not a redraw.
+
+Take something down with `- <surface>` when the person is done with it.
 
 ## The vocabulary
 
@@ -82,6 +110,29 @@ means something.
 - `Events caption="..." items=[{"time":"9:04","text":"...","accent":true}]`
   things that happened, most recent first. `accent` marks the one that matters.
   Plain strings are accepted for events with no timestamp.
+
+### Anything else
+
+- `Diagram aspect=2.4 parts=[...]` free-form drawing. Every part is a shape in a
+  unit square, so `x` and `y` run 0 to 1 and you never think about pixels.
+  `aspect` is width over height.
+
+  | `t`      | fields                                        |
+  | -------- | --------------------------------------------- |
+  | `node`   | `x` `y` `w` `h` `label`, a labelled box       |
+  | `box`    | same, unlabelled                              |
+  | `line`   | `x` `y` `x2` `y2`, plus `dashed`              |
+  | `arrow`  | same, with a head at `x2,y2`                  |
+  | `circle` | `x` `y` `r`, plus `fill`                      |
+  | `dot`    | `x` `y` `r`                                   |
+  | `label`  | `x` `y` `text` `size`, on its own plate       |
+
+  Every part takes `tone`. Coordinates animate between sends, so changing the
+  numbers moves the drawing rather than replacing it.
+
+  This is the escape hatch, and it is geometry rather than code on purpose:
+  nothing in a diagram can execute, fetch, or escape. Use it for a structure, a
+  flow, a relationship, a layout. Do not use it to reimplement `Bars`.
 
 Props are JSON and the parser splits on whitespace, so write arrays with no
 spaces inside them: `points=[31,28,44]`, not `points=[31, 28, 44]`.
@@ -135,6 +186,10 @@ categories. A trend line over four regions is a lie about the data.
 **Do not invent components or props.** Anything not on this page is dropped
 silently by the renderer, so the panel will simply be missing that piece and you
 will not be told.
+
+**Do not redraw when you can change.** Re-send the component with new values and
+it moves. Tearing a surface down and rebuilding it throws away the animation and
+makes the screen flicker for no reason.
 
 **Close what you opened** when the person is done with it. `- <surface>`. The
 glass is theirs, not yours.

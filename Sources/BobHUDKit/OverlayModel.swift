@@ -18,6 +18,7 @@ public struct OverlaySurface: Identifiable, Equatable {
     /// and a display change all keep working, and the drag rides on top.
     public var drag: CGSize = .zero
     public var urgency: Urgency = .normal
+    public var chrome: Chrome = .card
     /// The tallest this surface may draw. Always replaced with `ceiling` when
     /// the surface is opened; the literal is here only because a default in a
     /// nonisolated struct cannot touch `NSScreen`.
@@ -35,7 +36,7 @@ public struct OverlaySurface: Identifiable, Equatable {
 
     public static func == (a: OverlaySurface, b: OverlaySurface) -> Bool {
         a.id == b.id && a.region == b.region && a.slot == b.slot
-            && a.width == b.width && a.drag == b.drag && a.urgency == b.urgency
+            && a.width == b.width && a.drag == b.drag && a.urgency == b.urgency && a.chrome == b.chrome
     }
 }
 
@@ -75,13 +76,11 @@ public final class OverlayModel {
 
     public func apply(_ op: Op) {
         switch op {
-        case .surface(let id, let region, let width, let urgency):
+        case .surface(let id, let region, let width, let urgency, let chrome):
             current = id
             open(
-                id,
-                region: region ?? (urgency == .critical ? .center : .topRight),
-                width: width.map { CGFloat($0) },
-                urgency: urgency ?? .normal)
+                id, region: region, width: width.map { CGFloat($0) },
+                urgency: urgency, chrome: chrome)
 
         case .close(let id):
             close(id)
@@ -96,8 +95,12 @@ public final class OverlayModel {
         surfaces.first { $0.id == current }?.store.warn(message)
     }
 
-    /// A new connection clears the glass. Two agents drawing at once is a race
-    /// with a visible symptom, so the last one in wins and starts from nothing.
+    /// Take everything off the glass.
+    ///
+    /// Only ever called on an explicit gesture: Escape, or "Clear everything"
+    /// in the menu. Connecting does not do this, because a surface has to
+    /// outlive the connection that drew it for anything to be able to change it
+    /// later.
     public func reset() {
         surfaces = []
         heights = [:]
@@ -138,18 +141,27 @@ public final class OverlayModel {
     @discardableResult
     private func surface(_ id: String) -> OverlaySurface {
         if let existing = surfaces.first(where: { $0.id == id }) { return existing }
-        return open(id, region: .topRight, width: nil, urgency: .normal)
+        return open(id, region: nil, width: nil, urgency: nil, chrome: nil)
     }
 
+    /// Open a surface, or re-address one that is already on the glass.
+    ///
+    /// Everything is optional and an omitted field is *kept*, not reset. This is
+    /// what lets a follow-up be a follow-up: `@ notes` on its own means "I am
+    /// talking about that panel again", and it would be a strange reading of
+    /// that to move the panel back to the top right and put its chrome back to
+    /// a card. Only a new surface takes defaults.
     @discardableResult
     private func open(
-        _ id: String, region: Region, width: CGFloat?, urgency: Urgency = .normal
+        _ id: String, region: Region?, width: CGFloat?,
+        urgency: Urgency?, chrome: Chrome?
     ) -> OverlaySurface {
         if let index = surfaces.firstIndex(where: { $0.id == id }) {
             // Moving or resizing an open surface mid-stream is a normal ask.
             var existing = surfaces[index]
-            existing.region = region
-            existing.urgency = urgency
+            if let region { existing.region = region }
+            if let urgency { existing.urgency = urgency }
+            if let chrome { existing.chrome = chrome }
             existing.maxHeight = OverlaySurface.ceiling
             if let width { existing.width = width }
             surfaces[index] = existing
@@ -162,9 +174,11 @@ public final class OverlayModel {
 
         nextDepth += 1
         let surface = OverlaySurface(
-            id: id, store: store, region: region,
+            id: id, store: store,
+            region: region ?? (urgency == .critical ? .center : .topRight),
             width: width ?? (urgency == .critical ? 420 : 380),
-            slot: 0, depth: nextDepth, drag: .zero, urgency: urgency,
+            slot: 0, depth: nextDepth, drag: .zero,
+            urgency: urgency ?? .normal, chrome: chrome ?? .card,
             maxHeight: OverlaySurface.ceiling)
         surfaces.append(surface)
         relayout()

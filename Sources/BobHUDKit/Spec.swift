@@ -174,6 +174,32 @@ public enum Urgency: String, Sendable, CaseIterable {
     public var breaksThrough: Bool { self == .critical }
 }
 
+/// How much of a window a surface is allowed to be.
+///
+/// A card is the safe choice and the wrong default for most of what a HUD is
+/// good at. The Iron Man HUD has no panels in it at all: readouts, wireframes
+/// and targeting marks sit directly in the field of view with nothing behind
+/// them, which is the entire reason it reads as a heads-up display rather than
+/// as a window manager with a dark theme.
+///
+/// The cost of dropping the background is legibility, since the content then
+/// sits on whatever the person happened to have open. `bare` pays for that with
+/// a dark halo behind every glyph instead of a filled rectangle, so the text
+/// stays readable over a white document without a slab of glass covering it.
+public enum Chrome: String, Sendable, CaseIterable {
+    /// Glass card with a hairline and a shadow. The default.
+    case card
+    /// Nothing behind it. Content floats on the screen with a halo for
+    /// legibility. Right for a diagram, a figure, a single line of status.
+    case bare
+    /// Four corner brackets and no fill. Reads as a reticle around a region
+    /// rather than as a window over it.
+    case bracket
+
+    /// Whether this chrome paints a background the person can grab anywhere.
+    public var isFilled: Bool { self == .card }
+}
+
 /// What a stream can say.
 ///
 /// The first four build a surface. The last two say *which* surface, which is
@@ -185,7 +211,7 @@ public enum Op: Sendable, Equatable {
     case data(path: String, value: JSON?)
     case root(id: ComponentID)
     /// Open or switch to a named surface. Everything after this targets it.
-    case surface(id: String, region: Region?, width: Double?, urgency: Urgency?)
+    case surface(id: String, region: Region?, width: Double?, urgency: Urgency?, chrome: Chrome?)
     /// Close a surface and take it off the screen.
     case close(id: String)
 }

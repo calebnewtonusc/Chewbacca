@@ -8,7 +8,7 @@ import Foundation
 ///     > <id> <child> [child ...]         give it children
 ///     d <pointer> <json>                 patch the data model
 ///     r <id>                             declare the root
-///     @ <surface> [at=region] [w=380] [urgency=alert]
+///     @ <surface> [at=region] [w=380] [urgency=alert] [chrome=bare]
 ///                                        open or switch to a surface
 ///     - <surface>                        close a surface
 ///
@@ -182,14 +182,18 @@ public enum LineParser {
             var region: Region?
             var width: Double?
             var urgency: Urgency?
+            var chrome: Chrome?
             for token in tokens.dropFirst(2) {
                 guard let (key, raw) = splitPair(token) else { continue }
                 let value = raw.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
                 if key == "at" { region = Region(rawValue: value) }
                 if key == "w" || key == "width" { width = Double(value) }
                 if key == "urgency" { urgency = Urgency(rawValue: value) }
+                if key == "chrome" { chrome = Chrome(rawValue: value) }
             }
-            return .surface(id: tokens[1], region: region, width: width, urgency: urgency)
+            return .surface(
+                id: tokens[1], region: region, width: width,
+                urgency: urgency, chrome: chrome)
 
         case "-":
             guard tokens.count == 2 else {
