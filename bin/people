@@ -316,6 +316,11 @@ function db() {
   _db = new DatabaseSync(DB_PATH);
   _db.exec("PRAGMA foreign_keys = ON");
   _db.exec("PRAGMA journal_mode = WAL");
+  // Without this, ANY contention throws SQLITE_BUSY on the spot instead of
+  // waiting. WAL lets readers and a writer coexist, but two writers still take
+  // turns, and a long `events scan` plus the user running `people show` in
+  // another terminal is two writers. A multi-hour scan died on exactly that.
+  _db.exec("PRAGMA busy_timeout = 15000");
   _db.exec(SCHEMA);
   migrate(_db);
   seed(_db);
@@ -1202,6 +1207,10 @@ function resolveOtherPerson(d, needle) {
   return hits.length === 1 ? hits[0].id : null;
 }
 
+function NSLOGGED_ERR(e) {
+  process.stderr.write(`  batch failed: ${(e && e.message) || e}\n`);
+}
+
 async function cmdEvents(argv) {
   const sub = ["scan", "list", "reset"].includes(argv[0]) ? argv.shift() : "list";
   const { flags, rest } = parseArgs(argv);
@@ -1325,10 +1334,18 @@ async function cmdEvents(argv) {
     }
   };
 
+  let failed = 0;
   await pool(
     batches.map((b) => async () => {
-      const results = await classifyEpisodes(b, model);
-      commitBatch(b, results);
+      try {
+        const results = await classifyEpisodes(b, model);
+        commitBatch(b, results);
+      } catch (e) {
+        // One bad batch must not end a run that has hours behind it. The days
+        // in it stay unmarked, so the next scan picks them up again.
+        failed++;
+        NSLOGGED_ERR(e);
+      }
       return null;
     }),
     conc,
@@ -1338,6 +1355,7 @@ async function cmdEvents(argv) {
 
   recomputeScores();
   say(`\n  ${c.grn("logged")} ${written} events from ${read} person-days`);
+  if (failed) say(c.dim(`  ${failed} batch(es) failed and were left unmarked; rerun to retry them`));
   say(c.dim("  people events list        to read them"));
   say(c.dim("  people history <name>     to see them on the curve\n"));
 }
