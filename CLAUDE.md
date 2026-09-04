@@ -146,121 +146,140 @@ tokens and it throws away the animation.
 
 ## The vocabulary
 
-You can only draw these. There is no HTML and no styling prop.
-
-### Structure
-
-- `Screen title="..."` the root of a surface. Title in caps reads best.
-- `Stack direction=vertical|horizontal|grid gap=2` gap is in units of 4 points.
-  A grid takes `cols` (1 to 4). Four metrics in a column waste the height of a
-  panel that is already capped; put them in a grid.
-
-### Prose
-
-- `Heading text="..." level=2`
-- `Text value="..." tone=muted`
-- `List items=["a","b"] ordered=true`
-
-### Data
-
-- `Metric label="..." value=... unit="..."` one number that matters.
-  Takes `thresholds=[{"at":80,"tone":"warn"},{"at":95,"tone":"bad"}]`, and so
-  does `Ring`. The last crossed one wins. A number that turns amber on its own
-  is read at a glance; a number that is always cyan has to be read.
-- `Table caption="..." columns=[{"field":"name","label":"Name"}] rows=[...]`
-- `Status message="..." level=success|warning|error`
-
-### Dashboard
-
-Every one of these takes an optional `tone` of `good`, `warn`, or `bad`. Leave it
-off and it draws in the house cyan. Do not colour panels for variety: a
-dashboard where each chart picked its own colour is harder to read than one
-drawn entirely in one, and a person scanning it should be able to assume colour
-means something.
-
-- `Sparkline label="..." points=[1,2,3] value="71"` a trend. `value` is written
-  out in plain type because nobody reads an exact number off a 34-point chart.
-  Six to thirty points. Fewer is noise, more is a smear.
-- `Bars caption="..." rows=[{"label":"West","value":42,"display":"42%"}]`
-  ranked rows, scaled against the largest, not against zero. `display` is what
-  gets printed; `value` only sets the length.
-- `Ring label="..." value=0.82 caption="82%"` a proportion, and only ever a
-  proportion. `value` is 0 to 1. A ring around an unbounded number is
-  decoration, and decoration costs the same attention as information.
-- `Events caption="..." items=[{"time":"9:04","text":"...","accent":true}]`
-  things that happened, most recent first. `accent` marks the one that matters.
-  Plain strings are accepted for events with no timestamp.
-
-### Anything else
-
-- `Diagram aspect=2.4 parts=[...]` free-form drawing. Every part is a shape in a
-  unit square, so `x` and `y` run 0 to 1 and you never think about pixels.
-  `aspect` is width over height.
-
-  | `t`      | fields                                        |
-  | -------- | --------------------------------------------- |
-  | `node`   | `x` `y` `w` `h` `label`, a labelled box       |
-  | `box`    | same, unlabelled                              |
-  | `line`   | `x` `y` `x2` `y2`, plus `dashed`              |
-  | `arrow`  | same, with a head at `x2,y2`                  |
-  | `circle` | `x` `y` `r`, plus `fill`                      |
-  | `dot`    | `x` `y` `r`                                   |
-  | `label`  | `x` `y` `text` `size`, on its own plate       |
-
-  Every part takes `tone`. Coordinates animate between sends, so changing the
-  numbers moves the drawing rather than replacing it.
-
-  This is the escape hatch, and it is geometry rather than code on purpose:
-  nothing in a diagram can execute, fetch, or escape. Use it for a structure, a
-  flow, a relationship, a layout. Do not use it to reimplement `Bars`.
+You can only draw these. There is no HTML and no styling prop, and anything not
+listed here is dropped silently by the renderer, so a panel using it is simply
+missing that piece and nothing tells you.
 
 Props are JSON and the parser splits on whitespace, so write arrays with no
 spaces inside them: `points=[31,28,44]`, not `points=[31, 28, 44]`.
 
-### Files
+<!-- generated: components -->
 
-- `File path="~/Downloads/resume.pdf" [page=2] [editable=true]`
+### Structure
 
-  Shows the actual file. PDFs render through the system's own PDF engine,
-  images as images, and anything that decodes as text as text. `editable=true`
-  on a text file gives a real editor with a save button, and saving overwrites
-  that exact path and no other.
+- **Screen** The root of a surface. Exactly one per surface, and every other component hangs off it. A short title in caps reads best at a glance.
 
-  This is the answer to "let's work on my resume, the PDF is in my downloads".
-  Put it on screen rather than describing it back to them.
+  ```
+  c s Screen title="RELATIONSHIPS"
+  ```
 
-### Presence
+- **Stack** Groups components. Vertical by default; use grid with cols for several small numbers, because four metrics in a column waste the height of a panel that is already capped. Gap is in units of 4 points.
 
-```
-p thinking
-p hearing amp=0.4
-p dormant
-```
+  ```
+  c row Stack direction=grid cols=2 gap=3
+  ```
 
-`p` sets the ring in the bottom right corner, which is the one thing always on
-the glass. States are `dormant`, `attentive`, `hearing`, `thinking`, `acting`,
-`attention`, and `failed`. Each has its own motion, so it is readable without
-being looked at.
+### Prose
 
-Set `thinking` when you start work and `dormant` when you finish. A ring left
-spinning is worse than no ring: it demotes itself to `attention` after eight
-seconds rather than spinning forever, and that is a report of your bug, not a
-feature to rely on.
+- **Heading** A label over a section. Use it when one panel holds two unrelated groups; a panel with one group already has its Screen title.
 
-`failed` is the only state that is ever red, and it means an action failed in a
-way that may have left something in a bad state. Not "the search returned
-nothing".
+  ```
+  c h Heading text="Needs a reply" level=2
+  ```
+
+- **Text** A sentence. Reach for it last: a heads-up display is glanced at, and prose is the thing a glance cannot do. Never use it to describe a chart that is already on the panel.
+
+  ```
+  c t Text value="Nothing is overdue." tone=muted
+  ```
+
+- **List** Plain bullets. Prefer Events when the items happened at times, and Bars when they have magnitudes worth comparing.
+
+  ```
+  c l List items=["Bring the charger","Print the form"]
+  ```
+
+### Data
+
+- **Metric** One number that matters. Give it thresholds and it colours itself when the value crosses one, which is the difference between a number read at a glance and a number that has to be read.
+
+  ```
+  c m Metric label="Unread" value=12
+  ```
+
+  ```
+  c o Metric label="Overdue" value=4 thresholds=[{"at":1,"tone":"bad"}]
+  ```
+
+- **Table** Rows with several fields each. Use it when the person needs to compare across columns; if there is one number per row, Bars says it faster.
+
+  ```
+  c tb Table columns=[{"field":"name","label":"Name"},{"field":"due","label":"Due"}] rows=[{"name":"Origin Story","due":"Sep 9"}]
+  ```
+
+- **Status** One line about how something went. For an outcome, not for standing state: a panel that permanently says everything is fine is a panel nobody reads.
+
+  ```
+  c st Status message="Deploy finished" level=success
+  ```
+
+### Dashboard
+
+- **Sparkline** A trend. Six to thirty points: fewer is noise and more is a smear. Always pass value, because nobody reads an exact number off a 34-point chart, so the drawing carries the shape and the text carries the number.
+
+  ```
+  c sp Sparkline label="Messages this week" points=[31,28,44,39,58,52,71] value="71"
+  ```
+
+- **Bars** Ranked rows, scaled against the largest rather than against zero, so four values within ten percent of each other still read as different. Horizontal because the labels are words. `display` is what gets printed; `value` only sets the length.
+
+  ```
+  c b Bars caption="Time since last reply" rows=[{"label":"Sagar","value":2,"display":"2h"},{"label":"Ava","value":31,"display":"1d"}]
+  ```
+
+- **Ring** A proportion, and only ever a proportion: value runs 0 to 1 and the thing must have a real ceiling. A ring around an unbounded number is decoration, and decoration costs the same attention as information while carrying none.
+
+  ```
+  c r Ring label="Attendance" value=0.82 caption="82%"
+  ```
+
+- **Events** Things that happened or are about to, most recent or soonest first. Set accent on the one that matters; setting it on all of them sets it on none.
+
+  ```
+  c e Events caption="Due" items=[{"time":"Sep 9","text":"Origin Story","accent":true}]
+  ```
+
+### Anything else
+
+- **Diagram** Free-form drawing for a structure, a flow, or a relationship: the case no component anticipates. Every part is a shape in a unit square, so x and y run 0 to 1 and you never think about pixels. Do not use it to reimplement Bars.
+
+  ```
+  c d Diagram aspect=2.4 parts=[{"t":"node","x":0.2,"y":0.5,"label":"Model"},{"t":"arrow","x":0.32,"y":0.5,"x2":0.68,"y2":0.5},{"t":"node","x":0.8,"y":0.5,"label":"Glass"}]
+  ```
+
+- **File** Shows an actual file: a PDF through the system's PDF engine, an image as an image, anything that decodes as text as text. Use it when the person names a document, instead of describing the document back to them. `editable` on a text file gives a real editor whose save overwrites that exact path.
+
+  ```
+  c f File path="~/Downloads/resume.pdf"
+  ```
 
 ### Controls
 
-These are live, not pictures. A press writes to the panel's own data model at
-once and sends an event back up the socket, so it responds whether or not you
-are still listening.
+- **Button** A press that sends an action back up the socket. Only add one when there is something for it to do; a button nobody is listening for is a promise the panel cannot keep.
 
-- `Button label="..." action="..." variant=primary`
-- `Field label="..." bind=/pointer placeholder="..."`
-- `Select label="..." bind=/pointer options=["a","b"]`
-- `Checkbox label="..." bind=/pointer`
+  ```
+  c go Button label="Send it" action=send variant=primary
+  ```
+
+- **Field** A text input bound to a pointer in the panel's own data. It writes locally the moment it is typed in, so it responds at typing speed whether or not anything is still listening.
+
+  ```
+  c n Field label="Note" bind=/draft/note
+  ```
+
+- **Select** One of a fixed set. Use it wherever the answer is a known list, because a text field that must match one of five strings is a trap.
+
+  ```
+  c s Select label="Status" bind=/draft/status options=["Todo","Done"]
+  ```
+
+- **Checkbox** A yes or no, bound to a pointer. Use it for a state the person toggles, not for a list of things to tick off: several checkboxes in a row is a form, and a heads-up display is a bad place to fill in a form.
+
+  ```
+  c c Checkbox label="Urgent" bind=/draft/urgent
+  ```
+
+<!-- /generated -->
 
 ## Binding
 
