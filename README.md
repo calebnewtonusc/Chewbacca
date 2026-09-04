@@ -206,7 +206,37 @@ it off is `--session-opener none`. To write your own, add it to `OPENERS` in
 
 ## Quick Start
 
-Clone it, then let Claude do the install:
+Paste this into Terminal. Nothing else is needed: no GitHub account, no git, no
+Homebrew, no answering questions.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/start.sh | bash
+```
+
+It takes about ten minutes, asks for your Mac password once (Homebrew installs
+outside your account), installs to `~/.chewbacca` rather than leaving a folder
+in your home directory, and opens Claude at the end with something to try.
+`chewbacca uninstall` reverses all of it.
+
+Add `-s -- --full-send` to the end if you do not want Claude asking permission
+before it acts:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/start.sh | bash -s -- --full-send
+```
+
+Three install profiles, and the paste above picks the first one:
+
+| Profile     | For                              | What it skips                                     |
+| ----------- | -------------------------------- | -------------------------------------------------- |
+| `personal`  | Claude for your life             | GitHub, repos, the frontend standards, coursework  |
+| `student`   | The above plus classes           | GitHub, repos, the frontend standards              |
+| `developer` | Everything, the old behavior     | Nothing. Needs a GitHub account                    |
+
+### If you write code
+
+Clone it instead and let Claude drive the install, which asks about keys and
+repos that the pasted path deliberately never brings up:
 
 ```bash
 git clone https://github.com/calebnewtonusc/Chewbacca
