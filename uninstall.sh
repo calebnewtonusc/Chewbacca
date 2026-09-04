@@ -139,6 +139,20 @@ if [ -f "$DESKTOP.d1-backup" ]; then
     { mv "$DESKTOP.d1-backup" "$DESKTOP" && ok "restored the desktop app config"; }
 fi
 
+step "Reading the install manifest"
+# setup.sh records exactly what it wrote. Without it this script was pattern
+# matching against a 1600-line installer and hoping.
+MANIFEST="$HOME/.chewbacca/install-manifest.json"
+if [ -f "$MANIFEST" ]; then
+  ok "manifest found: $(python3 -c "
+import json,sys
+d=json.load(open('$MANIFEST'))
+print(d.get('version','?'), 'installed', d.get('installed','?')[:10],
+      sum(len(v) for v in d['wrote'].values()), 'items')" 2>/dev/null || echo unreadable)"
+else
+  skip "no manifest (installed before manifests existed), falling back to patterns"
+fi
+
 step "Skills, hooks, commands, rules, agents, output styles"
 # Only what this repo ships, matched by name, plus links into a pack we cloned.
 for kind in skills commands rules agents output-styles hooks; do
@@ -194,6 +208,46 @@ elif command -v brew &>/dev/null; then
     brew list --cask "$c" &>/dev/null || continue
     if [ "$DRY" -eq 1 ]; then ok "would uninstall $c"; else brew uninstall --cask "$c" &>/dev/null && ok "uninstalled $c"; fi
   done
+fi
+
+step "Offering your data back before it goes"
+# Uninstalling used to mean losing the people store and the ledger with no
+# warning and no way back. Now leaving costs you nothing you cannot restore.
+STATE="$HOME/.chewbacca"
+if [ -d "$STATE/people" ] || [ -d "$HOME/coursework" ]; then
+  BUNDLE="$HOME/chewbacca-export-$(date +%Y%m%d-%H%M%S).tar.gz"
+  if [ "$DRY" -eq 1 ]; then
+    ok "would export your people store and ledger to $BUNDLE"
+  elif [ -x "$SCRIPT_DIR/bin/lib/export.sh" ]; then
+    bash "$SCRIPT_DIR/bin/lib/export.sh" "$BUNDLE" >/dev/null 2>&1 &&
+      ok "your data is saved at $BUNDLE" ||
+      skip "export failed, your data is untouched at $STATE"
+  fi
+else
+  skip "no local data store to export"
+fi
+
+step "Verifying the machine is clean"
+# "Done" was asserted, never checked. A leftover symlink into a deleted repo
+# is exactly the state that makes a reinstall behave strangely later.
+LEFT=0
+for d in skills commands rules hooks agents output-styles; do
+  DIR="$CLAUDE_DIR/$d"
+  [ -d "$DIR" ] || continue
+  while IFS= read -r link; do
+    [ -e "$link" ] && continue
+    if [ "$DRY" -eq 1 ]; then
+      ok "would remove dangling link $(basename "$link")"
+    else
+      rm -f "$link" && ok "removed dangling link $(basename "$link")"
+    fi
+    LEFT=$((LEFT + 1))
+  done < <(find "$DIR" -maxdepth 1 -type l 2>/dev/null)
+done
+[ "$LEFT" -eq 0 ] && ok "no dangling links left behind"
+if [ -f "$STATE/install-manifest.json" ] && [ "$DRY" -eq 0 ]; then
+  mv "$STATE/install-manifest.json" "$STATE/install-manifest.removed.json"
+  ok "manifest archived as install-manifest.removed.json"
 fi
 
 step "Left alone on purpose"

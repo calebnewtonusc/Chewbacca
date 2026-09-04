@@ -1,0 +1,31 @@
+{
+  "skill": "study-system",
+  "cases": [
+    {
+      "prompt": "I have an exam Friday",
+      "expect_behavior": "work backwards from the date over the actual material range"
+    },
+    {
+      "prompt": "Quiz me on chapter 4",
+      "expect_behavior": "one question at a time, graded honestly"
+    },
+    {
+      "prompt": "Here are my lecture slides",
+      "expect_behavior": "turn them into retrieval questions, not a summary"
+    },
+    {
+      "prompt": "I studied for six hours and still failed",
+      "expect_behavior": "diagnose the method, not the effort"
+    },
+    {
+      "prompt": "Make me flashcards",
+      "expect_tools": [
+        "Anki"
+      ]
+    },
+    {
+      "prompt": "I got my exam back",
+      "expect_behavior": "sort wrong answers by cause"
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "skill": "people",
+  "cases": [
+    {
+      "prompt": "Who is Sarah again?",
+      "expect_tools": [
+        "people"
+      ],
+      "reject": [
+        "answering from the conversation alone"
+      ]
+    },
+    {
+      "prompt": "Remind me who I am meeting before this coffee",
+      "expect_tools": [
+        "people"
+      ],
+      "expect_behavior": "job, history, and what was last promised"
+    },
+    {
+      "prompt": "Who should I reconnect with?",
+      "expect_tools": [
+        "people"
+      ],
+      "expect_behavior": "rank by decay, not alphabetically"
+    },
+    {
+      "prompt": "Sarah just started at Stripe",
+      "expect_tools": [
+        "people"
+      ],
+      "expect_behavior": "write the change, do not just acknowledge it"
+    },
+    {
+      "prompt": "Draft a message to Malakai",
+      "expect_tools": [
+        "people"
+      ],
+      "why": "ground the draft in what is true about him before writing"
+    },
+    {
+      "prompt": "Who do I know in biotech?",
+      "expect_tools": [
+        "people"
+      ],
+      "expect_behavior": "search the store, not memory"
+    }
+  ]
+}

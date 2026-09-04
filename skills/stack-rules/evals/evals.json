@@ -1,0 +1,32 @@
+{
+  "skill": "stack-rules",
+  "cases": [
+    {
+      "prompt": "Build me a login page",
+      "expect_behavior": "apply the design and stack standards without being asked"
+    },
+    {
+      "prompt": "Write an API route that saves a form",
+      "expect_tools": [
+        "Zod"
+      ],
+      "why": "App Router routes are validated"
+    },
+    {
+      "prompt": "Ship it",
+      "expect_behavior": "run the deploy gate: build, lint, typecheck"
+    },
+    {
+      "prompt": "Add a table to Supabase",
+      "expect_behavior": "RLS policy in the same change"
+    },
+    {
+      "prompt": "This page feels slow",
+      "expect_behavior": "measure against the Core Web Vitals budget before changing code"
+    },
+    {
+      "prompt": "Make the contrast pop",
+      "expect_behavior": "hold WCAG contrast while changing it"
+    }
+  ]
+}

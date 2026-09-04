@@ -1,0 +1,28 @@
+{
+  "skill": "life-context",
+  "cases": [
+    {
+      "prompt": "You do not know anything about me",
+      "expect_behavior": "ask a small number of high-yield questions, not an intake form"
+    },
+    {
+      "prompt": "Here is my Google Drive export",
+      "expect_behavior": "mine the files before asking anything"
+    },
+    {
+      "prompt": "Why do you keep forgetting things?",
+      "expect_behavior": "write what is learned somewhere durable"
+    },
+    {
+      "prompt": "Tell me about myself",
+      "expect_behavior": "read what is already on disk first",
+      "reject": [
+        "asking a question already answered in a file"
+      ]
+    },
+    {
+      "prompt": "First session, help me get started",
+      "expect_behavior": "show a real fact about their life within the first few turns"
+    }
+  ]
+}

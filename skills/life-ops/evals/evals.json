@@ -1,0 +1,25 @@
+{
+  "skill": "life-ops",
+  "cases": [
+    {
+      "prompt": "What am I forgetting?",
+      "expect_behavior": "appointments, renewals, and promises, not just tasks"
+    },
+    {
+      "prompt": "My week does not fit",
+      "expect_behavior": "name what to drop, with the cost of dropping it"
+    },
+    {
+      "prompt": "I told someone I would send that thing",
+      "expect_behavior": "capture it as a commitment with the person attached"
+    },
+    {
+      "prompt": "Weekly review",
+      "expect_behavior": "what shipped, what is stuck, what got dropped"
+    },
+    {
+      "prompt": "Should I take on one more thing?",
+      "expect_behavior": "answer against actual current load, not in the abstract"
+    }
+  ]
+}
