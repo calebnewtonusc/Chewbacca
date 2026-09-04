@@ -229,64 +229,50 @@ struct SurfaceChrome: ViewModifier {
         }
     }
 
-    /// Glass, a lit hairline, and its own pool of shadow.
+    /// Glass, a lit rim, and its own pool of shadow.
+    ///
+    /// The recipe is Plynn's capsule, because that is the one on this machine
+    /// people actually like. Three things make it, and only one of them is the
+    /// blur: real Liquid Glass where the OS has it, a rim light that is bright
+    /// along the top *and comes back* along the bottom, and a soft sheen across
+    /// the upper half.
+    ///
+    /// The bottom half of that rim is the part worth copying. A border that
+    /// only fades out reads as a decal; one that returns underneath reads as an
+    /// edge with thickness behind it.
+    ///
+    /// The one number that does not carry over is the tint. The capsule is
+    /// 168 points wide and tints black at 0.18, which is plenty at that size.
+    /// A four-hundred-point card at 0.18 over a white document is the grey mud
+    /// this project already shipped once, so the wash stays heavier here and
+    /// the snapshot tests are what keep it honest.
     private func card(_ content: Content) -> some View {
         content
-            // Glass is blur plus a light edge, not a dark ramp.
-            //
-            // The first version washed an accent gradient down from the top
-            // edge and tinted the whole card, which is the look of a 2010
-            // button rather than of frosted material. What actually reads as
-            // glass is three things and none of them is a gradient fill: enough
-            // backdrop blur to abstract what is behind, a flat wash dark enough
-            // to hold white text, and a hairline along the lit edge.
             .background {
                 ZStack {
                     VisualEffect(material: .hudWindow, blending: .behindWindow)
-                    // Flat. Deep enough to read over a white editor, where a
-                    // vibrancy material alone samples the page and goes pale.
                     Color.black.opacity(0.55)
-                    // The sheen: a soft light falling across the top left.
-                    //
-                    // This is the piece every glassmorphism reference has and
-                    // the hairline alone does not give. A pane of glass is not
-                    // uniformly lit, and the gradient of the light *across* the
-                    // face is what says there is a surface there at all rather
-                    // than a translucent rectangle.
-                    RadialGradient(
-                        colors: [.white.opacity(0.16), .clear],
-                        center: UnitPoint(x: 0.1, y: -0.05),
-                        startRadius: 0, endRadius: 320)
+                    // The sheen, straight from the capsule: a wash off the top
+                    // edge, gone by the middle.
+                    LinearGradient(
+                        colors: [.white.opacity(0.10), .clear],
+                        startPoint: .top, endPoint: .center)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .clipShape(shape)
+            .modifier(LiquidGlass(shape: shape))
             .overlay {
-                // Thickness. A second hairline just inside the bottom edge,
-                // dim, as if light had travelled through the pane and come out
-                // the far side. Without it a card reads as a decal.
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [.clear, .clear, .white.opacity(0.14)],
-                            startPoint: .top, endPoint: .bottom),
-                        lineWidth: 1)
-                    .blur(radius: 0.5)
-                    .padding(1)
-            }
-            .overlay {
-                // The inner light. One hairline inside the top edge, the way a
-                // real pane catches the light above it, and a border that fades
-                // as it comes down and away from that light.
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                .white.opacity(0.38),
-                                .white.opacity(0.12),
-                                .white.opacity(0.05),
-                            ],
-                            startPoint: .top, endPoint: .bottom),
-                        lineWidth: 0.75)
+                // Bright at the top, almost gone a third of the way down, and
+                // back at the bottom. The return is the thickness.
+                shape.strokeBorder(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .white.opacity(0.5), location: 0),
+                            .init(color: .white.opacity(0.06), location: 0.35),
+                            .init(color: .white.opacity(0.18), location: 1),
+                        ],
+                        startPoint: .top, endPoint: .bottom),
+                    lineWidth: 1)
             }
             .overlay(alignment: .top) {
                 // The accent, kept to a short segment rather than the full
@@ -299,6 +285,16 @@ struct SurfaceChrome: ViewModifier {
                     .opacity(lit ? 1 : 0)
             }
             .shadow(color: .black.opacity(0.5), radius: 30, y: 14)
+    }
+
+    /// The corner radius every surface shares.
+    ///
+    /// Named once so a card, a bracket and the command bar cannot drift apart,
+    /// which is how a set of panels stops looking like one product.
+    static let radius: CGFloat = 18
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: SurfaceChrome.radius, style: .continuous)
     }
 
     /// Nothing behind it.
@@ -350,7 +346,7 @@ struct SurfaceChrome: ViewModifier {
             // enough to read as a window: the brackets are what marks the
             // region, and the fill only has to keep the text off the wallpaper.
             .background {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(.black.opacity(0.72))
                     .padding(-8)
             }
@@ -395,6 +391,25 @@ struct Brackets: View {
         }
         .padding(-6)
         .animation(.easeOut(duration: 0.5), value: lit)
+    }
+}
+
+/// Liquid Glass where the OS has it, a translucent material below.
+///
+/// macOS 26 added the real thing, and it is the reason Plynn's capsule looks
+/// like an object rather than a rectangle with a blur behind it. Below 26 the
+/// material reads close enough under the same rim light and sheen.
+struct LiquidGlass: ViewModifier {
+    let shape: RoundedRectangle
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26, *) {
+            content.glassEffect(
+                .regular.tint(.black.opacity(0.18)),
+                in: shape)
+        } else {
+            content
+        }
     }
 }
 

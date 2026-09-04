@@ -102,6 +102,10 @@ struct CommandBarView: View {
     @State private var text = ""
     @FocusState private var focused: Bool
 
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: SurfaceChrome.radius, style: .continuous)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // The context receipt.
@@ -137,24 +141,29 @@ struct CommandBarView: View {
                     onSubmit(asked)
                 }
         }
+        // The same glass as every surface, so the front door does not look
+        // like it came from a different program than what it opens.
         .background {
             ZStack {
                 VisualEffect(material: .hudWindow, blending: .behindWindow)
-                Color.black.opacity(0.5)
-                RadialGradient(
-                    colors: [.white.opacity(0.14), .clear],
-                    center: UnitPoint(x: 0.08, y: -0.2),
-                    startRadius: 0, endRadius: 420)
+                Color.black.opacity(0.55)
+                LinearGradient(
+                    colors: [.white.opacity(0.10), .clear],
+                    startPoint: .top, endPoint: .center)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(shape)
+        .modifier(LiquidGlass(shape: shape))
         .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(
-                    LinearGradient(
-                        colors: [.white.opacity(0.34), .white.opacity(0.06)],
-                        startPoint: .top, endPoint: .bottom),
-                    lineWidth: 0.75)
+            shape.strokeBorder(
+                LinearGradient(
+                    stops: [
+                        .init(color: .white.opacity(0.5), location: 0),
+                        .init(color: .white.opacity(0.06), location: 0.35),
+                        .init(color: .white.opacity(0.18), location: 1),
+                    ],
+                    startPoint: .top, endPoint: .bottom),
+                lineWidth: 1)
         }
         .environment(\.colorScheme, .dark)
         .onAppear { focused = true }
