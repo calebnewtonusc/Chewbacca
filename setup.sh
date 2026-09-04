@@ -101,6 +101,7 @@ Optional:
   --answers <file.json>        Read every value above from JSON instead.
 
 Who this install is for:
+  --skip <section>             skip one section, repeatable
   --profile <name>             personal   Claude for your life. No GitHub, no
                                           repos, no stack rules, no coursework.
                                student    personal plus the coursework ledger
@@ -137,6 +138,8 @@ NAME=""; GITHUB_USER=""; REPO_DIR=""; ANTHROPIC_KEY=""; GITHUB_PAT=""
 TODOIST_TOKEN=""; COMPOSIO_URL=""; COMPOSIO_KEY=""; ANSWERS=""
 SESSION_OPENER="none"; BYPASS_PERMS="no"; ONLY=""; DRY_RUN=0
 PROFILE="developer"; NO_GITHUB=0; ONLY_PORTABLE=0
+SKIP_SECTIONS=""
+declare -a SKIPPED=()
 # Only these reach settings.json, and only when passed here in this run.
 declare -a CREDS_WRITTEN=()
 
@@ -170,6 +173,9 @@ while [ $# -gt 0 ]; do
     --no-github) NO_GITHUB=1; shift ;;
     --full-send) BYPASS_PERMS="yes"; shift ;;
     --only) ONLY="${2:-}"; shift 2 ;;
+    # --only ran one section and there was no way to run everything except
+    # one. Repeatable: --skip plynn --skip mac.
+    --skip) SKIP_SECTIONS="$SKIP_SECTIONS ${2:-}"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) err "unknown argument: $1"; echo; usage; exit 2 ;;
@@ -256,14 +262,24 @@ if [ -n "$ONLY" ]; then
 fi
 PORTABLE_SECTIONS=" settings rules manifest verify "
 should_run() {
+  case " $SKIP_SECTIONS " in
+    *" $1 "*) SKIPPED+=("$1 (--skip)"); return 1 ;;
+  esac
   if [ "$ONLY_PORTABLE" -eq 1 ]; then
-    case "$PORTABLE_SECTIONS" in *" $1 "*) ;; *) return 1 ;; esac
+    case "$PORTABLE_SECTIONS" in
+      *" $1 "*) ;;
+      *) SKIPPED+=("$1 (portable profile)"); return 1 ;;
+    esac
   fi
-  [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]
+  if [ -n "$ONLY" ] && [ "$ONLY" != "$1" ]; then
+    SKIPPED+=("$1 (--only $ONLY)")
+    return 1
+  fi
+  return 0
 }
 
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "Would run: ${ONLY:-all sections}"
+  echo "Would run: ${ONLY:-all sections}${SKIP_SECTIONS:+, skipping$SKIP_SECTIONS}"
   echo "  profile:         $PROFILE$([ "$ONLY_PORTABLE" -eq 1 ] && echo "  (~/.claude only, no Mac tools)")"
   echo "  github:          $([ "$NO_GITHUB" -eq 1 ] && echo "skipped, brain stays local" || echo "two repos created and pushed")"
   echo "  name:            ${USER_NAME:-<unset>}"
@@ -1766,6 +1782,12 @@ sep
 echo -e "  ${BLD}${GRN}Setup complete.${NC}"
 sep
 echo ""
+if [ "${#SKIPPED[@]}" -gt 0 ]; then
+  echo -e "  ${BLD}Not run this time:${NC}"
+  for s in "${SKIPPED[@]}"; do echo "    $s"; done
+  echo -e "  ${YLW}Run them later with:${NC} chewbacca setup --only <section>"
+  echo ""
+fi
 # What someone should read at the end depends entirely on who they are. Two
 # repo URLs that do not exist and three slash commands are the wrong closing
 # screen for a person who came here to ask about their calendar.

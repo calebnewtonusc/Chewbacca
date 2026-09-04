@@ -178,6 +178,7 @@ if group "installer"; then
   check  "--dry-run writes nothing" bash -c "test ! -d '$TMP/ci'"
   expect "uninstall --dry-run says so" "Dry run" bash "$ROOT/uninstall.sh" --dry-run
   exits  "uninstall rejects an unknown flag" 2 bash "$ROOT/uninstall.sh" --nonsense
+  expect "--skip is repeatable" "skipping plynn mac" bash "$ROOT/setup.sh" --dry-run --skip plynn --skip mac --name CI
   expect "portable profile installs no Mac tools" "~/.claude only" bash "$ROOT/setup.sh" --dry-run --profile portable --name CI
   exits  "an unknown profile exits 2" 2 bash "$ROOT/setup.sh" --dry-run --profile nonsense --name CI
   check  "no read calls in the installer" bash -c "! grep -nE '^[[:space:]]*read (-[a-z]+ )*' '$ROOT/setup.sh'"
