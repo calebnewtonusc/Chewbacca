@@ -57,8 +57,14 @@ saying "but it is our script" is not an answer. What is actually true:
 
 - You are trusting GitHub's TLS and this repo's contents, the same trust you
   extend by cloning it.
-- There is no checksum and no signature yet. That is a real gap, tracked as
-  item 1 in [1000.md](1000.md).
+- Since v1.1.0 there are checksums. `SHA256SUMS.txt` covers every file that
+  actually runs, `start.sh` verifies the download against it and stops on a
+  mismatch, and `--version v1.1.0` pins the install to a tag instead of
+  whatever landed on main an hour ago.
+- That is not a signature. It catches a truncated download, a proxy that
+  rewrote something in flight, and a mirror that is not what it claims. It does
+  not defend against a compromised repo, because the checksums live in the same
+  repo. Signing is still open, item 530.
 - The safe alternative works today and is one line longer:
 
 ```
