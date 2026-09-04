@@ -1,0 +1,1843 @@
+#!/usr/bin/env node
+// @ts-nocheck
+/**
+ * people: everything you know about the people in your life, in one place you own.
+ *
+ * The design here is ported from Amber's identity service with the permission of
+ * its authors, Karthik Devarakonda and Sagar Tiwari. The good ideas are theirs:
+ * one observations table instead of seven, modality as a column rather than a
+ * tag, scoring knobs as rows rather than constants, and permissions where the
+ * absence of a grant means no. What changed is the setting. Amber is a
+ * multi-tenant Cloud SQL service; this is one person's SQLite file on their own
+ * laptop, so tenancy is gone and everything else survives.
+ *
+ * Zero dependencies. Node 22.5+ for node:sqlite.
+ *
+ * Storage:
+ *   $PEOPLE_DIR (default ~/.chewbacca/people)
+ *     people.db          the database
+ *     export/            markdown, written by `people export`
+ *
+ * Sync is opt-in: `people sync init <git-url>` and the directory becomes a repo.
+ */
+
+"use strict";
+
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
+const crypto = require("node:crypto");
+const { execFileSync } = require("node:child_process");
+
+let DatabaseSync;
+try {
+  ({ DatabaseSync } = require("node:sqlite"));
+} catch {
+  die(
+    "This needs Node 22.5 or newer (node:sqlite).\n" +
+      `You are on ${process.version}. Try: brew upgrade node`,
+  );
+}
+
+const HOME = os.homedir();
+const DIR = process.env.PEOPLE_DIR || path.join(HOME, ".chewbacca", "people");
+const DB_PATH = path.join(DIR, "people.db");
+
+// ---------------------------------------------------------------- output
+
+const TTY = process.stdout.isTTY;
+const c = {
+  b: (s) => (TTY ? `\x1b[1m${s}\x1b[0m` : s),
+  dim: (s) => (TTY ? `\x1b[2m${s}\x1b[0m` : s),
+  red: (s) => (TTY ? `\x1b[31m${s}\x1b[0m` : s),
+  grn: (s) => (TTY ? `\x1b[32m${s}\x1b[0m` : s),
+  yel: (s) => (TTY ? `\x1b[33m${s}\x1b[0m` : s),
+  cyn: (s) => (TTY ? `\x1b[36m${s}\x1b[0m` : s),
+};
+
+// Piping into `head` closes stdout early. Without this the process dies with an
+// unhandled EPIPE and a stack trace, which looks like a crash rather than the
+// completely normal thing it is.
+process.stdout.on("error", (e) => {
+  if (e && e.code === "EPIPE") process.exit(0);
+});
+
+function die(msg, code = 1) {
+  process.stderr.write(c.red("people: ") + msg + "\n");
+  process.exit(code);
+}
+function say(s = "") {
+  process.stdout.write(s + "\n");
+}
+
+// ---------------------------------------------------------------- schema
+//
+// SUBJECT IS ONE OF THREE THINGS, enforced by CHECK: a person, a circle, or
+// you. Amber uses composite foreign keys to make a row whose owner disagrees
+// with its parent's owner unwritable. Single-user, there is no owner to
+// disagree, so that machinery is dropped rather than carried as decoration.
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS people (
+  id            TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  handle        TEXT UNIQUE,
+  phone         TEXT,
+  email         TEXT,
+  company       TEXT,
+  role          TEXT,
+  location      TEXT,
+  how_we_met    TEXT,
+  birthday      TEXT,
+  avatar        TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  deleted_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS people_name_idx ON people (name) WHERE deleted_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS circles (
+  id               TEXT PRIMARY KEY,
+  name             TEXT NOT NULL,
+  description      TEXT,
+  color            TEXT,
+  classified_kind  TEXT CHECK (classified_kind IN ('interest','experience','affiliation','other')),
+  classified_fact  TEXT,
+  classified_at    TEXT,
+  created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  deleted_at       TEXT
+);
+
+-- MEMBERS ARE PEOPLE, NOT ACCOUNTS. Amber's rule and it matters more here: a
+-- circle is a way of organising your own address book, so membership never
+-- requires the other person to have heard of this tool.
+CREATE TABLE IF NOT EXISTS circle_members (
+  circle_id TEXT NOT NULL REFERENCES circles (id) ON DELETE CASCADE,
+  person_id TEXT NOT NULL REFERENCES people  (id) ON DELETE CASCADE,
+  added_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (circle_id, person_id)
+);
+CREATE INDEX IF NOT EXISTS cm_person_idx ON circle_members (person_id);
+
+-- OBSERVATIONS: everything you know, in one table.
+--
+-- Facts, notes, experiences, memories and transcript chunks have identical
+-- shapes, identical indexes and identical lifecycles, which makes them one
+-- entity with a label. Seven tables would mean seven search indexes each too
+-- small to be good and seven places to forget valid_until.
+CREATE TABLE IF NOT EXISTS observations (
+  id           TEXT PRIMARY KEY,
+  person_id    TEXT REFERENCES people  (id) ON DELETE CASCADE,
+  circle_id    TEXT REFERENCES circles (id) ON DELETE CASCADE,
+
+  kind         TEXT NOT NULL DEFAULT 'fact'
+               CHECK (kind IN ('fact','note','experience','memory','transcript')),
+
+  -- MODALITY IS A COLUMN, NOT A TAG, because getting it wrong produces a wrong
+  -- answer rather than a vague one. "Thinking about moving to SF" must never
+  -- surface as "moved to SF". Anything whose error is merely imprecision is a
+  -- tag instead.
+  modality     TEXT NOT NULL DEFAULT 'actual'
+               CHECK (modality IN ('actual','planned','hypothetical','desired','available','declined')),
+
+  -- HOW YOU CAME TO KNOW IT. Weighs the observation; see scoring_params.
+  source       TEXT NOT NULL DEFAULT 'told_directly'
+               CHECK (source IN ('told_directly','observed','inferred','third_party','imported')),
+
+  body         TEXT NOT NULL,
+  observed_at  TEXT NOT NULL DEFAULT (datetime('now')),
+
+  -- A FACT HAS A SHAPE OVER TIME, NOT JUST AN EXPIRY.
+  --   permanent  "grew up in Manila"     full weight forever
+  --   window     "in SF for 3 months"    full weight inside, residual outside
+  --   decaying   "training for a race"   half-life of its dimension
+  temporal     TEXT NOT NULL DEFAULT 'decaying'
+               CHECK (temporal IN ('permanent','window','decaying')),
+  valid_from   TEXT,
+  valid_until  TEXT,
+
+  -- Provenance for circle-derived facts. Deleting the circle takes them with
+  -- it; changing its membership reconciles them.
+  source_circle_id TEXT REFERENCES circles (id) ON DELETE CASCADE,
+
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  deleted_at   TEXT,
+
+  -- A fact is about a person or about a circle, never both.
+  CHECK (person_id IS NULL OR circle_id IS NULL)
+);
+CREATE INDEX IF NOT EXISTS obs_person_idx  ON observations (person_id, observed_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS obs_circle_idx  ON observations (circle_id, observed_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS obs_self_idx    ON observations (observed_at DESC)
+  WHERE deleted_at IS NULL AND person_id IS NULL AND circle_id IS NULL;
+CREATE INDEX IF NOT EXISTS obs_src_circle_idx ON observations (source_circle_id)
+  WHERE source_circle_id IS NOT NULL AND deleted_at IS NULL;
+
+CREATE VIRTUAL TABLE IF NOT EXISTS observations_fts USING fts5(
+  body, content='observations', content_rowid='rowid'
+);
+
+-- THE SIX DIMENSIONS, AND EVERY KNOB THAT TUNES THEM.
+--
+-- Every tunable is a row, not a constant in code. Changing how this weighs
+-- financial stress is an UPDATE, not an edit and a reinstall.
+CREATE TABLE IF NOT EXISTS dimensions (
+  id             INTEGER PRIMARY KEY,
+  code           TEXT NOT NULL UNIQUE,
+  label          TEXT NOT NULL,
+  sort_order     INTEGER NOT NULL,
+  -- How fast a signal in this dimension goes stale. Someone's physical
+  -- situation changes far faster than their spiritual one. Opening guesses,
+  -- meant to be argued with.
+  half_life_days INTEGER NOT NULL,
+  base_weight    REAL NOT NULL DEFAULT 1.0
+);
+
+CREATE TABLE IF NOT EXISTS scoring_params (
+  key        TEXT PRIMARY KEY,
+  value      REAL NOT NULL,
+  note       TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS observation_dimensions (
+  observation_id TEXT NOT NULL REFERENCES observations (id) ON DELETE CASCADE,
+  dimension_id   INTEGER NOT NULL REFERENCES dimensions (id) ON DELETE CASCADE,
+  weight         REAL NOT NULL DEFAULT 1.0,
+  PRIMARY KEY (observation_id, dimension_id)
+);
+CREATE INDEX IF NOT EXISTS od_dim_idx ON observation_dimensions (dimension_id);
+
+CREATE TABLE IF NOT EXISTS interactions (
+  id         TEXT PRIMARY KEY,
+  person_id  TEXT NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+  channel    TEXT,
+  note       TEXT,
+  happened_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS int_person_idx ON interactions (person_id, happened_at DESC);
+
+-- DERIVED. Truncating these must always be safe: they hold no truth of their
+-- own, a job rebuilds them. They exist so a read is an index scan instead of a
+-- computation. Refreshed by "people score", not by a trigger, because a trigger
+-- fires invisibly whether you meant it to or not.
+CREATE TABLE IF NOT EXISTS person_scores (
+  person_id           TEXT PRIMARY KEY REFERENCES people (id) ON DELETE CASCADE,
+  base_score          REAL NOT NULL DEFAULT 0,
+  warmth              REAL NOT NULL DEFAULT 0,
+  last_interaction_at TEXT,
+  observation_count   INTEGER NOT NULL DEFAULT 0,
+  completeness        REAL NOT NULL DEFAULT 0,
+  computed_at         TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS ps_shortlist_idx ON person_scores (base_score DESC);
+
+CREATE TABLE IF NOT EXISTS person_dimension_state (
+  person_id    TEXT NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+  dimension_id INTEGER NOT NULL REFERENCES dimensions (id) ON DELETE CASCADE,
+  score        REAL NOT NULL DEFAULT 0,
+  evidence     INTEGER NOT NULL DEFAULT 0,
+  computed_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (person_id, dimension_id)
+);
+
+CREATE TABLE IF NOT EXISTS dimension_weights (
+  dimension_id INTEGER PRIMARY KEY REFERENCES dimensions (id) ON DELETE CASCADE,
+  weight       REAL NOT NULL DEFAULT 1.0
+);
+
+-- VISIBILITY. Single-user there is nobody to hide from, so this does not gate
+-- reads. It survives because it is what "people export --scope" reads: one row
+-- means this item may leave the machine for this audience. Absence of a row
+-- means no. That default is the whole point and is the one most systems get
+-- backwards.
+CREATE TABLE IF NOT EXISTS visibility (
+  id         TEXT PRIMARY KEY,
+  item_type  TEXT NOT NULL CHECK (item_type IN ('observation','person','circle')),
+  item_id    TEXT NOT NULL,
+  scope_type TEXT NOT NULL CHECK (scope_type IN ('everyone','circle','person')),
+  scope_ref  TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  deleted_at TEXT,
+  CHECK ((scope_type = 'everyone' AND scope_ref IS NULL)
+      OR (scope_type <> 'everyone' AND scope_ref IS NOT NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS vis_unique_live ON visibility
+  (item_type, item_id, scope_type, COALESCE(scope_ref, ''))
+  WHERE deleted_at IS NULL;
+`;
+
+const SEED_DIMENSIONS = [
+  [1, "spiritual", "Spiritual", 1, 730, 1.0],
+  [2, "emotional", "Emotional", 2, 90, 1.0],
+  [3, "physical", "Physical", 3, 120, 1.0],
+  [4, "intellectual", "Intellectual", 4, 365, 1.0],
+  [5, "social", "Social", 5, 150, 1.0],
+  [6, "financial", "Financial", 6, 180, 1.0],
+];
+
+const SEED_PARAMS = [
+  ["saturation_k", 0.35, "score = 1 - exp(-k * sum). Higher = fewer observations to saturate"],
+  ["window_residual", 0.15, "a finished window still counts this much: \"she was in SF last spring\" is real knowledge"],
+  ["stale_expired", 0.3, "a fact past valid_until but recently so"],
+  ["stale_long_gone", 0.1, "a fact long past valid_until"],
+  ["stale_long_gone_days", 365, "past valid_until by more than this is long gone"],
+  ["source_told_directly", 1.0, "they said it to you"],
+  ["source_observed", 0.85, "you saw it yourself"],
+  ["source_inferred", 0.5, "you worked it out"],
+  ["source_third_party", 0.4, "someone else told you"],
+  ["source_imported", 0.6, "came from a sync, nobody vouched for it"],
+  ["modality_actual", 1.0, "it happened"],
+  ["modality_planned", 0.6, "it is going to"],
+  ["modality_hypothetical", 0.25, "it might"],
+  ["modality_desired", 0.5, "they want it to"],
+  ["modality_available", 0.7, "they are open to it"],
+  ["modality_declined", 0.4, "they said no, which is knowledge too"],
+  ["warmth_half_life_days", 60, "how fast warmth fades with no contact"],
+  ["completeness_target", 12, "observations at which a person counts as fully known"],
+];
+
+// ---------------------------------------------------------------- db
+
+let _db = null;
+function db() {
+  if (_db) return _db;
+  fs.mkdirSync(DIR, { recursive: true });
+  _db = new DatabaseSync(DB_PATH);
+  _db.exec("PRAGMA foreign_keys = ON");
+  _db.exec("PRAGMA journal_mode = WAL");
+  _db.exec(SCHEMA);
+  migrate(_db);
+  seed(_db);
+  return _db;
+}
+
+// Columns added after someone already has a database. CREATE TABLE IF NOT
+// EXISTS will not add them, and a missing column is a crash rather than a
+// degraded feature, so this runs on every open. It is cheap and idempotent.
+function ensureColumn(d, table, column, decl) {
+  const cols = d.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some((c) => c.name === column)) d.exec(`ALTER TABLE ${table} ADD COLUMN ${decl}`);
+}
+
+function migrate(d) {
+  ensureColumn(d, "people", "cadence_days", "cadence_days INTEGER");
+  ensureColumn(d, "people", "source", "source TEXT");
+  ensureColumn(d, "people", "external_id", "external_id TEXT");
+}
+
+function seed(d) {
+  const n = d.prepare("SELECT count(*) AS n FROM dimensions").get().n;
+  if (n === 0) {
+    const ins = d.prepare(
+      "INSERT INTO dimensions (id, code, label, sort_order, half_life_days, base_weight) VALUES (?,?,?,?,?,?)",
+    );
+    for (const row of SEED_DIMENSIONS) ins.run(...row);
+    const w = d.prepare("INSERT INTO dimension_weights (dimension_id, weight) VALUES (?, 1.0)");
+    for (const row of SEED_DIMENSIONS) w.run(row[0]);
+  }
+  const ip = d.prepare(
+    "INSERT INTO scoring_params (key, value, note) VALUES (?,?,?) ON CONFLICT(key) DO NOTHING",
+  );
+  for (const p of SEED_PARAMS) ip.run(...p);
+  d.prepare(
+    "INSERT INTO meta (key, value) VALUES ('schema_version','1') ON CONFLICT(key) DO NOTHING",
+  ).run();
+}
+
+function params() {
+  const out = {};
+  for (const r of db().prepare("SELECT key, value FROM scoring_params").all()) out[r.key] = r.value;
+  return out;
+}
+
+const uuid = () => crypto.randomUUID();
+const nowISO = () => new Date().toISOString().replace("T", " ").slice(0, 19);
+
+function daysBetween(a, b) {
+  return (new Date(b).getTime() - new Date(a).getTime()) / 86400000;
+}
+
+// ---------------------------------------------------------------- lookup
+
+function findPerson(needle, { required = true } = {}) {
+  if (!needle) return null;
+  const d = db();
+  const exact = d
+    .prepare(
+      "SELECT * FROM people WHERE deleted_at IS NULL AND (id = ? OR handle = ? OR lower(name) = lower(?))",
+    )
+    .get(needle, needle, needle);
+  if (exact) return exact;
+  const like = d
+    .prepare(
+      "SELECT * FROM people WHERE deleted_at IS NULL AND lower(name) LIKE lower(?) ORDER BY name LIMIT 5",
+    )
+    .all(`%${needle}%`);
+  if (like.length === 1) return like[0];
+  if (like.length > 1) {
+    die(
+      `"${needle}" matches ${like.length} people:\n` +
+        like.map((p) => `  ${p.name}`).join("\n") +
+        "\nBe more specific, or use the handle.",
+    );
+  }
+  if (required) die(`No one matches "${needle}". Add them: people add "${needle}"`);
+  return null;
+}
+
+function findCircle(needle, { required = true } = {}) {
+  const d = db();
+  const exact = d
+    .prepare("SELECT * FROM circles WHERE deleted_at IS NULL AND (id = ? OR lower(name) = lower(?))")
+    .get(needle, needle);
+  if (exact) return exact;
+  const like = d
+    .prepare("SELECT * FROM circles WHERE deleted_at IS NULL AND lower(name) LIKE lower(?) LIMIT 5")
+    .all(`%${needle}%`);
+  if (like.length === 1) return like[0];
+  if (like.length > 1)
+    die(`"${needle}" matches ${like.length} circles:\n` + like.map((x) => `  ${x.name}`).join("\n"));
+  if (required) die(`No circle matches "${needle}". Make one: people circle create "${needle}"`);
+  return null;
+}
+
+function dimByCode(code) {
+  const d = db().prepare("SELECT * FROM dimensions WHERE code = ?").get(String(code).toLowerCase());
+  if (!d)
+    die(
+      `Unknown dimension "${code}". One of: ` +
+        SEED_DIMENSIONS.map((x) => x[1]).join(", "),
+    );
+  return d;
+}
+
+// ---------------------------------------------------------------- args
+
+function parseArgs(argv) {
+  const flags = {};
+  const rest = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith("--")) {
+      const eq = a.indexOf("=");
+      if (eq > -1) flags[a.slice(2, eq)] = a.slice(eq + 1);
+      else if (i + 1 < argv.length && !argv[i + 1].startsWith("--")) flags[a.slice(2)] = argv[++i];
+      else flags[a.slice(2)] = true;
+    } else rest.push(a);
+  }
+  return { flags, rest };
+}
+
+// ---------------------------------------------------------------- scoring
+//
+// weight = source trust * modality * temporal shape * dimension decay
+// dimension score = 1 - exp(-k * sum of weights)
+//
+// Saturation rather than an average, because the tenth piece of evidence that
+// someone is struggling financially should move the number less than the first.
+
+function temporalFactor(obs, P, asOf) {
+  if (obs.temporal === "permanent") return 1;
+  if (obs.temporal === "window") {
+    const from = obs.valid_from ? new Date(obs.valid_from) : null;
+    const until = obs.valid_until ? new Date(obs.valid_until) : null;
+    const t = new Date(asOf);
+    const afterStart = !from || t >= from;
+    const beforeEnd = !until || t <= until;
+    if (afterStart && beforeEnd) return 1;
+    return P.window_residual;
+  }
+  return null; // decaying: caller applies the dimension half-life
+}
+
+function expiryFactor(obs, P, asOf) {
+  if (!obs.valid_until) return 1;
+  const overdue = daysBetween(obs.valid_until, asOf);
+  if (overdue <= 0) return 1;
+  return overdue > P.stale_long_gone_days ? P.stale_long_gone : P.stale_expired;
+}
+
+function observationWeight(obs, dim, P, asOf) {
+  const src = P[`source_${obs.source}`] ?? 0.5;
+  const mod = P[`modality_${obs.modality}`] ?? 0.5;
+  let temporal = temporalFactor(obs, P, asOf);
+  if (temporal === null) {
+    const age = Math.max(0, daysBetween(obs.observed_at, asOf));
+    temporal = Math.pow(2, -age / dim.half_life_days);
+  }
+  return src * mod * temporal * expiryFactor(obs, P, asOf);
+}
+
+function recomputeScores() {
+  const d = db();
+  const P = params();
+  const asOf = nowISO();
+  const dims = d.prepare("SELECT * FROM dimensions ORDER BY sort_order").all();
+  const weights = Object.fromEntries(
+    d.prepare("SELECT dimension_id, weight FROM dimension_weights").all().map((r) => [r.dimension_id, r.weight]),
+  );
+  const people = d.prepare("SELECT * FROM people WHERE deleted_at IS NULL").all();
+
+  const obsFor = d.prepare(
+    `SELECT o.*, od.dimension_id, od.weight AS dim_weight
+       FROM observations o
+       JOIN observation_dimensions od ON od.observation_id = o.id
+      WHERE o.person_id = ? AND o.deleted_at IS NULL`,
+  );
+  const countFor = d.prepare(
+    "SELECT count(*) AS n FROM observations WHERE person_id = ? AND deleted_at IS NULL",
+  );
+  const lastInt = d.prepare(
+    "SELECT max(happened_at) AS t FROM interactions WHERE person_id = ?",
+  );
+
+  const upDim = d.prepare(
+    `INSERT INTO person_dimension_state (person_id, dimension_id, score, evidence, computed_at)
+     VALUES (?,?,?,?,?)
+     ON CONFLICT(person_id, dimension_id)
+     DO UPDATE SET score = excluded.score, evidence = excluded.evidence, computed_at = excluded.computed_at`,
+  );
+  const upScore = d.prepare(
+    `INSERT INTO person_scores (person_id, base_score, warmth, last_interaction_at, observation_count, completeness, computed_at)
+     VALUES (?,?,?,?,?,?,?)
+     ON CONFLICT(person_id)
+     DO UPDATE SET base_score = excluded.base_score, warmth = excluded.warmth,
+                   last_interaction_at = excluded.last_interaction_at,
+                   observation_count = excluded.observation_count,
+                   completeness = excluded.completeness, computed_at = excluded.computed_at`,
+  );
+
+  let n = 0;
+  for (const p of people) {
+    const rows = obsFor.all(p.id);
+    const sums = {};
+    const evid = {};
+    for (const r of rows) {
+      const dim = dims.find((x) => x.id === r.dimension_id);
+      if (!dim) continue;
+      const w = observationWeight(r, dim, P, asOf) * (r.dim_weight ?? 1);
+      sums[dim.id] = (sums[dim.id] || 0) + w;
+      evid[dim.id] = (evid[dim.id] || 0) + 1;
+    }
+
+    let weighted = 0;
+    let wsum = 0;
+    for (const dim of dims) {
+      const s = sums[dim.id] || 0;
+      const score = 1 - Math.exp(-P.saturation_k * s);
+      upDim.run(p.id, dim.id, score, evid[dim.id] || 0, asOf);
+      const w = dim.base_weight * (weights[dim.id] ?? 1);
+      weighted += score * w;
+      wsum += w;
+    }
+    const base = wsum ? weighted / wsum : 0;
+
+    const last = lastInt.get(p.id).t;
+    const warmth = last
+      ? Math.pow(2, -Math.max(0, daysBetween(last, asOf)) / P.warmth_half_life_days)
+      : 0;
+    const count = countFor.get(p.id).n;
+    const completeness = Math.min(1, count / P.completeness_target);
+
+    upScore.run(p.id, base, warmth, last || null, count, completeness, asOf);
+    n++;
+  }
+  return n;
+}
+
+// ---------------------------------------------------------------- commands
+
+function cmdAdd(argv) {
+  const { flags, rest } = parseArgs(argv);
+  const name = rest.join(" ").trim();
+  if (!name) die('Who? Try: people add "Maggie Chen" --company Acme');
+  const d = db();
+  const dupe = d
+    .prepare("SELECT * FROM people WHERE deleted_at IS NULL AND lower(name) = lower(?)")
+    .get(name);
+  if (dupe && !flags.force)
+    die(`${name} already exists. Use --force to add a second one, or pick a handle.`);
+  const id = uuid();
+  d.prepare(
+    `INSERT INTO people (id, name, handle, phone, email, company, role, location, how_we_met, birthday)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+  ).run(
+    id,
+    name,
+    flags.handle || null,
+    flags.phone || null,
+    flags.email || null,
+    flags.company || null,
+    flags.role || null,
+    flags.location || null,
+    flags["met"] || null,
+    flags.birthday || null,
+  );
+  say(`${c.grn("added")} ${c.b(name)}`);
+  if (flags.note) cmdNote([name, flags.note]);
+  return id;
+}
+
+function insertObservation({ personId, circleId, body, flags = {}, sourceCircleId = null }) {
+  const d = db();
+  const id = uuid();
+  const kind = flags.kind || "fact";
+  const modality = flags.modality || "actual";
+  const source = flags.source || "told_directly";
+  const temporal = flags.temporal || (flags.until ? "window" : "decaying");
+  d.prepare(
+    `INSERT INTO observations
+      (id, person_id, circle_id, kind, modality, source, body, observed_at,
+       temporal, valid_from, valid_until, source_circle_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).run(
+    id,
+    personId || null,
+    circleId || null,
+    kind,
+    modality,
+    source,
+    body,
+    flags.at || nowISO(),
+    temporal,
+    flags.from || null,
+    flags.until || null,
+    sourceCircleId,
+  );
+  const rowid = d.prepare("SELECT rowid FROM observations WHERE id = ?").get(id).rowid;
+  d.prepare("INSERT INTO observations_fts (rowid, body) VALUES (?, ?)").run(rowid, body);
+
+  const codes = flags.dim
+    ? String(flags.dim)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : inferDimensions(body);
+  const link = d.prepare(
+    "INSERT INTO observation_dimensions (observation_id, dimension_id, weight) VALUES (?,?,?) ON CONFLICT DO NOTHING",
+  );
+  for (const code of codes) link.run(id, dimByCode(code).id, 1.0);
+  return { id, dims: codes };
+}
+
+// Keyword fallback only. The skill instructs Claude to pass --dim explicitly,
+// which is always better than this. This exists so a human typing at a terminal
+// still gets something rather than an unscored row.
+const DIM_HINTS = {
+  spiritual: ["church", "faith", "pray", "prayer", "god", "jesus", "bible", "worship", "ministry", "sermon"],
+  emotional: ["anxious", "anxiety", "depressed", "grief", "burnout", "lonely", "stressed", "therapy", "breakup", "divorce", "excited", "overwhelmed"],
+  physical: ["gym", "injury", "surgery", "sick", "marathon", "training", "sleep", "diagnosis", "hospital", "diet", "lifting", "running"],
+  intellectual: ["reading", "book", "research", "phd", "studying", "course", "paper", "learning", "thesis", "class"],
+  social: ["married", "engaged", "wedding", "moved", "friends", "party", "community", "roommate", "dating", "family"],
+  financial: ["raise", "salary", "laid off", "fundraising", "broke", "funding", "job", "promotion", "startup", "investor", "rent", "money"],
+};
+
+function inferDimensions(body) {
+  const t = body.toLowerCase();
+  const hits = [];
+  for (const [code, words] of Object.entries(DIM_HINTS)) {
+    if (words.some((w) => t.includes(w))) hits.push(code);
+  }
+  return hits;
+}
+
+function cmdNote(argv) {
+  const { flags, rest } = parseArgs(argv);
+  const who = rest.shift();
+  const body = rest.join(" ").trim();
+  if (!who || !body) die('Try: people note maggie "just got promoted" --dim financial');
+  const p = findPerson(who);
+  const { dims } = insertObservation({ personId: p.id, body, flags });
+  const tag = dims.length ? c.dim(` [${dims.join(", ")}]`) : c.dim(" [no dimension]");
+  say(`${c.grn("noted")} on ${c.b(p.name)}${tag}`);
+  if (!flags["no-score"]) recomputeScores();
+}
+
+function cmdMe(argv) {
+  const { flags, rest } = parseArgs(argv);
+  const body = rest.join(" ").trim();
+  if (!body) die('Try: people me "starting the neuro sequence this fall" --dim intellectual');
+  const { dims } = insertObservation({ personId: null, circleId: null, body, flags });
+  say(`${c.grn("noted")} about ${c.b("you")}${dims.length ? c.dim(` [${dims.join(", ")}]`) : ""}`);
+}
+
+function cmdLog(argv) {
+  const { flags, rest } = parseArgs(argv);
+  const who = rest.shift();
+  if (!who) die('Try: people log maggie --channel call "caught up about the move"');
+  const p = findPerson(who);
+  db().prepare(
+    "INSERT INTO interactions (id, person_id, channel, note, happened_at) VALUES (?,?,?,?,?)",
+  ).run(uuid(), p.id, flags.channel || null, rest.join(" ") || null, flags.at || nowISO());
+  say(`${c.grn("logged")} contact with ${c.b(p.name)}`);
+  recomputeScores();
+}
+
+function cmdShow(argv) {
+  const { rest } = parseArgs(argv);
+  const who = rest.join(" ");
+  if (!who) die("Who? Try: people show maggie");
+  const p = findPerson(who);
+  const d = db();
+
+  say("");
+  say(c.b(p.name) + (p.handle ? c.dim(` @${p.handle}`) : ""));
+  const bits = [p.role, p.company, p.location].filter(Boolean).join(" · ");
+  if (bits) say(c.dim(bits));
+  const contact = [p.phone, p.email].filter(Boolean).join("  ");
+  if (contact) say(c.dim(contact));
+  if (p.how_we_met) say(c.dim(`met: ${p.how_we_met}`));
+
+  const circles = d
+    .prepare(
+      `SELECT c.name FROM circles c JOIN circle_members m ON m.circle_id = c.id
+        WHERE m.person_id = ? AND c.deleted_at IS NULL ORDER BY c.name`,
+    )
+    .all(p.id);
+  if (circles.length) say("\n" + c.cyn("circles  ") + circles.map((x) => x.name).join(", "));
+
+  const s = d.prepare("SELECT * FROM person_scores WHERE person_id = ?").get(p.id);
+  if (s) {
+    const states = d
+      .prepare(
+        `SELECT dm.code, dm.label, st.score, st.evidence
+           FROM person_dimension_state st JOIN dimensions dm ON dm.id = st.dimension_id
+          WHERE st.person_id = ? ORDER BY dm.sort_order`,
+      )
+      .all(p.id);
+    say("");
+    for (const st of states) {
+      say(`  ${st.label.padEnd(13)} ${bar(st.score)} ${fmt(st.score)}${st.evidence ? c.dim(`  ${st.evidence}`) : ""}`);
+    }
+    say(
+      c.dim(
+        `\n  score ${fmt(s.base_score)}   warmth ${fmt(s.warmth)}   known ${Math.round(s.completeness * 100)}%` +
+          (s.last_interaction_at ? `   last contact ${s.last_interaction_at.slice(0, 10)}` : ""),
+      ),
+    );
+  }
+
+  const obs = d
+    .prepare(
+      `SELECT * FROM observations WHERE person_id = ? AND deleted_at IS NULL
+        ORDER BY observed_at DESC LIMIT 40`,
+    )
+    .all(p.id);
+  if (obs.length) {
+    say("\n" + c.cyn("what you know"));
+    for (const o of obs) say("  " + renderObs(o));
+  } else {
+    say(c.dim("\n  nothing recorded yet"));
+  }
+  say("");
+}
+
+function renderObs(o) {
+  const date = c.dim(String(o.observed_at).slice(0, 10));
+  const marks = [];
+  if (o.modality !== "actual") marks.push(o.modality);
+  if (o.kind !== "fact") marks.push(o.kind);
+  if (o.source !== "told_directly") marks.push(o.source.replace("_", " "));
+  if (o.source_circle_id) marks.push("from circle");
+  const tail = marks.length ? c.dim(`  (${marks.join(", ")})`) : "";
+  return `${date}  ${o.body}${tail}`;
+}
+
+function bar(v) {
+  const n = Math.round(Math.max(0, Math.min(1, v)) * 12);
+  const s = "█".repeat(n) + c.dim("·".repeat(12 - n));
+  return v >= 0.66 ? c.grn(s) : v >= 0.33 ? c.yel(s) : s;
+}
+const fmt = (v) => v.toFixed(2);
+
+function cmdList(argv) {
+  const { flags } = parseArgs(argv);
+  const d = db();
+  const rows = d
+    .prepare(
+      `SELECT p.*, COALESCE(s.base_score,0) AS score, COALESCE(s.observation_count,0) AS n
+         FROM people p LEFT JOIN person_scores s ON s.person_id = p.id
+        WHERE p.deleted_at IS NULL
+        ORDER BY ${flags.by === "score" ? "score DESC" : "p.name COLLATE NOCASE"}`,
+    )
+    .all();
+  if (!rows.length) return say(c.dim('nobody yet. try: people add "Maggie Chen"'));
+  for (const r of rows) {
+    say(
+      `  ${r.name.padEnd(24)} ${c.dim(String(r.n).padStart(3) + " obs")}  ${fmt(r.score)}` +
+        (r.company ? c.dim("  " + r.company) : ""),
+    );
+  }
+  say(c.dim(`\n  ${rows.length} people`));
+}
+
+function cmdRank(argv) {
+  const { flags } = parseArgs(argv);
+  const d = db();
+  const limit = Number(flags.limit || 20);
+  if (flags.dim) {
+    const dim = dimByCode(flags.dim);
+    const rows = d
+      .prepare(
+        `SELECT p.name, st.score, st.evidence
+           FROM person_dimension_state st JOIN people p ON p.id = st.person_id
+          WHERE st.dimension_id = ? AND p.deleted_at IS NULL AND st.evidence > 0
+          ORDER BY st.score DESC LIMIT ?`,
+      )
+      .all(dim.id, limit);
+    if (!rows.length) return say(c.dim(`nothing recorded in ${dim.label} yet`));
+    say("\n" + c.b(dim.label) + c.dim(`  half-life ${dim.half_life_days}d`));
+    for (const r of rows)
+      say(`  ${bar(r.score)} ${fmt(r.score)}  ${r.name}${c.dim(`  ${r.evidence}`)}`);
+    say("");
+    return;
+  }
+  const rows = d
+    .prepare(
+      `SELECT p.name, s.base_score, s.warmth, s.observation_count
+         FROM person_scores s JOIN people p ON p.id = s.person_id
+        WHERE p.deleted_at IS NULL ORDER BY s.base_score DESC LIMIT ?`,
+    )
+    .all(limit);
+  if (!rows.length) return say(c.dim("no scores yet. run: people score"));
+  say("");
+  for (const r of rows)
+    say(`  ${bar(r.base_score)} ${fmt(r.base_score)}  ${r.name}${c.dim(`  warmth ${fmt(r.warmth)}`)}`);
+  say("");
+}
+
+function cmdSearch(argv) {
+  const { rest } = parseArgs(argv);
+  const q = rest.join(" ").trim();
+  if (!q) die('Search for what? people search "hiking"');
+  const d = db();
+  let rows;
+  try {
+    rows = d
+      .prepare(
+        `SELECT o.*, p.name AS person, ci.name AS circle
+           FROM observations_fts f
+           JOIN observations o ON o.rowid = f.rowid
+           LEFT JOIN people  p  ON p.id  = o.person_id
+           LEFT JOIN circles ci ON ci.id = o.circle_id
+          WHERE observations_fts MATCH ? AND o.deleted_at IS NULL
+          ORDER BY rank LIMIT 40`,
+      )
+      .all(q);
+  } catch {
+    rows = d
+      .prepare(
+        `SELECT o.*, p.name AS person, ci.name AS circle
+           FROM observations o
+           LEFT JOIN people  p  ON p.id  = o.person_id
+           LEFT JOIN circles ci ON ci.id = o.circle_id
+          WHERE o.body LIKE ? AND o.deleted_at IS NULL
+          ORDER BY o.observed_at DESC LIMIT 40`,
+      )
+      .all(`%${q}%`);
+  }
+  if (!rows.length) return say(c.dim(`nothing matches "${q}"`));
+  say("");
+  for (const r of rows) {
+    const subject = r.person || (r.circle ? `${r.circle} (circle)` : "you");
+    say(`  ${c.b(subject.padEnd(20))} ${renderObs(r)}`);
+  }
+  say(c.dim(`\n  ${rows.length} results`));
+}
+
+// ---------------------------------------------------------------- circles
+
+function cmdCircle(argv) {
+  const sub = argv.shift();
+  const { flags, rest } = parseArgs(argv);
+  const d = db();
+
+  if (!sub || sub === "list") {
+    const rows = d
+      .prepare(
+        `SELECT c.*, (SELECT count(*) FROM circle_members m WHERE m.circle_id = c.id) AS n
+           FROM circles c WHERE c.deleted_at IS NULL ORDER BY c.name COLLATE NOCASE`,
+      )
+      .all();
+    if (!rows.length) return say(c.dim('no circles. try: people circle create "Hiking"'));
+    say("");
+    for (const r of rows)
+      say(
+        `  ${c.b(r.name.padEnd(22))} ${c.dim(String(r.n) + " members")}` +
+          (r.classified_kind ? c.dim(`  ${r.classified_kind}`) : "") +
+          (r.classified_fact ? `\n    ${c.dim(r.classified_fact)}` : ""),
+      );
+    say("");
+    return;
+  }
+
+  if (sub === "create") {
+    const name = rest.join(" ").trim();
+    if (!name) die('Name it: people circle create "Hiking" --desc "people I hike with"');
+    if (d.prepare("SELECT 1 FROM circles WHERE lower(name)=lower(?) AND deleted_at IS NULL").get(name))
+      die(`Circle "${name}" already exists.`);
+    const id = uuid();
+    d.prepare("INSERT INTO circles (id, name, description, color) VALUES (?,?,?,?)").run(
+      id,
+      name,
+      flags.desc || null,
+      flags.color || null,
+    );
+    if (flags.kind || flags.fact) {
+      d.prepare(
+        "UPDATE circles SET classified_kind=?, classified_fact=?, classified_at=? WHERE id=?",
+      ).run(flags.kind || "other", flags.fact || null, nowISO(), id);
+    }
+    say(`${c.grn("created")} circle ${c.b(name)}`);
+    if (flags.fact) syncCircleFacts(id);
+    return;
+  }
+
+  if (sub === "classify") {
+    const ci = findCircle(rest.shift());
+    if (!flags.kind && !flags.fact)
+      die(
+        'Pass what Claude worked out: people circle classify "Hiking" --kind interest --fact "enjoys hiking"',
+      );
+    d.prepare(
+      "UPDATE circles SET classified_kind=?, classified_fact=?, classified_at=? WHERE id=?",
+    ).run(flags.kind || ci.classified_kind || "other", flags.fact || ci.classified_fact, nowISO(), ci.id);
+    const n = syncCircleFacts(ci.id);
+    say(`${c.grn("classified")} ${c.b(ci.name)}${c.dim(`  ${n} member facts reconciled`)}`);
+    return;
+  }
+
+  if (sub === "add") {
+    const ci = findCircle(rest.shift());
+    if (!rest.length) die(`Add who? people circle add "${ci.name}" maggie declan`);
+    for (const who of rest) {
+      const p = findPerson(who);
+      d.prepare(
+        "INSERT INTO circle_members (circle_id, person_id) VALUES (?,?) ON CONFLICT DO NOTHING",
+      ).run(ci.id, p.id);
+      say(`  ${c.grn("+")} ${p.name}`);
+    }
+    const n = syncCircleFacts(ci.id);
+    if (n) say(c.dim(`  ${n} member facts reconciled`));
+    recomputeScores();
+    return;
+  }
+
+  if (sub === "remove" || sub === "rm") {
+    const ci = findCircle(rest.shift());
+    for (const who of rest) {
+      const p = findPerson(who);
+      d.prepare("DELETE FROM circle_members WHERE circle_id=? AND person_id=?").run(ci.id, p.id);
+      say(`  ${c.red("-")} ${p.name}`);
+    }
+    syncCircleFacts(ci.id);
+    recomputeScores();
+    return;
+  }
+
+  if (sub === "show") {
+    const ci = findCircle(rest.join(" "));
+    say("\n" + c.b(ci.name) + (ci.description ? c.dim(`  ${ci.description}`) : ""));
+    if (ci.classified_fact) say(c.dim(`  ${ci.classified_kind}: ${ci.classified_fact}`));
+    const mem = d
+      .prepare(
+        `SELECT p.name FROM circle_members m JOIN people p ON p.id = m.person_id
+          WHERE m.circle_id = ? AND p.deleted_at IS NULL ORDER BY p.name`,
+      )
+      .all(ci.id);
+    say("");
+    for (const m of mem) say("  " + m.name);
+    const obs = d
+      .prepare(
+        "SELECT * FROM observations WHERE circle_id=? AND deleted_at IS NULL ORDER BY observed_at DESC LIMIT 20",
+      )
+      .all(ci.id);
+    if (obs.length) {
+      say("\n" + c.cyn("about the circle"));
+      for (const o of obs) say("  " + renderObs(o));
+    }
+    say("");
+    return;
+  }
+
+  if (sub === "delete") {
+    const ci = findCircle(rest.join(" "));
+    d.prepare("UPDATE circles SET deleted_at=? WHERE id=?").run(nowISO(), ci.id);
+    say(`${c.red("deleted")} circle ${c.b(ci.name)}${c.dim("  its derived facts went with it")}`);
+    recomputeScores();
+    return;
+  }
+
+  die("people circle [list|create|add|remove|show|classify|delete]");
+}
+
+// A circle-derived fact is written onto every member, and revoked when
+// membership changes or the circle is deleted. Provenance lives in
+// source_circle_id so the revoke is exact rather than a guess at the text.
+function syncCircleFacts(circleId) {
+  const d = db();
+  const ci = d.prepare("SELECT * FROM circles WHERE id=?").get(circleId);
+  if (!ci || !ci.classified_fact) return 0;
+  d.prepare(
+    "UPDATE observations SET deleted_at=? WHERE source_circle_id=? AND deleted_at IS NULL",
+  ).run(nowISO(), circleId);
+  if (ci.deleted_at) return 0;
+  const members = d.prepare("SELECT person_id FROM circle_members WHERE circle_id=?").all(circleId);
+  // A circle is a social grouping by construction, so its derived fact is
+  // social evidence regardless of what the circle is about. The body text
+  // carries the topic; the dimension carries how you know these people.
+  const dimCode = "social";
+  let n = 0;
+  for (const m of members) {
+    insertObservation({
+      personId: m.person_id,
+      body: ci.classified_fact,
+      flags: { source: "inferred", temporal: "permanent", dim: dimCode },
+      sourceCircleId: circleId,
+    });
+    n++;
+  }
+  return n;
+}
+
+// ---------------------------------------------------------------- knobs
+
+function cmdDims(argv) {
+  const { flags, rest } = parseArgs(argv);
+  const d = db();
+  if (rest[0] === "set") {
+    const dim = dimByCode(rest[1]);
+    if (flags["half-life"])
+      d.prepare("UPDATE dimensions SET half_life_days=? WHERE id=?").run(
+        Number(flags["half-life"]),
+        dim.id,
+      );
+    if (flags.weight)
+      d.prepare(
+        "INSERT INTO dimension_weights (dimension_id, weight) VALUES (?,?) ON CONFLICT(dimension_id) DO UPDATE SET weight=excluded.weight",
+      ).run(dim.id, Number(flags.weight));
+    say(`${c.grn("updated")} ${dim.label}`);
+    recomputeScores();
+    return;
+  }
+  const rows = d
+    .prepare(
+      `SELECT dm.*, COALESCE(w.weight,1.0) AS uw,
+              (SELECT count(*) FROM observation_dimensions od WHERE od.dimension_id = dm.id) AS n
+         FROM dimensions dm LEFT JOIN dimension_weights w ON w.dimension_id = dm.id
+        ORDER BY dm.sort_order`,
+    )
+    .all();
+  say("");
+  for (const r of rows)
+    say(
+      `  ${r.label.padEnd(14)} ${c.dim("half-life")} ${String(r.half_life_days + "d").padEnd(6)} ${c.dim("weight")} ${r.uw.toFixed(2)}  ${c.dim(r.n + " observations")}`,
+    );
+  say(c.dim("\n  people dims set financial --half-life 90 --weight 1.5"));
+  say("");
+}
+
+function cmdTune(argv) {
+  const { rest } = parseArgs(argv);
+  const d = db();
+  if (!rest.length) {
+    const rows = d.prepare("SELECT * FROM scoring_params ORDER BY key").all();
+    say("");
+    for (const r of rows) say(`  ${r.key.padEnd(24)} ${String(r.value).padEnd(8)} ${c.dim(r.note || "")}`);
+    say(c.dim("\n  people tune saturation_k 0.5"));
+    say("");
+    return;
+  }
+  const [key, value] = rest;
+  if (value === undefined) die(`people tune ${key} <value>`);
+  const exists = d.prepare("SELECT 1 FROM scoring_params WHERE key=?").get(key);
+  if (!exists) die(`No such knob: ${key}. Run "people tune" to list them.`);
+  d.prepare("UPDATE scoring_params SET value=?, updated_at=? WHERE key=?").run(
+    Number(value),
+    nowISO(),
+    key,
+  );
+  say(`${c.grn("set")} ${key} = ${value}`);
+  recomputeScores();
+}
+
+// ---------------------------------------------------------------- export
+
+function cmdExport(argv) {
+  const { flags } = parseArgs(argv);
+  const out = flags.out || path.join(DIR, "export");
+  const d = db();
+  fs.mkdirSync(path.join(out, "people"), { recursive: true });
+  fs.mkdirSync(path.join(out, "circles"), { recursive: true });
+
+  const slug = (s) =>
+    s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "untitled";
+
+  let n = 0;
+  for (const p of d.prepare("SELECT * FROM people WHERE deleted_at IS NULL ORDER BY name").all()) {
+    const s = d.prepare("SELECT * FROM person_scores WHERE person_id=?").get(p.id);
+    const states = d
+      .prepare(
+        `SELECT dm.label, st.score FROM person_dimension_state st
+           JOIN dimensions dm ON dm.id = st.dimension_id
+          WHERE st.person_id=? ORDER BY dm.sort_order`,
+      )
+      .all(p.id);
+    const circles = d
+      .prepare(
+        `SELECT c.name FROM circles c JOIN circle_members m ON m.circle_id=c.id
+          WHERE m.person_id=? AND c.deleted_at IS NULL ORDER BY c.name`,
+      )
+      .all(p.id);
+    const obs = d
+      .prepare(
+        "SELECT * FROM observations WHERE person_id=? AND deleted_at IS NULL ORDER BY observed_at DESC",
+      )
+      .all(p.id);
+
+    const fm = [
+      "---",
+      `name: ${p.name}`,
+      p.handle ? `handle: ${p.handle}` : null,
+      p.company ? `company: ${p.company}` : null,
+      p.role ? `role: ${p.role}` : null,
+      p.location ? `location: ${p.location}` : null,
+      circles.length ? `circles: [${circles.map((x) => x.name).join(", ")}]` : null,
+      s ? `score: ${s.base_score.toFixed(3)}` : null,
+      s ? `warmth: ${s.warmth.toFixed(3)}` : null,
+      `updated: ${String(p.updated_at).slice(0, 10)}`,
+      "---",
+      "",
+      `# ${p.name}`,
+      "",
+    ].filter((x) => x !== null);
+
+    const body = [];
+    if (states.length) {
+      body.push("| Dimension | Score |", "| --- | --- |");
+      for (const st of states) body.push(`| ${st.label} | ${st.score.toFixed(2)} |`);
+      body.push("");
+    }
+    if (obs.length) {
+      body.push("## What you know", "");
+      for (const o of obs) {
+        const marks = [o.modality !== "actual" ? o.modality : null, o.kind !== "fact" ? o.kind : null]
+          .filter(Boolean)
+          .join(", ");
+        body.push(`- **${String(o.observed_at).slice(0, 10)}** ${o.body}${marks ? ` _(${marks})_` : ""}`);
+      }
+      body.push("");
+    }
+    fs.writeFileSync(path.join(out, "people", `${slug(p.name)}.md`), fm.concat(body).join("\n"));
+    n++;
+  }
+
+  let cn = 0;
+  for (const ci of d.prepare("SELECT * FROM circles WHERE deleted_at IS NULL ORDER BY name").all()) {
+    const mem = d
+      .prepare(
+        `SELECT p.name FROM circle_members m JOIN people p ON p.id=m.person_id
+          WHERE m.circle_id=? AND p.deleted_at IS NULL ORDER BY p.name`,
+      )
+      .all(ci.id);
+    const lines = [
+      "---",
+      `name: ${ci.name}`,
+      ci.classified_kind ? `kind: ${ci.classified_kind}` : null,
+      "---",
+      "",
+      `# ${ci.name}`,
+      "",
+      ci.description || "",
+      ci.classified_fact ? `\n> ${ci.classified_fact}\n` : "",
+      "## Members",
+      "",
+      ...mem.map((m) => `- ${m.name}`),
+      "",
+    ].filter((x) => x !== null);
+    fs.writeFileSync(path.join(out, "circles", `${slug(ci.name)}.md`), lines.join("\n"));
+    cn++;
+  }
+
+  const self = d
+    .prepare(
+      "SELECT * FROM observations WHERE person_id IS NULL AND circle_id IS NULL AND deleted_at IS NULL ORDER BY observed_at DESC",
+    )
+    .all();
+  if (self.length) {
+    fs.writeFileSync(
+      path.join(out, "me.md"),
+      ["---", "name: me", "---", "", "# Me", ""]
+        .concat(self.map((o) => `- **${String(o.observed_at).slice(0, 10)}** ${o.body}`))
+        .join("\n") + "\n",
+    );
+  }
+
+  say(`${c.grn("exported")} ${n} people, ${cn} circles ${c.dim("-> " + out)}`);
+}
+
+// ---------------------------------------------------------------- sync
+
+function git(args, opts = {}) {
+  return execFileSync("git", ["-C", DIR, ...args], { encoding: "utf8", ...opts }).trim();
+}
+
+function cmdSync(argv) {
+  const sub = argv.shift() || "push";
+  fs.mkdirSync(DIR, { recursive: true });
+
+  if (sub === "init") {
+    const url = argv[0];
+    if (!url)
+      die(
+        "Give it a repo:\n  people sync init git@github.com:you/my-people.git\n\nMake it PRIVATE. This is everything you know about everyone.",
+      );
+    if (!fs.existsSync(path.join(DIR, ".git"))) {
+      execFileSync("git", ["init", "-q", DIR]);
+      git(["symbolic-ref", "HEAD", "refs/heads/main"]);
+    }
+    fs.writeFileSync(
+      path.join(DIR, ".gitignore"),
+      ["people.db-wal", "people.db-shm", ""].join("\n"),
+    );
+    try {
+      git(["remote", "remove", "origin"]);
+    } catch {}
+    git(["remote", "add", "origin", url]);
+    say(`${c.grn("linked")} ${url}`);
+    say(c.dim("now: people sync push"));
+    return;
+  }
+
+  if (!fs.existsSync(path.join(DIR, ".git")))
+    die("Not syncing yet. Run: people sync init <private-git-url>");
+
+  if (sub === "pull") {
+    try {
+      git(["pull", "--ff-only", "origin", "main"], { stdio: "inherit" });
+      say(c.grn("pulled"));
+    } catch {
+      die(
+        "Pull was not a fast-forward. The database is a binary file, so git cannot merge it.\n" +
+          "Whichever machine has the newer data should push with --force, and the other should\n" +
+          "reset to it. This is the cost of syncing a database through git.",
+      );
+    }
+    return;
+  }
+
+  if (sub === "push") {
+    // Export first so the repo carries readable markdown alongside the binary.
+    cmdExport([]);
+    git(["add", "-A"]);
+    const dirty = git(["status", "--porcelain"]);
+    if (!dirty) return say(c.dim("nothing changed"));
+    const n = db().prepare("SELECT count(*) AS n FROM people WHERE deleted_at IS NULL").get().n;
+    git(["commit", "-q", "-m", `people: ${n} people, ${nowISO().slice(0, 10)}`]);
+    try {
+      git(["push", "-q", "origin", "main"], { stdio: "inherit" });
+      say(c.grn("pushed"));
+    } catch {
+      die("Push failed. Is the remote reachable, and does the repo exist?");
+    }
+    return;
+  }
+
+  if (sub === "status") {
+    say(`  dir     ${DIR}`);
+    try {
+      say(`  remote  ${git(["remote", "get-url", "origin"])}`);
+      say(`  branch  ${git(["rev-parse", "--abbrev-ref", "HEAD"])}`);
+      const dirty = git(["status", "--porcelain"]);
+      say(`  state   ${dirty ? c.yel("uncommitted changes") : c.grn("clean")}`);
+    } catch {
+      say(c.dim("  no remote"));
+    }
+    return;
+  }
+
+  die("people sync [init <url>|push|pull|status]");
+}
+
+// ---------------------------------------------------------------- misc
+
+function cmdScore() {
+  const n = recomputeScores();
+  say(`${c.grn("scored")} ${n} people`);
+}
+
+function cmdCheck() {
+  const d = db();
+  let bad = 0;
+  const orphanDims = d
+    .prepare(
+      `SELECT count(*) AS n FROM observations o
+        WHERE o.deleted_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM observation_dimensions od WHERE od.observation_id = o.id)`,
+    )
+    .get().n;
+  if (orphanDims) {
+    say(c.yel(`  ${orphanDims} observations have no dimension`) + c.dim("  they score nothing"));
+    bad++;
+  }
+  const noCircleFact = d
+    .prepare(
+      "SELECT count(*) AS n FROM circles WHERE deleted_at IS NULL AND classified_fact IS NULL",
+    )
+    .get().n;
+  if (noCircleFact) {
+    say(c.dim(`  ${noCircleFact} circles are unclassified (no member facts written)`));
+  }
+  const stale = d
+    .prepare(
+      "SELECT count(*) AS n FROM observations WHERE deleted_at IS NULL AND valid_until IS NOT NULL AND valid_until < datetime('now')",
+    )
+    .get().n;
+  if (stale) say(c.dim(`  ${stale} observations are past their valid_until (down-weighted, not deleted)`));
+  const fk = d.prepare("PRAGMA foreign_key_check").all();
+  if (fk.length) {
+    say(c.red(`  ${fk.length} foreign key violations`));
+    bad++;
+  }
+  say(bad ? c.yel("\n  check finished with warnings") : c.grn("  everything checks out"));
+}
+
+function cmdStats() {
+  const d = db();
+  const q = (s) => d.prepare(s).get().n;
+  say("");
+  say(`  people        ${q("SELECT count(*) AS n FROM people WHERE deleted_at IS NULL")}`);
+  say(`  circles       ${q("SELECT count(*) AS n FROM circles WHERE deleted_at IS NULL")}`);
+  say(`  observations  ${q("SELECT count(*) AS n FROM observations WHERE deleted_at IS NULL")}`);
+  say(`  interactions  ${q("SELECT count(*) AS n FROM interactions")}`);
+  say(c.dim(`\n  ${DB_PATH}`));
+  try {
+    say(c.dim(`  ${(fs.statSync(DB_PATH).size / 1024).toFixed(0)} KB`));
+  } catch {}
+  say("");
+}
+
+// ---------------------------------------------------------------- keeping up
+//
+// The half of this that is not memory. Mesh's good idea is that a relationship
+// tool is worthless if you have to remember to open it, so the questions it
+// answers are "who is slipping" and "what is coming up", not "what do I know".
+
+const FIELDS = ["phone", "email", "company", "role", "location", "birthday", "handle", "how_we_met"];
+
+function cmdUpdate(argv) {
+  const { flags, rest } = parseArgs(argv);
+  const who = rest.join(" ");
+  if (!who) die('Try: people update maggie --company Anthropic --role "Research Engineer"');
+  const p = findPerson(who);
+  const d = db();
+
+  const changes = [];
+  for (const f of FIELDS) {
+    const key = f === "how_we_met" ? "met" : f;
+    if (flags[key] === undefined) continue;
+    const val = flags[key] === true ? null : String(flags[key]);
+    if ((p[f] || null) === val) continue;
+    changes.push({ field: f, from: p[f], to: val });
+    d.prepare(`UPDATE people SET ${f} = ?, updated_at = ? WHERE id = ?`).run(val, nowISO(), p.id);
+  }
+  if (flags.cadence !== undefined) {
+    d.prepare("UPDATE people SET cadence_days = ?, updated_at = ? WHERE id = ?").run(
+      Number(flags.cadence),
+      nowISO(),
+      p.id,
+    );
+    say(`${c.grn("set")} cadence to every ${flags.cadence} days`);
+  }
+  if (!changes.length) return say(c.dim("nothing changed"));
+
+  // A JOB CHANGE IS NEWS, NOT AN EDIT. Overwriting company loses the fact that
+  // it moved, which is the part worth knowing and the part worth congratulating
+  // somebody on. So the write also records what happened.
+  for (const ch of changes) {
+    say(`${c.grn("updated")} ${ch.field}: ${c.dim(ch.from || "(empty)")} -> ${c.b(ch.to || "(empty)")}`);
+    if (ch.field === "company" && ch.to) {
+      insertObservation({
+        personId: p.id,
+        body: ch.from ? `moved from ${ch.from} to ${ch.to}` : `works at ${ch.to}`,
+        flags: { source: "observed", dim: "financial,social", temporal: "permanent" },
+      });
+    } else if (ch.field === "role" && ch.to) {
+      insertObservation({
+        personId: p.id,
+        body: ch.from ? `title changed from ${ch.from} to ${ch.to}` : `is ${ch.to}`,
+        flags: { source: "observed", dim: "financial", temporal: "permanent" },
+      });
+    } else if (ch.field === "location" && ch.to) {
+      insertObservation({
+        personId: p.id,
+        body: ch.from ? `moved from ${ch.from} to ${ch.to}` : `lives in ${ch.to}`,
+        flags: { source: "observed", dim: "social", temporal: "permanent" },
+      });
+    }
+  }
+  recomputeScores();
+}
+
+// Overdue is measured against the cadence you set for that person, and falls
+// back to a cadence implied by how much you care: someone you know well and
+// score highly is expected more often than an acquaintance.
+function overdueList(limit = 20) {
+  const d = db();
+  const P = params();
+  const rows = d
+    .prepare(
+      `SELECT p.*, s.base_score, s.warmth, s.last_interaction_at, s.observation_count
+         FROM people p LEFT JOIN person_scores s ON s.person_id = p.id
+        WHERE p.deleted_at IS NULL`,
+    )
+    .all();
+  const now = nowISO();
+  const out = [];
+  for (const r of rows) {
+    const score = r.base_score || 0;
+    const cadence = r.cadence_days || Math.round(30 + (1 - score) * 300);
+    const days = r.last_interaction_at ? daysBetween(r.last_interaction_at, now) : null;
+    const over = days === null ? null : days - cadence;
+    if (days !== null && over < 0) continue;
+    // Never contacted sorts by importance; overdue sorts by how far past.
+    out.push({
+      name: r.name,
+      company: r.company,
+      days,
+      cadence,
+      over,
+      score,
+      urgency: days === null ? score : score * (1 + over / cadence),
+    });
+  }
+  out.sort((a, b) => b.urgency - a.urgency);
+  return out.slice(0, limit);
+}
+
+function cmdReconnect(argv) {
+  const { flags } = parseArgs(argv);
+  const rows = overdueList(Number(flags.limit || 15));
+  if (!rows.length) return say(c.grn("  nobody is overdue"));
+  say("");
+  for (const r of rows) {
+    const when =
+      r.days === null
+        ? c.yel("never logged")
+        : `${Math.round(r.days)}d ago` + c.dim(` (want every ${r.cadence}d)`);
+    say(`  ${c.b(r.name.padEnd(22))} ${when}${r.company ? c.dim("  " + r.company) : ""}`);
+  }
+  say(c.dim(`\n  people log <name> once you have reached out`));
+  say("");
+}
+
+function upcomingBirthdays(days) {
+  const rows = db()
+    .prepare("SELECT name, birthday, company FROM people WHERE deleted_at IS NULL AND birthday IS NOT NULL")
+    .all();
+  const today = new Date();
+  const out = [];
+  for (const r of rows) {
+    const m = String(r.birthday).match(/(\d{1,2})[-/](\d{1,2})$|^(\d{4})-(\d{2})-(\d{2})$/);
+    let mo, da;
+    if (r.birthday.length >= 10) {
+      mo = Number(r.birthday.slice(5, 7));
+      da = Number(r.birthday.slice(8, 10));
+    } else if (m) {
+      mo = Number(m[1]);
+      da = Number(m[2]);
+    } else continue;
+    if (!mo || !da) continue;
+    let next = new Date(today.getFullYear(), mo - 1, da);
+    if (next < new Date(today.getFullYear(), today.getMonth(), today.getDate()))
+      next = new Date(today.getFullYear() + 1, mo - 1, da);
+    const away = Math.round((next - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 86400000);
+    if (away <= days) out.push({ name: r.name, company: r.company, away, date: next });
+  }
+  out.sort((a, b) => a.away - b.away);
+  return out;
+}
+
+function cmdBirthdays(argv) {
+  const { flags } = parseArgs(argv);
+  const rows = upcomingBirthdays(Number(flags.days || 60));
+  if (!rows.length) return say(c.dim("  no birthdays recorded in that window"));
+  say("");
+  for (const r of rows) {
+    const when = r.away === 0 ? c.grn("today") : r.away === 1 ? c.yel("tomorrow") : `in ${r.away} days`;
+    say(`  ${c.b(r.name.padEnd(22))} ${when}${r.company ? c.dim("  " + r.company) : ""}`);
+  }
+  say("");
+}
+
+function cmdToday() {
+  const bdays = upcomingBirthdays(7);
+  const over = overdueList(5);
+  say("");
+  if (bdays.length) {
+    say(c.cyn("  birthdays"));
+    for (const b of bdays)
+      say(`    ${b.name}  ${b.away === 0 ? c.grn("today") : c.dim(`in ${b.away}d`)}`);
+    say("");
+  }
+  if (over.length) {
+    say(c.cyn("  worth a message"));
+    for (const r of over)
+      say(`    ${r.name.padEnd(22)}${r.days === null ? c.dim("never logged") : c.dim(Math.round(r.days) + "d")}`);
+    say("");
+  }
+  if (!bdays.length && !over.length) say(c.grn("  nothing needs you today") + "\n");
+}
+
+// WHO COULD INTRODUCE ME. Mesh does this across a team's networks; single-user
+// it is the overlap question: who do I know at that company, or in a circle
+// with that person.
+function cmdIntro(argv) {
+  const { rest } = parseArgs(argv);
+  const q = rest.join(" ").trim();
+  if (!q) die('Try: people intro Anthropic   (or a person\'s name)');
+  const d = db();
+  const byCompany = d
+    .prepare(
+      `SELECT p.name, p.role, p.company, COALESCE(s.base_score,0) AS score
+         FROM people p LEFT JOIN person_scores s ON s.person_id = p.id
+        WHERE p.deleted_at IS NULL AND lower(p.company) LIKE lower(?)
+        ORDER BY score DESC`,
+    )
+    .all(`%${q}%`);
+  if (byCompany.length) {
+    say("\n" + c.cyn(`  people you know at ${q}`));
+    for (const r of byCompany)
+      say(`    ${c.b(r.name.padEnd(22))} ${c.dim(r.role || "")}  ${fmt(r.score)}`);
+  }
+  const target = findPerson(q, { required: false });
+  if (target) {
+    const shared = d
+      .prepare(
+        `SELECT DISTINCT p.name, c.name AS circle, COALESCE(s.base_score,0) AS score
+           FROM circle_members m
+           JOIN circles c ON c.id = m.circle_id
+           JOIN circle_members m2 ON m2.circle_id = c.id AND m2.person_id <> m.person_id
+           JOIN people p ON p.id = m2.person_id
+           LEFT JOIN person_scores s ON s.person_id = p.id
+          WHERE m.person_id = ? AND p.deleted_at IS NULL AND c.deleted_at IS NULL
+          ORDER BY score DESC`,
+      )
+      .all(target.id);
+    if (shared.length) {
+      say("\n" + c.cyn(`  shares a circle with ${target.name}`));
+      for (const r of shared) say(`    ${c.b(r.name.padEnd(22))} ${c.dim(r.circle)}`);
+    }
+  }
+  if (!byCompany.length && !target) say(c.dim(`  no connection to "${q}" found`));
+  say("");
+}
+
+// ---------------------------------------------------------------- import
+
+function parseVCards(text) {
+  const out = [];
+  for (const block of text.split(/BEGIN:VCARD/i).slice(1)) {
+    const get = (re) => {
+      const m = block.match(re);
+      return m ? m[1].trim().replace(/\\,/g, ",").replace(/\\;/g, ";") : null;
+    };
+    const name =
+      get(/^FN[^:]*:(.+)$/im) ||
+      (() => {
+        const n = get(/^N[^:]*:(.+)$/im);
+        if (!n) return null;
+        const [last, first] = n.split(";");
+        return [first, last].filter(Boolean).join(" ").trim();
+      })();
+    if (!name) continue;
+    const org = get(/^ORG[^:]*:(.+)$/im);
+    out.push({
+      name,
+      email: get(/^EMAIL[^:]*:(.+)$/im),
+      phone: get(/^TEL[^:]*:(.+)$/im),
+      company: org ? org.split(";")[0].trim() : null,
+      role: get(/^TITLE[^:]*:(.+)$/im),
+      birthday: get(/^BDAY[^:]*:(.+)$/im),
+    });
+  }
+  return out;
+}
+
+function parseCsv(text) {
+  const rows = [];
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (!lines.length) return rows;
+  const split = (line) => {
+    const out = [];
+    let cur = "";
+    let q = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (q && line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else q = !q;
+      } else if (ch === "," && !q) {
+        out.push(cur);
+        cur = "";
+      } else cur += ch;
+    }
+    out.push(cur);
+    return out.map((s) => s.trim());
+  };
+  const head = split(lines[0]).map((h) => h.toLowerCase().replace(/[^a-z]/g, ""));
+  const pick = (r, ...names) => {
+    for (const n of names) {
+      const i = head.indexOf(n);
+      if (i > -1 && r[i]) return r[i];
+    }
+    return null;
+  };
+  for (const line of lines.slice(1)) {
+    const r = split(line);
+    const name =
+      pick(r, "name", "fullname", "displayname") ||
+      [pick(r, "firstname", "givenname"), pick(r, "lastname", "surname", "familyname")]
+        .filter(Boolean)
+        .join(" ");
+    if (!name) continue;
+    rows.push({
+      name,
+      email: pick(r, "email", "emailaddress", "email1"),
+      phone: pick(r, "phone", "phonenumber", "mobile", "phone1"),
+      company: pick(r, "company", "organization", "org"),
+      role: pick(r, "role", "title", "jobtitle"),
+      birthday: pick(r, "birthday", "bday", "dateofbirth"),
+    });
+  }
+  return rows;
+}
+
+function cmdImport(argv) {
+  const { flags } = parseArgs(argv);
+  let rows = [];
+  let label = "";
+
+  if (flags.vcf) {
+    rows = parseVCards(fs.readFileSync(String(flags.vcf), "utf8"));
+    label = path.basename(String(flags.vcf));
+  } else if (flags.csv) {
+    rows = parseCsv(fs.readFileSync(String(flags.csv), "utf8"));
+    label = path.basename(String(flags.csv));
+  } else if (flags.mac) {
+    // Chewbacca ships `mac`, which reads the real Contacts app. It has `find`
+    // but no "list everything", so sweep the alphabet and dedupe on the card id.
+    // Any contact whose name, email or phone contains one alphanumeric is caught.
+    const seen = new Map();
+    let ok = false;
+    for (const ch of "abcdefghijklmnopqrstuvwxyz0123456789") {
+      let raw;
+      try {
+        raw = execFileSync("mac", ["contacts", "find", ch, "--json"], {
+          encoding: "utf8",
+          maxBuffer: 1 << 28,
+          stdio: ["ignore", "pipe", "ignore"],
+        });
+      } catch {
+        continue;
+      }
+      ok = true;
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        continue;
+      }
+      for (const x of Array.isArray(parsed) ? parsed : []) {
+        if (x && x.id && !seen.has(x.id)) seen.set(x.id, x);
+      }
+    }
+    if (!ok)
+      die(
+        "Could not read Contacts.\n" +
+          "  `mac` ships with Chewbacca. Check it with: mac doctor\n" +
+          "  Exit code 2 there means macOS needs you to grant Contacts access.\n" +
+          "  Or export Contacts to a .vcf and run: people import --vcf FILE",
+      );
+    rows = [...seen.values()]
+      .map((x) => ({
+        name: x.name || [x.firstName, x.lastName].filter(Boolean).join(" "),
+        email: Array.isArray(x.emails) ? x.emails[0] : x.email || null,
+        phone: Array.isArray(x.phones) ? x.phones[0] : x.phone || null,
+        company: x.organization || x.company || null,
+        role: x.jobTitle || x.title || null,
+        birthday: x.birthday || null,
+        externalId: x.id || null,
+      }))
+      .filter((x) => x.name);
+    label = "macOS Contacts";
+  } else {
+    die(
+      "people import --mac              read the macOS Contacts app\n" +
+        "             --vcf FILE.vcf      a vCard export\n" +
+        "             --csv FILE.csv      name,email,phone,company,role",
+    );
+  }
+
+  if (!rows.length) return say(c.dim(`nothing to import from ${label}`));
+
+  // Contacts exports are not type-clean: an email can arrive as an object, a
+  // phone as a number, a field as an empty array. SQLite binds none of those.
+  const str = (v) => {
+    if (v === null || v === undefined) return null;
+    if (Array.isArray(v)) return str(v[0]);
+    if (typeof v === "object") return str(v.value ?? v.address ?? v.label ?? null);
+    const s = String(v).trim();
+    return s ? s : null;
+  };
+  rows = rows.map((r) => ({
+    name: str(r.name),
+    email: str(r.email),
+    phone: str(r.phone),
+    company: str(r.company),
+    role: str(r.role),
+    birthday: str(r.birthday),
+    externalId: str(r.externalId),
+  })).filter((r) => r.name);
+
+  const d = db();
+  const existing = d.prepare("SELECT id, name, email, phone FROM people WHERE deleted_at IS NULL").all();
+  const byName = new Map(existing.map((p) => [p.name.toLowerCase(), p]));
+  const byEmail = new Map(existing.filter((p) => p.email).map((p) => [p.email.toLowerCase(), p]));
+
+  let added = 0;
+  let merged = 0;
+  const limit = flags.limit ? Number(flags.limit) : Infinity;
+  for (const r of rows) {
+    if (added >= limit) break;
+    const hit =
+      (r.email && byEmail.get(String(r.email).toLowerCase())) || byName.get(r.name.toLowerCase());
+    if (hit) {
+      // Fill blanks only. An import must never overwrite something you typed.
+      for (const f of ["email", "phone", "company", "role", "birthday"]) {
+        if (r[f] && !hit[f]) d.prepare(`UPDATE people SET ${f} = ? WHERE id = ?`).run(r[f], hit.id);
+      }
+      merged++;
+      continue;
+    }
+    const id = uuid();
+    d.prepare(
+      `INSERT INTO people (id, name, phone, email, company, role, birthday, source, external_id)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+    ).run(id, r.name, r.phone, r.email, r.company, r.role, r.birthday, "import", r.externalId);
+    byName.set(r.name.toLowerCase(), { id, name: r.name });
+    added++;
+  }
+  say(`${c.grn("imported")} ${added} new, ${merged} already known ${c.dim("from " + label)}`);
+  if (added) say(c.dim("  imported people have no observations yet; that is what makes them useful"));
+  recomputeScores();
+}
+
+const HELP = `${c.b("people")} ${c.dim("- everything you know about the people in your life")}
+
+  ${c.b("people add")} "Maggie Chen" --company Acme --role CTO --met "SXSW 2026"
+  ${c.b("people note")} maggie "just got promoted" --dim financial
+  ${c.b("people note")} maggie "thinking about moving to SF" --modality planned
+  ${c.b("people log")} maggie --channel call "caught up about the move"
+  ${c.b("people show")} maggie
+  ${c.b("people list")} [--by score]
+  ${c.b("people me")} "starting the neuro sequence" --dim intellectual
+
+  ${c.b("people circle create")} "Hiking" --desc "people I hike with"
+  ${c.b("people circle add")} Hiking maggie declan
+  ${c.b("people circle classify")} Hiking --kind interest --fact "enjoys hiking"
+  ${c.b("people circle")} [list|show|remove|delete]
+
+  ${c.b("people today")}                      birthdays + who is slipping
+  ${c.b("people reconnect")}                  who you owe a message
+  ${c.b("people birthdays")} [--days 60]
+  ${c.b("people update")} maggie --company Anthropic --cadence 30
+  ${c.b("people intro")} Anthropic            who could introduce you
+  ${c.b("people import")} --mac | --vcf FILE | --csv FILE
+
+  ${c.b("people rank")} [--dim financial] [--limit 20]
+  ${c.b("people search")} "hiking"
+  ${c.b("people dims")} [set financial --half-life 90 --weight 1.5]
+  ${c.b("people tune")} [saturation_k 0.5]
+  ${c.b("people score")}
+
+  ${c.b("people export")} [--out DIR]        markdown you can read
+  ${c.b("people sync")} init <private-git-url> | push | pull | status
+  ${c.b("people check")} | ${c.b("people stats")}
+
+${c.dim("flags on note:")}
+  --dim spiritual,emotional,physical,intellectual,social,financial
+  --modality actual|planned|hypothetical|desired|available|declined
+  --source told_directly|observed|inferred|third_party|imported
+  --kind fact|note|experience|memory|transcript
+  --temporal permanent|window|decaying   --from DATE  --until DATE
+
+${c.dim(`data: ${DIR}`)}
+`;
+
+// ---------------------------------------------------------------- dispatch
+
+const COMMANDS = {
+  add: cmdAdd,
+  note: cmdNote,
+  me: cmdMe,
+  log: cmdLog,
+  show: cmdShow,
+  list: cmdList,
+  ls: cmdList,
+  circle: cmdCircle,
+  circles: (a) => cmdCircle(["list", ...a]),
+  update: cmdUpdate,
+  set: cmdUpdate,
+  today: cmdToday,
+  reconnect: cmdReconnect,
+  due: cmdReconnect,
+  birthdays: cmdBirthdays,
+  bdays: cmdBirthdays,
+  intro: cmdIntro,
+  import: cmdImport,
+  rank: cmdRank,
+  search: cmdSearch,
+  find: cmdSearch,
+  dims: cmdDims,
+  tune: cmdTune,
+  score: cmdScore,
+  export: cmdExport,
+  sync: cmdSync,
+  check: cmdCheck,
+  stats: cmdStats,
+};
+
+function main() {
+  const argv = process.argv.slice(2);
+  const cmd = argv.shift();
+  if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
+    process.stdout.write(HELP);
+    return;
+  }
+  if (cmd === "--version" || cmd === "version") return say("people 1.0.0");
+  const fn = COMMANDS[cmd];
+  if (!fn) {
+    process.stderr.write(c.red(`people: unknown command "${cmd}"\n\n`));
+    process.stdout.write(HELP);
+    process.exit(1);
+  }
+  fn(argv);
+}
+
+try {
+  main();
+} catch (e) {
+  if (e && e.code === "SQLITE_CONSTRAINT_CHECK")
+    die("That value is not allowed. Run `people help` to see the valid options.");
+  die(e && e.message ? e.message : String(e));
+}
