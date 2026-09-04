@@ -37,9 +37,29 @@ def tags():
     return [t for t in out.split("\n") if t]
 
 
+# Commits that exist only because this script ran.
+#
+# Without this the thing eats its own tail: regenerating writes a new entry,
+# which has to be committed, and that commit is a new entry to regenerate. It
+# happened twice in one evening before anybody noticed it was a loop rather
+# than a chore. A changelog is a record of what changed for a reader, and
+# "regenerated the changelog" has never changed anything for one.
+HOUSEKEEPING = (
+    "regenerate the changelog",
+    "regenerate the readme counts",
+    "regenerate checksums",
+    "regenerate the component reference",
+)
+
+
+def is_housekeeping(subject):
+    body = subject.split(":", 1)[-1].strip().lower()
+    return any(body.startswith(h) for h in HOUSEKEEPING)
+
+
 def commits(rng):
     out = git("log", "--no-merges", "--pretty=%s", rng)
-    return [c for c in out.split("\n") if c]
+    return [c for c in out.split("\n") if c and not is_housekeeping(c)]
 
 
 def classify(subjects):
