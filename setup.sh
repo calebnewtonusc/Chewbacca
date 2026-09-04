@@ -578,6 +578,15 @@ unset _tool _installed_scanners
 # coursework reads a semester ledger built from your syllabi: what is due, what
 # an absence costs, what each course allows you to use AI for. Deterministic, so
 # Claude spends its tokens on judgment instead of re-reading a PDF.
+# kits finds every kit on this machine by its .kit marker, so a session knows
+# what has already been built instead of rebuilding it or answering turn by turn.
+if [ -f "$SCRIPT_DIR/bin/kits" ]; then
+  mkdir -p "$HOME/.local/bin"
+  cp "$SCRIPT_DIR/bin/kits" "$HOME/.local/bin/kits"
+  chmod +x "$HOME/.local/bin/kits"
+  log "kits installed to ~/.local/bin/"
+fi
+
 if [ -f "$SCRIPT_DIR/bin/coursework" ]; then
   mkdir -p "$HOME/.local/bin"
   cp "$SCRIPT_DIR/bin/coursework" "$HOME/.local/bin/coursework"

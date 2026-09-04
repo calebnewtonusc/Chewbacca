@@ -416,7 +416,7 @@ anything graded. An unrecorded policy is treated as a ban.
 | -------------- | ------------------------------------------------------------------------------------------- |
 | `coursework`   | The ledger, syllabus intake, grading models including labor contracts, integrity rules      |
 | `study-system` | Retrieval practice over rereading, cards, exam run-ups, and the four-cause postmortem       |
-| `kit-builder`  | Build a kit for a long bureaucratic process, and the test for when not to                  |
+| `kit-builder`  | Build a kit for a long bureaucratic process, and the test for when not to                   |
 | `life-ops`     | The weekly review, life admin with real deadlines, and what to cut when a week does not fit |
 
 Full walkthrough: [docs/SCHOOL.md](docs/SCHOOL.md).
