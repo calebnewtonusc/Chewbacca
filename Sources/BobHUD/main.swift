@@ -23,6 +23,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var localMouseMonitor: Any?
     private var flagsMonitor: Any?
     private var barMonitor: Any?
+    private var reticleDown: Any?
+    private var reticleDrag: Any?
+    private var reticleUp: Any?
+    /// Where a reticle drag began, in screen points. Nil when not dragging.
+    private var reticleOrigin: CGPoint?
     private let voice = VoiceListener()
     /// Whether the push-to-talk key is currently down, so a flags change that
     /// does not involve it is ignored.
@@ -34,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay.show()
 
         setUpCommandBar()
+        setUpReticle()
         setUpMenuBar()
         setUpKeys()
         observeScreenChanges()
@@ -61,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let monitors = [
             hotKeyMonitor, escMonitor, mouseMonitor,
             localMouseMonitor, flagsMonitor, barMonitor,
+            reticleDown, reticleDrag, reticleUp,
         ]
         for monitor in monitors.compactMap({ $0 }) {
             NSEvent.removeMonitor(monitor)
@@ -256,6 +263,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+    }
+
+    /// Point at something and it becomes the subject.
+    ///
+    /// This is deixis, and it is what makes fragmentary requests possible. "Why
+    /// is this failing" while pointing at a stack trace is one second of effort
+    /// and carries more precise context than a paragraph of typing. Without it
+    /// every request begins with the person performing context transfer, and
+    /// that transfer is most of the cost of most interactions.
+    ///
+    /// Hold Option-Command and drag. The region is drawn as it is made, and on
+    /// release it goes up the socket as coordinates.
+    ///
+    /// Coordinates rather than pixels: the display deliberately has no screen
+    /// recording permission, and asking for one so it can crop a rectangle it
+    /// already knows the bounds of would be a poor trade. Whatever is listening
+    /// can look at the region itself if it needs to see it.
+    private func setUpReticle() {
+        let held: (NSEvent) -> Bool = { event in
+            event.modifierFlags.contains([.option, .command])
+        }
+
+        reticleDown = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) {
+            [weak self] event in
+            guard held(event) else { return }
+            Task { @MainActor in
+                self?.reticleOrigin = Self.flipped(NSEvent.mouseLocation)
+            }
+        }
+
+        reticleDrag = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDragged) {
+            [weak self] _ in
+            Task { @MainActor in
+                guard let self, let origin = self.reticleOrigin else { return }
+                let rect = Self.rect(from: origin, to: Self.flipped(NSEvent.mouseLocation))
+                // Drawn live, and pinned, because a mark that expired mid-drag
+                // would flicker under the cursor making it.
+                self.model.mark(
+                    id: "reticle", rect: rect, label: "", tone: nil, life: 0)
+            }
+        }
+
+        reticleUp = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) {
+            [weak self] _ in
+            Task { @MainActor in
+                guard let self, let origin = self.reticleOrigin else { return }
+                self.reticleOrigin = nil
+                let rect = Self.rect(from: origin, to: Self.flipped(NSEvent.mouseLocation))
+                // A click rather than a drag. Not a region, and treating it as
+                // one would send a 2-point rectangle nobody meant.
+                guard rect.width > 12, rect.height > 12 else {
+                    self.model.apply(.unmark(id: "reticle"))
+                    return
+                }
+                self.model.mark(
+                    id: "reticle", rect: rect, label: "this", tone: nil, life: 20)
+                self.model.onEvent?(.region(rect))
+            }
+        }
+    }
+
+    /// AppKit's mouse location has a bottom-left origin and everything a person
+    /// would compare it against, including every screenshot, has a top-left one.
+    private static func flipped(_ point: NSPoint) -> CGPoint {
+        guard let screen = NSScreen.main else { return point }
+        return CGPoint(x: point.x, y: screen.frame.height - point.y)
+    }
+
+    private static func rect(from: CGPoint, to: CGPoint) -> CGRect {
+        CGRect(
+            x: min(from.x, to.x), y: min(from.y, to.y),
+            width: abs(to.x - from.x), height: abs(to.y - from.y))
     }
 
     private func updateInteractive() {
