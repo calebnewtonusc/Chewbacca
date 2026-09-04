@@ -18,6 +18,9 @@ real commit; nothing here is written by hand.
 - the component reference is generated from the catalog
 
 ### Other
+- 1000: regenerate the status file
+- 1000: a status file generated from the commit log, and twelve corrections
+- skills: declare the tools they promise, and doctor reads the declaration
 - skills: declare the tools they promise, and doctor reads the declaration
 - commands: findable, and two that argued with the standards
 - portable: the half of this kit that is not macOS, on any machine

@@ -172,6 +172,27 @@ if group "installer"; then
   check  "no read calls in the installer" bash -c "! grep -nE '^[[:space:]]*read (-[a-z]+ )*' '$ROOT/setup.sh'"
 fi
 
+# ── CLAUDE.md merge ───────────────────────────────────────────────────────────
+if group "CLAUDE.md merge"; then
+  M="$TMP/merge"; mkdir -p "$M"
+  printf '# My own rules\n\nAlways call me Caleb.\n' > "$M/CLAUDE.md"
+  printf '# Standards\n\nRule one.\n' > "$M/standards.md"
+  expect "an existing file is merged, not clobbered" "merged" \
+    bash "$ROOT/bin/lib/merge-claude-md.sh" "$M/CLAUDE.md" "$M/standards.md"
+  check  "their content survives" grep -q "Always call me Caleb" "$M/CLAUDE.md"
+  check  "the original is backed up" bash -c "ls '$M'/CLAUDE.md.yours-* >/dev/null"
+  expect "a second run updates the region" "updated" \
+    bash "$ROOT/bin/lib/merge-claude-md.sh" "$M/CLAUDE.md" "$M/standards.md"
+  printf '# Standards v2\n\nRule one. Rule two.\n' > "$M/standards.md"
+  bash "$ROOT/bin/lib/merge-claude-md.sh" "$M/CLAUDE.md" "$M/standards.md" >/dev/null
+  check  "an upgrade replaces the standards" grep -q "Rule two" "$M/CLAUDE.md"
+  check  "an upgrade still keeps their content" grep -q "Always call me Caleb" "$M/CLAUDE.md"
+  check  "there is exactly one standards region" bash -c "[ \"\$(grep -c 'CHEWBACCA:BEGIN' '$M/CLAUDE.md')\" = 1 ]"
+  rm -f "$M/CLAUDE.md"
+  expect "no existing file just writes" "wrote" \
+    bash "$ROOT/bin/lib/merge-claude-md.sh" "$M/CLAUDE.md" "$M/standards.md"
+fi
+
 # ── hooks ─────────────────────────────────────────────────────────────────────
 if group "hooks"; then
   check  "lib.sh parses" bash -n "$ROOT/.claude/hooks/lib.sh"
