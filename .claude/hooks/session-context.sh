@@ -204,4 +204,18 @@ print(json.dumps({
 }))
 PY
 
+# Pull new iMessages into the local people store, in the background.
+#
+# Backgrounded on purpose: a session must never wait on it. The first run reads
+# a 90-day window and the rest are incremental, but a cold Messages database on
+# a slow disk can still take a few seconds, and a hook that delays every session
+# start is a hook people disable.
+#
+# Silent by design. No Full Disk Access, no `people` on PATH, no database: all
+# of those mean this does nothing, and none of them are worth a warning at the
+# top of an unrelated session. `people texts stats` says when the last sync ran.
+if command -v people >/dev/null 2>&1; then
+  ( people texts sync >/dev/null 2>&1 & ) >/dev/null 2>&1
+fi
+
 exit 0
