@@ -39,11 +39,16 @@ VERBS = ("@", "c", ">", "d", "r", "-", "p")
 
 
 def instructions() -> str:
-    """The drawing vocabulary, read from the skill rather than duplicated.
+    """The drawing vocabulary, as a fallback only.
 
-    Keeping one copy matters more here than it looks: a second copy of the
-    component list drifts the first time somebody adds a component, and the
-    failure is silent because the renderer drops what it does not know.
+    The first version pasted this into every prompt and demanded Bob Lines back
+    on stdout. Then the first real test showed the model doing something better:
+    it found the `hud` skill itself, went and read the actual coursework ledger
+    and message history, and drew real data. Told to emit lines, it would have
+    invented plausible ones.
+
+    So the vocabulary is no longer pushed. It is here for a model command that
+    has no tools and no skills, which still has to be given the parts list.
     """
     try:
         return SKILL.read_text(encoding="utf-8")
@@ -73,9 +78,12 @@ def draw_lines(text: str) -> list[str]:
 
 
 class Listener:
-    def __init__(self, model_cmd: str, verbose: bool) -> None:
+    def __init__(self, model_cmd: str, verbose: bool, bare: bool) -> None:
         self.model_cmd = model_cmd
         self.verbose = verbose
+        # `bare` means the model command has no tools and no skills, so it has
+        # to be handed the vocabulary and can only answer in lines.
+        self.bare = bare
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.lock = threading.Lock()
         self.busy = False
@@ -144,15 +152,26 @@ class Listener:
     def _ask(self, said: str) -> None:
         try:
             self.send("p thinking")
+            # Short on purpose. An agent with tools should go and find out
+            # rather than be told what to draw, and a long prompt about
+            # components is a long prompt about the wrong thing.
             prompt = (
-                f"{instructions()}\n\n"
-                "---\n\n"
-                f"The user said, out loud: {said!r}\n\n"
-                "Answer by drawing on their screen. Reply with Bob Lines and "
-                "nothing else: no prose, no explanation, no code fences. If the "
-                "request does not warrant a panel, reply with a single line that "
-                "is only the word: none\n"
+                f"The user said this out loud, to their screen: {said!r}\n\n"
+                "Use the hud skill to answer them by drawing on their display. "
+                "Look up whatever real data the answer needs first. Do not "
+                "invent a number. Keep any spoken reply under twenty words, "
+                "because the panel is the answer and the sentence is only a "
+                "pointer to it.\n"
             )
+            if self.bare:
+                prompt = (
+                    f"{instructions()}\n\n---\n\n"
+                    f"The user said, out loud: {said!r}\n\n"
+                    "Answer by drawing on their screen. Reply with Bob Lines "
+                    "and nothing else: no prose, no explanation, no code "
+                    "fences. If the request does not warrant a panel, reply "
+                    "with a single line that is only the word: none\n"
+                )
             self.log("->", said)
             result = subprocess.run(
                 shlex.split(self.model_cmd),
@@ -161,14 +180,14 @@ class Listener:
                 text=True,
                 timeout=180,
             )
-            lines = draw_lines(result.stdout)
-            if not lines:
-                self.log("nothing drawable:", result.stdout[:200])
-                self.send("p attentive")
-                return
-            for line in lines:
+            # An agent with tools draws for itself and answers in prose, so
+            # stray lines here are the exception rather than the payload.
+            for line in draw_lines(result.stdout):
                 self.send(line)
             self.send("p attentive")
+            spoken = result.stdout.strip()
+            if spoken:
+                self.log("said:", spoken[:300])
         except subprocess.TimeoutExpired:
             self.send("p failed")
         except Exception as err:  # noqa: BLE001
@@ -186,8 +205,13 @@ def main() -> int:
         help="any command that reads a prompt on stdin and writes the answer to stdout",
     )
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "--bare",
+        action="store_true",
+        help="the model command cannot use tools, so paste it the vocabulary and expect lines back",
+    )
     args = parser.parse_args()
-    return Listener(args.model_cmd, args.verbose).run()
+    return Listener(args.model_cmd, args.verbose, args.bare).run()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""What the assistant can see right now.
+
+The spec calls this the context receipt and rates it the highest-trust element
+in the product, which sounds like an overstatement until you count what a person
+actually does before asking a question: they paste the file, describe the app,
+screenshot the error, explain what they were doing. That transfer is most of the
+cost of most interactions, and it is why nobody bothers for small things.
+
+This answers it in one line. Frontmost app, window title, selection if there is
+one. Nothing is captured that is not already on screen in front of the person,
+no pixels leave the machine, and it prints exactly what it collected so there is
+never a question about what was read.
+
+    hud-context            one line, for a prompt
+    hud-context --json     structured
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+
+# One AppleScript rather than four. Each `osascript` call costs 60-100ms of
+# process start, and this runs on the front of every spoken request, where the
+# spec's budget for the whole first signal is 200ms.
+SCRIPT = r'''
+tell application "System Events"
+    set frontApp to first application process whose frontmost is true
+    set appName to name of frontApp
+    set winTitle to ""
+    try
+        set winTitle to name of front window of frontApp
+    end try
+    set selText to ""
+    try
+        set focused to value of attribute "AXFocusedUIElement" of frontApp
+        set selText to value of attribute "AXSelectedText" of focused
+    end try
+end tell
+return appName & linefeed & winTitle & linefeed & selText
+'''
+
+
+def look() -> dict[str, str]:
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", SCRIPT],
+            capture_output=True, text=True, timeout=4,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    if result.returncode != 0:
+        # Almost always Accessibility permission, and saying so beats an empty
+        # result that reads as "nothing is on screen".
+        return {"error": result.stderr.strip().splitlines()[-1] if result.stderr else "unavailable"}
+
+    parts = (result.stdout or "").split("\n")
+    while len(parts) < 3:
+        parts.append("")
+    app, title, selection = parts[0].strip(), parts[1].strip(), "\n".join(parts[2:]).strip()
+
+    seen: dict[str, str] = {}
+    if app:
+        seen["app"] = app
+    if title:
+        seen["window"] = title
+    if selection:
+        # A cap, not a sample. A person who selected a whole file does not want
+        # the whole file in a prompt, and the first two thousand characters are
+        # enough to say what it is.
+        seen["selection"] = selection[:2000]
+        seen["selection_chars"] = str(len(selection))
+    return seen
+
+
+def receipt(seen: dict[str, str]) -> str:
+    """The one-line form, which is what a person should be shown.
+
+    Reads like `Xcode · ContentView.swift · 340 chars selected` — short enough to
+    sit above an input field, specific enough that somebody learns without being
+    taught that they do not have to explain themselves.
+    """
+    if "error" in seen:
+        return f"cannot see the screen ({seen['error']})"
+    bits = [seen.get("app", "")]
+    if seen.get("window"):
+        bits.append(seen["window"])
+    if seen.get("selection_chars"):
+        bits.append(f"{seen['selection_chars']} chars selected")
+    return " · ".join(b for b in bits if b) or "nothing in front"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--full", action="store_true", help="include the selected text itself, not just its size"
+    )
+    args = parser.parse_args()
+
+    seen = look()
+    if args.json:
+        print(json.dumps(seen, indent=2))
+    elif args.full and seen.get("selection"):
+        print(receipt(seen))
+        print()
+        print(seen["selection"])
+    else:
+        print(receipt(seen))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
