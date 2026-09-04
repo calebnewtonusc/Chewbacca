@@ -9,6 +9,7 @@ real commit; nothing here is written by hand.
 - hud demo
 
 ### Fixed
+- the changelog was eating its own tail
 - Chewie answered once and then went deaf
 - a Chewie answer was crammed into the badge
 - a request dropped while busy said nothing
