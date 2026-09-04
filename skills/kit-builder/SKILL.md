@@ -71,8 +71,8 @@ than this file.
 
 In order of how much it matters.
 
-**1. The phases in `CLAUDE.md`.** This is the kit. A phase is not a chapter heading, it is
-a rule for deciding what to ask next given what is already known. Write them so an agent
+**1. The phases in `CLAUDE.md`.** This is the kit. A phase is a rule for deciding what to
+ask next given what is already known. Write them so an agent
 reading `PROGRESS.md` can locate itself without asking the person where they are.
 
 **2. The opening question.** Phase 0 gets exactly one, and picking it well is most of the
@@ -175,7 +175,7 @@ use-when: <concrete phrases somebody would actually say, comma separated>
 status: ready
 ```
 
-**Keep `use-when` in their words, not yours.** It gets matched against what somebody types
+Keep `use-when` in their words, not yours. It gets matched against what somebody types
 at three in the morning. "a professor ignoring an accommodation letter" routes correctly.
 "post-approval implementation failures" does not.
 
@@ -192,6 +192,6 @@ personal. Tell the user the URL.
 
 ## Reference
 
-- `references/scoring.md` — worked examples of the test, including ideas that failed it
-- `references/hard-lines.md` — writing rule 4 for domains that touch law, medicine, money
-- `references/existing-kits.md` — what is already built, so nothing gets built twice
+- `references/scoring.md`: worked examples of the test, including ideas that failed it
+- `references/hard-lines.md`: writing rule 4 for domains that touch law, medicine, money
+- `references/existing-kits.md`: what is already built, so nothing gets built twice
