@@ -28,7 +28,7 @@ index b17d211..7d8cc78 100644
                      }
                  }
 diff --git a/Sources/Plynn/main.swift b/Sources/Plynn/main.swift
-index 10d7035..ddea6ca 100644
+index 10d7035..301e314 100644
 --- a/Sources/Plynn/main.swift
 +++ b/Sources/Plynn/main.swift
 @@ -5,6 +5,15 @@ import Sparkle
@@ -47,16 +47,20 @@ index 10d7035..ddea6ca 100644
  
      static func storedHotkeyTrigger() -> HotkeyTrigger {
          UserDefaults.standard.string(forKey: "hotkeyTrigger").flatMap(HotkeyTrigger.init) ?? .fn
-@@ -27,6 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+@@ -27,6 +36,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
          ((try? store?.snippets()) ?? [], (try? store?.terms()) ?? [])
      })
      var pendingPressEnter = false
 +    /// Guards against two Chewie round trips overlapping.
 +    var chewieInFlight = false
++    /// A Claude Code process kept alive so Chewie does not pay a cold start on
++    /// every request. Warmed at launch; falls back to a one-shot run if it is
++    /// not up. Measured: 26 s cold, about 4.6 s through this.
++    let chewieSession = ChewieSession()
      var lastCaptureSeconds = 0.0
      /// Captured at fn-down so formatting uses the original target app.
      var pendingContext: ContextSnapshot?
-@@ -63,10 +74,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+@@ -63,10 +78,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                Metrics.residentMB(), AXIsProcessTrusted() ? 1 : 0)
          setUpStatusItem()
  
@@ -83,8 +87,18 @@ index 10d7035..ddea6ca 100644
          }
  
          // Picking a different activation key in Settings takes effect
-@@ -98,8 +121,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+@@ -96,10 +123,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+             }
+         }
  
++        // Warm Chewie last: it competes with nothing the user needs in the
++        // first seconds, and the first request is the one that would otherwise
++        // pay twenty six seconds.
++        Task { [chewieSession] in
++            await chewieSession.start()
++            NSLog("plynn: chewie session %@", await chewieSession.isRunning ? "warm" : "unavailable")
++        }
++
          model.onTap = { [weak self] in self?.dispatch(.stopRequested) }
  
 -        hotkey.onFnDown = { [weak self] in self?.dispatch(.fnDown) }
@@ -106,7 +120,7 @@ index 10d7035..ddea6ca 100644
          hotkey.onKeyDown = { [weak self] keycode in
              self?.dispatch(keycode == 53 ? .escape : .otherKeyDown)
          }
-@@ -120,13 +156,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+@@ -120,13 +168,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
          if !hotkey.start() {
              NSLog("plynn: NO ACCESSIBILITY PERMISSION — grant in System Settings, then relaunch")
          }
@@ -137,7 +151,7 @@ index 10d7035..ddea6ca 100644
              Task { [engineManager] in _ = await engineManager.warmActiveEngine() }
              return
          }
-@@ -140,9 +192,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+@@ -140,9 +204,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
          }
          // Covers the no-effect paths back to idle (e.g. empty transcript → no
          // paste). The .done check state hides itself on a timer instead.
@@ -154,7 +168,7 @@ index 10d7035..ddea6ca 100644
              model.phase != .meetingSaved {
              panel.hide()
          }
-@@ -280,6 +338,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+@@ -280,6 +350,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                            "\(transcriptionReleaseAt.duration(to: .now))", engine.displayName)
                  }
  
@@ -195,7 +209,7 @@ index 10d7035..ddea6ca 100644
                  // Command mode: selection + spoken instruction → replace it.
                  if let selection = context.selectedText,
                      !raw.trimmingCharacters(in: .whitespaces).isEmpty {
-@@ -372,6 +464,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+@@ -372,6 +476,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
              stopMeeting()
  
          case .paste(let text):
@@ -212,7 +226,7 @@ index 10d7035..ddea6ca 100644
              let releaseTime = releasedAt
              let pasteResult = Paster.paste(
                  text,
-@@ -421,6 +523,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
+@@ -421,6 +535,97 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
          }
      }
  
@@ -240,8 +254,39 @@ index 10d7035..ddea6ca 100644
 +        Task { @MainActor in
 +            defer { chewieInFlight = false }
 +            var answer: String
++
++            // Small talk and general knowledge go to the model already warm in
++            // this process. It answers in about a second where Claude Code
++            // costs twenty, fifteen of which is the CLI starting up rather than
++            // anything thinking. Anything touching the user's data or asking
++            // for an action skips this entirely: see isLocallyAnswerable.
++            if ChewieRouter.isLocallyAnswerable(prompt),
++                let quick = await formatter.complete(ChewieRouter.localFallbackPrompt(prompt)),
++                !quick.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
++            {
++                let text = quick.trimmingCharacters(in: .whitespacesAndNewlines)
++                Paster.copy(text)
++                Feedback.play(.success)
++                model.phase = .answer(text)
++                let hold = min(9.0, 2.2 + Double(text.count) / 22.0)
++                DispatchQueue.main.asyncAfter(deadline: .now() + hold) { [weak self] in
++                    guard let self, case .answer = self.model.phase else { return }
++                    self.panel.hide()
++                }
++                return
++            }
++
 +            do {
-+                answer = try await ChewieRouter.ask(prompt)
++                // The warm session first. A cold `claude -p` is the fallback,
++                // not the default, because it costs five times as much wall
++                // clock while the user holds a key.
++                do {
++                    answer = try await chewieSession.ask(prompt)
++                } catch {
++                    NSLog("plynn: warm chewie failed (%@), running cold",
++                          error.localizedDescription)
++                    answer = try await ChewieRouter.ask(prompt)
++                }
 +            } catch {
 +                // Claude is the default and the local model is the fallback,
 +                // not the other way round. It only runs when Claude could not:
@@ -383,10 +428,10 @@ index 60e10ad..cc0b5f7 100644
      }
 diff --git a/Sources/PlynnKit/ChewieRouter.swift b/Sources/PlynnKit/ChewieRouter.swift
 new file mode 100644
-index 0000000..2a4a1f1
+index 0000000..5c99bda
 --- /dev/null
 +++ b/Sources/PlynnKit/ChewieRouter.swift
-@@ -0,0 +1,325 @@
+@@ -0,0 +1,383 @@
 +import Foundation
 +
 +/// Routes a dictation that starts with "Chewbacca" or "Chewie" to Claude Code
@@ -495,6 +540,64 @@ index 0000000..2a4a1f1
 +
 +        The user is holding a key waiting for this. Brevity is the whole job.
 +        """
++
++    /// Whether the on-device model can answer this without tools.
++    ///
++    /// Qwen3-4B is already loaded and warm, so it replies in about a second
++    /// against Claude Code's twenty. But it has no shell, no files and no
++    /// agent loop, so the moment a request touches the user's own data or asks
++    /// for something to happen on the machine, a local answer is not a slower
++    /// answer, it is an invented one.
++    ///
++    /// So this is deliberately mean. Anything with a first person pronoun, an
++    /// action verb, or a noun naming the user's data goes to Claude. What is
++    /// left is greetings and general knowledge, which is exactly the set that
++    /// was costing twenty seconds to say hello.
++    public static func isLocallyAnswerable(_ prompt: String) -> Bool {
++        let lower = prompt.lowercased()
++        let words = lower.split { !$0.isLetter && $0 != "'" }
++        guard words.count <= 14 else { return false }
++
++        // Anything about the user's own world needs the real tools.
++        let personal: Set<Substring> = [
++            "my", "mine", "me", "i", "i'm", "i've", "our", "we",
++        ]
++        if words.contains(where: personal.contains) { return false }
++
++        let actions: Set<Substring> = [
++            "send", "open", "make", "add", "note", "remind", "text", "email",
++            "schedule", "delete", "run", "find", "search", "log", "write",
++            "create", "call", "message", "draft", "close", "launch", "play",
++            "set", "update", "check", "read", "show", "list", "fix", "push",
++            // Talking ABOUT someone is a lookup, not general knowledge.
++            "say", "said", "says", "tell", "told", "talk", "talked", "mention",
++            "mentioned", "ask", "asked", "reply", "replied", "answer",
++        ]
++        if words.contains(where: actions.contains) { return false }
++
++        let data: Set<Substring> = [
++            "texts", "messages", "calendar", "notes", "task", "tasks", "contact",
++            "contacts", "email", "emails", "file", "files", "deadline",
++            "deadlines", "class", "classes", "homework", "reminder", "reminders",
++            "inbox", "meeting", "meetings", "everyone", "anyone", "somebody",
++            // Time words almost always mean "of mine": what is due this week.
++            "due", "today", "tomorrow", "tonight", "yesterday", "week",
++            "weekend", "birthday", "birthdays",
++        ]
++        if words.contains(where: data.contains) { return false }
++
++        // A proper noun that is not the first word is almost always a person or
++        // a company, and a question about one of those needs a real lookup.
++        // "What is the capital of France" survives because France is a place in
++        // general knowledge; the cost of being wrong the other way is inventing
++        // a fact about somebody the user actually knows, so this errs strict.
++        let original = prompt.split { !$0.isLetter }
++        if original.dropFirst().contains(where: { $0.first?.isUppercase == true }) {
++            return false
++        }
++
++        return true
++    }
 +
 +    /// What the on-device model gets when Claude could not run.
 +    ///
@@ -710,6 +813,178 @@ index 0000000..2a4a1f1
 +            .trimmingCharacters(in: CharacterSet(charactersIn: ".!\"'*_ "))
 +        guard normalized.hasSuffix("amen"), paragraphs.count > 1 else { return text }
 +        return paragraphs.dropFirst().joined(separator: "\n\n")
++    }
++}
+diff --git a/Sources/PlynnKit/ChewieSession.swift b/Sources/PlynnKit/ChewieSession.swift
+new file mode 100644
+index 0000000..f56616a
+--- /dev/null
++++ b/Sources/PlynnKit/ChewieSession.swift
+@@ -0,0 +1,166 @@
++import Foundation
++
++/// A Claude Code process kept alive so Chewie does not pay for a cold start on
++/// every request.
++///
++/// Measured on this machine: a one-shot `claude -p` took 26 seconds to say
++/// hello. Of that, roughly 15 was the CLI booting and most of the rest was the
++/// model reading a large CLAUDE.md and writing a session opener nobody asked
++/// for. Holding the process open and giving it a small replaced system prompt
++/// takes the same request to about 4.6 seconds.
++///
++/// Two things make that work, and both matter:
++///
++/// - `--input-format stream-json` keeps the process reading turns from stdin
++///   instead of exiting after one.
++/// - A bare working directory and `--system-prompt` (replacing, not appending)
++///   keep the project and user instructions out of every turn. The tools are
++///   unaffected: they are configured separately from the prompt, and a run in
++///   that shape still shells out to `people` correctly.
++public actor ChewieSession {
++
++    private var proc: Process?
++    private var input: FileHandle?
++    private var output: FileHandle?
++    /// Bytes read but not yet split into a complete line.
++    private var pending = Data()
++    private let queue = DispatchQueue(label: "chewie.session")
++
++    public init() {}
++
++    public var isRunning: Bool { proc?.isRunning == true }
++
++    /// A directory with no CLAUDE.md, so no project instructions load. Created
++    /// rather than reused so a stray file in a real project cannot leak in.
++    private static var workingDirectory: URL {
++        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(
++            "chewie-session", isDirectory: true)
++        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
++        try? FileManager.default.removeItem(at: dir.appendingPathComponent("CLAUDE.md"))
++        return dir
++    }
++
++    /// Spawn the process. Safe to call repeatedly; a live session is left alone.
++    public func start() {
++        if proc?.isRunning == true { return }
++        guard let exe = ChewieRouter.claudeExecutable() else { return }
++
++        let p = Process()
++        p.executableURL = URL(fileURLWithPath: exe)
++        p.arguments = [
++            "-p",
++            "--input-format", "stream-json",
++            "--output-format", "stream-json",
++            "--verbose",  // stream-json output requires it
++            "--strict-mcp-config",
++            "--model", UserDefaults.standard.string(forKey: "chewieModel") ?? "haiku",
++            "--system-prompt", ChewieRouter.voiceStyle,
++        ]
++        p.currentDirectoryURL = Self.workingDirectory
++        var env = ProcessInfo.processInfo.environment
++        env["PATH"] =
++            "\(NSHomeDirectory())/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:"
++            + (env["PATH"] ?? "")
++        p.environment = env
++
++        let inPipe = Pipe()
++        let outPipe = Pipe()
++        p.standardInput = inPipe
++        p.standardOutput = outPipe
++        p.standardError = FileHandle.nullDevice
++
++        do { try p.run() } catch { return }
++        proc = p
++        input = inPipe.fileHandleForWriting
++        output = outPipe.fileHandleForReading
++        pending = Data()
++    }
++
++    public func stop() {
++        try? input?.close()
++        proc?.terminate()
++        proc = nil
++        input = nil
++        output = nil
++        pending = Data()
++    }
++
++    /// Send one turn and wait for its result.
++    ///
++    /// Throws rather than hanging: a wedged session must fall back to a
++    /// one-shot run, not leave the user holding a key in front of a spinner.
++    public func ask(_ prompt: String, timeout: TimeInterval = 120) async throws -> String {
++        start()
++        guard let input, let output, proc?.isRunning == true else {
++            throw ChewieRouter.ChewieError.notInstalled
++        }
++
++        let turn: [String: Any] = [
++            "type": "user",
++            "message": ["role": "user", "content": [["type": "text", "text": prompt]]],
++        ]
++        guard var line = try? JSONSerialization.data(withJSONObject: turn) else {
++            throw ChewieRouter.ChewieError.failed("Could not encode the request.")
++        }
++        line.append(0x0A)
++        do { try input.write(contentsOf: line) } catch {
++            // The far end died between the liveness check and the write.
++            stop()
++            throw ChewieRouter.ChewieError.failed("Chewie's session closed; retrying cold.")
++        }
++
++        let deadline = Date().addingTimeInterval(timeout)
++        while Date() < deadline {
++            guard let obj = try await nextMessage(from: output, before: deadline) else { break }
++            guard let type = obj["type"] as? String else { continue }
++            // Everything before the result is progress: assistant turns, tool
++            // calls, tool results. Only the result line ends the wait.
++            if type == "result" {
++                if let isError = obj["is_error"] as? Bool, isError {
++                    throw ChewieRouter.ChewieError.failed(
++                        (obj["result"] as? String) ?? "Chewie failed.")
++                }
++                guard let result = obj["result"] as? String else {
++                    throw ChewieRouter.ChewieError.failed("Chewie returned no result.")
++                }
++                return ChewieRouter.stripOpener(result)
++                    .trimmingCharacters(in: .whitespacesAndNewlines)
++            }
++        }
++        // A session that stopped answering is worse than no session, because
++        // every later request would queue behind it.
++        stop()
++        throw ChewieRouter.ChewieError.timedOut(seconds: Int(timeout))
++    }
++
++    /// Read the next complete JSON line, refilling the buffer as needed.
++    private func nextMessage(
++        from handle: FileHandle, before deadline: Date
++    ) async throws -> [String: Any]? {
++        while true {
++            if let nl = pending.firstIndex(of: 0x0A) {
++                let lineData = pending[..<nl]
++                pending.removeSubrange(...nl)
++                if lineData.isEmpty { continue }
++                if let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] {
++                    return obj
++                }
++                continue  // a non-JSON line is noise, not the end of the stream
++            }
++            if Date() >= deadline { return nil }
++            let chunk = await read(handle)
++            if chunk.isEmpty { return nil }  // EOF: the process exited
++            pending.append(chunk)
++        }
++    }
++
++    /// One blocking read, moved off the actor so it cannot stall other work.
++    private func read(_ handle: FileHandle) async -> Data {
++        await withCheckedContinuation { (c: CheckedContinuation<Data, Never>) in
++            queue.async {
++                let data = handle.availableData
++                c.resume(returning: data)
++            }
++        }
 +    }
 +}
 diff --git a/Sources/PlynnKit/EngineManager.swift b/Sources/PlynnKit/EngineManager.swift
@@ -1043,7 +1318,7 @@ index 92549b6..431f4fd 100644
      /// safely target an editable field.
      @MainActor
 diff --git a/Sources/PlynnKit/TranscriptFormatter.swift b/Sources/PlynnKit/TranscriptFormatter.swift
-index c001dbc..be1d025 100644
+index c001dbc..473f802 100644
 --- a/Sources/PlynnKit/TranscriptFormatter.swift
 +++ b/Sources/PlynnKit/TranscriptFormatter.swift
 @@ -10,7 +10,10 @@ public struct FormatResult: Equatable, Sendable {
@@ -1139,18 +1414,37 @@ index c001dbc..be1d025 100644
          } else if await llm.ready {
              raw = await llm.complete(prompt)
          } else {
-@@ -66,8 +109,8 @@ public actor TranscriptFormatter {
+@@ -66,10 +109,25 @@ public actor TranscriptFormatter {
      /// Warm the polish path: Apple's on-device model when available,
      /// otherwise the bundled-model fallback (downloads on first use).
      public func warmLLM() async {
 -        if appleFM.ready {
 -            await appleFM.warm()
+-        } else {
+-            try? await llm.ensureLoaded()
 +        if appleFMReady {
 +            await appleFMWarm()
-         } else {
-             try? await llm.ensureLoaded()
++            return
++        }
++        // This used to be `try?`, and the swallowed error cost a real evening.
++        // An expired HuggingFace token in the shared cache made every download
++        // 401, the polish model never arrived, and dictation quietly fell back
++        // to the rules formatter. The symptom was "it just types what I said",
++        // with nothing anywhere saying why. On macOS 15 there is no Apple
++        // Intelligence to fall back to, so this model is the only polish there
++        // is and its absence has to be loud.
++        do {
++            try await llm.ensureLoaded()
++        } catch {
++            NSLog(
++                "plynn: POLISH UNAVAILABLE — could not load %@: %@. "
++                    + "Dictation will paste the raw transcript. "
++                    + "If this is a 401, check `hf auth list` for an expired token.",
++                LLMFormatter.modelID, error.localizedDescription)
          }
-@@ -90,8 +133,8 @@ public actor TranscriptFormatter {
+     }
+ 
+@@ -90,8 +148,8 @@ public actor TranscriptFormatter {
          // runs when there are fillers/backtracks/lists to fix or it's long.
          if aiPolish, !text.isEmpty, PolishGate.needsPolish(text) {
              let spellings = DictionaryCorrector.relevantTerms(for: text, terms: terms)
@@ -1211,10 +1505,10 @@ index 688cf74..d8c21e3 100644
              throw XCTSkip("English speech asset unavailable on this machine")
 diff --git a/Tests/PlynnKitTests/ChewieRouterTests.swift b/Tests/PlynnKitTests/ChewieRouterTests.swift
 new file mode 100644
-index 0000000..6c8c6db
+index 0000000..235c139
 --- /dev/null
 +++ b/Tests/PlynnKitTests/ChewieRouterTests.swift
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,172 @@
 +import XCTest
 +
 +@testable import PlynnKit
@@ -1340,6 +1634,51 @@ index 0000000..6c8c6db
 +    func testParagraphMentioningAmenIsNotAnOpener() {
 +        let reply = "The word amen means so be it.\n\nThat is the whole answer."
 +        XCTAssertEqual(ChewieRouter.stripOpener(reply), reply)
++    }
++
++    // MARK: - Local vs Claude
++
++    /// The whole point: saying hello should not cost twenty seconds.
++    func testSmallTalkIsAnsweredLocally() {
++        for q in ["hello", "what's up", "hey there", "thanks", "how are you"] {
++            XCTAssertTrue(ChewieRouter.isLocallyAnswerable(q), "\(q) should stay local")
++        }
++    }
++
++    func testGeneralKnowledgeIsAnsweredLocally() {
++        XCTAssertTrue(ChewieRouter.isLocallyAnswerable("how many feet in a mile"))
++        XCTAssertTrue(ChewieRouter.isLocallyAnswerable("what does ubiquitous mean"))
++    }
++
++    /// A capitalised proper noun escalates even when the question is plainly
++    /// general knowledge. That costs twenty seconds on a trivia question, and
++    /// it buys never inventing a fact about somebody the user actually knows.
++    /// Of the two ways to be wrong, this is the recoverable one.
++    func testProperNounsEscalateEvenForTrivia() {
++        XCTAssertFalse(ChewieRouter.isLocallyAnswerable("what is the capital of France"))
++        XCTAssertFalse(ChewieRouter.isLocallyAnswerable("who is Maggie"))
++    }
++
++    /// Anything about the user's own world must reach the real tools. A local
++    /// answer here is not slower, it is invented.
++    func testAnythingPersonalGoesToClaude() {
++        for q in [
++            "what did maggie say about the trip",
++            "how many texts do I owe",
++            "add a note that langston called",
++            "what is due this week",
++            "send him the deck",
++            "open my calendar",
++            "remind me to call mom",
++        ] {
++            XCTAssertFalse(ChewieRouter.isLocallyAnswerable(q), "\(q) must go to Claude")
++        }
++    }
++
++    /// Long requests are never small talk.
++    func testLongRequestsGoToClaude() {
++        let long = String(repeating: "word ", count: 20)
++        XCTAssertFalse(ChewieRouter.isLocallyAnswerable(long))
 +    }
 +}
 diff --git a/Tests/PlynnKitTests/EngineManagerTests.swift b/Tests/PlynnKitTests/EngineManagerTests.swift
