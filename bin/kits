@@ -45,17 +45,31 @@ case "$MODE" in
     for m in $FOUND; do dirname "$m"; done
     ;;
   --context)
-    # One line, for injection into a session. Templates are excluded: nobody
-    # should be routed into the empty spine.
-    OUT=""
+    # One line, for injection into a session. This runs on EVERY session start,
+    # so it is capped: an unbounded list would quietly cost more context every
+    # time somebody builds another kit. Templates and half-built kits are
+    # excluded so nobody is routed into an empty spine.
+    OUT=""; SHOWN=0; TOTAL=0
     for m in $FOUND; do
-      [ "$(field "$m" status)" = "template" ] && continue
-      n=$(field "$m" name); u=$(field "$m" use-when); d=$(dirname "$m")
-      [ -n "$n" ] || continue
-      OUT="$OUT$n ($d) for: $u. "
+      st=$(field "$m" status)
+      [ "$st" = "template" ] && continue
+      n=$(field "$m" name)
+      case "$n" in ""|*"{{"*) continue ;; esac
+      TOTAL=$((TOTAL + 1))
+      [ "$SHOWN" -ge 6 ] && continue
+      u=$(field "$m" use-when)
+      # Trim each use-when to the first few phrases. Matching needs enough to
+      # recognise the domain, not the whole list.
+      u=$(printf '%s' "$u" | cut -c1-90)
+      # ~-relative keeps the line short; the agent can expand it.
+      d=$(dirname "$m"); d="~${d#$HOME}"
+      OUT="$OUT$n [$d] $u. "
+      SHOWN=$((SHOWN + 1))
     done
     if [ -n "$OUT" ]; then
-      printf 'Kits installed on this machine: %sIf what they are asking for matches one, work inside that kit rather than answering turn by turn, and cd there first. If it matches none and the work is kit-shaped, load kit-builder.\n' "$OUT"
+      MORE=""
+      [ "$TOTAL" -gt "$SHOWN" ] && MORE="Plus $((TOTAL - SHOWN)) more; run kits to see them. "
+      printf 'Kits on this machine: %s%sIf what they are asking for matches one, cd there and work inside it rather than answering turn by turn. If it matches none and the work is kit-shaped, load kit-builder.\n' "$OUT" "$MORE"
     fi
     exit 0
     ;;
