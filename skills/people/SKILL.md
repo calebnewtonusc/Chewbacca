@@ -162,6 +162,43 @@ follows them to another machine. Tell them to make the repo **private**: it is
 everything they know about everyone. `people export` writes readable markdown
 next to the database, and `sync push` runs it first so the repo carries both.
 
+## Relationship graphs over time
+
+Everything else answers "where does this stand today". These three answer "is it
+getting better or worse", which is the question that changes what they do.
+
+```
+people history "Sagar" --days 365 --steps 12   one person's trajectory
+people trend --days 90                         who is warming, who is cooling
+people snapshot                                freeze today's numbers
+```
+
+`history` prints a sparkline for overall standing, warmth, and every dimension
+that has any evidence, with the start value, the end value, and the direction.
+`--json` gives the raw series for charting.
+
+**Scores for a past date are recomputed, not looked up.** Only observations
+recorded on or before that date are allowed to count, so a trajectory is
+available the day the feature is installed rather than a year later. That filter
+is the whole correctness story: without it a note written last week would land
+in last year's score with a negative age, and exponential decay run backwards
+becomes exponential growth. Every relationship would appear to be improving.
+
+`snapshot` freezes the current numbers into `score_history`. Use it when they
+are about to correct or delete old observations and want the curve to remember
+what it actually knew at the time. `history` prefers a frozen point over a
+recomputed one for the same day and says so in its output.
+
+Two honest limits to state when it comes up:
+
+- **A flat line usually means missing evidence, not a flat relationship.** The
+  curve is only as good as what has been written down. Check the observation
+  count in the footer before reading anything into the shape.
+- **Warmth needs interactions.** It decays from the last logged contact, so it
+  reads as zero for anyone whose interactions were never logged or synced.
+  `people texts sync --days 3200` backfills years of iMessage history and makes
+  the warmth curve real.
+
 Three things this does not do, which you should say plainly rather than fake:
 
 - **No semantic search.** Search is full-text, so it matches words, not meaning.
