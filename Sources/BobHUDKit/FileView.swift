@@ -35,10 +35,28 @@ struct FileView: View {
         URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
     }
 
+    /// Read once, not on every redraw.
+    ///
+    /// `kind` used to be a computed property called from `body`, which meant
+    /// every render hit the disk, decoded the file, and for an image built an
+    /// `NSImage` again. A surface redraws whenever anything on it changes, and
+    /// a panel holding a live metric next to a document would have re-read that
+    /// document several times a second.
+    @State private var loaded: Kind?
+    @State private var loadedFrom = ""
+
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             header
             content
+        }
+        .task(id: path) {
+            // Keyed on the path, so pointing the same component at a different
+            // file reloads and pointing it at the same one does not.
+            guard loadedFrom != path || loaded == nil else { return }
+            let read = kind
+            loaded = read
+            loadedFrom = path
         }
     }
 
@@ -58,7 +76,10 @@ struct FileView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch kind {
+        switch loaded ?? .loading {
+        case .loading:
+            Color.clear.frame(height: 1)
+
         case .missing:
             Label("Not on disk", systemImage: "questionmark.folder")
                 .font(.system(size: 11))
@@ -92,6 +113,9 @@ struct FileView: View {
     }
 
     private enum Kind {
+        /// Before the first read finishes. A blank moment beats a flash of
+        /// "not on disk" for a file that is there.
+        case loading
         case missing
         case tooBig(Int)
         case pdf
@@ -122,11 +146,12 @@ struct FileView: View {
     }
 
     private var icon: String {
-        switch kind {
+        switch loaded ?? .loading {
         case .pdf: return "doc.richtext"
         case .image: return "photo"
         case .text: return editable ? "square.and.pencil" : "doc.plaintext"
         case .missing: return "questionmark.folder"
+        case .loading: return "doc"
         default: return "doc"
         }
     }

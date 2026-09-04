@@ -587,3 +587,34 @@ struct DecayTests {
         #expect(model.markers.count == 1)
     }
 }
+
+@Suite("Repeating yourself")
+@MainActor
+struct RepeatTests {
+    @Test("the same words twice in a row are one utterance being refined")
+    func suppressesRefinement() {
+        let voice = VoiceListener()
+        var heard: [String] = []
+        voice.onSignal = { signal in
+            if case .heard(let text) = signal { heard.append(text) }
+        }
+        voice.fireForTesting("show me my week")
+        voice.fireForTesting("show me my week")
+        #expect(heard == ["show me my week"])
+    }
+
+    @Test("the same words later are a second request")
+    func allowsAGenuineRepeat() {
+        // Asking for the same thing twice in one session is a thing people do
+        // constantly, and the first version suppressed it forever.
+        let voice = VoiceListener()
+        var heard: [String] = []
+        voice.onSignal = { signal in
+            if case .heard(let text) = signal { heard.append(text) }
+        }
+        voice.fireForTesting("show me my week")
+        voice.expireRepeatWindowForTesting()
+        voice.fireForTesting("show me my week")
+        #expect(heard.count == 2)
+    }
+}

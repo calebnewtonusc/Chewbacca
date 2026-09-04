@@ -59,6 +59,11 @@ public final class VoiceListener {
     /// The last transcript acted on, so one utterance is not fired twice as the
     /// recogniser refines it.
     private var lastFired = ""
+    /// When it was fired. Without this the suppression is permanent, and asking
+    /// for the same thing twice in one session silently does nothing the second
+    /// time, which is a thing people do constantly: "show me my week" in the
+    /// morning and again after lunch is two requests, not a repeat.
+    private var lastFiredAt = Date.distantPast
     private var silenceTimer: Timer?
 
     public init() {}
@@ -175,7 +180,7 @@ public final class VoiceListener {
         }
     }
 
-    private func stop() {
+    private func stop(quiet: Bool = false) {
         silenceTimer?.invalidate()
         silenceTimer = nil
         task?.cancel()
@@ -186,12 +191,19 @@ public final class VoiceListener {
             engine.stop()
             engine.inputNode.removeTap(onBus: 0)
         }
-        onSignal?(.listening(false))
-        onSignal?(.level(0))
+        if !quiet {
+            onSignal?(.listening(false))
+            onSignal?(.level(0))
+        }
     }
 
     private func restartIfWaking() {
-        stop()
+        // Reopening the recogniser is not the same as the person stopping
+        // talking, so the ring is left alone here: reporting `listening(false)`
+        // between every utterance made it blink back to dormant several times a
+        // minute while it was, in fact, still listening.
+        let wasWaking = mode == .wake
+        stop(quiet: wasWaking)
         guard mode == .wake else { return }
         // A short gap before reopening, or a recogniser that errored in a loop
         // spins the CPU as fast as it can fail.
@@ -213,18 +225,39 @@ public final class VoiceListener {
         request?.endAudio()
     }
 
+    /// How long the same words count as one utterance being refined rather than
+    /// as a second request. The recogniser settles well inside this.
+    private static let repeatWindow: TimeInterval = 4
+
     private func fire(_ raw: String) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, text != lastFired else { return }
+        guard !text.isEmpty else { return }
+        let repeated = text == lastFired
+            && Date().timeIntervalSince(lastFiredAt) < Self.repeatWindow
+        guard !repeated else { return }
 
         if mode == .wake {
             guard let stripped = strippingWakeWord(from: text) else { return }
             lastFired = text
+            lastFiredAt = Date()
             onSignal?(.heard(stripped))
         } else {
             lastFired = text
+            lastFiredAt = Date()
             onSignal?(.heard(text))
         }
+    }
+
+    // MARK: Seams for tests
+    //
+    // The recogniser cannot be driven from a test, so the two pieces of logic
+    // worth testing are reachable directly: what counts as a repeat, and what
+    // the wake word strips.
+
+    func fireForTesting(_ text: String) { fire(text) }
+
+    func expireRepeatWindowForTesting() {
+        lastFiredAt = lastFiredAt.addingTimeInterval(-Self.repeatWindow - 1)
     }
 
     /// Remove the wake word and everything before it, or return nil if it was
