@@ -18,7 +18,7 @@ jobs:
 
       - name: Shell syntax
         run: |
-          for f in setup.sh doctor.sh install.sh add-skill.sh bin/*.sh bin/chrome-js bin/peekaboo bin/mac-use; do
+          for f in setup.sh doctor.sh install.sh add-skill.sh bin/*.sh bin/lib/*.sh bin/chewbacca bin/chrome-js bin/peekaboo bin/mac-use; do
             [ -f "$f" ] || continue
             bash -n "$f" || { echo "syntax error: $f"; exit 1; }
             echo "ok  $f"
@@ -27,7 +27,7 @@ jobs:
       - name: Shellcheck
         run: |
           sudo apt-get update -qq && sudo apt-get install -y shellcheck
-          shellcheck -S error setup.sh doctor.sh install.sh add-skill.sh
+          shellcheck -S error setup.sh doctor.sh install.sh add-skill.sh uninstall.sh bin/chewbacca bin/lib/*.sh
 
       - name: Embedded Python compiles
         run: |
@@ -96,6 +96,11 @@ jobs:
               print(b)
           sys.exit(1 if bad else 0)
           PY
+
+      - name: Skill evals are well formed and every skill has some
+        run: |
+          # Nine skills had evals and nothing ever ran them. Twelve had none.
+          python3 tools/evals.py
 
       - name: README counts match the tree
         run: |

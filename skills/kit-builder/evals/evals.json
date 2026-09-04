@@ -1,0 +1,28 @@
+{
+  "skill": "kit-builder",
+  "cases": [
+    {
+      "prompt": "Make a kit for my grad school applications",
+      "expect_behavior": "run the seven-property test before building anything"
+    },
+    {
+      "prompt": "Should this be a kit or a skill?",
+      "expect_behavior": "score it, and say skill when it scores four or fewer"
+    },
+    {
+      "prompt": "I have to appeal a denied insurance claim and I have never done it",
+      "expect_behavior": "treat it as kit-shaped: long, deadline-bound, has an evaluator"
+    },
+    {
+      "prompt": "Turn this into something I can hand my friend",
+      "expect_behavior": "repo with CLAUDE.md, commands, and state that survives sessions"
+    },
+    {
+      "prompt": "Write me a skill for formatting dates",
+      "reject": [
+        "building a kit"
+      ],
+      "why": "one-shot, no deadline, no evaluator"
+    }
+  ]
+}

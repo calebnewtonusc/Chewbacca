@@ -1,0 +1,25 @@
+{
+  "skill": "graph-engineering",
+  "cases": [
+    {
+      "prompt": "Build me a knowledge graph from these documents",
+      "expect_behavior": "ontology first, then extraction, then fusion"
+    },
+    {
+      "prompt": "Extract entities and relations from this text",
+      "expect_behavior": "name the entity types before extracting"
+    },
+    {
+      "prompt": "How do I add GraphRAG to my agent?",
+      "expect_behavior": "cover serving, not just construction"
+    },
+    {
+      "prompt": "Two records look like the same company",
+      "expect_behavior": "entity resolution with a stated match rule"
+    },
+    {
+      "prompt": "Teach me graph engineering",
+      "expect_behavior": "worked examples per stage, not a definition list"
+    }
+  ]
+}

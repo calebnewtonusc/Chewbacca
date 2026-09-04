@@ -1,0 +1,28 @@
+{
+  "skill": "hud",
+  "cases": [
+    {
+      "prompt": "Show me that on screen",
+      "expect_behavior": "draw it, do not describe it"
+    },
+    {
+      "prompt": "Put my deadlines up where I can see them",
+      "expect_behavior": "a live display, not a one-off render"
+    },
+    {
+      "prompt": "Take it down",
+      "expect_behavior": "remove the overlay"
+    },
+    {
+      "prompt": "What is due this week?",
+      "reject": [
+        "drawing an overlay"
+      ],
+      "why": "a plain question wants a plain answer"
+    },
+    {
+      "prompt": "Update the chart with the new numbers",
+      "expect_behavior": "update the existing display rather than drawing a second one"
+    }
+  ]
+}

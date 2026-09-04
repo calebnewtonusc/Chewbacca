@@ -1623,6 +1623,79 @@ else
 fi
 fi
 
+# ── Manifest ──────────────────────────────────────────────────────────────────
+if should_run manifest; then
+# Nothing recorded what setup did, so uninstall was guessing and nobody could
+# answer "what version is on this machine". Both are one file.
+section "Recording what this install did"
+
+STATE_DIR="$HOME/.chewbacca"
+mkdir -p "$STATE_DIR"
+cp "$SCRIPT_DIR/VERSION" "$STATE_DIR/version" 2>/dev/null || echo "unknown" > "$STATE_DIR/version"
+
+MANIFEST="$STATE_DIR/install-manifest.json"
+python3 - "$MANIFEST" "$GLOBAL_CLAUDE" "$SCRIPT_DIR" "$PROFILE" <<'PYEOF'
+import json, os, subprocess, sys
+from datetime import datetime, timezone
+manifest, claude_dir, repo, profile = sys.argv[1:5]
+
+def listing(sub, pattern=""):
+    d = os.path.join(claude_dir, sub)
+    if not os.path.isdir(d):
+        return []
+    out = []
+    for name in sorted(os.listdir(d)):
+        p = os.path.join(d, name)
+        out.append({
+            "name": name,
+            "path": p,
+            "symlink": os.path.islink(p),
+            "target": os.readlink(p) if os.path.islink(p) else None,
+        })
+    return out
+
+def commit():
+    try:
+        return subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"],
+                              capture_output=True, text=True).stdout.strip()
+    except OSError:
+        return ""
+
+bins = []
+local_bin = os.path.expanduser("~/.local/bin")
+if os.path.isdir(local_bin):
+    for name in sorted(os.listdir(local_bin)):
+        p = os.path.join(local_bin, name)
+        if os.path.islink(p) and repo in os.path.realpath(p):
+            bins.append({"name": name, "path": p, "target": os.path.realpath(p)})
+
+data = {
+    "installed": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    "version": open(os.path.join(repo, "VERSION")).read().strip()
+               if os.path.isfile(os.path.join(repo, "VERSION")) else "unknown",
+    "commit": commit(),
+    "repo": repo,
+    "profile": profile,
+    "host": os.uname().nodename,
+    "wrote": {
+        "skills": listing("skills"),
+        "commands": listing("commands"),
+        "rules": listing("rules"),
+        "hooks": listing("hooks"),
+        "agents": listing("agents"),
+        "output-styles": listing("output-styles"),
+        "bin": bins,
+    },
+    "note": "Written by setup.sh. uninstall.sh removes exactly what is listed here.",
+}
+with open(manifest, "w") as f:
+    json.dump(data, f, indent=2)
+counts = {k: len(v) for k, v in data["wrote"].items()}
+print("  manifest: " + ", ".join(f"{v} {k}" for k, v in counts.items() if v))
+PYEOF
+log "install manifest written to $MANIFEST"
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 sep

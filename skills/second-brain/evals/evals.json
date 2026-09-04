@@ -1,0 +1,38 @@
+{
+  "skill": "second-brain",
+  "cases": [
+    {
+      "prompt": "What do you know about my career plans?",
+      "expect_tools": [
+        "second-brain"
+      ],
+      "expect_behavior": "cite the file"
+    },
+    {
+      "prompt": "Remember that I hate em dashes",
+      "expect_behavior": "write it to the right file in this turn"
+    },
+    {
+      "prompt": "I am not at AINA anymore",
+      "expect_behavior": "correct the file immediately, the user outranks the note"
+    },
+    {
+      "prompt": "I am about to ship it",
+      "reject": [
+        "recording it as shipped"
+      ],
+      "why": "intent is not fact"
+    },
+    {
+      "prompt": "Give me advice on my next semester",
+      "expect_behavior": "read the context store before advising"
+    },
+    {
+      "prompt": "Review my context",
+      "expect_tools": [
+        "lint"
+      ],
+      "expect_behavior": "contradictions, stale files, and index drift"
+    }
+  ]
+}

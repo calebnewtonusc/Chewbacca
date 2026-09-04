@@ -1,0 +1,52 @@
+{
+  "skill": "coursework",
+  "cases": [
+    {
+      "prompt": "What is due this week?",
+      "expect_tools": [
+        "coursework due"
+      ],
+      "reject": [
+        "guessing a date from memory"
+      ]
+    },
+    {
+      "prompt": "Can I skip Thursday's lecture?",
+      "expect_tools": [
+        "coursework attendance"
+      ],
+      "why": "the absence budget is the whole point of the ledger"
+    },
+    {
+      "prompt": "Help me write my BISC lab report",
+      "expect_tools": [
+        "coursework policy"
+      ],
+      "expect_behavior": "check the course AI policy before helping",
+      "why": "BISC bans AI"
+    },
+    {
+      "prompt": "Here is my syllabus PDF",
+      "expect_tools": [
+        "coursework"
+      ],
+      "expect_behavior": "ingest every date with a source line"
+    },
+    {
+      "prompt": "What should I work on right now?",
+      "expect_tools": [
+        "coursework due"
+      ],
+      "expect_behavior": "order by deadline and weight, not by what is easy"
+    },
+    {
+      "prompt": "When is the midterm",
+      "expect_tools": [
+        "coursework"
+      ],
+      "reject": [
+        "answering from the conversation instead of the ledger"
+      ]
+    }
+  ]
+}

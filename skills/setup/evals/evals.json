@@ -1,0 +1,25 @@
+{
+  "skill": "setup",
+  "cases": [
+    {
+      "prompt": "Install this kit",
+      "expect_behavior": "run it, do not print the command"
+    },
+    {
+      "prompt": "What is this installer going to change on my machine?",
+      "expect_behavior": "name the directories and files before running anything"
+    },
+    {
+      "prompt": "The install stopped halfway",
+      "expect_behavior": "resume from where it stopped rather than starting over"
+    },
+    {
+      "prompt": "I only want the standards, not the Mac control",
+      "expect_behavior": "install the subset"
+    },
+    {
+      "prompt": "Skip the part that needs my password",
+      "expect_behavior": "say which capability that costs"
+    }
+  ]
+}

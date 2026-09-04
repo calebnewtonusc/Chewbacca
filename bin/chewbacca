@@ -6,7 +6,9 @@
 # It also meant the README documented `chewbacca doctor`, a command that did not
 # exist, which is the same failure the kit adds doctor checks for.
 #
-# So: one verb-shaped entry point that finds the repo wherever it lives.
+# So: one verb-shaped entry point that finds the repo wherever it lives. The
+# subcommand table below is the single source of truth for help, completion,
+# and dispatch, so a new verb cannot exist without being documented.
 
 set -uo pipefail
 
@@ -28,21 +30,42 @@ resolve_root() {
 }
 
 ROOT="$(resolve_root)"
+STATE="$HOME/.chewbacca"
+
+# name|one-line help. Help output, shell completion, and the unknown-command
+# error all read this, so they cannot disagree with each other.
+COMMANDS=(
+  "doctor|check the install and say what is broken"
+  "status|what is installed, what is on, what is stale"
+  "version|version installed here and in the repo"
+  "setup|full setup on this machine (asks nothing)"
+  "update|pull the latest, show what changed, re-run setup"
+  "changelog|what changed between versions"
+  "skills|list, search, or show a skill"
+  "why|which rule or skill governs a behavior"
+  "log|what the kit has done recently"
+  "bench|time the things that run on every session"
+  "context|measure what the kit costs you before you type"
+  "evals|run the skill evals"
+  "export|bundle this machine's kit state"
+  "import|restore a bundle onto this machine"
+  "completion|print shell completion for zsh, bash, or fish"
+  "add-skill|add a skill to the kit"
+  "install|copy the standards into the current project"
+  "uninstall|remove what setup put on this machine"
+  "where|print where the kit is installed"
+)
 
 usage() {
-  cat <<EOF
-chewbacca: your Claude Code kit
-
-  chewbacca doctor        check the install and say what is broken
-  chewbacca setup         full setup on this machine (asks nothing)
-  chewbacca update        pull the latest and re-run setup
-  chewbacca add-skill     add a skill to the kit
-  chewbacca install       copy the standards into the current project
-  chewbacca uninstall     remove what setup put on this machine
-  chewbacca where         print where the kit is installed
-
-Nothing here is required day to day. You talk to Claude; it loads what it needs.
-EOF
+  echo "chewbacca: your Claude Code kit"
+  echo
+  local name help
+  for entry in "${COMMANDS[@]}"; do
+    name="${entry%%|*}"; help="${entry#*|}"
+    printf '  chewbacca %-12s %s\n' "$name" "$help"
+  done
+  echo
+  echo "Nothing here is required day to day. You talk to Claude; it loads what it needs."
 }
 
 run() {
@@ -55,6 +78,9 @@ run() {
   fi
   bash "$script" "$@"
 }
+
+repo_version() { cat "$ROOT/VERSION" 2>/dev/null || echo "unknown"; }
+installed_version() { cat "$STATE/version" 2>/dev/null || echo "unrecorded"; }
 
 case "${1:-}" in
 doctor)
@@ -79,12 +105,83 @@ uninstall)
   ;;
 update)
   shift
+  BEFORE="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo none)"
   git -C "$ROOT" pull --ff-only || {
     echo "chewbacca: could not fast-forward. Fix the working tree first:" >&2
     echo "  cd $ROOT && git status" >&2
     exit 1
   }
+  AFTER="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo none)"
+  if [ "$BEFORE" != "$AFTER" ] && [ "$BEFORE" != none ]; then
+    echo
+    echo "What changed:"
+    git -C "$ROOT" log --oneline --no-decorate "$BEFORE..$AFTER" | sed 's/^/  /'
+    echo
+  else
+    echo "Already current at $(repo_version)."
+  fi
   run setup.sh "$@"
+  ;;
+version)
+  shift
+  if [ "${1:-}" = "--json" ]; then
+    printf '{"repo":"%s","installed":"%s","commit":"%s","root":"%s"}\n' \
+      "$(repo_version)" "$(installed_version)" \
+      "$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)" "$ROOT"
+  else
+    echo "repo:      $(repo_version)  ($(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo 'not a git checkout'))"
+    echo "installed: $(installed_version)"
+    [ "$(repo_version)" != "$(installed_version)" ] &&
+      echo "            these differ. Run: chewbacca setup"
+  fi
+  ;;
+changelog)
+  shift
+  if [ -f "$ROOT/CHANGELOG.md" ]; then
+    "${PAGER:-cat}" "$ROOT/CHANGELOG.md"
+  else
+    git -C "$ROOT" log --oneline -30
+  fi
+  ;;
+status)
+  shift
+  run bin/lib/status.sh "$@"
+  ;;
+skills)
+  shift
+  run bin/lib/skills.sh "$@"
+  ;;
+why)
+  shift
+  run bin/lib/why.sh "$@"
+  ;;
+log)
+  shift
+  run bin/lib/log.sh "$@"
+  ;;
+bench)
+  shift
+  run bin/lib/bench.sh "$@"
+  ;;
+context)
+  shift
+  python3 "$ROOT/tools/context_cost.py" "$@"
+  ;;
+evals)
+  shift
+  python3 "$ROOT/tools/evals.py" "$@"
+  ;;
+export)
+  shift
+  run bin/lib/export.sh "$@"
+  ;;
+import)
+  shift
+  run bin/lib/import.sh "$@"
+  ;;
+completion)
+  shift
+  run bin/lib/completion.sh "$@"
   ;;
 where)
   printf '%s\n' "$ROOT"
@@ -94,6 +191,9 @@ where)
   ;;
 *)
   echo "chewbacca: unknown command '$1'" >&2
+  # Nearest match beats a bare error. A typo should cost one line, not a re-read.
+  NEAR="$(for e in "${COMMANDS[@]}"; do echo "${e%%|*}"; done | grep -i "^${1:0:3}" | head -1)"
+  [ -n "$NEAR" ] && echo "  did you mean: chewbacca $NEAR" >&2
   echo >&2
   usage >&2
   exit 1

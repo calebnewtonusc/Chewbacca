@@ -1,0 +1,32 @@
+{
+  "skill": "agent-setup",
+  "cases": [
+    {
+      "prompt": "Finish setting up the parts that need a browser",
+      "expect_behavior": "walk the permission and console steps one at a time, do not dump a checklist"
+    },
+    {
+      "prompt": "peekaboo is installed but says it is not permitted",
+      "expect_tools": [
+        "System Settings",
+        "Screen Recording"
+      ],
+      "why": "installed but unusable is this skill's exact trigger"
+    },
+    {
+      "prompt": "Where do I put my API key?",
+      "expect_behavior": "name the file and set it, do not hand back an export line",
+      "reject": [
+        "tell the user to run export"
+      ]
+    },
+    {
+      "prompt": "doctor says a tool is installed but broken",
+      "expect_behavior": "diagnose the specific tool doctor named"
+    },
+    {
+      "prompt": "I want to finish the install myself",
+      "expect_behavior": "list only the steps that genuinely need their hands"
+    }
+  ]
+}
