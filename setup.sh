@@ -1532,27 +1532,44 @@ sep
 echo -e "  ${BLD}${GRN}Setup complete.${NC}"
 sep
 echo ""
-echo -e "  ${BLD}Repos created:${NC}"
-echo -e "    ${CYN}$PERSONAL_REPO${NC}     https://github.com/$GITHUB_USER/$PERSONAL_REPO"
-echo -e "    ${CYN}claude-context${NC}   https://github.com/$GITHUB_USER/claude-context"
-echo ""
-echo -e "  ${BLD}Wired:${NC}"
-echo "    ~/.claude/settings.json   hooks, env vars, permissions"
-if [ -n "$COMPOSIO_URL" ]; then
-  echo "    .mcp.json                 Composio (100+ tools)"
-else
-  echo "    .mcp.json                 (add Composio URL later for 100+ integrations)"
-fi
-echo ""
-echo -e "  ${BLD}Next steps:${NC}"
-echo "    1. Fill in the rest of $PC_DIR/NOW.md, PEOPLE.md, SYSTEM.md"
-echo "    2. Open a new Claude Code session, your context loads automatically"
-echo "    3. Try: /sprint, /daily-brief, /inbox"
-if [ -z "$COMPOSIO_URL" ]; then
+# What someone should read at the end depends entirely on who they are. Two
+# repo URLs that do not exist and three slash commands are the wrong closing
+# screen for a person who came here to ask about their calendar.
+if [ "$NO_GITHUB" -eq 1 ]; then
+  echo -e "  ${BLD}Your second brain:${NC}"
+  echo "    ${PC_DIR:-$WORKSPACE_DIR}"
+  echo "    A folder on this Mac. Claude reads it and writes to it as you talk."
   echo ""
-  echo "    To add Composio (GitHub, Gmail, Calendar, Todoist, Vercel):"
-  echo "    → Sign up at composio.dev, get your MCP URL"
-  echo "    → Add to ~/.claude/.mcp.json under mcpServers.composio"
+  echo -e "  ${BLD}Claude can now:${NC}"
+  echo "    read your calendar and contacts, send a text, see your screen,"
+  echo "    summarize a video or article, and remember what matters to you"
+  echo ""
+  echo -e "  ${BLD}Try asking it:${NC}"
+  echo "    \"what's on my calendar tomorrow\""
+  echo "    \"text someone that I'm running late\""
+else
+  echo -e "  ${BLD}Repos created:${NC}"
+  echo -e "    ${CYN}$PERSONAL_REPO${NC}     https://github.com/$GITHUB_USER/$PERSONAL_REPO"
+  echo -e "    ${CYN}claude-context${NC}   https://github.com/$GITHUB_USER/claude-context"
+  echo ""
+  echo -e "  ${BLD}Wired:${NC}"
+  echo "    ~/.claude/settings.json   hooks, env vars, permissions"
+  if [ -n "$COMPOSIO_URL" ]; then
+    echo "    .mcp.json                 Composio (100+ tools)"
+  else
+    echo "    .mcp.json                 (add Composio URL later for 100+ integrations)"
+  fi
+  echo ""
+  echo -e "  ${BLD}Next steps:${NC}"
+  echo "    1. Fill in the rest of $PC_DIR/NOW.md, PEOPLE.md, SYSTEM.md"
+  echo "    2. Open a new Claude Code session, your context loads automatically"
+  echo "    3. Try: /sprint, /daily-brief, /inbox"
+  if [ -z "$COMPOSIO_URL" ]; then
+    echo ""
+    echo "    To add Composio (GitHub, Gmail, Calendar, Todoist, Vercel):"
+    echo "    → Sign up at composio.dev, get your MCP URL"
+    echo "    → Add to ~/.claude/.mcp.json under mcpServers.composio"
+  fi
 fi
 echo ""
 sep
