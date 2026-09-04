@@ -30,6 +30,7 @@ from pathlib import Path
 
 SOCKET = os.environ.get("BOB_HUD_SOCKET", str(Path.home() / ".bob" / "hud.sock"))
 SKILL = Path(__file__).resolve().parent.parent / "skills" / "hud" / "SKILL.md"
+CONTEXT = Path(__file__).resolve().parent / "hud-context"
 
 # Fences are the single most common thing a model wraps output in, and a fence
 # line is not a valid op, so it would be dropped silently and the surface would
@@ -75,6 +76,30 @@ def draw_lines(text: str) -> list[str]:
         if head in VERBS:
             out.append(stripped)
     return out
+
+
+def looking_at() -> str:
+    """What is in front of the person right now.
+
+    The spec's second property is shared context by default: you should never
+    have to describe your situation, paste your file, or explain what you are
+    looking at. That transfer is most of the cost of most interactions and it is
+    why nobody bothers to ask for small things.
+
+    One line, cheap, and best-effort. If it cannot see, it says nothing rather
+    than guessing, because a wrong claim about what is on screen is worse than
+    no claim.
+    """
+    try:
+        result = subprocess.run(
+            [str(CONTEXT)], capture_output=True, text=True, timeout=3
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    seen = result.stdout.strip()
+    if not seen or seen.startswith("cannot see"):
+        return ""
+    return seen
 
 
 class Listener:
@@ -155,8 +180,10 @@ class Listener:
             # Short on purpose. An agent with tools should go and find out
             # rather than be told what to draw, and a long prompt about
             # components is a long prompt about the wrong thing.
+            seen = looking_at()
             prompt = (
                 f"The user said this out loud, to their screen: {said!r}\n\n"
+                + (f"They are looking at: {seen}\n\n" if seen else "")
                 "Use the hud skill to answer them by drawing on their display. "
                 "Look up whatever real data the answer needs first. Do not "
                 "invent a number. Keep any spoken reply under twenty words, "
