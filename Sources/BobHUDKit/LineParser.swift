@@ -2,18 +2,23 @@ import Foundation
 
 /// Bob Lines, ported from `src/core/lines.ts`.
 ///
-/// The format is four verbs, one instruction per line:
+/// One instruction per line. Four verbs build a surface; the rest say which
+/// surface, mark the screen, or report what the assistant is doing.
 ///
 ///     c <id> <Type> [prop=value ...]     declare a component
 ///     > <id> <child> [child ...]         give it children
 ///     d <pointer> <json>                 patch the data model
 ///     r <id>                             declare the root
+///
 ///     @ <surface> [at=region] [w=380] [urgency=alert] [chrome=bare] [life=60]
-///                                        open or switch to a surface
-///     - <surface>
+///                                        open a surface, or re-address one
+///     - [<surface>]                      close one, or clear the glass
 ///     p <state> [amp=0.4]                presence: what it is doing
 ///     m <id> <x> <y> <w> <h> [label=]    mark a region of the screen
-///     u [<id>]                           unmark one, or all of them                        close a surface
+///     u [<id>]                           unmark one, or all of them
+///
+/// Declare the root early rather than last. Children that arrive after it still
+/// land, so a stream cut off halfway has drawn something rather than nothing.
 ///
 /// A line is either complete or invisible, which is the whole reason this is the
 /// right thing to put on a socket. There is no partial-value state to get wrong:
