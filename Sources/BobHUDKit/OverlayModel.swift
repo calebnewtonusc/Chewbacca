@@ -17,10 +17,25 @@ public struct OverlaySurface: Identifiable, Equatable {
     /// surface that gets moved still belongs to its corner: restacking, resizing
     /// and a display change all keep working, and the drag rides on top.
     public var drag: CGSize = .zero
+    public var urgency: Urgency = .normal
+    /// The tallest this surface may draw. Always replaced with `ceiling` when
+    /// the surface is opened; the literal is here only because a default in a
+    /// nonisolated struct cannot touch `NSScreen`.
+    public var maxHeight: CGFloat = 620
+
+    /// The usable height of the display, less the margins the layout keeps.
+    ///
+    /// Read at open time rather than stored once, so plugging in a monitor or
+    /// changing resolution is picked up by the next surface instead of leaving
+    /// panels sized for a screen that is no longer there.
+    @MainActor
+    public static var ceiling: CGFloat {
+        (NSScreen.main?.visibleFrame.height ?? 800) - 36
+    }
 
     public static func == (a: OverlaySurface, b: OverlaySurface) -> Bool {
         a.id == b.id && a.region == b.region && a.slot == b.slot
-            && a.width == b.width && a.drag == b.drag
+            && a.width == b.width && a.drag == b.drag && a.urgency == b.urgency
     }
 }
 
@@ -49,11 +64,24 @@ public final class OverlayModel {
 
     public var isEmpty: Bool { surfaces.isEmpty }
 
+    /// True when something on the glass outranks the person having hidden it.
+    ///
+    /// Jarvis is told to stop reporting the power level and still speaks at two
+    /// percent. This is that: a dismissed HUD stays dismissed for everything
+    /// except the one thing that genuinely cannot wait.
+    public var hasBreakthrough: Bool {
+        surfaces.contains { $0.urgency.breaksThrough }
+    }
+
     public func apply(_ op: Op) {
         switch op {
-        case .surface(let id, let region, let width):
+        case .surface(let id, let region, let width, let urgency):
             current = id
-            open(id, region: region ?? .topRight, width: width.map { CGFloat($0) })
+            open(
+                id,
+                region: region ?? (urgency == .critical ? .center : .topRight),
+                width: width.map { CGFloat($0) },
+                urgency: urgency ?? .normal)
 
         case .close(let id):
             close(id)
@@ -110,15 +138,19 @@ public final class OverlayModel {
     @discardableResult
     private func surface(_ id: String) -> OverlaySurface {
         if let existing = surfaces.first(where: { $0.id == id }) { return existing }
-        return open(id, region: .topRight, width: nil)
+        return open(id, region: .topRight, width: nil, urgency: .normal)
     }
 
     @discardableResult
-    private func open(_ id: String, region: Region, width: CGFloat?) -> OverlaySurface {
+    private func open(
+        _ id: String, region: Region, width: CGFloat?, urgency: Urgency = .normal
+    ) -> OverlaySurface {
         if let index = surfaces.firstIndex(where: { $0.id == id }) {
             // Moving or resizing an open surface mid-stream is a normal ask.
             var existing = surfaces[index]
             existing.region = region
+            existing.urgency = urgency
+            existing.maxHeight = OverlaySurface.ceiling
             if let width { existing.width = width }
             surfaces[index] = existing
             relayout()
@@ -131,7 +163,9 @@ public final class OverlayModel {
         nextDepth += 1
         let surface = OverlaySurface(
             id: id, store: store, region: region,
-            width: width ?? 380, slot: 0, depth: nextDepth, drag: .zero)
+            width: width ?? (urgency == .critical ? 420 : 380),
+            slot: 0, depth: nextDepth, drag: .zero, urgency: urgency,
+            maxHeight: OverlaySurface.ceiling)
         surfaces.append(surface)
         relayout()
         return surface

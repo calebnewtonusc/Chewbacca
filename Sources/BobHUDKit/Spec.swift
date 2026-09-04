@@ -147,6 +147,33 @@ public enum Region: String, Sendable, CaseIterable {
     }
 }
 
+/// How much of the person's attention a surface is entitled to.
+///
+/// Taken from the way Jarvis actually behaves in the first Iron Man, which is
+/// more disciplined than it looks. He banters in the lab, gives one-word
+/// confirmations during testing, and interrupts only when the risk changes. Then
+/// Tony snaps "just leave it on the screen, stop telling me" and Jarvis goes
+/// quiet, and still speaks at two percent power, because some thresholds
+/// outrank an instruction to be silent.
+///
+/// That last part is the interesting one and it is what `critical` encodes: a
+/// surface that appears even when the HUD has been dismissed. Everything else is
+/// allowed to be ignored.
+public enum Urgency: String, Sendable, CaseIterable {
+    /// Background. Dimmed, never animates, never asks for anything.
+    case ambient
+    /// The default. Present, readable, easy to ignore.
+    case normal
+    /// Worth looking at now. Brighter edge, holds its glow.
+    case alert
+    /// Breaks through a dismissed HUD. Reserve it for things that are true
+    /// emergencies, because a system that cries wolf gets switched off.
+    case critical
+
+    /// Whether this outranks the person having hidden the display.
+    public var breaksThrough: Bool { self == .critical }
+}
+
 /// What a stream can say.
 ///
 /// The first four build a surface. The last two say *which* surface, which is
@@ -158,7 +185,7 @@ public enum Op: Sendable, Equatable {
     case data(path: String, value: JSON?)
     case root(id: ComponentID)
     /// Open or switch to a named surface. Everything after this targets it.
-    case surface(id: String, region: Region?, width: Double?)
+    case surface(id: String, region: Region?, width: Double?, urgency: Urgency?)
     /// Close a surface and take it off the screen.
     case close(id: String)
 }

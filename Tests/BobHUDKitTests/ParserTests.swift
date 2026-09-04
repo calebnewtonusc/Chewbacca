@@ -310,3 +310,36 @@ struct PointerTests {
         #expect(Pointer.segments("/m~0n") == ["m~n"])
     }
 }
+
+@Suite("Urgency")
+struct UrgencyTests {
+    @Test("a surface carries an urgency when one is given")
+    func parsesUrgency() throws {
+        let op = try #require(try LineParser.parse("@ alarm at=center urgency=critical"))
+        guard case .surface(let id, let region, _, let urgency) = op else {
+            Issue.record("expected a surface op")
+            return
+        }
+        #expect(id == "alarm")
+        #expect(region == .center)
+        #expect(urgency == .critical)
+    }
+
+    @Test("an unknown urgency is dropped rather than guessed")
+    func rejectsUnknownUrgency() throws {
+        let op = try #require(try LineParser.parse("@ p urgency=extremely"))
+        guard case .surface(_, _, _, let urgency) = op else {
+            Issue.record("expected a surface op")
+            return
+        }
+        #expect(urgency == nil)
+    }
+
+    @Test("only critical outranks a hidden display")
+    func onlyCriticalBreaksThrough() {
+        #expect(Urgency.critical.breaksThrough)
+        #expect(!Urgency.alert.breaksThrough)
+        #expect(!Urgency.normal.breaksThrough)
+        #expect(!Urgency.ambient.breaksThrough)
+    }
+}
