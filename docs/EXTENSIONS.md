@@ -102,6 +102,19 @@ finishes.
 | `git`                 | `uvx mcp-server-git`                            | Repo reads, searches, and commits as calls   |
 | `sequential-thinking` | `npx @modelcontextprotocol/server-sequential-thinking` | Long reasoning as revisable steps     |
 | `chart`               | `npx @antv/mcp-server-chart`                    | 25 chart types rendered from data            |
+| `chrome-devtools`     | `npx chrome-devtools-mcp@latest`                | Drive a real Chrome by DOM, not by pixels    |
+
+**`chrome-devtools` is the one worth knowing about.** Everything else here is a
+data source; this one gives the agent hands on a browser. It reads the page as a
+DOM snapshot and clicks elements by id, so it is not screenshot-and-guess, and it
+can attach to a Chrome you are already signed into with `--browserUrl`.
+
+That last part is the point. Anything behind a login (a repo's settings page, a
+dashboard, a console with no API) is otherwise a dead end that ends in "run this
+command yourself". Two warnings from getting this wrong: pixel automation on a
+browser the user is actively typing in will fight them for the keyboard, and a
+DOM snapshot id goes stale on any re-render, so re-snapshot after every step
+rather than reusing an id.
 
 The second tier is mcpmarket's Official row, and each one is installed only when its key is
 already exported.
