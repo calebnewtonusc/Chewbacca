@@ -1,4 +1,8 @@
 #!/bin/bash
+# Timing, logging, a watchdog and an output cap. See lib.sh.
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh" 2>/dev/null || true
+type hook_init >/dev/null 2>&1 && hook_init coursework-context.sh 5
 # SessionStart: put the next coursework deadlines into context before the first
 # question. Silent when there is no CLI, no ledger, or nothing due, because an
 # empty line every session is pure token cost.

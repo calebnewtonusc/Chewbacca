@@ -46,7 +46,7 @@ echo -e "  ${BLD}%-26s${NC}" >/dev/null
 printf '  %-26s %6sms  (%s)  %b\n' "TOTAL before first token" "$TOTAL" "1000" "$(verdict "$TOTAL" 1000)"
 
 echo -e "\n${BLD}Tools${NC}"
-for spec in "doctor.sh --quiet:8000" "bin/slop-check README.md:1500"; do
+for spec in "./doctor.sh --quiet:8000" "python3 bin/slop-check README.md:1500"; do
   cmd="${spec%%:*}"; budget="${spec##*:}"
   # shellcheck disable=SC2086
   ms=$(time_cmd bash -c "cd '$ROOT' && $cmd")

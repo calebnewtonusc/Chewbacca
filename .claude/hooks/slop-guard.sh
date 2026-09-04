@@ -1,4 +1,8 @@
 #!/bin/bash
+# Timing, logging, a watchdog and an output cap. See lib.sh.
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh" 2>/dev/null || true
+type hook_init >/dev/null 2>&1 && hook_init slop-guard.sh 10
 # Stop hook: read back what Claude just wrote and refuse the turn if it is slop.
 #
 # The house writing rules already live in CLAUDE.md, and CLAUDE.md is a user

@@ -1,4 +1,8 @@
 #!/bin/bash
+# Timing, logging, a watchdog and an output cap. See lib.sh.
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh" 2>/dev/null || true
+type hook_init >/dev/null 2>&1 && hook_init env-guard.sh 10
 # PreToolUse: warn before writing a .env file.
 #
 # Extracted from settings.json for the same reason as the others: an inline
