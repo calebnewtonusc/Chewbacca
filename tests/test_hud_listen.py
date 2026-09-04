@@ -165,6 +165,59 @@ def test_end_to_end() -> None:
     check("it went back to attentive", received[-1] == "p attentive", f"got {received[-1:]}")
 
 
+def test_reconnects() -> None:
+    """The display restarting must not kill the loop.
+
+    The display gets rebuilt and relaunched constantly. A loop that exits when
+    its socket closes leaves the person talking to nothing, and the only symptom
+    is that nothing happens.
+    """
+    directory = tempfile.mkdtemp()
+    path = os.path.join(directory, "hud.sock")
+
+    fake = os.path.join(directory, "fake-model")
+    with open(fake, "w", encoding="utf-8") as handle:
+        handle.write("#!/bin/sh\ncat > /dev/null\necho 'r s'\n")
+    os.chmod(fake, 0o755)
+
+    env = dict(os.environ, BOB_HUD_SOCKET=path)
+    process = subprocess.Popen(
+        [sys.executable, str(BIN), "--model-cmd", fake],
+        env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+
+    def accept_once(timeout: float) -> bool:
+        """Stand up the socket, take one connection, then tear it down."""
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.settimeout(timeout)
+        server.bind(path)
+        server.listen(1)
+        try:
+            conn, _ = server.accept()
+        except socket.timeout:
+            return False
+        finally:
+            server.close()
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+        conn.close()
+        return True
+
+    try:
+        # It should be waiting for a display that does not exist yet.
+        first = accept_once(15)
+        check("it waits for a display that is not up yet", first)
+        # Now the display goes away and comes back.
+        second = accept_once(15)
+        check("it reconnects after the display restarts", second)
+        check("the process is still alive", process.poll() is None)
+    finally:
+        process.terminate()
+        process.wait(timeout=10)
+
+
 def main() -> int:
     module = load()
     print("draw_lines")
@@ -175,6 +228,8 @@ def main() -> int:
     test_pointing(module)
     print("end to end")
     test_end_to_end()
+    print("reconnecting")
+    test_reconnects()
     print()
     if failures:
         print(f"{len(failures)} failed: {', '.join(failures)}")
