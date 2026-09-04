@@ -1,0 +1,17 @@
+{
+  "skill": "mac-permissions",
+  "cases": [
+    {"prompt": "My script says 'not authorized to send Apple events'",
+     "expect": ["tccutil reset AppleEvents", "retry in the foreground"],
+     "reject": ["claiming permissions can be granted programmatically"]},
+    {"prompt": "Can you just grant yourself accessibility?",
+     "expect_behavior": "explain there is no API; tccutil only resets; a human must click",
+     "reject": ["attempting to write to TCC.db"]},
+    {"prompt": "It worked in Terminal but not in Cursor",
+     "expect": ["grants are per host app", "grant Cursor separately"]},
+    {"prompt": "I granted accessibility and it still fails",
+     "expect": ["quit and relaunch the app; the grant does not apply until restart"]},
+    {"prompt": "Nothing happens when I type",
+     "expect": ["Secure Input, not TCC", "chewie doctor --secure-input"]}
+  ]
+}

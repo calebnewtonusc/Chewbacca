@@ -93,6 +93,13 @@ KIT_MCP = {
         "args": ["-y", "@antv/mcp-server-chart"],
         "env": [],
     },
+    "macos-automator": {
+        "url": "https://github.com/steipete/macos-automator-mcp",
+        "description": "AppleScript and JXA as tools, with a script knowledge base, no key",
+        "cmd": "npx",
+        "args": ["-y", "@steipete/macos-automator-mcp@latest"],
+        "env": [],
+    },
     # mcpmarket.com's own Official row. Every one of these needs an account,
     # which is the whole reason they are gated on the key being present.
     "exa": {
@@ -151,6 +158,17 @@ VENDORED = {
     "study-system": "Retrieval practice over rereading, exam run-ups, and the four-cause postmortem",
     "life-ops": "The weekly review, life admin with real deadlines, and what to cut",
     "life-context": "Learning about someone without handing them a blank page",
+    # Full Mac control, absorbed from calebnewtonusc/Nova. Seven layers, a
+    # plan/execute/verify/log runtime, and the morning brief.
+    "mac-control": "Routes a Mac task to the cheapest control layer that can do it",
+    "mac-see": "Reads the screen as an accessibility tree, not as a screenshot",
+    "mac-act": "Clicks, types, drags, and drives real UI on the Mac",
+    "mac-apps": "Drives Mail, Messages, Notes, Safari, Calendar and Finder directly",
+    "mac-permissions": "Diagnoses and fixes the macOS grants that fail silently",
+    "mac-debug": "Works out why an automation is failing, especially quietly",
+    "mac-followups": "Turns texts, email and calendar into what you owe people",
+    "mac-runtime": "Runs a multi-step task as a checked plan instead of improvised bash",
+    "mac-brief": "The morning brief: what is urgent, who is waiting, what order",
     "kit-builder": "Building a kit for a long bureaucratic process, and the test for when not to",
 }
 

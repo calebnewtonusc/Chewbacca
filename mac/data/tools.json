@@ -1,0 +1,583 @@
+{
+  "$comment": "Tool survey for macOS AI control. Star counts pulled from the GitHub API on 2026-09-04.",
+  "updated": "2026-09-04",
+  "verdict_key": {
+    "install": "install.sh installs this; it is part of the recommended stack",
+    "install-if-web": "install when the work is browser-based",
+    "optional": "good, install when the task needs it",
+    "read": "worth reading or knowing about, not part of the default stack",
+    "caution": "license or maintenance concern; check before depending on it"
+  },
+  "tools": [
+    {
+      "name": "Peekaboo",
+      "repo": "openclaw/Peekaboo",
+      "url": "https://github.com/openclaw/Peekaboo",
+      "stars": 5107,
+      "language": "Swift",
+      "license": "MIT",
+      "layers": [
+        3,
+        4,
+        5
+      ],
+      "install": "brew install steipete/tap/peekaboo",
+      "verdict": "install",
+      "note": "Widest macOS surface: see, click, type, menus, Dock, Spaces, dialogs, status items, windows, MCP server"
+    },
+    {
+      "name": "agent-desktop",
+      "repo": "lahfir/agent-desktop",
+      "url": "https://github.com/lahfir/agent-desktop",
+      "stars": 1034,
+      "language": "Rust",
+      "license": "Apache-2.0",
+      "layers": [
+        3
+      ],
+      "install": "npm i -g agent-desktop",
+      "verdict": "install",
+      "note": "Cleanest pure accessibility-tree driver. Stable element refs, JSON out, 78-96% token reduction"
+    },
+    {
+      "name": "macos-automator-mcp",
+      "repo": "steipete/macos-automator-mcp",
+      "url": "https://github.com/steipete/macos-automator-mcp",
+      "stars": 876,
+      "language": "TypeScript",
+      "license": "MIT",
+      "layers": [
+        2
+      ],
+      "install": "npx -y @steipete/macos-automator-mcp",
+      "verdict": "install",
+      "note": "AppleScript + JXA over MCP with a callable script knowledge base"
+    },
+    {
+      "name": "cliclick",
+      "repo": "BlueM/cliclick",
+      "url": "https://github.com/BlueM/cliclick",
+      "stars": 2008,
+      "language": "Objective-C",
+      "license": "custom",
+      "layers": [
+        4
+      ],
+      "install": "brew install cliclick",
+      "verdict": "install",
+      "note": "One job, does it, has for a decade"
+    },
+    {
+      "name": "ghost-os",
+      "repo": "ghostwright/ghost-os",
+      "url": "https://github.com/ghostwright/ghost-os",
+      "stars": 1652,
+      "language": "Swift",
+      "license": "MIT",
+      "layers": [
+        3,
+        4
+      ],
+      "install": "see repo",
+      "verdict": "read",
+      "note": "Native macOS computer use, self-learning workflows, explicitly no screenshots. Last push 2026-03"
+    },
+    {
+      "name": "clawdcursor",
+      "repo": "AmrDab/clawdcursor",
+      "url": "https://github.com/AmrDab/clawdcursor",
+      "stars": 399,
+      "language": "TypeScript",
+      "license": "MIT",
+      "layers": [
+        3,
+        5
+      ],
+      "install": "see repo",
+      "verdict": "read",
+      "note": "Fuses AX tree + OCR into one addressable map, screenshot only when needed, one safety gate"
+    },
+    {
+      "name": "Hammerspoon",
+      "repo": "Hammerspoon/hammerspoon",
+      "url": "https://github.com/Hammerspoon/hammerspoon",
+      "stars": 16050,
+      "language": "Objective-C",
+      "license": "MIT",
+      "layers": [
+        2
+      ],
+      "install": "brew install --cask hammerspoon",
+      "verdict": "optional",
+      "note": "Lua + deep macOS bindings. For agents the value is triggers: hotkeys, file/screen/wifi watchers"
+    },
+    {
+      "name": "axcli",
+      "repo": "andelf/axcli",
+      "url": "https://github.com/andelf/axcli",
+      "stars": 33,
+      "language": "Rust",
+      "license": "none",
+      "layers": [
+        3
+      ],
+      "install": "cargo install",
+      "verdict": "read",
+      "note": "Minimal AX CLI. Read as a reference implementation, too small to depend on"
+    },
+    {
+      "name": "AgentiLoop Agent",
+      "repo": "AgentiLoop/Agent",
+      "url": "https://github.com/AgentiLoop/Agent",
+      "stars": 591,
+      "language": "Swift",
+      "license": "MIT",
+      "layers": [
+        3,
+        4
+      ],
+      "install": "see repo",
+      "verdict": "read",
+      "note": "Mac-exclusive harness on AXorcist for fuzzy element matching"
+    },
+    {
+      "name": "skales",
+      "repo": "skalesapp/skales",
+      "url": "https://github.com/skalesapp/skales",
+      "stars": 1746,
+      "language": "TypeScript",
+      "license": "custom",
+      "layers": [
+        3,
+        4,
+        5
+      ],
+      "install": "see repo",
+      "verdict": "caution",
+      "note": "Cross-platform goal-driven desktop agent. Check the license before shipping on it"
+    },
+    {
+      "name": "apple-mcp",
+      "repo": "supermemoryai/apple-mcp",
+      "url": "https://github.com/supermemoryai/apple-mcp",
+      "stars": 3130,
+      "language": "TypeScript",
+      "license": "MIT",
+      "layers": [
+        1,
+        2
+      ],
+      "install": "npx",
+      "verdict": "optional",
+      "note": "Notes, Contacts, Mail, Messages, Reminders, Calendar, Maps. Broadest single Apple-app server"
+    },
+    {
+      "name": "applescript-mcp (peakmojo)",
+      "repo": "peakmojo/applescript-mcp",
+      "url": "https://github.com/peakmojo/applescript-mcp",
+      "stars": 463,
+      "language": "Python",
+      "license": "MIT",
+      "layers": [
+        2
+      ],
+      "install": "pip/uvx",
+      "verdict": "optional",
+      "note": "Raw AppleScript execution over MCP. Minimal by design, maximal in power"
+    },
+    {
+      "name": "applescript-mcp (rutkowski)",
+      "repo": "joshrutkowski/applescript-mcp",
+      "url": "https://github.com/joshrutkowski/applescript-mcp",
+      "stars": 393,
+      "language": "TypeScript",
+      "license": "MIT",
+      "layers": [
+        2
+      ],
+      "install": "npx",
+      "verdict": "optional",
+      "note": "Categorized AppleScript tools"
+    },
+    {
+      "name": "mac_messages_mcp",
+      "repo": "carterlasalle/mac_messages_mcp",
+      "url": "https://github.com/carterlasalle/mac_messages_mcp",
+      "stars": 323,
+      "language": "Python",
+      "license": "MIT",
+      "layers": [
+        1
+      ],
+      "install": "uvx mac-messages-mcp",
+      "verdict": "optional",
+      "note": "iMessage via chat.db including the attributedBody decode. Solves a real problem"
+    },
+    {
+      "name": "safari-mcp",
+      "repo": "achiya-automation/safari-mcp",
+      "url": "https://github.com/achiya-automation/safari-mcp",
+      "stars": 181,
+      "language": "JavaScript",
+      "license": "MIT",
+      "layers": [
+        6
+      ],
+      "install": "npx",
+      "verdict": "optional",
+      "note": "97 Safari tools over AppleScript. Keeps logins, no second browser process"
+    },
+    {
+      "name": "UI-TARS-desktop",
+      "repo": "bytedance/UI-TARS-desktop",
+      "url": "https://github.com/bytedance/UI-TARS-desktop",
+      "stars": 38835,
+      "language": "TypeScript",
+      "license": "Apache-2.0",
+      "layers": [
+        5
+      ],
+      "install": "see repo",
+      "verdict": "read",
+      "note": "Biggest in the category. Pure-vision GUI agent app, local and remote operators"
+    },
+    {
+      "name": "cua",
+      "repo": "trycua/cua",
+      "url": "https://github.com/trycua/cua",
+      "stars": 22172,
+      "language": "multi",
+      "license": "MIT",
+      "layers": [
+        5,
+        7
+      ],
+      "install": "see repo",
+      "verdict": "read",
+      "note": "Full stack: drivers, cross-OS fleets, macOS VM sandboxes via Lume, benchmarks"
+    },
+    {
+      "name": "Agent-S",
+      "repo": "simular-ai/Agent-S",
+      "url": "https://github.com/simular-ai/Agent-S",
+      "stars": 12222,
+      "language": "Python",
+      "license": "Apache-2.0",
+      "layers": [
+        5
+      ],
+      "install": "pip",
+      "verdict": "read",
+      "note": "Research-grade compositional agent, generalist plus specialist"
+    },
+    {
+      "name": "UI-TARS",
+      "repo": "bytedance/UI-TARS",
+      "url": "https://github.com/bytedance/UI-TARS",
+      "stars": 11421,
+      "language": "Python",
+      "license": "Apache-2.0",
+      "layers": [
+        5
+      ],
+      "install": "model weights",
+      "verdict": "read",
+      "note": "The model itself"
+    },
+    {
+      "name": "bytebot",
+      "repo": "bytebot-ai/bytebot",
+      "url": "https://github.com/bytebot-ai/bytebot",
+      "stars": 11084,
+      "language": "TypeScript",
+      "license": "Apache-2.0",
+      "layers": [
+        7
+      ],
+      "install": "docker",
+      "verdict": "read",
+      "note": "Self-hosted agent in a containerized Linux desktop. Last push 2025-09"
+    },
+    {
+      "name": "self-operating-computer",
+      "repo": "OthersideAI/self-operating-computer",
+      "url": "https://github.com/OthersideAI/self-operating-computer",
+      "stars": 10292,
+      "language": "Python",
+      "license": "MIT",
+      "layers": [
+        5
+      ],
+      "install": "pip",
+      "verdict": "read",
+      "note": "The original demo of the idea. Last push 2025-09, read for history"
+    },
+    {
+      "name": "UFO",
+      "repo": "microsoft/UFO",
+      "url": "https://github.com/microsoft/UFO",
+      "stars": 9629,
+      "language": "Python",
+      "license": "MIT",
+      "layers": [
+        5
+      ],
+      "install": "pip",
+      "verdict": "read",
+      "note": "UFO3. Windows-centric, multi-device orchestration"
+    },
+    {
+      "name": "fara",
+      "repo": "microsoft/fara",
+      "url": "https://github.com/microsoft/fara",
+      "stars": 6172,
+      "language": "Python",
+      "license": "MIT",
+      "layers": [
+        5
+      ],
+      "install": "model weights",
+      "verdict": "read",
+      "note": "Fara-1.5 frontier CUA models, small enough to run locally"
+    },
+    {
+      "name": "autoMate",
+      "repo": "yuruotong1/autoMate",
+      "url": "https://github.com/yuruotong1/autoMate",
+      "stars": 3953,
+      "language": "Python",
+      "license": "MIT",
+      "layers": [
+        5
+      ],
+      "install": "pip",
+      "verdict": "read",
+      "note": "Local automation built on OmniParser"
+    },
+    {
+      "name": "open-computer-use",
+      "repo": "e2b-dev/open-computer-use",
+      "url": "https://github.com/e2b-dev/open-computer-use",
+      "stars": 2237,
+      "language": "Python",
+      "license": "Apache-2.0",
+      "layers": [
+        5,
+        7
+      ],
+      "install": "pip",
+      "verdict": "read",
+      "note": "Open models plus E2B Desktop Sandbox"
+    },
+    {
+      "name": "ShowUI",
+      "repo": "showlab/ShowUI",
+      "url": "https://github.com/showlab/ShowUI",
+      "stars": 1897,
+      "language": "Python",
+      "license": "Apache-2.0",
+      "layers": [
+        5
+      ],
+      "install": "model weights",
+      "verdict": "read",
+      "note": "CVPR 2025 end-to-end vision-language-action model"
+    },
+    {
+      "name": "openai-cua-sample-app",
+      "repo": "openai/openai-cua-sample-app",
+      "url": "https://github.com/openai/openai-cua-sample-app",
+      "stars": 1791,
+      "language": "TypeScript",
+      "license": "MIT",
+      "layers": [
+        5
+      ],
+      "install": "see repo",
+      "verdict": "read",
+      "note": "OpenAI's CUA reference implementation"
+    },
+    {
+      "name": "OpenAdapt",
+      "repo": "OpenAdaptAI/OpenAdapt",
+      "url": "https://github.com/OpenAdaptAI/OpenAdapt",
+      "stars": 1715,
+      "language": "Python",
+      "license": "MIT",
+      "layers": [
+        3,
+        4,
+        5
+      ],
+      "install": "pip install openadapt",
+      "verdict": "read",
+      "note": "Record a human demonstration, compile it to a program, report VERIFIED only when an independent check agrees. The only project treating reliability as the primary problem"
+    },
+    {
+      "name": "terminator",
+      "repo": "mediar-ai/terminator",
+      "url": "https://github.com/mediar-ai/terminator",
+      "stars": 1629,
+      "language": "Rust",
+      "license": "MIT",
+      "layers": [
+        3
+      ],
+      "install": "see repo",
+      "verdict": "read",
+      "note": "Playwright for Windows. The Windows equivalent of agent-desktop"
+    },
+    {
+      "name": "claude-quickstarts",
+      "repo": "anthropics/claude-quickstarts",
+      "url": "https://github.com/anthropics/claude-quickstarts",
+      "stars": 17602,
+      "language": "TypeScript",
+      "license": "MIT",
+      "layers": [
+        5
+      ],
+      "install": "git clone",
+      "verdict": "read",
+      "note": "computer-use-demo is the canonical reference loop"
+    },
+    {
+      "name": "OmniParser",
+      "repo": "microsoft/OmniParser",
+      "url": "https://github.com/microsoft/OmniParser",
+      "stars": 25368,
+      "language": "Python",
+      "license": "CC-BY-4.0",
+      "layers": [
+        5
+      ],
+      "install": "pip",
+      "verdict": "read",
+      "note": "Screenshot to labeled interactive regions. Essential on Windows/Linux, largely redundant on macOS"
+    },
+    {
+      "name": "screenpipe",
+      "repo": "screenpipe/screenpipe",
+      "url": "https://github.com/screenpipe/screenpipe",
+      "stars": 21406,
+      "language": "Rust",
+      "license": "custom",
+      "layers": [
+        5
+      ],
+      "install": "brew",
+      "verdict": "optional",
+      "note": "Continuous screen recording plus OCR as agent memory. Memory, not control. Check the license"
+    },
+    {
+      "name": "browser-use",
+      "repo": "browser-use/browser-use",
+      "url": "https://github.com/browser-use/browser-use",
+      "stars": 112213,
+      "language": "Python",
+      "license": "MIT",
+      "layers": [
+        6
+      ],
+      "install": "pip install browser-use",
+      "verdict": "install-if-web",
+      "note": "Most-starred project in the space. If the task is on the web, start here"
+    },
+    {
+      "name": "page-agent",
+      "repo": "alibaba/page-agent",
+      "url": "https://github.com/alibaba/page-agent",
+      "stars": 28977,
+      "language": "TypeScript",
+      "license": "MIT",
+      "layers": [
+        6
+      ],
+      "install": "npm",
+      "verdict": "read",
+      "note": "In-page JS agent, no driver process"
+    },
+    {
+      "name": "skyvern",
+      "repo": "Skyvern-AI/skyvern",
+      "url": "https://github.com/Skyvern-AI/skyvern",
+      "stars": 22928,
+      "language": "Python",
+      "license": "AGPL-3.0",
+      "layers": [
+        6
+      ],
+      "install": "pip",
+      "verdict": "caution",
+      "note": "Vision plus DOM workflows. AGPL is a real constraint if you ship it"
+    },
+    {
+      "name": "midscene",
+      "repo": "web-infra-dev/midscene",
+      "url": "https://github.com/web-infra-dev/midscene",
+      "stars": 14774,
+      "language": "TypeScript",
+      "license": "MIT",
+      "layers": [
+        6
+      ],
+      "install": "npm",
+      "verdict": "read",
+      "note": "Framed as E2E testing, works as a general driver"
+    },
+    {
+      "name": "openinterpreter",
+      "repo": "openinterpreter/openinterpreter",
+      "url": "https://github.com/openinterpreter/openinterpreter",
+      "stars": 68232,
+      "language": "Rust",
+      "license": "Apache-2.0",
+      "layers": [
+        2
+      ],
+      "install": "pip",
+      "verdict": "read",
+      "note": "Now a coding agent for open models. Its historical OS-control mode is where a lot of this started"
+    },
+    {
+      "name": "agent-device",
+      "repo": "callstack/agent-device",
+      "url": "https://github.com/callstack/agent-device",
+      "stars": 4342,
+      "language": "TypeScript",
+      "license": "MIT",
+      "layers": [
+        3
+      ],
+      "install": "npm",
+      "verdict": "read",
+      "note": "iOS and Android automation. The mobile analogue"
+    },
+    {
+      "name": "MobileAgent",
+      "repo": "X-PLUG/MobileAgent",
+      "url": "https://github.com/X-PLUG/MobileAgent",
+      "stars": 9159,
+      "language": "Python",
+      "license": "MIT",
+      "layers": [
+        5
+      ],
+      "install": "pip",
+      "verdict": "read",
+      "note": "Mobile GUI agent family"
+    },
+    {
+      "name": "acu",
+      "repo": "trycua/acu",
+      "url": "https://github.com/trycua/acu",
+      "stars": 1748,
+      "language": "none",
+      "license": "none",
+      "layers": [],
+      "install": "n/a",
+      "verdict": "read",
+      "note": "Curated reading list for computer use. Good bibliography"
+    }
+  ]
+}

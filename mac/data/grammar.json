@@ -1,0 +1,62 @@
+{
+  "$comment": "A ThingTalk-style command grammar for Mac control, after Genie (Campagna/Xu/Lam, PLDI 2019). An agent compiles a natural-language request into ONE typed plan of this shape, which a deterministic runner executes and verifies step by step. The point, straight from the paper: a formal, checkable representation beats a model freehanding actions. A plan either type-checks and runs, or it errors cleanly - it does not silently misfire.",
+  "updated": "2026-09-04",
+  "shape": "stream => query* => action*",
+  "structure": {
+    "stream": "the trigger. when the plan runs. one of: now, every, on_text, on_file, on_calendar",
+    "query": "reads. gather typed data. never has a side effect. layers 1, 3, 6",
+    "action": "does. has a side effect. layers 2, 4, 6. anything outbound or irreversible carries confirm:true"
+  },
+  "streams": [
+    {"name": "now", "params": {}, "desc": "run once, immediately"},
+    {"name": "every", "params": {"interval": "duration"}, "impl": "cron or launchd", "desc": "on a schedule"},
+    {"name": "on_text", "params": {"from": "string?"}, "impl": "poll chat.db or a Hammerspoon watcher", "desc": "when a new text arrives"},
+    {"name": "on_file", "params": {"path": "path"}, "impl": "Hammerspoon pathwatcher", "desc": "when a file changes"},
+    {"name": "on_calendar", "params": {"within": "duration"}, "desc": "before an event starts"}
+  ],
+  "queries": [
+    {"name": "texts", "layer": 1, "returns": "message[]",
+     "params": {"days": "int", "who": "string?", "unanswered": "bool?", "direct": "bool?"},
+     "impl": "chewie texts"},
+    {"name": "screen", "layer": 3, "returns": "element[]",
+     "params": {"app": "string"}, "impl": "chewie see --app"},
+    {"name": "web", "layer": 6, "returns": "page",
+     "params": {"url": "string?"}, "impl": "chewie web read"},
+    {"name": "app_data", "layer": 2, "returns": "any",
+     "params": {"script": "applescript"}, "impl": "chewie run"},
+    {"name": "file", "layer": 1, "returns": "text",
+     "params": {"path": "path"}, "impl": "sqlite3/cat/defaults"}
+  ],
+  "actions": [
+    {"name": "click", "layer": 3, "params": {"target": "ref|label", "app": "string?"},
+     "impl": "chewie click", "confirm": false},
+    {"name": "type", "layer": 4, "params": {"text": "string"}, "impl": "chewie type", "confirm": false},
+    {"name": "web_click", "layer": 6, "params": {"selector": "css|text"}, "impl": "chewie web click", "confirm": false},
+    {"name": "web_fill", "layer": 6, "params": {"selector": "css", "value": "string"}, "impl": "chewie web fill", "confirm": false},
+    {"name": "remind", "layer": 2, "params": {"title": "string", "due": "date?"},
+     "impl": "Reminders AppleScript", "confirm": false},
+    {"name": "calendar", "layer": 2, "params": {"summary": "string", "start": "date", "calendar": "string?"},
+     "impl": "Calendar AppleScript", "confirm": false},
+    {"name": "send_text", "layer": 2, "params": {"to": "handle", "body": "string"},
+     "impl": "Messages AppleScript", "confirm": true, "why": "outbound, another person sees it"},
+    {"name": "send_email", "layer": 2, "params": {"to": "email", "subject": "string", "body": "string"},
+     "impl": "Mail AppleScript", "confirm": true, "why": "outbound"},
+    {"name": "run_shell", "layer": 0, "params": {"cmd": "string"},
+     "impl": "bash", "confirm": true, "why": "arbitrary side effects"}
+  ],
+  "design_principles_from_genie": {
+    "strong_typing": "every param is typed (ref, label, css, handle, date, duration, path). A plan that passes a label where a ref is required is rejected before it runs, not halfway through.",
+    "orthogonal_skills": "one query per source, one action per effect. No overlapping verbs that do subtly different things, which is the ambiguity Genie's ThingTalk redesign removed.",
+    "user_mental_model": "queries return lists that are implicitly iterated. 'reply to everyone I owe' is one action over the result of one query, not a hand-written loop.",
+    "canonical_form": "the runner sorts params and normalizes the plan so the same intent always compiles to the same plan, which is what makes a plan checkable and cacheable.",
+    "confirm_is_a_type": "confirm:true is part of the action's signature, not a runtime afterthought. The gate cannot be forgotten because it is in the grammar."
+  },
+  "example": {
+    "request": "every morning, text me my unanswered threads from the last day",
+    "plan": {
+      "stream": {"name": "every", "interval": "1d"},
+      "query": [{"name": "texts", "days": 1, "unanswered": true, "direct": true}],
+      "action": [{"name": "send_text", "to": "me", "body": "{{summary of query result}}", "confirm": true}]
+    }
+  }
+}

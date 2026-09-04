@@ -1,0 +1,17 @@
+{
+  "skill": "mac-debug",
+  "cases": [
+    {"prompt": "I type but nothing appears", "expect": ["Secure Input", "ioreg check"],
+     "reject": ["blaming TCC", "retrying the same keystroke"]},
+    {"prompt": "chewie see returns nothing for VS Code",
+     "expect": ["Electron lazy tree", "--force-ax", "wait then re-read"],
+     "reject": ["falling back to a screenshot immediately"]},
+    {"prompt": "The click is landing way below the button",
+     "expect": ["Retina 2x", "halve the coordinate or use refs"]},
+    {"prompt": "AppleScript returns -1743", "expect": ["tccutil reset AppleEvents", "foreground retry"]},
+    {"prompt": "This worked last week and now does not",
+     "expect": ["chewie doctor", "TCC prompt dismissed", "host app changed"]},
+    {"prompt": "It failed, try a screenshot instead",
+     "expect_behavior": "diagnose the layer-3 failure first; do not escalate blindly"}
+  ]
+}

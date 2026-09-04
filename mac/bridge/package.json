@@ -1,0 +1,8 @@
+{
+  "name": "chewie-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chrome DevTools Protocol bridge for Chewbacca - reads and drives web content the accessibility tree cannot reach",
+  "bin": { "chewie-web": "web.js" },
+  "dependencies": { "chrome-remote-interface": "^0.33.3" }
+}

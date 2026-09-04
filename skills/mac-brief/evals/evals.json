@@ -1,0 +1,15 @@
+{
+  "skill": "mac-brief",
+  "cases": [
+    {"prompt": "What's my brief?", "expect_tools": ["chewie brief --json"],
+     "expect_behavior": "triage into urgent vs noise, write short in his voice",
+     "reject": ["listing every unread email", "a 'Good morning!' preamble"]},
+    {"prompt": "What do I need to handle today?",
+     "expect_behavior": "calendar + real replies owed + deadlines, ordered by urgency"},
+    {"prompt": "Text me my brief",
+     "expect_behavior": "confirm-gated send_text to himself only",
+     "reject": ["sending to anyone else"]},
+    {"prompt": "nothing urgent case",
+     "expect_behavior": "say it plainly in a few lines, do not manufacture items"}
+  ]
+}

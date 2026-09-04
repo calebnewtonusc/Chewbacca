@@ -72,7 +72,7 @@
 
 - [What It Does](#what-it-does)
 - [The Idea](#the-idea)
-- [Nova: the Mac control stack](#nova-the-mac-control-stack)
+- [Full control of your Mac](#full-control-of-your-mac)
 - [Why Not OpenClaw](#why-not-openclaw)
 - [Session Openers](#session-openers)
 - [What Gets Installed](#what-gets-installed)
@@ -146,44 +146,46 @@ handed to an agent rather than to you: see
 
 ---
 
-## Nova: the Mac control stack
+## Full control of your Mac
 
-Folded in whole from [calebnewtonusc/Nova](https://github.com/calebnewtonusc/Nova).
-Chewbacca already shipped `peekaboo` and `mac-use`, which are two of the seven
-layers Nova knows about. This is the other five, plus the part that matters
-more than any of them: a runtime that plans a multi-step task, type-checks the
-plan, runs it, verifies it, and logs what actually happened.
+Seven layers, and the point of having seven is that a screenshot is the most
+expensive way to read a screen and the least reliable way to click something.
+`chewie see` returns the accessibility tree, which is text you can search and
+click by name. Vision is the fallback, not the default. The `mac-control` skill
+routes any request to the cheapest layer that can do it.
 
-The seven layers exist because a screenshot is the most expensive way to read a
-screen and the least reliable way to click something. `nova see` returns the
-accessibility tree, which is text you can search and click by name. Vision is
-the fallback, not the default. The `mac-control` skill routes a request to the
-cheapest layer that can do it.
+| Verb                     | What it does                                        |
+| ------------------------ | ---------------------------------------------------- |
+| `chewie see`             | The screen as an accessibility tree, not an image    |
+| `chewie click` / `type`  | Drive real UI by element name                        |
+| `chewie run`             | AppleScript, or JXA with `--js`                      |
+| `chewie texts`           | iMessage history with no UI at all                   |
+| `chewie web`             | Read and drive web pages through Chrome DevTools     |
+| `chewie plan run`        | A checked plan instead of improvised bash            |
+| `chewie brief`           | Email, texts and calendar triaged into what is next  |
+| `chewie log`             | What it actually did, afterwards                     |
+| `chewie doctor`          | Which permission is missing, and for which app       |
 
-| Verb                  | What it does                                        |
-| --------------------- | --------------------------------------------------- |
-| `nova see`            | The screen as an accessibility tree, not an image   |
-| `nova click` / `type` | Drive real UI by element name                       |
-| `nova run`            | AppleScript, or JXA with `--js`                     |
-| `nova texts`          | iMessage history with no UI at all                  |
-| `nova web`            | Read and drive web pages through Chrome DevTools    |
-| `nova plan run`       | A checked plan instead of improvised bash           |
-| `nova brief`          | Email, texts and calendar triaged into what is next |
-| `nova log`            | What Nova actually did, afterwards                  |
-| `nova doctor`         | Which permission is missing and for which app       |
+Anything past two or three steps goes through `chewie plan`, which type-checks
+the plan, runs it, verifies each step, and logs what happened. That is the
+difference between a task that fails halfway with no record and one you can read
+back afterwards.
 
-Nine skills come with it: `mac-control` to route, `mac-see`, `mac-act`,
-`mac-apps`, `mac-permissions`, `mac-debug`, `mac-followups`, `nova-runtime`,
-and `nova-brief`. The reference docs are in [docs/nova/](docs/nova/), one per
-layer, plus the operating manual.
+Nine skills cover it: `mac-control` to route, then `mac-see`, `mac-act`,
+`mac-apps`, `mac-permissions`, `mac-debug`, `mac-followups`, `mac-runtime`, and
+`mac-brief`. Reference docs are in [docs/mac/](docs/mac/), one per layer, plus
+the [operating manual](docs/mac/OPERATING-MANUAL.md).
 
-Two macOS toggles need a human once, because no API can grant them: Accessibility
-and Screen Recording, in System Settings under Privacy & Security. `nova doctor`
-names the exact app to add. Re-run just this piece with:
+Two macOS toggles need a human once, because no API can grant them:
+Accessibility and Screen Recording, in System Settings under Privacy & Security.
+`chewie doctor` names the exact app to add. Re-run just this piece with:
 
 ```bash
-./setup.sh --only nova
+./setup.sh --only mac
 ```
+
+This layer came from [Nova](https://github.com/calebnewtonusc/Nova) and is now
+part of the kit rather than a thing installed beside it.
 
 ## Why not OpenClaw
 
@@ -815,13 +817,13 @@ fires, which is the thing that matters most.
 | [skills/life-ops](skills/life-ops)                                                                        | Skill  | The weekly review, life admin with real deadlines, and what to cut                             |
 | [skills/mac-act](skills/mac-act)                                                                          | Skill  | Clicks, types, drags, and drives real UI on the Mac                                            |
 | [skills/mac-apps](skills/mac-apps)                                                                        | Skill  | Drives Mail, Messages, Notes, Safari, Calendar and Finder directly                             |
+| [skills/mac-brief](skills/mac-brief)                                                                      | Skill  | The morning brief: what is urgent, who is waiting, what order                                  |
 | [skills/mac-control](skills/mac-control)                                                                  | Skill  | Routes a Mac task to the cheapest control layer that can do it                                 |
 | [skills/mac-debug](skills/mac-debug)                                                                      | Skill  | Works out why an automation is failing, especially quietly                                     |
 | [skills/mac-followups](skills/mac-followups)                                                              | Skill  | Turns texts, email and calendar into what you owe people                                       |
 | [skills/mac-permissions](skills/mac-permissions)                                                          | Skill  | Diagnoses and fixes the macOS grants that fail silently                                        |
+| [skills/mac-runtime](skills/mac-runtime)                                                                  | Skill  | Runs a multi-step task as a checked plan instead of improvised bash                            |
 | [skills/mac-see](skills/mac-see)                                                                          | Skill  | Reads the screen as an accessibility tree, not as a screenshot                                 |
-| [skills/nova-brief](skills/nova-brief)                                                                    | Skill  | The morning brief: what is urgent, who is waiting, what order                                  |
-| [skills/nova-runtime](skills/nova-runtime)                                                                | Skill  | Runs a multi-step task as a checked plan instead of improvised bash                            |
 | [skills/second-brain](skills/second-brain)                                                                | Skill  | Reading, writing, and auditing your personal context repo                                      |
 | [skills/setup](skills/setup)                                                                              | Skill  | Installing the kit by conversation instead of a terminal questionnaire                         |
 | [skills/stack-rules](skills/stack-rules)                                                                  | Skill  | The 12 stack-specific standards, loaded only when the work needs them                          |

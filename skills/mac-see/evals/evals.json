@@ -1,0 +1,14 @@
+{
+  "skill": "mac-see",
+  "cases": [
+    {"prompt": "What is on my screen right now?", "expect_tools": ["chewie see"],
+     "reject": ["screenshot as the first action"]},
+    {"prompt": "Find the Save button in this app", "expect_tools": ["chewie see", "find --role AXButton"]},
+    {"prompt": "What is in my Slack sidebar?", "expect_tools": ["--force-ax"],
+     "why": "Slack is Electron"},
+    {"prompt": "Does this design look balanced?", "expect_tools": ["chewie shot"],
+     "why": "genuinely a visual judgment"},
+    {"prompt": "What is my last text message?", "expect_tools": ["sqlite3"],
+     "reject": ["opening Messages", "screenshot"]}
+  ]
+}

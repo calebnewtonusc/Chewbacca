@@ -127,7 +127,7 @@ Behaviors, both off unless asked for:
 Re-running:
   --only <section>             Run one section. Safe to repeat.
                                prereq repos settings editor desktop mcp rules
-                               plugins tools nova plynn verify
+                               plugins tools mac plynn verify
   --dry-run                    Print what would run and exit.
   -h, --help                   This text.
 USAGE
@@ -1533,22 +1533,22 @@ fi
 # END GENERATED: cli
 fi
 
-# Nova is the Mac control layer, folded in from calebnewtonusc/Nova. Chewbacca
-# already shipped peekaboo and mac-use, which are two of the seven layers Nova
-# knows about. This installs the rest of them plus the runtime that plans,
-# executes, verifies and logs, instead of improvising bash step by step.
-# ── Nova ──────────────────────────────────────────────────────────────────────
-if should_run nova; then
-section "Installing Nova, the Mac control stack"
+# Full control of the Mac, absorbed from calebnewtonusc/Nova. peekaboo and
+# mac-use were already here and are two of the seven layers this knows about.
+# This is the other five, plus the runtime that plans, executes, verifies and
+# logs a multi-step task instead of improvising bash through it.
+# ── Mac control ───────────────────────────────────────────────────────────────
+if should_run mac; then
+section "Installing Mac control"
 
-NOVA_SRC="$SCRIPT_DIR/nova"
-if [ ! -d "$NOVA_SRC" ]; then
-  warn "nova/ not found in this checkout, skipping"
+MAC_SRC="$SCRIPT_DIR/mac"
+if [ ! -d "$MAC_SRC" ]; then
+  warn "mac/ not found in this checkout, skipping"
 else
   mkdir -p "$HOME/.local/bin"
-  ln -sf "$NOVA_SRC/bin/nova" "$HOME/.local/bin/nova"
-  chmod +x "$NOVA_SRC/bin/nova" 2>/dev/null || true
-  log "nova installed to ~/.local/bin/nova"
+  ln -sf "$MAC_SRC/bin/chewie" "$HOME/.local/bin/chewie"
+  chmod +x "$MAC_SRC/bin/chewie" 2>/dev/null || true
+  log "chewie installed to ~/.local/bin/chewie"
 
   # Layer 3 is the accessibility-tree driver and it is the one worth having.
   # Everything below degrades to a screenshot without it.
@@ -1561,8 +1561,8 @@ else
       warn "could not install agent-desktop: npm install -g agent-desktop"
     fi
     # Layer 6, the Chrome DevTools bridge. Only when it has not been built yet.
-    if [ -d "$NOVA_SRC/bridge" ] && [ ! -d "$NOVA_SRC/bridge/node_modules" ]; then
-      (cd "$NOVA_SRC/bridge" && npm install --silent &>/dev/null) \
+    if [ -d "$MAC_SRC/bridge" ] && [ ! -d "$MAC_SRC/bridge/node_modules" ]; then
+      (cd "$MAC_SRC/bridge" && npm install --silent &>/dev/null) \
         && log "web bridge ready" || warn "web bridge deps failed, nova web will not work"
     fi
   else
@@ -1585,7 +1585,7 @@ else
   # So this is a real handoff, not a checklist to feel bad about.
   warn "Two toggles need a human, once: System Settings > Privacy & Security >"
   warn "  Accessibility, and Screen Recording. Add whichever app runs Claude."
-  warn "  Run 'nova doctor' and it names the exact app and what is still missing."
+  warn "  Run 'chewie doctor' and it names the exact app and what is still missing."
 fi
 fi
 
