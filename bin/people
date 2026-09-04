@@ -3486,8 +3486,147 @@ ${c.dim(`data: ${DIR}`)}
 
 // ---------------------------------------------------------------- dispatch
 
+// ── dedupe and merge ─────────────────────────────────────────────────────────
+// Two importers and a text sync all create people, and nothing ever noticed
+// that "Maggie Chen" from Contacts and "Maggie" from a thread were one person.
+// A store that quietly holds the same person twice gets every score wrong.
+
+// Tables that point at a person. Kept here rather than derived, because a
+// merge that silently misses a table loses data and nothing complains.
+const PERSON_TABLES = [
+  ["observations", "person_id"],
+  ["interactions", "person_id"],
+  ["important_dates", "person_id"],
+  ["tasks", "person_id"],
+  ["loans", "person_id"],
+  ["quick_facts", "person_id"],
+  ["messages", "person_id"],
+  ["score_history", "person_id"],
+  ["event_scan_state", "person_id"],
+  ["circle_members", "person_id"],
+  ["person_scores", "person_id"],
+  ["person_dimension_state", "person_id"],
+];
+
+function normName(s) {
+  return String(s || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function digits(s) {
+  return String(s || "").replace(/\D/g, "").slice(-10);
+}
+
+function duplicatePairs(d) {
+  const rows = d
+    .prepare("SELECT id, name, handle, phone, email, company FROM people WHERE deleted_at IS NULL")
+    .all();
+  const pairs = [];
+  for (let i = 0; i < rows.length; i++) {
+    for (let j = i + 1; j < rows.length; j++) {
+      const a = rows[i], b = rows[j];
+      const reasons = [];
+      if (a.email && b.email && a.email.toLowerCase() === b.email.toLowerCase())
+        reasons.push("same email");
+      if (digits(a.phone) && digits(a.phone) === digits(b.phone)) reasons.push("same phone");
+      const na = normName(a.name), nb = normName(b.name);
+      if (na && na === nb) reasons.push("same name");
+      else if (na && nb) {
+        // "Maggie" against "Maggie Chen": one name is a prefix of the other and
+        // they share a company. First names alone are not enough.
+        const shorter = na.length < nb.length ? na : nb;
+        const longer = na.length < nb.length ? nb : na;
+        if (longer.startsWith(shorter + " ") && a.company && a.company === b.company)
+          reasons.push("one name contains the other, same company");
+      }
+      if (reasons.length) pairs.push({ a, b, reasons });
+    }
+  }
+  return pairs;
+}
+
+function cmdDedupe(argv) {
+  const { flags } = parseArgs(argv);
+  const d = db();
+  const pairs = duplicatePairs(d);
+  if (!pairs.length) return say(c.dim("no likely duplicates"));
+  say("");
+  for (const { a, b, reasons } of pairs) {
+    say(`  ${c.b(a.name)} ${c.dim("and")} ${c.b(b.name)}`);
+    say(`    ${c.dim(reasons.join(", "))}`);
+    say(`    ${c.dim(`people merge "${a.name}" "${b.name}"`)}`);
+  }
+  say("");
+  say(c.dim(`${pairs.length} likely duplicate pair(s). Nothing was changed.`));
+  if (flags.merge) {
+    say(c.dim("--merge is deliberate: merging is not reversible, so do them one"));
+    say(c.dim("at a time with people merge <keep> <drop>."));
+  }
+}
+
+function cmdMerge(argv) {
+  const { rest, flags } = parseArgs(argv);
+  if (rest.length < 2)
+    die('Merge which two? people merge "Maggie Chen" "Maggie"   (the first one survives)');
+  const keep = findPerson(rest[0]);
+  const drop = findPerson(rest[1]);
+  if (keep.id === drop.id) die("Those are the same person already.");
+
+  const d = db();
+  const moved = {};
+  d.exec("BEGIN");
+  try {
+    for (const [table, col] of PERSON_TABLES) {
+      // OR IGNORE first: several of these have a unique key on (person_id, x),
+      // so a row that would collide is dropped rather than aborting the merge.
+      const before = d.prepare(`SELECT count(*) n FROM ${table} WHERE ${col} = ?`).get(drop.id).n;
+      d.prepare(`UPDATE OR IGNORE ${table} SET ${col} = ? WHERE ${col} = ?`).run(keep.id, drop.id);
+      d.prepare(`DELETE FROM ${table} WHERE ${col} = ?`).run(drop.id);
+      if (before) moved[table] = before;
+    }
+    for (const col of ["from_id", "to_id"]) {
+      d.prepare(`UPDATE OR IGNORE relationships SET ${col} = ? WHERE ${col} = ?`).run(keep.id, drop.id);
+      d.prepare(`DELETE FROM relationships WHERE ${col} = ?`).run(drop.id);
+    }
+    // A blank field on the survivor takes the other's value. A field with
+    // something in it is never overwritten: merging must not lose a fact.
+    const fill = ["handle", "phone", "email", "company", "role", "location",
+                  "how_we_met", "birthday", "cadence_days", "source", "external_id"];
+    const sets = [], vals = [];
+    for (const f of fill) {
+      if ((keep[f] === null || keep[f] === "" || keep[f] === undefined) && drop[f]) {
+        sets.push(`${f} = ?`);
+        vals.push(drop[f]);
+      }
+    }
+    if (sets.length) {
+      d.prepare(`UPDATE people SET ${sets.join(", ")}, updated_at = datetime('now') WHERE id = ?`)
+        .run(...vals, keep.id);
+    }
+    d.prepare("DELETE FROM relationships WHERE from_id = ? OR to_id = ?").run(drop.id, drop.id);
+    d.prepare("DELETE FROM people WHERE id = ?").run(drop.id);
+    d.exec("COMMIT");
+  } catch (e) {
+    d.exec("ROLLBACK");
+    throw e;
+  }
+
+  say("");
+  say(`  ${c.b(keep.name)} ${c.dim("absorbed")} ${c.b(drop.name)}`);
+  for (const [table, n] of Object.entries(moved)) say(c.dim(`    ${n} ${table}`));
+  if (!Object.keys(moved).length) say(c.dim("    nothing was attached to the other record"));
+  say("");
+  if (!flags.quiet) say(c.dim("Scores are stale after a merge. Run: people score"));
+}
+
 const COMMANDS = {
   add: cmdAdd,
+  dedupe: cmdDedupe,
+  merge: cmdMerge,
   note: cmdNote,
   me: cmdMe,
   log: cmdLog,

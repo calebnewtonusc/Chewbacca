@@ -103,6 +103,16 @@ if group "people"; then
     check  "export writes markdown" "${P[@]}" export
     expect "a person with no record fails clearly" "" "${P[@]}" show "nobody at all"
     check  "the database file exists" test -f "$PEOPLE_DIR/people.db"
+    # Two importers and a text sync all create people. Nothing noticed that
+    # "Maggie Chen" and "Maggie" were one person until this existed.
+    "${P[@]}" add "Dup Person" --company Acme >/dev/null 2>&1
+    "${P[@]}" add "Dup" --company Acme >/dev/null 2>&1
+    "${P[@]}" note "Dup" "a fact that must survive the merge" >/dev/null 2>&1
+    expect "dedupe finds the pair" "Dup" "${P[@]}" dedupe
+    check  "merge runs" "${P[@]}" merge "Dup Person" "Dup"
+    expect "the merged fact survives" "must survive" "${P[@]}" show "Dup Person"
+    expect "search still finds it" "Dup Person" "${P[@]}" search "must survive"
+    check  "the absorbed record is gone" bash -c "! '$ROOT/bin/people' show 'Dup' 2>/dev/null | grep -q '^Dup$'"
     check  "the database validates" bash -c "sqlite3 '$PEOPLE_DIR/people.db' 'pragma integrity_check' | grep -q ok"
     # A second add of the same name must not silently create a duplicate row.
     "${P[@]}" add "Test Person" >/dev/null 2>&1
