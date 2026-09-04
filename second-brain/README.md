@@ -10,6 +10,7 @@ claude-context/   PUBLIC, operational instructions for Claude
 
 personal-context/ PRIVATE, who you are and what you're working on
                   YOU.md, NOW.md, PEOPLE.md, SYSTEM.md
+| `context/VOICE.md` | How you actually write, measured from your own samples. Read before writing anything that goes out under your name |
                   Contains: your identity, projects, contacts, APIs
 ```
 

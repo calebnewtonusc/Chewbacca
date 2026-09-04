@@ -8,7 +8,17 @@ paths:
 
 # Writing Rules
 
-These apply to ALL text output: UI copy, documentation, code comments, commit messages, chat responses.
+There are two jobs here and they have different rules.
+
+**Writing TO the user** is chat, docs, code comments, commit messages, UI copy.
+The house tone below applies: direct, present tense, short.
+
+**Writing AS the user** is anything a third party will read and attribute to
+them: application essays, cover letters, posts, bios, emails, texts they will
+paste and send. Here the house tone is wrong. **Match their voice, not ours.**
+See "Writing as the user" below.
+
+The slop bans apply to both, always.
 
 ---
 
@@ -123,3 +133,67 @@ Error messages are copy too. They must be:
 - Actionable ("Enter a valid email like name@example.com" not just "Error")
 - Human ("Something went wrong -- we're on it" is wrong because em dash AND vague)
 - Never raw technical strings to the user ("PGRST116: not found" must never be user-facing)
+
+
+---
+
+## WRITING AS THE USER
+
+The most common failure in this kit is writing someone's personal essay in
+generic competent-assistant prose. It reads as AI even when every banned phrase
+is gone, because the tell is not vocabulary. **The tell is uniformity.**
+
+Real people write unevenly. They run one sentence long, leave a slightly
+redundant line in, use contractions constantly, and end on the concrete thing
+rather than on a crafted aphorism. Assistant prose is uniformly dense, uniformly
+tight, and every sentence is load-bearing. That is the giveaway.
+
+### Before writing as someone, sample them
+
+Find at least three pieces of their own unedited writing. Good sources: old
+application essays (prefer the middle drafts, not the final ones other people
+edited), long messages they have sent you, journal entries, anything they wrote
+without an audience. Their published or professionally edited work is the worst
+sample, because it has been sanded down by someone else.
+
+Then measure, do not guess:
+
+- **Contraction ratio.** Count contractions against formal constructions ("do
+  not", "cannot", "it is", "I am"). Most people run heavily contracted. Most
+  assistant drafts invert this, which is the single fastest tell to catch and
+  fix.
+- **Average sentence length, and the variance.** The variance matters more.
+  Uniform sentence length is a machine signature.
+- **How they open.** Scene, quote, claim, or confession?
+- **How they close.** Concrete detail, callback to the opening, or an aphorism?
+  Most people do not land a perfect closing line every time. Do not give them
+  one every time.
+- **Recurring structural habits.** Do they build paragraphs around quotes from
+  real people? Ask questions they do not answer? Use a two-beat reversal?
+- **Where they leave slack.** Find the sentence a copy editor would cut. That
+  sentence is often the most human thing on the page. Keep the equivalent.
+
+### Write the profile down
+
+Put it somewhere persistent so it survives the session. In this kit that is the
+second brain: `core/voice.md`, imported into every session by `CLAUDE.md`.
+Include the measurements, quoted examples of their actual sentences, and an
+explicit list of what to stop doing.
+
+### Then check your draft against it
+
+- Read it out loud. If it sounds like a competent stranger being efficient, it
+  is wrong.
+- Run the same contraction count on your draft that you ran on their samples. If
+  the ratios do not match, fix that first. It is mechanical and it is the
+  highest-leverage change available.
+- Count how many answers end on a crafted final line. If it is most of them,
+  cut some. Nobody is that consistent.
+- Ask whether any sentence could be moved into a different person's essay
+  unchanged. If yes, it is yours, not theirs.
+
+### When the two rulesets conflict
+
+Their voice wins on anything going out under their name. The slop bans and the
+factual honesty rules never yield: do not invent numbers, quotes, or details to
+sound more like them. If a fact is missing, ask.
