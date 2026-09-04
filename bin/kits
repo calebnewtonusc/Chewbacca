@@ -12,15 +12,31 @@
 #   kits              human-readable list
 #   kits --context    one line for a session hook
 #   kits --paths      just the directories
+#   kits --register <dir>   remember a kit the scan cannot reach
 #
 # Searches, in order: $KITS_DIR, $REPO_DIR, ~/dev, ~/Desktop, ~/Projects, ~/kits.
 # Set KITS_DIR to override. Depth-limited, so a deep node_modules cannot slow it.
 
 MODE="${1:-list}"
 
+# Directories that get scanned. A kit cloned somewhere else would be invisible
+# forever, so anything ever found is also remembered in a registry and checked
+# first. That way a kit only has to be discovered once, and setting KITS_DIR is
+# a convenience rather than a requirement.
+REGISTRY="${KITS_REGISTRY:-$HOME/.claude/kits.paths}"
+
 ROOTS="${KITS_DIR:-} ${REPO_DIR:-} $HOME/dev $HOME/Desktop $HOME/Projects $HOME/kits"
 
 FOUND=""
+
+# Remembered first: cheap, and covers anything outside the scanned roots.
+if [ -f "$REGISTRY" ]; then
+  while IFS= read -r rp; do
+    [ -n "$rp" ] || continue
+    [ -f "$rp/.kit" ] || continue
+    FOUND="$FOUND $rp/.kit"
+  done < "$REGISTRY"
+fi
 for root in $ROOTS; do
   [ -n "$root" ] || continue
   [ -d "$root" ] || continue
@@ -30,6 +46,14 @@ for root in $ROOTS; do
     FOUND="$FOUND $m"
   done
 done
+
+# Remember everything found, so a kit discovered once stays discoverable even if
+# it later moves outside the scanned roots.
+if [ -n "$FOUND" ]; then
+  mkdir -p "$(dirname "$REGISTRY")" 2>/dev/null
+  for m in $FOUND; do dirname "$m"; done | sort -u > "$REGISTRY.tmp" 2>/dev/null &&
+    mv "$REGISTRY.tmp" "$REGISTRY" 2>/dev/null
+fi
 
 if [ -z "$FOUND" ]; then
   [ "$MODE" = "--context" ] && exit 0
@@ -41,6 +65,19 @@ fi
 field() { grep -m1 "^$2:" "$1" 2>/dev/null | sed "s/^$2: *//"; }
 
 case "$MODE" in
+  --register)
+    # kits --register /path/to/a/kit  adds one the scan cannot reach.
+    target="${2:-$PWD}"
+    if [ ! -f "$target/.kit" ]; then
+      echo "No .kit marker in $target. A kit needs one to be findable."
+      exit 1
+    fi
+    mkdir -p "$(dirname "$REGISTRY")"
+    { [ -f "$REGISTRY" ] && cat "$REGISTRY"; echo "$(cd "$target" && pwd)"; } |
+      sort -u > "$REGISTRY.tmp" && mv "$REGISTRY.tmp" "$REGISTRY"
+    echo "Registered $target"
+    exit 0
+    ;;
   --paths)
     for m in $FOUND; do dirname "$m"; done
     ;;
