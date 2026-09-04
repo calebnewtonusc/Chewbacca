@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKeyMonitor: Any?
     private var escMonitor: Any?
     private var mouseMonitor: Any?
+    private var localMouseMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let overlay = OverlayWindow(content: OverlayView(model: model))
@@ -44,7 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         server?.stop()
-        for monitor in [hotKeyMonitor, escMonitor, mouseMonitor].compactMap({ $0 }) {
+        let monitors = [hotKeyMonitor, escMonitor, mouseMonitor, localMouseMonitor]
+        for monitor in monitors.compactMap({ $0 }) {
             NSEvent.removeMonitor(monitor)
         }
     }
@@ -100,6 +102,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             matching: [.mouseMoved, .leftMouseDragged]
         ) { [weak self] _ in
             Task { @MainActor in self?.updateInteractive() }
+        }
+
+        // A global monitor only sees events delivered to *other* apps, so the
+        // moment the glass goes solid it stops reporting. Without this the
+        // overlay would stay interactive forever after the first hover, and
+        // scrolling would break again the instant you touched a surface.
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.mouseMoved, .leftMouseDragged]
+        ) { [weak self] event in
+            Task { @MainActor in self?.updateInteractive() }
+            return event
         }
     }
 

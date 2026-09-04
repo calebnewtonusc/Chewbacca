@@ -11,9 +11,16 @@ public struct OverlaySurface: Identifiable, Equatable {
     /// Position within its region, so several in one corner stack downward.
     public var slot: Int
     public var depth: Int
+    /// How far the person has dragged this surface from where it was placed.
+    ///
+    /// Kept separate from the region rather than folded into a coordinate, so a
+    /// surface that gets moved still belongs to its corner: restacking, resizing
+    /// and a display change all keep working, and the drag rides on top.
+    public var drag: CGSize = .zero
 
     public static func == (a: OverlaySurface, b: OverlaySurface) -> Bool {
-        a.id == b.id && a.region == b.region && a.slot == b.slot && a.width == b.width
+        a.id == b.id && a.region == b.region && a.slot == b.slot
+            && a.width == b.width && a.drag == b.drag
     }
 }
 
@@ -78,6 +85,22 @@ public final class OverlayModel {
         relayout()
     }
 
+    /// Move a surface by hand. Dragging outranks placement: an agent said where
+    /// to put it, the person said where they want it, and the person wins.
+    public func move(_ id: String, by translation: CGSize) {
+        guard let index = surfaces.firstIndex(where: { $0.id == id }) else { return }
+        surfaces[index].drag = translation
+        revision += 1
+    }
+
+    /// Bring a surface to the front, so the one being touched is on top.
+    public func raise(_ id: String) {
+        guard let index = surfaces.firstIndex(where: { $0.id == id }) else { return }
+        nextDepth += 1
+        surfaces[index].depth = nextDepth
+        revision += 1
+    }
+
     public func report(height: CGFloat, for id: String) {
         guard abs((heights[id] ?? 0) - height) > 1 else { return }
         heights[id] = height
@@ -108,7 +131,7 @@ public final class OverlayModel {
         nextDepth += 1
         let surface = OverlaySurface(
             id: id, store: store, region: region,
-            width: width ?? 380, slot: 0, depth: nextDepth)
+            width: width ?? 380, slot: 0, depth: nextDepth, drag: .zero)
         surfaces.append(surface)
         relayout()
         return surface
@@ -186,7 +209,10 @@ public final class OverlayModel {
         // A tall stack must not run off the bottom of the usable area.
         y = min(y, maxY)
 
-        // `.position` places a centre, so hand back the centre of the frame.
-        return CGPoint(x: x + width / 2, y: y + height / 2)
+        // `.position` places a centre, so hand back the centre of the frame,
+        // plus wherever the person has dragged it.
+        return CGPoint(
+            x: x + width / 2 + surface.drag.width,
+            y: y + height / 2 + surface.drag.height)
     }
 }

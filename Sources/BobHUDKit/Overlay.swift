@@ -51,7 +51,22 @@ public final class OverlayWindow: NSPanel {
         setFrame(frame, display: false)
     }
 
-    public override var canBecomeKey: Bool { false }
+    /// The panel may become key, but only when a control actually needs it.
+    ///
+    /// This looks like it contradicts "never steals focus" and does not, because
+    /// `.nonactivatingPanel` is what governs that: clicking the glass never
+    /// activates the *application*, so the app you were in stays frontmost and
+    /// your caret stays where it was. What `canBecomeKey` governs is whether a
+    /// control inside can respond at all, and with it false every button
+    /// highlighted on hover and then did nothing.
+    ///
+    /// `becomesKeyOnlyIfNeeded`, set in the initialiser, is what keeps this
+    /// honest: the panel takes key for a text field or a button and for nothing
+    /// else.
+    public override var canBecomeKey: Bool { true }
+
+    /// Main is different and stays false. A main window owns the menu bar and
+    /// the document context, which a HUD has no business claiming.
     public override var canBecomeMain: Bool { false }
 
     /// Follow the active display and any resolution change, so the glass always
@@ -77,28 +92,41 @@ public final class OverlayWindow: NSPanel {
         // A few points of slack so a control right at the edge of a card is not
         // unreachable by a pixel.
         let over = surfaces.contains { $0.insetBy(dx: -3, dy: -3).contains(local) }
-        if ignoresMouseEvents == over { ignoresMouseEvents = !over }
+        if ignoresMouseEvents == over {
+            ignoresMouseEvents = !over
+        }
     }
 }
 
-/// The view that decides what is glass and what is solid.
+/// The overlay's content view.
 ///
-/// `hitTest` walks down and asks what the click landed on. If the answer is the
-/// hosting view itself, the click landed on empty glass and must be handed to
-/// whatever is underneath, which returning nil does. If it landed on a real
-/// control inside a surface, the click belongs to us.
+/// There was a `hitTest` override here that returned nil for "empty glass", and
+/// it was the reason no control on any surface ever worked. `NSHostingView` is a
+/// single NSView: SwiftUI draws its entire tree inside it and creates no child
+/// views for buttons or text fields. So `hitTest` returns the hosting view
+/// itself for *everything*, and a test of `hit === self` cannot tell a button
+/// from a gap. Returning nil meant clicks never reached SwiftUI at all.
 ///
-/// Without this the window would swallow every click on the screen, which is the
-/// single fastest way to make an overlay hated.
+/// Click-through is the window's job instead, via `ignoresMouseEvents`, which
+/// operates at the right level and gets scroll right too.
 final class PassThroughHostingView: NSHostingView<AnyView> {
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let hit = super.hitTest(point) else { return nil }
-        return hit === self ? nil : hit
-    }
-
-    // The window never becomes key, so it must not try to take first responder
-    // and steal the caret from whatever the person is typing in.
+    // The window never becomes key on its own, so this view must not try to take
+    // first responder and steal the caret from what the person is typing in.
     override var acceptsFirstResponder: Bool { false }
+
+    /// Act on the very first click rather than spending it on activation.
+    ///
+    /// A non-activating panel is inactive by definition, and AppKit's default is
+    /// to swallow the first click into an inactive window. For a HUD that is
+    /// never frontmost, every click is a first click.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// Tell AppKit this view genuinely needs the panel to be key.
+    ///
+    /// `becomesKeyOnlyIfNeeded` asks before handing key over, and NSHostingView
+    /// answers no because AppKit cannot see what SwiftUI put inside it. Hover is
+    /// a tracking concern and needs no key; a control's action does.
+    override var needsPanelToBecomeKey: Bool { true }
 
     required init(rootView: AnyView) {
         super.init(rootView: rootView)
