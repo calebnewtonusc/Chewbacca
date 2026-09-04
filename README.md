@@ -46,7 +46,7 @@
   <a href="https://github.com/calebnewtonusc/Chewbacca/commits/main"><img src="https://img.shields.io/github/last-commit/calebnewtonusc/Chewbacca" alt="Last Commit"></a>
 <!-- BEGIN GENERATED: badges -->
   <a href=".claude/commands"><img src="https://img.shields.io/badge/slash_commands-57-indigo" alt="Commands"></a>
-  <a href=".claude/rules"><img src="https://img.shields.io/badge/always_on_rules-7-green" alt="Rules"></a>
+  <a href=".claude/rules"><img src="https://img.shields.io/badge/always_on_rules-8-green" alt="Rules"></a>
   <a href="docs/EXTENSIONS.md"><img src="https://img.shields.io/badge/plugins-18-orange" alt="Plugins"></a>
 <!-- END GENERATED: badges -->
 </p>
