@@ -103,7 +103,9 @@ You can only draw these. There is no HTML and no styling prop.
 ### Structure
 
 - `Screen title="..."` the root of a surface. Title in caps reads best.
-- `Stack direction=vertical|horizontal gap=2` gap is in units of 4 points.
+- `Stack direction=vertical|horizontal|grid gap=2` gap is in units of 4 points.
+  A grid takes `cols` (1 to 4). Four metrics in a column waste the height of a
+  panel that is already capped; put them in a grid.
 
 ### Prose
 
@@ -114,6 +116,9 @@ You can only draw these. There is no HTML and no styling prop.
 ### Data
 
 - `Metric label="..." value=... unit="..."` one number that matters.
+  Takes `thresholds=[{"at":80,"tone":"warn"},{"at":95,"tone":"bad"}]`, and so
+  does `Ring`. The last crossed one wins. A number that turns amber on its own
+  is read at a glance; a number that is always cyan has to be read.
 - `Table caption="..." columns=[{"field":"name","label":"Name"}] rows=[...]`
 - `Status message="..." level=success|warning|error`
 
@@ -163,6 +168,40 @@ means something.
 
 Props are JSON and the parser splits on whitespace, so write arrays with no
 spaces inside them: `points=[31,28,44]`, not `points=[31, 28, 44]`.
+
+### Files
+
+- `File path="~/Downloads/resume.pdf" [page=2] [editable=true]`
+
+  Shows the actual file. PDFs render through the system's own PDF engine,
+  images as images, and anything that decodes as text as text. `editable=true`
+  on a text file gives a real editor with a save button, and saving overwrites
+  that exact path and no other.
+
+  This is the answer to "let's work on my resume, the PDF is in my downloads".
+  Put it on screen rather than describing it back to them.
+
+### Presence
+
+```
+p thinking
+p hearing amp=0.4
+p dormant
+```
+
+`p` sets the ring in the bottom right corner, which is the one thing always on
+the glass. States are `dormant`, `attentive`, `hearing`, `thinking`, `acting`,
+`attention`, and `failed`. Each has its own motion, so it is readable without
+being looked at.
+
+Set `thinking` when you start work and `dormant` when you finish. A ring left
+spinning is worse than no ring: it demotes itself to `attention` after eight
+seconds rather than spinning forever, and that is a report of your bug, not a
+feature to rely on.
+
+`failed` is the only state that is ever red, and it means an action failed in a
+way that may have left something in a bad state. Not "the search returned
+nothing".
 
 ### Controls
 

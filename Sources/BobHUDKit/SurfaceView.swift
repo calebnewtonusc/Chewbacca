@@ -91,6 +91,17 @@ public struct SurfaceView: View {
             return data(p, type: element.type)
         case "Sparkline", "Bars", "Ring", "Events":
             return chart(p, type: element.type)
+        case "File":
+            let path = p["path"]?.stringValue ?? ""
+            return AnyView(
+                FileView(
+                    path: path,
+                    editable: p["editable"] == .bool(true),
+                    page: Int(p["page"]?.doubleValue ?? 1),
+                    onSave: { [store] body in
+                        store.saveFile(path: path, contents: body)
+                    }))
+
         case "Diagram":
             return AnyView(
                 DiagramView(
@@ -117,6 +128,29 @@ public struct SurfaceView: View {
         }
 
         let gap = CGFloat(p["gap"]?.doubleValue ?? 2) * 4
+
+        // A grid, because a dashboard is not a column.
+        //
+        // Every serious dashboard tool lays panels out in a grid and the first
+        // version of this could only stack, so four metrics took four times the
+        // vertical space they needed and pushed everything else off a panel that
+        // is already height-capped. Columns are fixed rather than adaptive: the
+        // model asked for two, and a grid that silently reflows to one is a
+        // layout the author cannot reason about.
+        if p["direction"]?.stringValue == "grid" {
+            let columns = max(1, min(Int(p["cols"]?.doubleValue ?? 2), 4))
+            return AnyView(
+                LazyVGrid(
+                    columns: Array(
+                        repeating: GridItem(.flexible(), spacing: gap, alignment: .topLeading),
+                        count: columns),
+                    alignment: .leading,
+                    spacing: gap
+                ) {
+                    children(of: element, ancestors: ancestors)
+                })
+        }
+
         if p["direction"]?.stringValue == "horizontal" {
             return AnyView(
                 HStack(alignment: .top, spacing: gap) {
@@ -158,11 +192,13 @@ public struct SurfaceView: View {
         switch type {
         case "Metric":
             let value = p["value"]?.display ?? ""
+            let tone = Self.threshold(p, value: p["value"]?.doubleValue)
             return AnyView(
                 MetricView(
                     label: p["label"]?.display ?? "",
                     value: value,
-                    unit: p["unit"]?.stringValue)
+                    unit: p["unit"]?.stringValue,
+                    tone: tone)
                     // Digits roll rather than cutting. A number that changes
                     // under your eye is the one thing on a HUD you always want
                     // to have noticed.
@@ -221,12 +257,13 @@ public struct SurfaceView: View {
                     tone: tone))
 
         case "Ring":
+            let fraction = p["value"]?.doubleValue ?? 0
             return AnyView(
                 RingView(
                     label: p["label"]?.display ?? "",
-                    fraction: p["value"]?.doubleValue ?? 0,
+                    fraction: fraction,
                     caption: p["caption"]?.display ?? "",
-                    tone: tone))
+                    tone: Self.threshold(p, value: fraction) ?? tone))
 
         default:
             return AnyView(
@@ -235,6 +272,28 @@ public struct SurfaceView: View {
                     items: p["items"]?.arrayValue ?? [],
                     tone: tone))
         }
+    }
+
+    /// The tone a value has earned, or nil to leave it alone.
+    ///
+    /// `thresholds=[{"at":80,"tone":"warn"},{"at":95,"tone":"bad"}]`. The last
+    /// crossed one wins, so they may be given in any order.
+    ///
+    /// This is the one dashboard feature worth taking from the tools that do
+    /// nothing else: a number that turns amber on its own is read correctly at a
+    /// glance, and a number that is only ever cyan has to be read.
+    static func threshold(_ p: [String: JSON], value: Double?) -> Color? {
+        guard let value, let rules = p["thresholds"]?.arrayValue else { return nil }
+        var crossed: (at: Double, tone: String)?
+        for rule in rules {
+            guard let fields = rule.objectValue,
+                  let at = fields["at"]?.doubleValue,
+                  let name = fields["tone"]?.stringValue,
+                  value >= at
+            else { continue }
+            if crossed == nil || at > crossed!.at { crossed = (at, name) }
+        }
+        return crossed.map { HUD.tone($0.tone) }
     }
 
     /// Live controls, not pictures of controls.
@@ -391,6 +450,9 @@ struct MetricView: View {
     let label: String
     let value: String
     let unit: String?
+    /// Set by a crossed threshold. Nil means the number has not earned a colour
+    /// and stays in the house ink, which most numbers should.
+    var tone: Color?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -400,8 +462,10 @@ struct MetricView: View {
                     // shove everything beside it sideways.
                     .font(.system(size: 26, weight: .semibold, design: .rounded))
                     .monospacedDigit()
-                    .foregroundStyle(HUD.ink)
-                    .shadow(color: HUD.accent.opacity(0.5), radius: 9)
+                    .foregroundStyle(tone ?? HUD.ink)
+                    // The glow follows the tone too, so a number that has gone
+                    // red is red in its light as well as its ink.
+                    .shadow(color: (tone ?? HUD.accent).opacity(0.5), radius: 9)
                     .contentTransition(.numericText())
                 if let unit {
                     Text(unit)

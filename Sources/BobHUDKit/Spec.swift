@@ -214,4 +214,6 @@ public enum Op: Sendable, Equatable {
     case surface(id: String, region: Region?, width: Double?, urgency: Urgency?, chrome: Chrome?)
     /// Close a surface and take it off the screen.
     case close(id: String)
+    /// Say what the assistant is doing. Draws the presence ring.
+    case presence(Presence, amplitude: Double?)
 }
