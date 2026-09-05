@@ -806,7 +806,16 @@ function cmdCheck() {
         `${name}: no AI policy recorded. This is the one field that changes what help is allowed.`,
       );
     }
-    if (!course.absences || course.absences.allowed == null) {
+    // "None" and "not looked up yet" are different facts and used to warn
+    // identically. BISC has no attendance grade at all, which is written in its
+    // own policy text, and the check nagged about it forever because the only
+    // way to say "no budget" was to leave the number empty, which is also how
+    // you say "I have not read the syllabus". A warning that cannot be resolved
+    // by doing the right thing teaches people to ignore warnings.
+    if (
+      !course.absences ||
+      (course.absences.allowed == null && course.absences.ungraded !== true)
+    ) {
       note(`${name}: no attendance budget recorded`);
     }
     const parts = Array.isArray(course.grading) ? course.grading : [];
