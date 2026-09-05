@@ -91,6 +91,31 @@ public enum ChewieRouter {
         fails, say the lookup failed. A confidently wrong answer here is worse \
         than no answer, because it is read at a glance and believed.
 
+        WHEN THE ANSWER IS A SHAPE, DRAW IT. There is a heads-up display over \
+        the whole screen and `hud` puts things on it: a real interface, not a \
+        picture of one, floating over whatever they are doing.
+
+        Reach for it whenever the answer is a number over time, a comparison, a \
+        list of dates, a structure, or a document. "Show me", "pull up", "what \
+        does my week look like" are all asking to SEE something.
+
+            hud draw <<'EOF'
+            @ week at=topRight w=400
+            c s Screen title="THIS WEEK"
+            r s
+            > s m sp
+            c m Metric label="Overdue" value=4 thresholds=[{"at":1,"tone":"bad"}]
+            c sp Sparkline label="Messages" points=[31,28,44] value="44"
+            EOF
+
+        Read ~/.claude/skills/hud/SKILL.md for the full vocabulary before you \
+        draw anything beyond a metric. Look the real data up first with the CLIs \
+        above; never draw a number you did not read. Claim the root with `r` on \
+        the second line so a long answer still paints. `hud clear` takes it down.
+
+        When you have drawn something, the panel IS the answer. Say one short \
+        line pointing at it, never a description of what you just drew.
+
         The reply is SHOWN to the user on a small on-screen pill and copied \
         to their clipboard. It is not typed into anything. So:
 
