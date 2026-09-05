@@ -45,15 +45,26 @@ public final class OverlayWindow: NSPanel {
         ignoresMouseEvents = true
         isMovableByWindowBackground = false
         animationBehavior = .none
-        // Keep the glass out of screen captures where that is still possible.
+        // Deliberately NOT excluded from screen capture.
         //
-        // This is honored by the older CGWindowList and `screencapture` paths
-        // and is no longer reliably honored by ScreenCaptureKit-based capture,
-        // which is most of what people actually share with. So it is worth
-        // setting and it is not a guarantee, and the guarantee has to come from
-        // the person hiding the layer themselves. Option-Command-Space does
-        // that, and it is in the menu.
-        sharingType = .none
+        // `sharingType = .none` was here, on the reasoning that a heads-up
+        // display should stay out of a screen share. It fails at that and
+        // succeeds at something much worse.
+        //
+        // It fails because ScreenCaptureKit, which is what every modern
+        // sharing and recording app uses, stopped honouring the flag. The
+        // thing it was meant to hide the display from still sees it.
+        //
+        // What it does honour is `screencapture` and the older CGWindowList
+        // path: your own screenshots, and any recording you make of your own
+        // work. So the display became invisible to its owner and stayed
+        // visible to the meeting. It also silently broke the only way anyone
+        // had of checking what it was drawing, which cost an hour of chasing
+        // a rendering bug that did not exist.
+        //
+        // The real guarantee was always the person hiding the layer: Escape
+        // clears it and Option-Command-Space toggles it. That is one gesture,
+        // it works against every capture method, and it does not lie.
         acceptsMouseMovedEvents = true
 
         contentView = PassThroughHostingView(rootView: AnyView(content))
