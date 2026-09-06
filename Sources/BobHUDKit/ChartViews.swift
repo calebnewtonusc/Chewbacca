@@ -74,8 +74,31 @@ struct Sparkline: View {
                 }
             }
             .frame(height: 34)
-            .animation(.easeOut(duration: 0.45), value: points)
+            .animation(Motion.fade(0.45, reduced: reduceMotion), value: points)
         }
+        // One element that says what the shape means.
+        //
+        // A chart used to be a picture with no accessible content at all: a
+        // screen reader found a label and no data, which is worse than finding
+        // nothing, because it promises information it cannot deliver.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityValue(spokenTrend)
+    }
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The trend in words: where it started, where it ended, which way it went.
+    private var spokenTrend: String {
+        guard let first = points.first, let last = points.last, points.count > 1 else {
+            return value.isEmpty ? "no data" : value
+        }
+        let direction = last > first ? "rising" : last < first ? "falling" : "flat"
+        let low = points.min() ?? first
+        let high = points.max() ?? last
+        let current = value.isEmpty ? String(format: "%g", last) : value
+        return "\(current), \(direction) over \(points.count) points, "
+            + "low \(String(format: "%g", low)), high \(String(format: "%g", high))"
     }
 }
 
@@ -168,7 +191,7 @@ struct BarsView: View {
                     }
                     GeometryReader { proxy in
                         ZStack(alignment: .leading) {
-                            Capsule().fill(.white.opacity(0.07))
+                            Capsule().fill(.white.opacity(0.10))
                             Capsule()
                                 .fill(LinearGradient(
                                     colors: [tone.opacity(0.55), tone],
@@ -179,15 +202,25 @@ struct BarsView: View {
                     }
                     .frame(height: 4)
                 }
+                // The row is one thing to a screen reader, not a label, a
+                // number, and a decorative bar.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(row.label)
+                .accessibilityValue(row.display.isEmpty
+                    ? String(format: "%g", row.value) : row.display)
             }
         }
         // On the values, not just the count. Four rows whose numbers all
         // changed is the common case and the first version animated none of it,
         // because the count had stayed the same.
         .animation(
-            .spring(response: 0.36, dampingFraction: 0.85),
+            Motion.spring(0.36, reduced: reduceMotion),
             value: parsed.map(\.value))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(caption.isEmpty ? "Comparison" : caption)
     }
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 }
 
 /// A proportion, drawn as an arc.
@@ -230,8 +263,14 @@ struct RingView: View {
                     .foregroundStyle(HUD.faint)
             }
         }
-        .animation(.spring(response: 0.6, dampingFraction: 0.8), value: clamped)
+        .animation(Motion.spring(0.6, 0.8, reduced: reduceMotion), value: clamped)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label.isEmpty ? "Proportion" : label)
+        .accessibilityValue(caption.isEmpty
+            ? "\(Int(clamped * 100)) percent" : caption)
     }
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 }
 
 /// Things that happened, most recent first.
@@ -298,6 +337,9 @@ struct EventsView: View {
                 // HStack it accepted the full height the column was offered and
                 // dragged the row with it. A background is sized to its host, so
                 // the text decides the height and the rail simply matches.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(event.accent ? "Marked: \(event.text)" : event.text)
+                .accessibilityValue(event.time)
                 .background(alignment: .topLeading) {
                     ZStack(alignment: .top) {
                         Rectangle()

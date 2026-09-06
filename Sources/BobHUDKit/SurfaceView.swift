@@ -103,11 +103,20 @@ public struct SurfaceView: View {
                     }))
 
         case "Diagram":
+            let parts = p["parts"]?.arrayValue ?? []
             return AnyView(
                 DiagramView(
-                    parts: p["parts"]?.arrayValue ?? [],
+                    parts: parts,
                     aspect: p["aspect"]?.doubleValue ?? 2,
-                    tone: HUD.tone(p["tone"]?.stringValue)))
+                    tone: HUD.tone(p["tone"]?.stringValue))
+                    // A drawing with no description is the least accessible
+                    // thing here, and it was shipped with a role and no
+                    // content. Reading the labels out in order is not a
+                    // substitute for a real description, and it is far better
+                    // than announcing "image".
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Diagram")
+                    .accessibilityValue(Self.describe(parts)))
         default:
             return control(element, p)
         }
@@ -198,7 +207,8 @@ public struct SurfaceView: View {
                     label: p["label"]?.display ?? "",
                     value: value,
                     unit: p["unit"]?.stringValue,
-                    tone: tone)
+                    tone: tone,
+                    toneName: Self.thresholdName(p, value: p["value"]?.doubleValue))
                     // Digits roll rather than cutting. A number that changes
                     // under your eye is the one thing on a HUD you always want
                     // to have noticed.
@@ -217,13 +227,23 @@ public struct SurfaceView: View {
                     caption: p["caption"]?.display ?? "",
                     columns: columns,
                     rows: rows)
-                    .animation(.spring(response: 0.34, dampingFraction: 0.85), value: rows.count))
+                    .animation(.spring(response: 0.34, dampingFraction: 0.85), value: rows.count)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel(
+                        (p["caption"]?.display ?? "Table")
+                            + ", \(rows.count) rows, \(columns.count) columns"))
 
         default:
+            let message = p["message"]?.display ?? ""
+            let level = p["level"]?.stringValue ?? "info"
             return AnyView(
-                StatusView(
-                    message: p["message"]?.display ?? "",
-                    level: p["level"]?.stringValue ?? "info"))
+                StatusView(message: message, level: level)
+                    // An outcome that changes should be announced, not waited
+                    // for. The catalog has promised this since it was written.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(message)
+                    .accessibilityValue(HUD.spoken(level) ?? level)
+                    .accessibilityAddTraits(.updatesFrequently))
         }
     }
 
@@ -283,6 +303,12 @@ public struct SurfaceView: View {
     /// nothing else: a number that turns amber on its own is read correctly at a
     /// glance, and a number that is only ever cyan has to be read.
     static func threshold(_ p: [String: JSON], value: Double?) -> Color? {
+        thresholdName(p, value: value).map { HUD.tone($0) }
+    }
+
+    /// The tone a value crossed into, by name, so it can also be spoken and
+    /// drawn as a symbol rather than only coloured.
+    static func thresholdName(_ p: [String: JSON], value: Double?) -> String? {
         guard let value, let rules = p["thresholds"]?.arrayValue else { return nil }
         var crossed: (at: Double, tone: String)?
         for rule in rules {
@@ -293,7 +319,25 @@ public struct SurfaceView: View {
             else { continue }
             if crossed == nil || at > crossed!.at { crossed = (at, name) }
         }
-        return crossed.map { HUD.tone($0.tone) }
+        return crossed?.tone
+    }
+
+    /// Say what a diagram contains, in the order it was drawn.
+    static func describe(_ parts: [JSON]) -> String {
+        var labels: [String] = []
+        var edges = 0
+        for part in parts {
+            guard let fields = part.objectValue else { continue }
+            let kind = fields["t"]?.stringValue ?? ""
+            if kind == "arrow" || kind == "line" { edges += 1 }
+            if let text = fields["label"]?.stringValue ?? fields["text"]?.stringValue,
+               !text.isEmpty {
+                labels.append(text)
+            }
+        }
+        guard !labels.isEmpty else { return "\(parts.count) shapes" }
+        let connections = edges == 1 ? "1 connection" : "\(edges) connections"
+        return labels.joined(separator: ", ") + ". " + connections + "."
     }
 
     /// Live controls, not pictures of controls.
@@ -453,10 +497,36 @@ struct MetricView: View {
     /// Set by a crossed threshold. Nil means the number has not earned a colour
     /// and stays in the house ink, which most numbers should.
     var tone: Color?
+    /// The tone by name, so it can be spoken and drawn as a symbol. Colour
+    /// alone is not a signal for everyone.
+    var toneName: String?
 
     var body: some View {
+        content
+            // A number that changes under your eye is the one thing on a HUD
+            // you always want to have noticed, sighted or not.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+            .accessibilityValue(spoken)
+            .accessibilityAddTraits(.updatesFrequently)
+    }
+
+    private var spoken: String {
+        var parts = [value]
+        if let unit { parts.append(unit) }
+        if let word = HUD.spoken(toneName) { parts.append(word) }
+        return parts.joined(separator: " ")
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline, spacing: 3) {
+                if let symbol = HUD.symbol(toneName) {
+                    Image(systemName: symbol)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(tone ?? HUD.accent)
+                        .accessibilityHidden(true)
+                }
                 Text(value)
                     // Monospaced digits so a number changing in place does not
                     // shove everything beside it sideways.

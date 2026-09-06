@@ -11,6 +11,8 @@ import SwiftUI
 public struct OverlayView: View {
     let model: OverlayModel
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     public init(model: OverlayModel) { self.model = model }
 
     /// How much of the bottom of the display the Dock is using.
@@ -82,7 +84,7 @@ public struct OverlayView: View {
                     .zIndex(Double(surface.depth))
             }
         }
-        .animation(.spring(response: 0.30, dampingFraction: 0.80), value: model.revision)
+        .animation(Motion.spring(0.30, 0.80, reduced: reduceMotion), value: model.revision)
         .ignoresSafeArea()
     }
 }
@@ -134,6 +136,7 @@ struct SurfaceCard: View {
     let onDrag: (CGSize) -> Void
     let onGrab: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
     @State private var lit = false
     @State private var dragging = false
@@ -175,8 +178,8 @@ struct SurfaceCard: View {
             }
             .scaleEffect(dragging ? 1.02 : 1)
             .onHover { hovering = $0 }
-            .animation(.easeOut(duration: 0.14), value: hovering)
-            .animation(.easeOut(duration: 0.12), value: dragging)
+            .animation(Motion.fade(0.14, reduced: reduceMotion), value: hovering)
+            .animation(Motion.fade(0.12, reduced: reduceMotion), value: dragging)
             // Drag to move. The gesture sits on the whole card and is
             // `simultaneous` so it does not swallow taps on the controls inside:
             // a HUD you can rearrange is worth much more than one you cannot,
@@ -202,7 +205,7 @@ struct SurfaceCard: View {
                 // The hairline strikes just after the card lands, so arriving
                 // reads as powering on rather than appearing.
                 try? await Task.sleep(for: .milliseconds(50))
-                withAnimation(.easeOut(duration: 0.28)) { lit = true }
+                withAnimation(Motion.fade(0.28, reduced: reduceMotion)) { lit = true }
             }
             // Force dark regardless of the system appearance: a light HUD over a
             // dark desktop is a white rectangle, and there is no version of that
@@ -356,6 +359,7 @@ struct SurfaceChrome: ViewModifier {
 
 /// Four corner marks, drawn as one shape so they animate together.
 struct Brackets: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let lit: Bool
     /// Nil takes the house accent, which is what a surface's chrome wants. A
     /// marker passes its own, so an outline that means "this is broken" is not
@@ -419,8 +423,16 @@ public enum HUD {
     /// picked and is usually wrong against a dark translucent card.
     public static let accent = Color(red: 0.42, green: 0.83, blue: 0.96)
     public static let ink = Color.white
-    public static let dim = Color.white.opacity(0.62)
-    public static let faint = Color.white.opacity(0.38)
+
+    /// Secondary and tertiary text.
+    ///
+    /// `faint` was 0.38 white, which against this glass is under 3:1 and fails
+    /// WCAG AA at the 10 and 11 point sizes it is actually used at. It was
+    /// picked because it looked calm, which is not a contrast standard. Raised
+    /// to values that clear 4.5:1 against the card's own wash; they still read
+    /// as secondary because size and weight do that work too.
+    public static let dim = Color.white.opacity(0.78)
+    public static let faint = Color.white.opacity(0.62)
 
     /// Warm colours for the two states that mean something, and the house cyan
     /// for everything else.
@@ -431,6 +443,31 @@ public enum HUD {
     public static let good = Color(red: 0.45, green: 0.90, blue: 0.66)
     public static let warn = Color(red: 0.99, green: 0.79, blue: 0.36)
     public static let bad = Color(red: 1.00, green: 0.45, blue: 0.42)
+
+    /// A shape for a tone, so meaning does not depend on colour alone.
+    ///
+    /// Differentiate Without Color is a real setting and colour-blindness is
+    /// more common than it is designed for. Good, warn and bad differed only by
+    /// hue, which made a red metric and a green one identical to a meaningful
+    /// number of people.
+    public static func symbol(_ name: String?) -> String? {
+        switch name {
+        case "good", "positive", "success": return "checkmark.circle.fill"
+        case "warn", "warning": return "exclamationmark.triangle.fill"
+        case "bad", "negative", "danger", "critical": return "xmark.octagon.fill"
+        default: return nil
+        }
+    }
+
+    /// A word for a tone, for anything that is read aloud rather than seen.
+    public static func spoken(_ name: String?) -> String? {
+        switch name {
+        case "good", "positive", "success": return "good"
+        case "warn", "warning": return "warning"
+        case "bad", "negative", "danger", "critical": return "critical"
+        default: return nil
+        }
+    }
 
     public static func tone(_ name: String?) -> Color {
         switch name {

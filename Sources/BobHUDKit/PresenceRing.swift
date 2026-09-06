@@ -64,6 +64,7 @@ struct PresenceRing: View {
     /// 0 to 1, only read in `.hearing`. Input amplitude.
     let amplitude: Double
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var breathing = false
     @State private var spinning = false
     @State private var pulses = 0
@@ -114,7 +115,9 @@ struct PresenceRing: View {
                 .stroke(presence.tint, style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
                 .rotationEffect(.degrees(spinning ? 360 : 0))
                 .animation(
-                    .easeInOut(duration: 1.1).repeatForever(autoreverses: false),
+                    Motion.repeating(
+                        .easeInOut(duration: 1.1).repeatForever(autoreverses: false),
+                        reduced: reduceMotion),
                     value: spinning)
 
         case .acting:
@@ -128,7 +131,9 @@ struct PresenceRing: View {
                     style: StrokeStyle(lineWidth: 1.8, lineCap: .butt, dash: [2.4, 2.4]))
                 .rotationEffect(.degrees(spinning ? 360 : 0))
                 .animation(
-                    .linear(duration: 1.6).repeatForever(autoreverses: false),
+                    Motion.repeating(
+                        .linear(duration: 1.6).repeatForever(autoreverses: false),
+                        reduced: reduceMotion),
                     value: spinning)
 
         case .attention, .failed:
@@ -164,6 +169,9 @@ struct PresenceRing: View {
         case .attentive:
             // Four-second period, plus or minus eight percent. Slow enough to
             // read as breathing rather than as throbbing.
+            // A ring that breathes forever is movement that never stops, which
+            // is the exact thing the setting exists to prevent.
+            guard !reduceMotion else { break }
             withAnimation(.easeInOut(duration: 2).repeatForever(autoreverses: true)) {
                 breathing = true
             }

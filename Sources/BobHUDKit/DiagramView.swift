@@ -29,6 +29,8 @@ struct DiagramView: View {
     let aspect: Double
     let tone: Color
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     /// A ceiling on how much a single diagram may draw.
     ///
     /// Not a security boundary, since nothing here executes. It is a defence
@@ -53,8 +55,11 @@ struct DiagramView: View {
             // The first pass ran at 0.75 and read as sluggish: on a HUD you are
             // glancing at, an animation you have time to watch is one you had to
             // wait for.
+            // A drawing that rearranges itself in the corner of your eye is the
+            // sharpest Reduce Motion offender in the whole project. With the
+            // setting on it cuts instead, which is what the setting asks for.
             .animation(
-                .spring(response: 0.34, dampingFraction: 0.82),
+                Motion.spring(0.34, reduced: reduceMotion),
                 value: AnimatableVector(parts.prefix(Self.limit)
                     .compactMap(Primitive.init).flatMap(\.channels)))
     }
@@ -90,11 +95,20 @@ struct Primitive {
         self.toneName = fields["tone"]?.stringValue
         self.dashed = fields["dashed"] == .bool(true)
         self.filled = fields["fill"] == .bool(true)
+        // Clamped to the unit square.
+        //
+        // Models emit coordinates outside 0 to 1 regularly, and an
+        // out-of-range node was drawn off-canvas and simply vanished: a
+        // three-node diagram silently became two. At the edge it is visibly
+        // wrong, which is recoverable; missing is not.
+        func unit(_ key: String, _ fallback: Double = 0) -> Double {
+            min(max(fields[key]?.doubleValue ?? fallback, 0), 1)
+        }
         self.channels = [
-            fields["x"]?.doubleValue ?? 0,
-            fields["y"]?.doubleValue ?? 0,
-            fields["x2"]?.doubleValue ?? 0,
-            fields["y2"]?.doubleValue ?? 0,
+            unit("x"),
+            unit("y"),
+            unit("x2"),
+            unit("y2"),
             fields["r"]?.doubleValue ?? (kind == .dot ? 0.008 : 0.05),
             fields["w"]?.doubleValue ?? 0.2,
             fields["h"]?.doubleValue ?? 0.16,

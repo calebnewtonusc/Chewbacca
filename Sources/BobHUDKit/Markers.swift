@@ -123,6 +123,16 @@ struct MarkerView: View {
             withAnimation(.easeOut(duration: 0.35)) { arrived = true }
         }
         .allowsHitTesting(false)
-        .accessibilityHidden(true)
+        // Announced, not hidden.
+        //
+        // This was `accessibilityHidden(true)`, which made the entire
+        // annotation layer invisible to anyone using a screen reader. A mark
+        // exists precisely to say "look at this", so hiding it from the people
+        // who most need something to say that is exactly backwards.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(marker.label.isEmpty ? "Marked region" : marker.label)
+        .accessibilityValue(
+            HUD.spoken(marker.tone).map { "\($0), " } .orEmpty
+                + "at \(Int(marker.rect.minX)), \(Int(marker.rect.minY))")
     }
 }
