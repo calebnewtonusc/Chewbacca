@@ -219,6 +219,21 @@ if group "hooks"; then
   # real repos were clean, and acting on it would stage the user's credentials.
   check  "stop-check says nothing about a home-directory repo" \
     bash -c "cd \"\$HOME\" && git rev-parse --show-toplevel 2>/dev/null | grep -qx \"\$HOME\" && [ -z \"\$(bash '$ROOT/.claude/hooks/stop-check.sh')\" ] || true"
+  # A pile of untracked siblings is the environment, not the turn. Counting
+  # them reported "110 uncommitted changes" in a workspace folder whose real
+  # repos were clean, and buried the one tracked file that had actually changed.
+  check "untracked noise does not drown the real change" bash -c '
+    d="$(mktemp -d)"
+    cd "$d" || exit 1
+    git init -q . && git config user.email t@t && git config user.name t
+    echo real > tracked.txt && git add tracked.txt && git commit -qm init
+    echo changed > tracked.txt
+    for i in $(seq 1 40); do mkdir -p "junk$i"; touch "junk$i/f"; done
+    out="$(echo "{}" | bash "'"$ROOT"'/.claude/hooks/stop-check.sh" 2>/dev/null)"
+    echo "$out" | grep -q "1 uncommitted change" || { echo "got: $out"; exit 1; }
+    echo "$out" | grep -q "41 uncommitted" && exit 1
+    exit 0
+  '
   check  "the hook log was written" test -f "$CHEWBACCA_LOG_DIR/hooks.log"
   expect "log rows carry a duration" "|ok|" cat "$CHEWBACCA_LOG_DIR/hooks.log"
 fi

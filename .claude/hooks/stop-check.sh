@@ -24,7 +24,28 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo)"
 [ "$REPO_ROOT" = "$HOME" ] && exit 0
 
-DIRTY_COUNT="$(git status --porcelain 2>/dev/null | grep -c . || true)"
+# Count what was actually touched, not what happens to be lying around.
+#
+# A workspace directory that holds many project repos is itself often under
+# git, and `git status` there reports every sibling project, cache and scratch
+# folder as untracked. That reported "110 uncommitted changes" at the end of a
+# session whose real repos were clean and pushed, and buried the one tracked
+# file that had genuinely changed. A number that large is a description of the
+# environment, not of the turn, and acting on it means `git add -A` in a folder
+# full of somebody else's work.
+#
+# So untracked entries stop counting once there are more of them than anyone
+# could have created in one session. Tracked changes always count, however many
+# there are, because those are files that were edited on purpose.
+TRACKED_COUNT="$(git status --porcelain 2>/dev/null | grep -vc '^??' || true)"
+UNTRACKED_COUNT="$(git status --porcelain 2>/dev/null | grep -c '^??' || true)"
+UNTRACKED_NOISE_FLOOR=25
+
+if [ "$UNTRACKED_COUNT" -gt "$UNTRACKED_NOISE_FLOOR" ]; then
+  DIRTY_COUNT="$TRACKED_COUNT"
+else
+  DIRTY_COUNT="$((TRACKED_COUNT + UNTRACKED_COUNT))"
+fi
 AHEAD_COUNT=0
 NO_UPSTREAM=0
 
