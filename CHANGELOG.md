@@ -6,9 +6,12 @@ real commit; nothing here is written by hand.
 ## Unreleased
 
 ### Added
+- it speaks first
+- Chewie can draw on the screen
 - hud demo
 
 ### Fixed
+- subscribe before receiving events
 - a course with no attendance grade is not a gap
 - the changelog was eating its own tail
 - Chewie answered once and then went deaf
@@ -18,6 +21,8 @@ real commit; nothing here is written by hand.
 - the listener died when the display restarted
 
 ### Changed
+- regenerate extension inventory
+- regenerate extension inventory
 - ignore the coverage file swift test leaves behind
 
 ### Documentation
