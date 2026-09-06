@@ -40,9 +40,23 @@ public final class SocketServer: @unchecked Sendable {
     private var listenFD: Int32 = -1
     private let queue = DispatchQueue(label: "bob.hud.socket")
 
-    /// Guards `clients`, which reader threads mutate and the main actor reads.
+    /// Guards `clients` and `subscribers`, which reader threads mutate and the
+    /// main actor reads.
     private let lock = NSLock()
     private var clients: Set<Int32> = []
+
+    /// The clients that asked to receive events.
+    ///
+    /// Events used to go to everyone connected, which meant a full speech
+    /// transcript reached every process that happened to have the socket open.
+    /// Anything running as this user can open it, so a second tool holding a
+    /// connection to draw a panel was also being handed everything the person
+    /// said out loud. Nobody asked for that and nothing disclosed it.
+    ///
+    /// Receiving is opt-in now: a client sends `listen` and only then hears
+    /// anything back. Drawing needs no subscription, so the common case sees
+    /// nothing it did not ask for.
+    private var subscribers: Set<Int32> = []
     private var running = false
 
     /// One queue per connection, so a slow reader cannot stall the others or
@@ -71,7 +85,7 @@ public final class SocketServer: @unchecked Sendable {
     @discardableResult
     public func send(_ line: String) -> Bool {
         lock.lock()
-        let targets = clients
+        let targets = subscribers
         lock.unlock()
         guard !targets.isEmpty else { return false }
 
@@ -199,11 +213,19 @@ public final class SocketServer: @unchecked Sendable {
                 self.read(fd)
                 self.lock.lock()
                 self.clients.remove(fd)
+                self.subscribers.remove(fd)
                 self.lock.unlock()
                 close(fd)
                 self.onEvent(Event(kind: .ended))
             }
         }
+    }
+
+    /// Whether anything is listening for events at all.
+    public var hasSubscribers: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return !subscribers.isEmpty
     }
 
     private func read(_ fd: Int32) {
@@ -218,6 +240,15 @@ public final class SocketServer: @unchecked Sendable {
             // let the line buffer hold anything incomplete.
             let chunk = String(decoding: bytes[0..<count], as: UTF8.self)
             for line in buffer.push(chunk) {
+                // `listen` is handled here rather than in the parser: it is
+                // about this connection, not about anything on the glass, and
+                // the parser has no idea which socket a line arrived on.
+                if line.trimmingCharacters(in: .whitespaces) == "listen" {
+                    lock.lock()
+                    subscribers.insert(fd)
+                    lock.unlock()
+                    continue
+                }
                 onEvent(Event(kind: .line(line)))
             }
         }
