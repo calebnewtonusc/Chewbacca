@@ -251,6 +251,28 @@ being true.
 Leave `life` off for anything they will read or act on. A panel that vanishes
 mid-sentence is a bug they will blame on you.
 
+## Noticing without being asked
+
+`hud-watch` is the half that speaks first. It checks for things worth
+interrupting for, shows at most one, and then stays quiet.
+
+```bash
+hud-watch                 # check once
+hud-watch --daemon        # keep checking
+hud-watch --dry-run       # what it would say
+hud-watch --status        # what it has said, and the budget left
+```
+
+The restraint is the design, not a limitation of it. Two interruptions an hour,
+nothing repeated for twenty hours, only the worst finding shown, and everything
+it draws expires on its own. A thing that interrupts whenever it has an opinion
+gets muted within a day, and a muted assistant is worth less than none because
+you believe you have one.
+
+If you add a check, give the finding a stable `key` and a `severity` that rises
+when the situation worsens. Severity is in the fingerprint, so getting worse
+counts as news and staying the same does not.
+
 ## Pointing
 
 Holding Option-Command and dragging outlines a region on screen, and the display

@@ -623,7 +623,7 @@ unset _tool _installed_scanners
 # of the person. All three go in together because hud calls the other two by
 # path, so installing one of them alone gives a command that fails halfway.
 _installed_hud=""
-for _tool in hud hud-listen hud-context; do
+for _tool in hud hud-listen hud-context hud-watch; do
   if [ -f "$SCRIPT_DIR/bin/$_tool" ]; then
     mkdir -p "$HOME/.local/bin"
     cp "$SCRIPT_DIR/bin/$_tool" "$HOME/.local/bin/$_tool"

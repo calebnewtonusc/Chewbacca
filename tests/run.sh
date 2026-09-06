@@ -228,6 +228,11 @@ if group "hud"; then
   check  "hud parses"         bash -n "$ROOT/bin/hud"
   check  "hud-listen parses"  python3 -m py_compile "$ROOT/bin/hud-listen"
   check  "hud-context parses" python3 -m py_compile "$ROOT/bin/hud-context"
+  check  "hud-watch parses"   python3 -m py_compile "$ROOT/bin/hud-watch"
+  # The budget is the whole design. A proactive thing that interrupts whenever
+  # it has an opinion gets muted within a day, and a muted assistant is worth
+  # less than none because you believe you have one.
+  check  "the watcher respects its budget" python3 "$ROOT/tests/test_hud_watch.py"
   # The loop itself, against a fake display and a fake model: no socket to a
   # real app, no microphone, no tokens. It is the only test that covers what
   # happens between hearing something and drawing it.

@@ -1,0 +1,289 @@
+#!/usr/bin/env python3
+"""Notice things, and say so. Sparingly.
+
+The display could only ever answer. Somebody had to ask it something before it
+did anything at all, which means the most useful thing it could do here, notice
+that four assignments have been overdue for four days and say so, was the one
+thing it could not do.
+
+This is the proactive half, and the reason it did not already exist is that
+proactive is easy to build badly. A thing that interrupts whenever it has an
+opinion gets muted within a day, and a muted assistant is worth less than none
+because you now believe you have one.
+
+So the budget comes first and the checks come second:
+
+  - Nothing is said twice. A finding is fingerprinted and remembered.
+  - A finding must be worth a whole surface, and only the worst one is shown.
+  - There is a hard cap per hour, enforced across restarts.
+  - Nothing at all appears unless the finding got worse, or a day has passed.
+  - Everything it puts up expires on its own.
+
+Usage:
+    hud-watch                 check once and exit
+    hud-watch --daemon        keep checking
+    hud-watch --dry-run       print what it would draw
+    hud-watch --status        what it has said and when
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+STATE = Path(os.environ.get("CHEWBACCA_STATE_DIR", Path.home() / ".chewbacca")) / "watch.json"
+
+# Two an hour. Not a number anyone can derive; a number small enough that being
+# wrong about one of them is survivable, which is the property that matters.
+BUDGET_PER_HOUR = 2
+# A finding already shown is not shown again for a day, even if it is still true.
+# Overdue work stays overdue, and saying so every ten minutes is nagging.
+REPEAT_AFTER = 20 * 60 * 60
+# How often the daemon looks. Cheap: it runs local CLIs and reads a file.
+INTERVAL = 15 * 60
+
+
+@dataclass
+class Finding:
+    """Something worth interrupting for."""
+
+    key: str          # stable across runs, so a repeat is recognisable
+    severity: int     # higher wins; only the worst is shown
+    title: str
+    lines: list[str]  # Bob Lines for the body, already composed
+
+    def fingerprint(self) -> str:
+        return hashlib.sha256(f"{self.key}|{self.severity}".encode()).hexdigest()[:16]
+
+
+def load() -> dict:
+    try:
+        return json.loads(STATE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"shown": {}, "times": []}
+
+
+def save(state: dict) -> None:
+    try:
+        STATE.parent.mkdir(parents=True, exist_ok=True)
+        STATE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def within_budget(state: dict, now: float) -> bool:
+    hour_ago = now - 3600
+    recent = [t for t in state.get("times", []) if t > hour_ago]
+    state["times"] = recent
+    return len(recent) < BUDGET_PER_HOUR
+
+
+def already_said(state: dict, finding: Finding, now: float) -> bool:
+    """True when this exact finding was shown recently enough to stay quiet.
+
+    Keyed on the fingerprint, which includes severity, so something getting
+    worse counts as new. Something staying the same does not.
+    """
+    when = state.get("shown", {}).get(finding.fingerprint())
+    return when is not None and now - when < REPEAT_AFTER
+
+
+# ── the checks ────────────────────────────────────────────────────────────────
+
+def run(cmd: list[str], timeout: int = 20) -> str:
+    """Stdout, whatever the exit code.
+
+    `coursework check` exits non-zero when it has findings, which is correct for
+    a CI gate and meant this discarded exactly the output it came for. Reading
+    the text is the whole point; the status says how the tool feels about it.
+    """
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return r.stdout or ""
+
+
+ANSI = __import__("re").compile(r"\x1b\[[0-9;]*m")
+
+
+def plain(text: str) -> str:
+    """Colour codes out. These tools write for a terminal, not for a parser."""
+    return ANSI.sub("", text)
+
+
+def check_overdue() -> Finding | None:
+    """Work that is past due and still marked todo."""
+    if not shutil.which("coursework"):
+        return None
+    out = plain(run(["coursework", "check"]))
+    rows = []
+    for line in out.splitlines():
+        if "was due" in line and "still marked todo" in line:
+            body = line.strip().lstrip("! ").strip()
+            course = body.split(":", 1)[0]
+            name = body.split('"')[1] if '"' in body else body
+            rows.append((course, name))
+    if not rows:
+        return None
+
+    items = ",".join(
+        json.dumps({"time": course, "text": name, "accent": True}, separators=(",", ":"))
+        for course, name in rows[:6]
+    )
+    n = len(rows)
+    return Finding(
+        key="coursework.overdue",
+        # Severity rises with the count, so four becoming five is a new finding
+        # and four staying four is not.
+        severity=min(n, 9),
+        title="OVERDUE",
+        lines=[
+            f'c w Screen title="{n} OVERDUE"',
+            "r w",
+            "> w wm we",
+            f'c wm Metric label="Past due" value={n} thresholds=[{{"at":1,"tone":"bad"}}]',
+            f'c we Events caption="Still marked todo" items=[{items}]',
+        ],
+    )
+
+
+def check_due_soon() -> Finding | None:
+    """Anything due today or tomorrow."""
+    if not shutil.which("coursework"):
+        return None
+    out = plain(run(["coursework", "due", "--days", "2"]))
+    # Only the indented rows under a "DUE IN N DAYS" heading. The headings, the
+    # overdue block and the trailing advice are all real lines and none of them
+    # are deliverables, which the first version happily drew as if they were.
+    rows: list[str] = []
+    inside = False
+    for line in out.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if not line.startswith(" "):
+            inside = stripped.startswith("DUE IN")
+            continue
+        if inside:
+            rows.append(" ".join(stripped.split()))
+    if not rows:
+        return None
+    items = ",".join(
+        json.dumps({"text": r[:70]}, separators=(",", ":")) for r in rows[:5]
+    )
+    return Finding(
+        key="coursework.soon",
+        severity=2,
+        title="DUE SOON",
+        lines=[
+            'c d Screen title="DUE IN THE NEXT TWO DAYS"',
+            "r d",
+            "> d de",
+            f'c de Events caption="Coming up" items=[{items}]',
+        ],
+    )
+
+
+CHECKS = (check_overdue, check_due_soon)
+
+
+def draw(finding: Finding) -> bool:
+    """Put one finding up. It expires on its own."""
+    hud = shutil.which("hud")
+    if not hud:
+        return False
+    # Alert, never critical. Critical breaks through a hidden display, and
+    # nothing found by polling a file has earned that.
+    header = f"@ watch at=topRight w=380 urgency=alert life=45"
+    payload = "\n".join([header, *finding.lines]) + "\n"
+    try:
+        subprocess.run([hud, "draw"], input=payload, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return True
+
+
+def once(dry: bool = False) -> int:
+    now = time.time()
+    state = load()
+
+    found = [f for f in (check() for check in CHECKS) if f is not None]
+    if not found:
+        return 0
+    worst = max(found, key=lambda f: f.severity)
+
+    if already_said(state, worst, now):
+        if dry:
+            print(f"quiet: already said {worst.key} (severity {worst.severity})")
+        return 0
+    if not within_budget(state, now):
+        if dry:
+            print(f"quiet: {BUDGET_PER_HOUR} already said this hour")
+        save(state)
+        return 0
+
+    if dry:
+        print(f"would draw: {worst.key} (severity {worst.severity})")
+        print("\n".join(worst.lines))
+        return 0
+
+    if not draw(worst):
+        return 1
+    state.setdefault("shown", {})[worst.fingerprint()] = now
+    state.setdefault("times", []).append(now)
+    save(state)
+    print(f"said: {worst.key}", file=sys.stderr)
+    return 0
+
+
+def status() -> int:
+    state = load()
+    now = time.time()
+    recent = [t for t in state.get("times", []) if t > now - 3600]
+    print(f"budget: {len(recent)} of {BUDGET_PER_HOUR} used this hour")
+    shown = state.get("shown", {})
+    if not shown:
+        print("nothing said yet")
+        return 0
+    print(f"{len(shown)} finding(s) remembered:")
+    for fp, when in sorted(shown.items(), key=lambda kv: -kv[1])[:10]:
+        age = (now - when) / 3600
+        print(f"  {fp}  {age:.1f}h ago")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--daemon", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--status", action="store_true")
+    args = parser.parse_args()
+
+    if args.status:
+        return status()
+    if not args.daemon:
+        return once(dry=args.dry_run)
+
+    print(f"watching every {INTERVAL // 60} minutes", file=sys.stderr)
+    while True:
+        try:
+            once()
+        except Exception as err:  # noqa: BLE001
+            print(f"check failed: {err}", file=sys.stderr)
+        try:
+            time.sleep(INTERVAL)
+        except KeyboardInterrupt:
+            return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
