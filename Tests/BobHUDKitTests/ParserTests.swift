@@ -1,4 +1,5 @@
 import CoreGraphics
+import SwiftUI
 import Foundation
 import Testing
 @testable import BobHUDKit
@@ -669,5 +670,59 @@ struct ClearTests {
         #expect(throws: (any Error).self) {
             _ = try LineParser.parse("- one two")
         }
+    }
+}
+
+@Suite("Reading it aloud")
+@MainActor
+struct AccessibilityTests {
+    @Test("a diagram describes itself rather than announcing an image")
+    func diagramDescribesItself() {
+        // It shipped with a declared role and no content, which promises
+        // information it cannot deliver.
+        let parts: [JSON] = [
+            .object(["t": .string("node"), "label": .string("Cashier")]),
+            .object(["t": .string("arrow")]),
+            .object(["t": .string("node"), "label": .string("Barista")]),
+        ]
+        let spoken = SurfaceView.describe(parts)
+        #expect(spoken.contains("Cashier"))
+        #expect(spoken.contains("Barista"))
+        #expect(spoken.contains("1 connection"))
+    }
+
+    @Test("a diagram with no labels still says how much is there")
+    func unlabelledDiagram() {
+        let parts: [JSON] = [.object(["t": .string("dot")]), .object(["t": .string("dot")])]
+        #expect(SurfaceView.describe(parts) == "2 shapes")
+    }
+
+    @Test("a tone has a word and a symbol, not only a colour")
+    func toneIsNotOnlyColour() {
+        // Good and bad differed by hue alone, which makes them identical to a
+        // meaningful number of people.
+        for name in ["good", "warn", "bad"] {
+            #expect(HUD.symbol(name) != nil, "\(name) has no symbol")
+            #expect(HUD.spoken(name) != nil, "\(name) has no word")
+        }
+        #expect(HUD.symbol(nil) == nil)
+        #expect(HUD.spoken("something else") == nil)
+    }
+
+    @Test("secondary text clears the contrast it used to fail")
+    func contrastRaised() {
+        // faint was 0.38 white, under 3:1 against this glass at 10 and 11
+        // points. It was chosen because it looked calm, which is not a
+        // standard.
+        #expect(HUD.faint == Color.white.opacity(0.62))
+        #expect(HUD.dim == Color.white.opacity(0.78))
+    }
+
+    @Test("out-of-range diagram coordinates land at the edge, not nowhere")
+    func coordinatesClamp() {
+        let part = try? #require(
+            Primitive(.object(["t": .string("node"), "x": .number(1.4), "y": .number(-0.2)])))
+        #expect(part?.channels[0] == 1)
+        #expect(part?.channels[1] == 0)
     }
 }
