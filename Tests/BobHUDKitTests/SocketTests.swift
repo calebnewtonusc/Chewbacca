@@ -76,6 +76,27 @@ struct SocketTests {
         #expect(lines.all.contains("r s"))
     }
 
+    @Test("a client that never asked hears nothing")
+    func eventsAreOptIn() async throws {
+        // Events used to go to every connected client, so a full speech
+        // transcript reached any process that happened to hold the socket open.
+        // Anything running as this user can open it. Nobody asked for that and
+        // nothing disclosed it.
+        let path = temporaryPath()
+        let server = SocketServer(path: path) { _ in }
+        try server.start()
+        defer { server.stop() }
+
+        let drawer = connect(to: path)
+        #expect(drawer >= 0)
+        defer { close(drawer) }
+        try await Task.sleep(for: .milliseconds(150))
+
+        #expect(!server.hasSubscribers)
+        // Nothing is listening, so this must report that it went nowhere.
+        #expect(!server.send(#"h "my private sentence""#))
+    }
+
     @Test("an event reaches a client that is only listening")
     func eventsReachListeners() async throws {
         let path = temporaryPath()
@@ -86,8 +107,12 @@ struct SocketTests {
         let listener = connect(to: path)
         #expect(listener >= 0)
         defer { close(listener) }
-        try await Task.sleep(for: .milliseconds(150))
+        // Subscribing is a line on the wire, not a separate channel.
+        let subscribe = "listen\n"
+        _ = subscribe.withCString { send(listener, $0, strlen($0), 0) }
+        try await Task.sleep(for: .milliseconds(250))
 
+        #expect(server.hasSubscribers)
         #expect(server.send(#"h "show me my week""#))
 
         var buffer = [UInt8](repeating: 0, count: 256)
