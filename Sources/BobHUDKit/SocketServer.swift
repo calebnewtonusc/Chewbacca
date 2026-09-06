@@ -69,6 +69,13 @@ public final class SocketServer: @unchecked Sendable {
         self.onEvent = onEvent
     }
 
+    /// What this build speaks.
+    ///
+    /// There was no version anywhere in the protocol, so a newer client talking
+    /// to an older display failed one silent line at a time with no way to tell
+    /// that was what was happening.
+    public static let version = "bobhud/1 verbs=c,>,d,r,@,-,p,m,u,listen"
+
     public static var defaultPath: String {
         if let override = ProcessInfo.processInfo.environment["BOB_HUD_SOCKET"] {
             return override
@@ -243,10 +250,21 @@ public final class SocketServer: @unchecked Sendable {
                 // `listen` is handled here rather than in the parser: it is
                 // about this connection, not about anything on the glass, and
                 // the parser has no idea which socket a line arrived on.
-                if line.trimmingCharacters(in: .whitespaces) == "listen" {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed == "listen" {
                     lock.lock()
                     subscribers.insert(fd)
                     lock.unlock()
+                    // Anything that subscribes is told what it is talking to,
+                    // unprompted. A client should never have to guess whether
+                    // the verb it is about to use exists in this build.
+                    _ = write(
+                        OutboundEvent.version(Self.version).line + "\n", to: fd)
+                    continue
+                }
+                if trimmed == "version" {
+                    _ = write(
+                        OutboundEvent.version(Self.version).line + "\n", to: fd)
                     continue
                 }
                 onEvent(Event(kind: .line(line)))

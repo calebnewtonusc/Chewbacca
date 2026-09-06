@@ -103,6 +103,21 @@ The display sends coordinates, not pixels. It has no screen recording permission
 and asking for one so it can crop a rectangle it already knows the bounds of
 would be a poor trade. Look at the region yourself if you need to see it.
 
+## Finding out when you got it wrong
+
+Send `listen` and the display talks back. It answers with its version
+immediately, and after that anything you send that it could not use comes back
+as a problem:
+
+```
+v! "bobhud/1 verbs=c,>,d,r,@,-,p,m,u,listen"
+! "`c` needs an id and a type"
+```
+
+Without subscribing you get silence, and silence means nothing at all: a
+misspelled component and a perfect one look identical. If you are writing
+something new, subscribe while you develop it.
+
 ## Marking the screen
 
 A panel sits *beside* the work. A mark sits **on** it.

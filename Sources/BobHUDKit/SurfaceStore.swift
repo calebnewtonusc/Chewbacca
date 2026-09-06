@@ -265,6 +265,16 @@ public final class SurfaceStore {
         }
     }
 
+    /// Tell whoever is drawing that something they sent was ignored.
+    ///
+    /// A component the renderer does not know, or a prop it does not support,
+    /// used to be dropped in silence. From the sender's side that is
+    /// indistinguishable from success, so a typo persists forever and the panel
+    /// is quietly missing a piece nobody knows to look for.
+    public func report(_ problem: String) {
+        onEvent?(.problem(problem))
+    }
+
     public func fire(_ action: String, from component: ComponentID, payload: [String: JSON] = [:]) {
         onEvent?(.action(name: action, component: component, payload: payload))
     }

@@ -12,6 +12,8 @@ import Foundation
 ///     x                                            the panel was dismissed
 ///     h <json string>                              something was said to it
 ///     g <x> <y> <w> <h>                            a region was pointed at
+///     ! <json string>                              something you sent was wrong
+///     v! <json string>                             the display's version
 ///
 /// Values echo the same encoding as inbound props, so `label="Send it"` means
 /// the same thing in both directions.
@@ -26,6 +28,16 @@ public enum OutboundEvent: Sendable, Equatable {
     /// A region of the screen the person pointed at, in points with a top-left
     /// origin. Deixis: this is what makes "what is this" mean something.
     case region(CGRect)
+    /// Something the sender got wrong.
+    ///
+    /// Nothing used to go back. A misspelled component, a dropped prop, a line
+    /// that failed to parse: all of it was swallowed, and the sender saw
+    /// success. That is the failure mode that makes every other bug here hard
+    /// to find, because the first thing you learn is that silence means
+    /// nothing at all.
+    case problem(String)
+    /// What this build is, so a client can tell before it relies on something.
+    case version(String)
 
     public var line: String {
         switch self {
@@ -44,6 +56,12 @@ public enum OutboundEvent: Sendable, Equatable {
 
         case .heard(let text):
             return "h \(OutboundEvent.jsonString(text))"
+
+        case .problem(let text):
+            return "! \(OutboundEvent.jsonString(text))"
+
+        case .version(let text):
+            return "v! \(OutboundEvent.jsonString(text))"
 
         case .region(let rect):
             // Whole points. Sub-pixel precision in a gesture made with a hand
