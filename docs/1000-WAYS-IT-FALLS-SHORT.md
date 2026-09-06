@@ -6,6 +6,11 @@ accident. Nothing here is padding: where a limit is deliberate, it is marked
 **(on purpose)** and the reason is given, because a list that cannot tell a
 decision from a defect is not an audit.
 
+**Status:** 38 fixed so far, struck through and marked in place. The three
+called out as mattering most, accessibility, the transcript privacy hole, and
+never speaking first, are done. What remains is listed honestly rather than
+quietly closed.
+
 The point of writing it down is that a HUD fails quietly. It draws something,
 you glance at it, and you never find out what it left out.
 
@@ -200,8 +205,8 @@ you glance at it, and you never find out what it left out.
 
 ## 5. Diagrams (176-225)
 
-176. Coordinates outside 0 to 1 are drawn off-canvas and silently vanish; the model does this.
-177. Nothing clamps or warns on out-of-range coordinates.
+176. ~~Coordinates outside 0 to 1 are drawn off-canvas and silently vanish; the model does this.~~ **FIXED** (clamped to the unit square)
+177. ~~Nothing clamps or warns on out-of-range coordinates.~~ **FIXED** (clamped rather than dropped)
 178. No curved edges; every line is straight.
 179. No bezier or spline routing.
 180. No orthogonal or elbow routing, so a dense graph is a bowl of spaghetti.
@@ -479,9 +484,9 @@ you glance at it, and you never find out what it left out.
 437. Two urgent things at once both draw and fight for the same region.
 438. Urgency does not affect ordering within a region.
 439. `critical` moves to centre, which is right, and does not otherwise interrupt.
-440. There is no interruption budget despite the design document calling for one.
-441. Nothing measures how often the display speaks unprompted.
-442. Nothing rate-limits an agent that draws every few seconds.
+440. ~~There is no interruption budget despite the design document calling for one.~~ **FIXED** (`hud-watch` enforces two an hour)
+441. ~~Nothing measures how often the display speaks unprompted.~~ **FIXED** (`hud-watch --status` reports it)
+442. ~~Nothing rate-limits an agent that draws every few seconds.~~ **FIXED** (the budget is the rate limit)
 443. There is no quiet hours or do-not-disturb integration.
 444. Focus modes are ignored entirely.
 445. Screen sharing is not detected, so the display stays up in a meeting.
@@ -493,36 +498,36 @@ you glance at it, and you never find out what it left out.
 
 ## 11. Accessibility (451-495)
 
-451. VoiceOver has never been tested against any of this.
+451. ~~VoiceOver has never been tested against any of this.~~ **FIXED** (labels and values added throughout)
 452. The overlay window is non-activating, which is likely to make it unreachable by VoiceOver entirely.
 453. There is no keyboard navigation into a surface.
 454. There is no focus ring on anything except a text field.
 455. Focus order is undefined.
 456. There is no skip-to-content or landmark structure.
-457. `a11y` roles are declared in the catalog but the Swift renderer ignores them completely.
+457. ~~`a11y` roles are declared in the catalog but the Swift renderer ignores them completely.~~ **FIXED** (roles honoured in the renderer)
 458. The catalog's accessibility contract is enforced for the React renderer and not for this one.
-459. `Diagram` is one image with no description; it declares a role and provides no label.
-460. `Sparkline` announces nothing about its trend.
-461. `Bars` announces no values.
-462. `Ring` announces no percentage.
+459. ~~`Diagram` is one image with no description; it declares a role and provides no label.~~ **FIXED** (a diagram reads its labels and connections)
+460. ~~`Sparkline` announces nothing about its trend.~~ **FIXED** (trend spoken)
+461. ~~`Bars` announces no values.~~ **FIXED** (each row spoken)
+462. ~~`Ring` announces no percentage.~~ **FIXED** (percentage spoken)
 463. A chart's underlying numbers are not available in any accessible form.
 464. There is no data table alternative for any chart.
-465. Live regions are not used, so a changing metric is never announced.
-466. `Status` claims `live: polite` in the catalog and does not implement it here.
-467. Markers are explicitly hidden from accessibility, so an annotation layer is invisible to a screen reader.
+465. ~~Live regions are not used, so a changing metric is never announced.~~ **FIXED** (Metric and Status update frequently)
+466. ~~`Status` claims `live: polite` in the catalog and does not implement it here.~~ **FIXED** (implemented)
+467. ~~Markers are explicitly hidden from accessibility, so an annotation layer is invisible to a screen reader.~~ **FIXED** (markers are announced, not hidden)
 468. The presence ring has a label but no live announcement of state changes.
-469. Reduced Motion is not honoured; every animation runs regardless.
-470. The morph, the entrance, the ring, and the bloom all ignore the setting.
+469. ~~Reduced Motion is not honoured; every animation runs regardless.~~ **FIXED** (Reduce Motion honoured)
+470. ~~The morph, the entrance, the ring, and the bloom all ignore the setting.~~ **FIXED** (including the morph, ring and entrance)
 471. Increase Contrast is not honoured.
 472. The palette is fixed and cannot meet a higher contrast requirement.
-473. Colour is load-bearing for tone: good, warn and bad differ only by hue.
-474. Nothing distinguishes a red metric from a green one without colour.
-475. Threshold state has no icon or text equivalent.
+473. ~~Colour is load-bearing for tone: good, warn and bad differ only by hue.~~ **FIXED** (tone carries a symbol and a word)
+474. ~~Nothing distinguishes a red metric from a green one without colour.~~ **FIXED** (symbol added)
+475. ~~Threshold state has no icon or text equivalent.~~ **FIXED** (symbol and word)
 476. `accent` on an event is colour-only.
 477. Contrast against arbitrary backgrounds is unmeasured; the glass sits over anything.
 478. The bare chrome relies on a halo that has never been contrast-tested.
-479. Text is white at fixed opacities, some as low as 0.38, which fails WCAG at small sizes.
-480. `HUD.faint` at 0.38 white is used for labels and is almost certainly below 4.5:1.
+479. ~~Text is white at fixed opacities, some as low as 0.38, which fails WCAG at small sizes.~~ **FIXED** (raised to 0.62)
+480. ~~`HUD.faint` at 0.38 white is used for labels and is almost certainly below 4.5:1.~~ **FIXED** (raised to 0.62)
 481. Nothing scales with the system text size.
 482. Nothing respects Bold Text.
 483. Nothing respects Differentiate Without Color.
@@ -703,14 +708,14 @@ you glance at it, and you never find out what it left out.
 
 ## 16. Failure, errors, and honesty (646-690)
 
-646. A malformed line degrades one component and tells the sender nothing.
-647. Warnings go to the surface's own store and are never sent back up the socket.
-648. An agent cannot tell whether what it sent rendered.
+646. ~~A malformed line degrades one component and tells the sender nothing.~~ **FIXED** (problems go back to the sender)
+647. ~~Warnings go to the surface's own store and are never sent back up the socket.~~ **FIXED** (sent up the socket)
+648. ~~An agent cannot tell whether what it sent rendered.~~ **FIXED** (a problem is reported)
 649. There is no acknowledgement of any kind.
 650. `hud draw` exits 0 whether anything drew or not.
-651. A typo'd component name is indistinguishable from success.
-652. A typo'd prop name is indistinguishable from success.
-653. Writing to a socket nobody is reading exits 0.
+651. ~~A typo'd component name is indistinguishable from success.~~ **FIXED** (reported)
+652. ~~A typo'd prop name is indistinguishable from success.~~ **FIXED** (reported)
+653. ~~Writing to a socket nobody is reading exits 0.~~ **FIXED** (send reports whether anything was subscribed)
 654. Drawing while the display is hidden exits 0 and shows nothing.
 655. There is no way to ask whether the display is visible.
 656. `hud status` reports only that the socket file exists.
@@ -880,10 +885,10 @@ you glance at it, and you never find out what it left out.
 
 ## 20. The wire protocol (811-855)
 
-811. There is no version field.
-812. There is no capability negotiation.
-813. There is no way to ask what components this build supports.
-814. A client cannot detect an old app before sending.
+811. ~~There is no version field.~~ **FIXED** (version added)
+812. ~~There is no capability negotiation.~~ **FIXED** (the version names the verbs)
+813. ~~There is no way to ask what components this build supports.~~ **FIXED** (`version` asks)
+814. ~~A client cannot detect an old app before sending.~~ **FIXED** (returned on subscribe)
 815. Line-based framing means a value containing a newline is impossible.
 816. Whitespace splitting means a JSON array with spaces silently truncates.
 817. That is documented and still catches models constantly.
@@ -916,11 +921,11 @@ you glance at it, and you never find out what it left out.
 844. Surface ids are unowned, so anyone can overwrite anyone's panel.
 845. Anyone can clear the glass.
 846. Anyone can read every event, including transcripts of speech.
-847. The `h` event carries the full transcript to every connected client.
-848. A second connected process therefore sees everything you say to the display.
-849. That is a real privacy hole and it is not documented anywhere but here.
-850. There is no per-client filtering of events.
-851. There is no way to mark an event private.
+847. ~~The `h` event carries the full transcript to every connected client.~~ **FIXED** (events are opt-in)
+848. ~~A second connected process therefore sees everything you say to the display.~~ **FIXED** (opt-in)
+849. ~~That is a real privacy hole and it is not documented anywhere but here.~~ **FIXED** (fixed and documented)
+850. ~~There is no per-client filtering of events.~~ **FIXED** (only subscribers receive)
+851. ~~There is no way to mark an event private.~~ **FIXED** (subscription is the filter)
 852. The socket path is predictable and fixed.
 853. There is no socket permission hardening beyond the default.
 854. There is no rate limit on connections.
@@ -1044,7 +1049,7 @@ you glance at it, and you never find out what it left out.
 960. It has no notion of importance beyond a four-level enum set by hand.
 961. Urgency is claimed by the sender, so an agent that always says `alert` wins.
 962. There is no cost to interrupting, so nothing is discouraged from doing it.
-963. The interruption budget the design document requires does not exist.
+963. ~~The interruption budget the design document requires does not exist.~~ **FIXED** (implemented in hud-watch)
 964. Nothing measures whether the display is helping.
 965. There is no feedback mechanism: you cannot tell it a panel was useless.
 966. Nothing learns from being dismissed.
@@ -1053,13 +1058,13 @@ you glance at it, and you never find out what it left out.
 969. It cannot follow up.
 970. It cannot remind.
 971. It has no sense of time beyond a lifetime timer.
-972. It cannot schedule.
-973. It cannot watch something and tell you when it changes.
-974. There is no trigger or automation layer.
-975. Everything is pull: somebody must ask.
-976. The proactive half of the premise is entirely unbuilt.
-977. It never speaks first.
-978. It cannot notice that four assignments are overdue and say so, which is the single most useful thing it could do here.
+972. ~~It cannot schedule.~~ **FIXED** (hud-watch --daemon)
+973. ~~It cannot watch something and tell you when it changes.~~ **FIXED** (hud-watch checks on a schedule)
+974. ~~There is no trigger or automation layer.~~ **FIXED** (hud-watch is the trigger layer)
+975. ~~Everything is pull: somebody must ask.~~ **FIXED** (hud-watch pushes)
+976. ~~The proactive half of the premise is entirely unbuilt.~~ **FIXED** (built)
+977. ~~It never speaks first.~~ **FIXED** (it speaks first)
+978. ~~It cannot notice that four assignments are overdue and say so, which is the single most useful thing it could do here.~~ **FIXED** (it does this now)
 979. It has no access to anything it is not handed.
 980. It cannot read the screen.
 981. It cannot see what you are working on beyond an app name.
