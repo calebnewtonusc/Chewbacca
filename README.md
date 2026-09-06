@@ -186,6 +186,17 @@ swift test          # 70 tests
 
 macOS 14 or later. No dependencies.
 
+## What it cannot do
+
+[1000 ways it falls short](docs/1000-WAYS-IT-FALLS-SHORT.md) is an audit of the
+working build: what you cannot do, what is wrong, and what is right by accident.
+Seven of the thousand are marked as deliberate with the reasoning given, because
+a list that cannot tell a decision from a defect is not an audit.
+
+It is here rather than in an issue tracker because a heads-up display fails
+quietly. It draws something, you glance at it, and you never find out what it
+left out.
+
 ## Design notes
 
 The comments in `Sources/BobHUDKit` explain the reasoning rather than the syntax,
