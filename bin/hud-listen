@@ -193,6 +193,10 @@ class Listener:
             if announced:
                 print("connected", file=sys.stderr)
                 announced = False
+            # Ask to hear events. Without this the display sends nothing back,
+            # which is the point: a transcript of everything the person says
+            # should not reach a process that only ever wanted to draw a panel.
+            self.send("listen")
             self.send("p attentive")
 
             buffer = b""

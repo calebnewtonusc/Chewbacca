@@ -55,6 +55,7 @@ c <id> <Type> prop=value ...
 d /pointer <json>
 r <id>
 - <surface>
+listen                             ask to receive events on this connection
 ```
 
 Arrays are JSON and the parser splits on whitespace, so write them with no

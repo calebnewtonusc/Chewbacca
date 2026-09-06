@@ -117,7 +117,7 @@ def test_end_to_end() -> None:
         conn.settimeout(30)
         buffer = b""
         try:
-            while len(received) < 4:
+            while len(received) < 5:
                 chunk = conn.recv(4096)
                 if not chunk:
                     break
@@ -156,8 +156,11 @@ def test_end_to_end() -> None:
     process.wait(timeout=10)
     server.close()
 
-    check("it announced itself as listening", received and received[0] == "p attentive",
+    # `listen` first: the display sends nothing back until a client asks, so a
+    # transcript never reaches a process that only wanted to draw.
+    check("it subscribes before anything else", received and received[0] == "listen",
           f"got {received[:1]}")
+    check("then it announces itself", "p attentive" in received, f"got {received[:2]}")
     check("it said it was thinking", "p thinking" in received, f"got {received}")
     check("it drew the panel", "@ week at=topRight" in received, f"got {received}")
     check("prose from the model was not sent to the parser",
