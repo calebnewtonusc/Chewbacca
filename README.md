@@ -193,7 +193,10 @@ working build: what you cannot do, what is wrong, and what is right by accident.
 Seven of the thousand are marked as deliberate with the reasoning given, because
 a list that cannot tell a decision from a defect is not an audit.
 
-It is here rather than in an issue tracker because a heads-up display fails
+What is left is filed as work in [the backlog](docs/BACKLOG.md) and tracked in
+`bd`. The audit stays as the record of what was wrong.
+
+The list is here rather than only in a tracker because a heads-up display fails
 quietly. It draws something, you glance at it, and you never find out what it
 left out.
 
