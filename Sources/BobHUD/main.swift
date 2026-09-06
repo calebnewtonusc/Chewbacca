@@ -120,7 +120,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } catch {
                 // A malformed line degrades one component rather than clearing
                 // the glass, which is the same choice the web renderer makes.
+                // It also goes back to whoever sent it now: a sender that
+                // cannot tell a typo from success will keep making the typo.
                 model.warn(String(describing: error))
+                model.onEvent?(.problem(String(describing: error)))
             }
 
         case .ended:

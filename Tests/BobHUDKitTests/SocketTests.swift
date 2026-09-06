@@ -151,3 +151,29 @@ private final class Mailbox: @unchecked Sendable {
         return lines
     }
 }
+
+/// Telling the sender when it got something wrong.
+@Suite("Talking back")
+struct FeedbackTests {
+    @Test("a problem is a quoted string, so a sentence survives the wire")
+    func problemIsQuoted() {
+        let line = OutboundEvent.problem("`c` needs an id and a type").line
+        #expect(line.hasPrefix("! "))
+        #expect(line.contains("needs an id"))
+    }
+
+    @Test("the version says which verbs exist")
+    func versionListsVerbs() {
+        // A newer client talking to an older display used to fail one silent
+        // line at a time with no way to tell that was what was happening.
+        #expect(SocketServer.version.contains("bobhud/"))
+        for verb in ["c", "d", "r", "@", "p", "m", "u", "listen"] {
+            #expect(SocketServer.version.contains(verb), "version omits \(verb)")
+        }
+    }
+
+    @Test("a problem and a request are different events")
+    func problemIsNotHeard() {
+        #expect(OutboundEvent.problem("x") != OutboundEvent.heard("x"))
+    }
+}
