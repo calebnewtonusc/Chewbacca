@@ -1060,7 +1060,66 @@ Return ONLY a JSON array, no prose, no code fence:
 
 Rules for "body": one short past-tense clause, under 12 words, naming the specific thing. "got In-N-Out in Alhambra" not "had a meal". Do not name the other person in the body; the store already knows whose record this is.
 "others": people named in the text who were also there. Omit if none. Never invent a name.
-"kind": "experience" for something they did, "fact" for a durable milestone (got the job, moved in).`;
+"kind": "experience" for something they did, "fact" for a durable milestone (got the job, moved in).
+
+ONE ENTRY PER DISTINCT EVENT. Never return the same event twice in different words. "went to a game" and "went to the USC football game" are one event, not two, and so are "met at Starbucks for a medication swap" and "met at Starbucks to exchange meds". If you are about to write a second line about a thing you already wrote, write the more specific version and drop the other.`;
+
+
+// A day yields one event per thing that happened, and the model does not always
+// agree. Measured on 2026-09-07: a 16-day scan wrote "went to football game" and
+// "attended game at USC" as two rows, and did the same for four other days. The
+// prompt now forbids it and this catches what still gets through, including on a
+// rescan, where the earlier run's rows are already in the table.
+// Grammar words plus the generic event verbs, which carry no identity. Without
+// them "submitted Stanford application" and "submitted Penn application" agree
+// on two tokens and collapse into one, losing a real event. Measured against
+// his actual history on 2026-09-07, which is where that pair came from.
+const EVENT_STOP = new Set(["a","an","the","to","at","in","on","for","of","with",
+  "and","or","we","i","he","she","they","it","his","her","their","my","our","was",
+  "were","had","has","have","did","up","out","some","that","this","from","by",
+  "went","got","get","going","attended","attend","submitted","submit","played",
+  "play","watched","watch","visited","visit","dropped","drop","picked","pick",
+  "took","take","made","make","held","hold","hung","hang","ate","eat","drove",
+  "drive","did","done","together","group","friends",
+  // "met with Mr. Silver" and "met with Mr. Irie" are two different meetings on
+  // one day, and they agreed on "met" and "mr" until these were added.
+  "met","meet","meeting","mr","mrs","ms","dr"]);
+
+function eventTokens(body) {
+  return new Set(
+    // Possessives matter: "John's house" and "JJ's house" both leave a bare "s"
+    // once punctuation goes, and that stray token was enough to merge two
+    // different houses on one day. Anything under two characters is dropped.
+    String(body || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/)
+      .filter((w) => w.length > 1 && !EVENT_STOP.has(w)),
+  );
+}
+
+function sameEvent(a, b) {
+  const A = eventTokens(a), B = eventTokens(b);
+  if (!A.size || !B.size) return false;
+  let shared = 0;
+  for (const w of A) if (B.has(w)) shared++;
+  // Subset means one phrasing is strictly the vaguer version of the other:
+  // "went to Santa Monica" inside "went to Santa Monica beach". Requires at
+  // least two distinctive words on the smaller side, because a one-word body
+  // is a subset of everything that happens to mention it: "attended church"
+  // sits inside "pre-church workout", and those are two different events on
+  // the same morning. Both examples are from his real history.
+  if (Math.min(A.size, B.size) >= 2 && (shared === A.size || shared === B.size)) return true;
+  // Half the distinctive words in common. Deliberately conservative: this runs
+  // against a person's real history, and merging two events that only rhyme
+  // deletes something that happened. Under-merging leaves a visible duplicate,
+  // which is annoying; over-merging is silent and permanent.
+  //
+  // Known limit, accepted: a pure synonym restatement that shares no
+  // distinctive word ("football game" / "game at USC") still writes twice. The
+  // prompt is the defence against that, not this function.
+  // 0.55 rather than 0.5 on purpose: at 0.5 exactly, "lunch with church
+  // friends" and "went to church" collapse, and those are two things that
+  // happened on one Sunday.
+  return shared / (A.size + B.size - shared) >= 0.55;
+}
 
 async function classifyEpisodes(batch, model) {
   const payload = batch
@@ -1316,17 +1375,25 @@ async function cmdEvents(argv) {
   const conc = Math.max(1, Math.min(8, Number(flags.concurrency || 4)));
   note(c.dim(`  ${batches.length} batches, ${conc} at a time`));
 
-  let written = 0, read = 0;
+  let written = 0, read = 0, dupes = 0;
 
   // Persist each batch AS IT LANDS. Collecting all of them first and writing
   // at the end means a run interrupted at batch 600 of 666 saved nothing, and
   // these runs are long enough that being interrupted is the normal case.
+  // What is already on this person's day, so a rescan or a repeated model answer
+  // does not write the same event twice.
+  const bodiesOnDay = d.prepare(
+    `SELECT body FROM observations
+      WHERE person_id = ? AND substr(observed_at,1,10) = ? AND deleted_at IS NULL`,
+  );
+
   const commitBatch = (batch, results) => {
     for (let j = 0; j < batch.length; j++) {
       const ep = batch[j];
       const events = results[j] || [];
       read++;
       markScanned.run(ep.person_id, ep.day, events.length);
+      const seen = bodiesOnDay.all(ep.person_id, ep.day).map((r) => r.body);
       for (const ev of events) {
         if (!ev || typeof ev.body !== "string" || !ev.body.trim()) continue;
         const modality = ["actual", "planned", "declined"].includes(ev.modality) ? ev.modality : "actual";
@@ -1336,6 +1403,8 @@ async function cmdEvents(argv) {
         const at = `${ep.day} 12:00:00`;
         const body = stripOwnerName(ev.body.trim(), ep.name);
         if (body.length < 4) continue;
+        if (seen.some((prev) => sameEvent(prev, body))) { dupes++; continue; }
+        seen.push(body);
         insertObservation({
           personId: ep.person_id,
           body,
@@ -1390,6 +1459,7 @@ async function cmdEvents(argv) {
     return;
   }
   say(`\n  ${c.grn("logged")} ${written} events from ${read} person-days`);
+  if (dupes) say(c.dim(`  ${dupes} near-duplicate(s) of an event already on the day, skipped`));
   if (failed) say(c.dim(`  ${failed} batch(es) failed and were left unmarked; rerun to retry them`));
   say(c.dim("  people events list        to read them"));
   say(c.dim("  people history <name>     to see them on the curve\n"));
