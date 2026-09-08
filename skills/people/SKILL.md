@@ -50,10 +50,37 @@ people intro Anthropic            # who could introduce them
 people import --mac               # read the macOS Contacts app
 people task add maggie "send the book" --due 2026-09-20
 people ask maggie                 # what you still do not know about her
+people dashboard                  # who you texted, ranked and categorised
 ```
 
 `people help` has the rest. Add `--json` nowhere: this CLI prints for humans,
 and you should read its output the same way.
+
+## The dashboard
+
+`people dashboard` serves a page at `http://localhost:7373` that answers one
+question: who have I been texting, most recent first, and what group are they
+from. It syncs on load and every two minutes, so it is current without being
+asked.
+
+`people dashboard --install` puts it behind a LaunchAgent with `KeepAlive`, so
+it survives a reboot and a crash and the link always works. `--uninstall`
+removes the agent and touches no data.
+
+**The categories come from the contact names, not from inference.** Somebody
+who saved a contact as "Sid Chowdhury A2F USC IYA" has already done the
+labelling, and they know what those letters mean. The dashboard reads the tags
+out of the name, shows them as badges, and strips them from the displayed name
+so it reads as a name again. Guessing that "Nemmy" means a residential college
+would be an invention, so the tag is shown as written.
+
+The one piece of real logic is that a label which is also a given name only
+counts after the first token. Without that rule "Maia IYA" and "Christian
+Stiker IYA" both lose their actual names.
+
+New tags go in `TAGS` and `HARD`/`SOFT` in `bin/lib/people-dashboard.js`. It
+binds to loopback deliberately: this is the user's entire message history and
+it does not belong on the local network.
 
 ## Write as the conversation happens
 
