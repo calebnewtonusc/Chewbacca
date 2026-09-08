@@ -284,10 +284,28 @@
       "description": "Spaced repetition, where the flashcards the study skills write actually live"
     },
     {
+      "display": "bd",
+      "url": "https://github.com/gastownhall/beads",
+      "install": "brew install beads",
+      "description": "Issue tracker your agent reads and writes, so work survives a context reset"
+    },
+    {
+      "display": "mac",
+      "url": "https://github.com/31Carlton7/mac-cli",
+      "install": "see docs/MACOS-APP-CONTROL.md (clone plus swift build, no formula yet)",
+      "description": "Calendar, Reminders, Contacts, Mail, Messages, Notes, and Finder as JSON"
+    },
+    {
       "display": "Maccy",
       "url": "https://github.com/p0deje/Maccy",
       "install": "brew install --cask maccy",
       "description": "Clipboard history, so a value scrolled past is still recoverable"
+    },
+    {
+      "display": "mac-use",
+      "url": "https://github.com/browser-use/macOS-use",
+      "install": "see docs/MACOS-TOOLS.md (clone plus a uv venv, no formula)",
+      "description": "Natural-language agent that drives any Mac app through Accessibility"
     },
     {
       "display": "peekaboo",
@@ -300,6 +318,12 @@
       "url": "https://github.com/steipete/summarize",
       "install": "brew install steipete/tap/summarize",
       "description": "Gist of any URL, YouTube video, podcast, or local file"
+    },
+    {
+      "display": "yt-transcript",
+      "url": "https://github.com/calebnewtonusc/claude-youtube-transcripts",
+      "install": "see docs/MACOS-TOOLS.md (its own installer, no formula)",
+      "description": "Transcript of any YouTube video, channel, or playlist, read without asking"
     }
   ]
 }
