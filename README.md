@@ -85,7 +85,7 @@ chats resolved into circles, and 6,500 observations.
 
 Indexing is the easy half. The store held half a million messages and still
 could not answer "what music is my friend into", because everything was
-retrievable and nothing was *known*. So `people distill` hands new messages to
+retrievable and nothing was _known_. So `people distill` hands new messages to
 Claude in batches and writes back durable facts, with a per-person watermark so
 it never re-reads one. It runs nightly. It refuses to extract anything about
 someone else's crisis, addiction, or the breakdown of a relationship, and that

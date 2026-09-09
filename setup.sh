@@ -1472,11 +1472,6 @@ if command -v brew &>/dev/null; then
   else
     brew install --cask anki &>/dev/null && log "Anki installed" || warn "could not install Anki"
   fi
-  if command -v bd &>/dev/null; then
-    log "bd already installed"
-  else
-    brew install beads &>/dev/null && log "bd installed" || warn "could not install bd"
-  fi
   if [ -d "/Applications/Maccy.app" ]; then
     log "Maccy already installed"
   else
@@ -1494,79 +1489,6 @@ if command -v brew &>/dev/null; then
   fi
 else
   warn "Homebrew not found. macOS tools skipped: see docs/MACOS-TOOLS.md"
-fi
-
-# mac: Calendar, Reminders, Contacts, Mail, Messages, Notes, and Finder as JSON
-if [ "$(uname -s)" != "Darwin" ]; then
-  :
-elif command -v mac &>/dev/null; then
-  log "mac-cli already installed"
-elif ! command -v swift &>/dev/null; then
-  warn "swift not found, skipping mac-cli. Run: xcode-select --install"
-else
-  MC_DIR="$HOME/Projects/mac-cli"
-  [ -d "$MC_DIR/.git" ] || git clone -q --depth 1 \
-    https://github.com/31Carlton7/mac-cli.git "$MC_DIR" 2>/dev/null || true
-  if [ -d "$MC_DIR" ]; then
-    # SwiftPM caches dependencies as bare repos, which a global
-    # safe.bareRepository=explicit forbids it from reading. Override the
-    # setting for this one build rather than changing it machine-wide.
-    if (cd "$MC_DIR" && GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.bareRepository \
-        GIT_CONFIG_VALUE_0=all swift build -c release &>/dev/null); then
-      mkdir -p "$HOME/.local/bin"
-      install "$MC_DIR/.build/release/mac" "$HOME/.local/bin/mac"
-      log "mac-cli installed. Run: mac doctor  (grants are per-terminal)"
-    else
-      warn "mac-cli build failed. Retry: cd $MC_DIR && swift build -c release"
-    fi
-  else
-    warn "could not clone mac-cli"
-  fi
-fi
-
-# mac-use: Natural-language agent that drives any Mac app through Accessibility
-if command -v mac-use &>/dev/null; then
-  log "mac-use already installed"
-elif ! command -v uv &>/dev/null; then
-  warn "uv not found, skipping macOS-use. Install uv, then re-run:"
-  warn "  ./setup.sh --only tools"
-else
-  MU_DIR="$HOME/Projects/macOS-use"
-  [ -d "$MU_DIR/.git" ] || git clone -q --depth 1 \
-    https://github.com/browser-use/macOS-use.git "$MU_DIR" 2>/dev/null || true
-  if [ -d "$MU_DIR" ]; then
-    cp "$SCRIPT_DIR/bin/mac_use_cli.py" "$MU_DIR/mac_use_cli.py"
-    cp "$SCRIPT_DIR/bin/mac_use_claude.py" "$MU_DIR/mac_use_claude.py"
-    mkdir -p "$HOME/.local/bin"
-    cp "$SCRIPT_DIR/bin/mac-use" "$HOME/.local/bin/mac-use"
-    chmod +x "$HOME/.local/bin/mac-use"
-    if (cd "$MU_DIR" && uv venv --python 3.11 &>/dev/null \
-        && uv pip install --python .venv/bin/python --editable . &>/dev/null); then
-      log "mac-use installed"
-    else
-      warn "macOS-use deps failed. Retry: cd $MU_DIR && uv pip install -e ."
-    fi
-  else
-    warn "could not clone macOS-use"
-  fi
-fi
-
-# yt-transcript: Transcript of any YouTube video, channel, or playlist, read without asking
-if command -v yt-transcript &>/dev/null; then
-  log "yt-transcript already installed"
-else
-  YT_DIR="$(mktemp -d)"
-  if git clone -q --depth 1 https://github.com/calebnewtonusc/claude-youtube-transcripts \
-      "$YT_DIR" 2>/dev/null && [ -x "$YT_DIR/install.sh" ]; then
-    if (cd "$YT_DIR" && ./install.sh &>/dev/null); then
-      log "yt-transcript installed"
-    else
-      warn "youtube-transcripts installer failed. Run it by hand: $YT_DIR/install.sh"
-    fi
-  else
-    warn "could not clone claude-youtube-transcripts"
-  fi
-  rm -rf "$YT_DIR"
 fi
 
 # peekaboo speaks MCP too. Registered at user scope so it is available in
