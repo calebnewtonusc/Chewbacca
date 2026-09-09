@@ -1201,7 +1201,23 @@ function claudeBinUncached() {
 /// ever run one at a time, and a full history is a few hundred calls at half a
 /// minute each. Most of that wait is Claude Code starting up rather than
 /// thinking, so it parallelises almost perfectly.
-function claudeJSON(prompt, system, model) {
+// Rate limits are the normal case when several of these run at once, and a 429
+// that resolves to null is indistinguishable from "this person had no facts".
+// That silently drops people from a full pass, so retry with backoff and let
+// the caller see a real failure when it still will not go through.
+async function claudeJSON(prompt, system, model, tries = 4) {
+  for (let attempt = 0; ; attempt++) {
+    const out = await claudeJSONOnce(prompt, system, model);
+    if (out !== RATE_LIMITED) return out;
+    if (attempt >= tries - 1) return null;
+    const wait = Math.round(2000 * Math.pow(2, attempt) * (0.7 + Math.random() * 0.6));
+    await new Promise((r) => setTimeout(r, wait));
+  }
+}
+
+const RATE_LIMITED = Symbol("rate-limited");
+
+function claudeJSONOnce(prompt, system, model) {
   const bin = claudeBin();
   if (!bin) die("Claude Code is not installed, so events cannot be extracted.");
   return new Promise((resolve) => {
@@ -1215,13 +1231,16 @@ function claudeJSON(prompt, system, model) {
       ["-p", "--output-format", "json", "--strict-mcp-config", "--model", model,
        "--append-system-prompt", system, prompt],
       { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 300000 },
-      (err, stdout) => {
-        if (err && !stdout) return resolve(null);
+      (err, stdout, stderr) => {
+        const limited = /\b429\b|rate limit|overloaded/i;
+        if (err && !stdout) return resolve(limited.test(String(stderr || err)) ? RATE_LIMITED : null);
         try {
           const obj = JSON.parse(stdout);
-          resolve(obj.is_error ? null : (typeof obj.result === "string" ? obj.result : null));
+          if (obj.is_error) return resolve(limited.test(String(obj.result || "")) ? RATE_LIMITED : null);
+          if (typeof obj.result !== "string") return resolve(null);
+          return resolve(limited.test(obj.result) ? RATE_LIMITED : obj.result);
         } catch {
-          resolve(null);
+          resolve(limited.test(String(stdout || "")) ? RATE_LIMITED : null);
         }
       },
     );
@@ -1709,7 +1728,16 @@ function cmdShow(argv) {
   const qf = d.prepare("SELECT key, value FROM quick_facts WHERE person_id=? ORDER BY key").all(p.id);
   if (qf.length) {
     say("");
-    for (const f of qf) say(`  ${c.cyn(f.key.padEnd(14))} ${f.value}`);
+    for (const f of qf) {
+      const lines = String(f.value).split("\n");
+      const marked = lines
+        .map((line) => {
+          const gone = shelfLife(line, factLearnedAt(line));
+          return gone ? `${line}  ${c.yel(`[${gone}]`)}` : line;
+        })
+        .join("\n" + " ".repeat(17));
+      say(`  ${c.cyn(f.key.padEnd(14))} ${marked}`);
+    }
   }
 
   const rels = d
@@ -2458,6 +2486,444 @@ function cmdAlias(argv) {
   if (n) recomputeScores();
 }
 
+
+// ---------------------------------------------------------------- distill
+// The 543 facts in this store were extracted by a human reading 500k messages
+// once. That does not survive contact with next semester. `distill` is the
+// repeatable version: it hands new messages to Claude in batches, gets back
+// durable facts, and moves a watermark so it never re-reads the same message.
+
+const DISTILL_SLOTS = [
+  "who_they_are", "family", "works_on", "school", "how_we_met", "history",
+  "ask_about", "cares_about", "music", "interests", "food", "health",
+  "faith", "how_they_think", "advice_they_gave", "can_introduce",
+];
+
+// Facts about someone else's mental health, crises, or relationships are not
+// ours to file. Caleb ruled on this directly: do not extract them.
+const DISTILL_FORBIDDEN =
+  /\b(suicid|kill (my|him|her|them)self|self.?harm|overdose|psych ward|inpatient|rehab|relapse|eating disorder|anorexi|bulimi|abus(e|ed|ive)|assault|rape|molest|miscarriage|abortion|divorce|custody|antidepressant|lexapro|prozac|zoloft|adderall|bipolar|manic episode)/i;
+
+function distillPrompt(name, lines) {
+  return [
+    "Extract durable facts about this person from their own messages.",
+    "",
+    "A durable fact is one you would still want to know in a year: what they do,",
+    "where they are from, who is in their family, what they are into, what they",
+    "are working on, advice they gave, something they care about. Logistics are",
+    "not facts. \"running late\", \"on my way\", \"I have class at 3\" are all noise.",
+    "",
+    "Rules:",
+    "- Only facts stated by this person about themselves.",
+    "- Do NOT extract anything about their mental health, a crisis, addiction,",
+    "  abuse, or the breakdown of a relationship. Skip those messages entirely.",
+    "- Prefer few excellent facts over many weak ones. Zero is a valid answer.",
+    "- Keep the person's own words in `quote`, verbatim and short.",
+    "- `slot` must be one of: " + DISTILL_SLOTS.join(", "),
+    "",
+    "Output ONLY a JSON array, no prose:",
+    '[{"slot":"...","value":"one sentence, third person","quote":"their words","at":"YYYY-MM-DD"}]',
+    "",
+    `Person: ${name}`,
+    "Messages:",
+    ...lines,
+  ].join("\n");
+}
+
+const DISTILL_SYSTEM =
+  "You extract durable facts about people from their own text messages. " +
+  "You reply with a JSON array and nothing else: no preamble, no prayer, no explanation.";
+
+async function distillCall(prompt, model) {
+  const out = await claudeJSON(prompt, DISTILL_SYSTEM, model);
+  if (!out) return { error: "no response" };
+  const a = out.indexOf("[");
+  const b = out.lastIndexOf("]");
+  if (a < 0 || b <= a) return { facts: [] };
+  try {
+    return { facts: JSON.parse(out.slice(a, b + 1)) };
+  } catch {
+    return { error: "unparseable JSON" };
+  }
+}
+
+
+// ---------------------------------------------------------------- identify
+// A group chat carries the sender's phone number but not their name, so people
+// Caleb has never texted one-to-one show up as "+16266170404" with 2,000
+// messages attached. Their name is almost always somewhere in the conversation:
+// somebody greets them, thanks them, or they sign a message. This reads the
+// surrounding thread and asks Claude who is speaking.
+
+const IDENTIFY_SYSTEM =
+  "You identify who is speaking in a group chat from context. " +
+  "You reply with a JSON object and nothing else: no preamble, no prayer.";
+
+async function identifyOne(d, handle, model) {
+  const mine = d
+    .prepare(
+      `SELECT who, body, sent_at FROM messages
+        WHERE handle = ? AND body IS NOT NULL AND length(body) BETWEEN 8 AND 300
+        ORDER BY sent_at LIMIT 60`,
+    )
+    .all(handle);
+  if (!mine.length) return null;
+
+  // The name is usually in what other people say back, not in what the person
+  // says, so the reply context matters more than their own messages.
+  const threads = [...new Set(mine.map((m) => m.who).filter(Boolean))].slice(0, 3);
+  const around = d
+    .prepare(
+      `SELECT p.name AS speaker, m.body FROM messages m
+         LEFT JOIN people p ON p.id = m.person_id
+        WHERE m.who IN (${threads.map(() => "?").join(",")}) AND m.handle IS NOT ?
+          AND m.body IS NOT NULL AND length(m.body) BETWEEN 8 AND 200
+        ORDER BY random() LIMIT 60`,
+    )
+    .all(...threads, handle);
+
+  const prompt = [
+    `Handle: ${handle}`,
+    `Threads: ${threads.join(", ") || "unknown"}`,
+    "",
+    "MESSAGES THIS PERSON SENT:",
+    ...mine.slice(0, 45).map((m) => `- ${m.body.replace(/\s+/g, " ").slice(0, 200)}`),
+    "",
+    "MESSAGES OTHERS SENT IN THE SAME THREADS (for context, names in brackets):",
+    ...around.slice(0, 45).map((m) => `- [${m.speaker || "?"}] ${m.body.replace(/\s+/g, " ").slice(0, 160)}`),
+    "",
+    "Who is the person behind the handle?",
+    "",
+    "Confidence rubric, follow it exactly:",
+    '  high   - they name themselves ("im Chloe", "this is Jake Ruiz"), or several',
+    "           different people address this speaker by the same name.",
+    '  medium - one person addresses them by name and nothing contradicts it.',
+    "  low    - a name is only inferable from indirect context.",
+    "  null   - no name is evidenced. This is a perfectly good answer.",
+    "",
+    "Never guess from vibes, tone, or what the thread is about. Prefer null.",
+    "If a name appears only as someone the speaker is TALKING ABOUT, that is not them.",
+    "",
+    'Reply with only: {"name": "First Last" or null, "confidence": "high"|"medium"|"low", "evidence": "the line that shows it"}',
+  ].join("\n");
+
+  const out = await claudeJSON(prompt, IDENTIFY_SYSTEM, model);
+  if (!out) return null;
+  const a = out.indexOf("{");
+  const b = out.lastIndexOf("}");
+  if (a < 0 || b <= a) return null;
+  try {
+    return JSON.parse(out.slice(a, b + 1));
+  } catch {
+    return null;
+  }
+}
+
+
+// ---------------------------------------------------------------- purge
+// Soft delete hides a person. It does not remove their messages, and the whole
+// point of archiving a thread off the machine is that the copy on the machine
+// stops existing. This is the irreversible one, and it says so.
+
+
+// ---------------------------------------------------------------- shelf life
+// Ported from Karthik's api/temporal.py in amberintelligence/amber-search
+// ("Facts have a shelf life", 2026-08-25), with his and Sagar's standing
+// permission to lift Amber's people architecture into Chewbacca.
+//
+// The problem it names: "Sagar is visiting SF for a month" and "Sagar moved to
+// SF" are the same sentence to anything that only reads text. One is true
+// forever and one is true for five weeks, and nobody ever sends a correction
+// when a trip ends.
+//
+// Conservative on purpose. A fact perishes only when it SAYS it is temporary.
+// The failure we accept is keeping a stale fact. The one we refuse is quietly
+// burying a true one.
+
+const TRANSIENT_DEFAULT_DAYS = 14;
+
+const TRANSIENT_CUES = [
+  "visiting", "visits", "in town", "passing through", "stopping by", "swinging by",
+  "flying in", "on a trip", "trip to", "traveling to", "travelling to", "on the road",
+  "here for", "in for", "staying", "crashing", "on vacation", "on holiday", "on leave",
+  "sabbatical", "layover", "conference in", "wedding in", "offsite", "house sitting",
+  "subletting", "temporarily in", "for the summer", "for the weekend", "this week",
+];
+
+// Checked first and wins outright. "moved to Austin, staying with his brother
+// while he looks for a place" contains "staying" and is not a visit.
+const PERSISTENT_CUES = [
+  "moved to", "moving to", "relocated", "lives in", "living in", "based in",
+  "settled in", "bought a house", "new job", "started at", "works at", "working at",
+  "grew up", "is from", "hometown", "married", "engaged", "had a baby",
+  "graduated", "joined", "founded", "co-founded", "retired", "majoring",
+];
+
+function shelfLife(text, learnedAt) {
+  if (!learnedAt) return null;
+  const t = String(text).toLowerCase();
+  if (PERSISTENT_CUES.some((cue) => t.includes(cue))) return null;
+  if (!TRANSIENT_CUES.some((cue) => t.includes(cue))) return null;
+
+  // "for three weeks", "for 2 months" -- take the fact at its word when it
+  // states a duration, otherwise assume a fortnight.
+  const m = t.match(/for (?:about |around |roughly )?(\d+|a|one|two|three|four|five|six)\s+(day|week|month)/);
+  const words = { a: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
+  let days = TRANSIENT_DEFAULT_DAYS;
+  if (m) {
+    const n = words[m[1]] ?? Number(m[1]);
+    days = n * (m[2] === "day" ? 1 : m[2] === "week" ? 7 : 30);
+  }
+  const age = Math.floor((Date.now() - Date.parse(learnedAt)) / 86400000);
+  if (!Number.isFinite(age) || age <= days) return null;
+  return age > days * 3 ? "long gone" : "expired";
+}
+
+// The date a fact was learned is stored inside the value, as `- YYYY-MM-DD: "…"`.
+function factLearnedAt(value) {
+  const m = String(value).match(/- (\d{4}-\d{2}-\d{2}):/);
+  return m ? m[1] : null;
+}
+
+function cmdPurge(argv) {
+  const { flags, rest } = parseArgs(argv);
+  const who = rest.join(" ");
+  if (!who) die('Who? Try: people purge "Lexi" --archived-to /Volumes/Drive/lexi-archive');
+  const d = db();
+  const p = findPerson(who);
+
+  const counts = {
+    messages: d.prepare("SELECT count(*) AS n FROM messages WHERE person_id=?").get(p.id).n,
+    observations: d.prepare("SELECT count(*) AS n FROM observations WHERE person_id=?").get(p.id).n,
+    facts: d.prepare("SELECT count(*) AS n FROM quick_facts WHERE person_id=?").get(p.id).n,
+  };
+
+  if (!flags.yes) {
+    say("");
+    say(c.red(`  This permanently deletes ${c.b(p.name)} and everything attached:`));
+    say(`    ${counts.messages} messages, ${counts.observations} observations, ${counts.facts} facts`);
+    say("");
+    say(c.yel("  There is no undo. Confirm the archive is off this machine first."));
+    say(c.dim(`    people purge "${p.name}" --yes`));
+    say("");
+    return;
+  }
+  // An archive path is not required, but recording one means the store can say
+  // where the data went instead of just that it is gone.
+  const note = flags["archived-to"] ? ` archived to ${flags["archived-to"]}` : "";
+
+  d.exec("BEGIN");
+  try {
+    for (const [table, col] of PERSON_TABLES) {
+      d.prepare(`DELETE FROM ${table} WHERE ${col} = ?`).run(p.id);
+    }
+    d.prepare("DELETE FROM identities WHERE person_id=?").run(p.id);
+    d.prepare("DELETE FROM people WHERE id=?").run(p.id);
+    d.exec("COMMIT");
+  } catch (e) {
+    d.exec("ROLLBACK");
+    throw e;
+  }
+  // The tombstone carries no content, only that a purge happened. Without it
+  // the next contact import silently recreates the person.
+  d.prepare(
+    "INSERT INTO meta (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+  ).run(`purged:${p.name.toLowerCase()}`, `${nowISO()}${note}`);
+
+  say(`${c.grn("purged")} ${c.b(p.name)}  ${c.dim(`${counts.messages} messages removed${note}`)}`);
+  recomputeScores();
+}
+
+async function cmdIdentify(argv) {
+  const { flags } = parseArgs(argv);
+  const d = db();
+  const model = flags.model || "claude-sonnet-5";
+  const floor = Number(flags.min) || 25;
+
+  const unknown = d
+    .prepare(
+      `SELECT handle, count(*) AS n FROM messages
+        WHERE person_id IS NULL AND from_me = 0 AND handle IS NOT NULL AND handle <> ''
+        GROUP BY handle HAVING n >= ? ORDER BY n DESC`,
+    )
+    .all(floor);
+  if (!unknown.length) return say(c.grn("  every sender above the threshold is named"));
+
+  const cap = Number(flags.limit) || unknown.length;
+  const work = unknown.slice(0, cap);
+  say("");
+  say(`${c.b("identify")} ${work.length} handles${c.dim(`  at least ${floor} messages each`)}`);
+
+  const width = Math.max(1, Math.min(Number(flags.concurrency) || 8, 16));
+  const found = [];
+  let cursor = 0;
+  let seen = 0;
+  const worker = async () => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= work.length) return;
+      const { handle, n } = work[i];
+      const got = await identifyOne(d, handle, model);
+      seen++;
+      if (got && got.name)
+        found.push({ handle, n, ...got, confidence: String(got.confidence || "").trim().toLowerCase() });
+      // A run over 146 handles that prints nothing until the end is
+      // indistinguishable from a hang, which is exactly how it read.
+      if (seen % 10 === 0) say(c.dim(`  ${seen}/${work.length}  ${found.length} named`));
+    }
+  };
+  await Promise.all(Array.from({ length: width }, worker));
+
+  found.sort((a, b) => b.n - a.n);
+  let linked = 0;
+  say("");
+  for (const f of found) {
+    // A name Claude is only "medium" sure of goes on screen, never into the
+    // store. Writing a guessed identity onto 2,000 messages is worse than
+    // leaving them unattributed, because nothing downstream would ever doubt it.
+    // findPerson exits the process when it finds nothing, which is right for a
+    // command the user typed and wrong here: not matching is the normal case.
+    const existing = d
+      .prepare("SELECT id FROM people WHERE deleted_at IS NULL AND lower(name) = lower(?) LIMIT 1")
+      .get(f.name);
+    const write = f.confidence === "high" && !flags["dry-run"];
+    const tag = write
+      ? existing
+        ? c.grn("linked  ")
+        : c.cyn("new     ")
+      : f.confidence === "high"
+        ? c.cyn("would   ")
+        : c.yel(String(f.confidence || "?").padEnd(8));
+    say(`  ${tag} ${String(f.n).padStart(5)}  ${c.b(f.name.padEnd(24))} ${f.handle.padEnd(24)} ${c.dim(String(f.evidence || "").slice(0, 70))}`);
+    if (!write) continue;
+
+    let pid = existing ? existing.id : null;
+    if (!pid) {
+      pid = uuid();
+      const isEmail = String(f.handle).includes("@");
+      d.prepare(
+        "INSERT INTO people (id, name, phone, email, created_at) VALUES (?,?,?,?,?)",
+      ).run(pid, f.name, isEmail ? null : f.handle, isEmail ? f.handle : null, nowISO());
+    }
+    const key = normHandle(f.handle);
+    if (key)
+      d.prepare(
+        "INSERT INTO identities (person_id, kind, value) VALUES (?,?,?) ON CONFLICT(kind, value) DO UPDATE SET person_id = excluded.person_id",
+      ).run(pid, key.includes("@") ? "email" : "phone", key);
+    d.prepare("UPDATE messages SET person_id=? WHERE person_id IS NULL AND handle=?").run(pid, f.handle);
+    insertObservation({
+      personId: pid,
+      circleId: null,
+      body: `identified from group-chat context: ${f.evidence || "named by others in the thread"}`,
+      flags: { source: "inferred", kind: "note" },
+    });
+    linked++;
+  }
+  say("");
+  say(
+    `${c.grn("identified")} ${found.length} of ${work.length}${linked ? `, ${linked} written` : ""}` +
+      c.dim("  anything not high confidence was only proposed"),
+  );
+  if (linked) recomputeScores();
+}
+
+async function cmdDistill(argv) {
+  const { flags } = parseArgs(argv);
+  const d = db();
+  const model = flags.model || "claude-sonnet-5";
+  const perPerson = Number(flags.max) || 120;
+  const minMsgs = Number(flags.min) || 4;
+  const dry = !!flags["dry-run"];
+
+  const since = flags.all
+    ? ""
+    : flags.since ||
+      (d.prepare("SELECT value FROM sync_state WHERE key='distill_watermark'").get() || {}).value ||
+      "";
+
+  const rows = d
+    .prepare(
+      `SELECT m.person_id, p.name, m.body, m.sent_at
+         FROM messages m JOIN people p ON p.id = m.person_id
+        WHERE m.from_me = 0 AND p.deleted_at IS NULL AND p.muted_at IS NULL
+          AND m.body IS NOT NULL AND length(m.body) BETWEEN 20 AND 500
+          AND m.sent_at > ?
+        ORDER BY m.person_id, m.sent_at`,
+    )
+    .all(since);
+
+  if (!rows.length) return say(c.dim("  nothing new to distill"));
+
+  const byPerson = new Map();
+  let newest = since;
+  for (const r of rows) {
+    if (r.sent_at > newest) newest = r.sent_at;
+    if (DISTILL_FORBIDDEN.test(r.body)) continue;
+    if (!byPerson.has(r.person_id)) byPerson.set(r.person_id, { name: r.name, lines: [] });
+    byPerson.get(r.person_id).lines.push(`${String(r.sent_at).slice(0, 10)} ${r.body.replace(/\s+/g, " ")}`);
+  }
+
+  // Someone who sent three logistics texts has nothing to distill. Spending a
+  // model call on them is the main way this gets expensive for no reason.
+  const queue = [...byPerson.entries()].filter(([, v]) => v.lines.length >= minMsgs);
+  queue.sort((a, b) => b[1].lines.length - a[1].lines.length);
+  const cap = Number(flags.limit) || queue.length;
+  const work = queue.slice(0, cap);
+
+  say("");
+  say(`${c.b("distill")} ${work.length} people${c.dim(`  ${since ? "since " + since.slice(0, 10) : "all time"}  model ${model}`)}`);
+  if (dry) {
+    for (const [, v] of work.slice(0, 20)) say(c.dim(`  ${String(v.lines.length).padStart(5)}  ${v.name}`));
+    return say(c.dim(`\n  dry run, nothing written`));
+  }
+
+  const up = d.prepare(
+    `INSERT INTO quick_facts (person_id, key, value, updated_at) VALUES (?,?,?,?)
+       ON CONFLICT(person_id, key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+  );
+  let wrote = 0, failed = 0, done = 0;
+
+  // Most of each call is Claude Code booting rather than thinking, so this
+  // parallelises almost perfectly. Serial, a full history is a twelve hour job.
+  const width = Math.max(1, Math.min(Number(flags.concurrency) || 8, 16));
+  let cursor = 0;
+  const worker = async () => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= work.length) return;
+      const [pid, v] = work[i];
+      const lines =
+        v.lines.length > perPerson
+          ? v.lines.filter((_, j) => j % Math.ceil(v.lines.length / perPerson) === 0)
+          : v.lines;
+      const { facts, error } = await distillCall(distillPrompt(v.name, lines), model);
+      done++;
+      if (error) {
+        failed++;
+      } else {
+        for (const f of facts || []) {
+          const slot = String(f.slot || "").trim();
+          const val = String(f.value || "").trim();
+          if (!slot || !val || !DISTILL_SLOTS.includes(slot)) continue;
+          if (DISTILL_FORBIDDEN.test(val) || DISTILL_FORBIDDEN.test(String(f.quote || ""))) continue;
+          const line = val + (f.quote ? `  - ${f.at || ""}: "${String(f.quote).trim()}"` : "");
+          const prev = d.prepare("SELECT value FROM quick_facts WHERE person_id=? AND key=?").get(pid, slot);
+          const merged = prev && !prev.value.includes(val) ? prev.value + "\n" + line : prev ? prev.value : line;
+          up.run(pid, slot, merged, nowISO());
+          wrote++;
+        }
+      }
+      if (done % 25 === 0) say(c.dim(`  ${done}/${work.length}  ${wrote} facts`));
+    }
+  };
+  await Promise.all(Array.from({ length: width }, worker));
+
+  // Only advance the watermark on a full pass. A --limit run would otherwise
+  // skip everyone it did not get to.
+  if (!flags.limit && newest) syncState("distill_watermark", newest);
+  say(`${c.grn("distilled")} ${wrote} facts from ${work.length} people${failed ? c.dim(`  (${failed} failed)`) : ""}`);
+}
+
 function cmdCheck(argv = []) {
   const { flags } = parseArgs(argv);
   const d = db();
@@ -2469,10 +2935,37 @@ function cmdCheck(argv = []) {
           AND NOT EXISTS (SELECT 1 FROM observation_dimensions od WHERE od.observation_id = o.id)`,
     )
     .get().n;
-  if (orphanDims) {
-    say(c.yel(`  ${orphanDims} observations have no dimension`) + c.dim("  they score nothing"));
-    bad++;
+  // A LinkedIn connection record is provenance, not an observation of any
+  // dimension of someone's life. Counting 2,124 of them as a defect buried the
+  // 200 real observations that genuinely were unscored.
+  const undimmed = d
+    .prepare(
+      `SELECT id, body FROM observations o
+        WHERE o.deleted_at IS NULL AND o.body NOT LIKE 'connected on LinkedIn%'
+          AND NOT EXISTS (SELECT 1 FROM observation_dimensions od WHERE od.observation_id = o.id)`,
+    )
+    .all();
+  if (undimmed.length) {
+    if (flags.fix) {
+      const link = d.prepare(
+        "INSERT INTO observation_dimensions (observation_id, dimension_id, weight) VALUES (?,?,?) ON CONFLICT DO NOTHING",
+      );
+      let tagged = 0;
+      for (const o of undimmed) {
+        const codes = inferDimensions(o.body);
+        if (!codes.length) continue;
+        for (const code of codes) link.run(o.id, dimByCode(code).id, 1.0);
+        tagged++;
+      }
+      say(c.grn(`  dimensioned ${tagged} observations`) + c.dim(`  (${undimmed.length - tagged} had no signal to go on)`));
+      if (tagged) recomputeScores();
+    } else {
+      say(c.yel(`  ${undimmed.length} observations have no dimension`) + c.dim("  they score nothing  people check --fix"));
+      bad++;
+    }
   }
+  const provenance = orphanDims - undimmed.length;
+  if (provenance > 0) say(c.dim(`  ${provenance} import records carry no dimension, which is correct`));
   const noCircleFact = d
     .prepare(
       "SELECT count(*) AS n FROM circles WHERE deleted_at IS NULL AND classified_fact IS NULL",
@@ -3812,6 +4305,9 @@ const HELP = `${c.b("people")} ${c.dim("- everything you know about the people i
   ${c.b("people update")} maggie --company Anthropic --cadence 30
   ${c.b("people intro")} Anthropic            who could introduce you
   ${c.b("people import")} --mac | --vcf FILE | --csv FILE
+  ${c.b("people distill")} [--limit 50] [--dry-run]   turn new messages into facts, with Claude
+  ${c.b("people identify")} [--min 25] [--dry-run]     work out who unnamed group senders are
+  ${c.b("people purge")} "Name" --yes                delete a person and their messages, for good
   ${c.b("people alias")}                          handles sending you texts that nobody owns
   ${c.b("people alias")} "Carlo Repetto" carloarep@icloud.com
 
@@ -4113,6 +4609,9 @@ const COMMANDS = {
   today: cmdToday,
   mine: cmdMine,
   alias: cmdAlias,
+  distill: cmdDistill,
+  identify: cmdIdentify,
+  purge: cmdPurge,
   aliases: cmdAlias,
   mute: cmdMute,
   unmute: cmdUnmute,
