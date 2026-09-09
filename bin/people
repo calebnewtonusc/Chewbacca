@@ -2853,6 +2853,38 @@ function cmdPurge(argv) {
   recomputeScores();
 }
 
+// Writing a name is idempotent: run it twice and the second run changes
+// nothing. That is what lets the worker write as it goes instead of banking
+// everything until the end, where a crash at 140 of 146 loses the lot.
+function applyIdentity(d, f) {
+  const existing = d
+    .prepare("SELECT id FROM people WHERE deleted_at IS NULL AND lower(name) = lower(?) LIMIT 1")
+    .get(f.name);
+  let pid = existing ? existing.id : null;
+  if (!pid) {
+    pid = uuid();
+    const isEmail = String(f.handle).includes("@");
+    d.prepare("INSERT INTO people (id, name, phone, email, created_at) VALUES (?,?,?,?,?)").run(
+      pid, f.name, isEmail ? null : f.handle, isEmail ? f.handle : null, nowISO(),
+    );
+  }
+  const key = normHandle(f.handle);
+  if (key)
+    d.prepare(
+      "INSERT INTO identities (person_id, kind, value) VALUES (?,?,?) ON CONFLICT(kind, value) DO UPDATE SET person_id = excluded.person_id",
+    ).run(pid, key.includes("@") ? "email" : "phone", key);
+  const moved = d
+    .prepare("UPDATE messages SET person_id=? WHERE person_id IS NULL AND handle=?")
+    .run(pid, f.handle).changes;
+  const body = `identified from group-chat context: ${f.evidence || "named by others in the thread"}`;
+  const dupe = d
+    .prepare("SELECT 1 FROM observations WHERE person_id=? AND body=? AND deleted_at IS NULL")
+    .get(pid, body);
+  if (!dupe)
+    insertObservation({ personId: pid, circleId: null, body, flags: { source: "inferred", kind: "note" } });
+  return { pid, moved, existed: !!existing };
+}
+
 async function cmdIdentify(argv) {
   const { flags } = parseArgs(argv);
   const d = db();
@@ -2877,6 +2909,7 @@ async function cmdIdentify(argv) {
   const found = [];
   let cursor = 0;
   let seen = 0;
+  let linked = 0;
   const worker = async () => {
     for (;;) {
       const i = cursor++;
@@ -2884,8 +2917,15 @@ async function cmdIdentify(argv) {
       const { handle, n } = work[i];
       const got = await identifyOne(d, handle, model);
       seen++;
-      if (got && got.name)
-        found.push({ handle, n, ...got, confidence: String(got.confidence || "").trim().toLowerCase() });
+      if (got && got.name) {
+        const f = { handle, n, ...got, confidence: String(got.confidence || "").trim().toLowerCase() };
+        if (f.confidence === "high" && !flags["dry-run"]) {
+          const { existed } = applyIdentity(d, f);
+          f.written = existed ? "linked" : "new";
+          linked++;
+        }
+        found.push(f);
+      }
       // A run over 146 handles that prints nothing until the end is
       // indistinguishable from a hang, which is exactly how it read.
       if (seen % 10 === 0) say(c.dim(`  ${seen}/${work.length}  ${found.length} named`));
@@ -2894,49 +2934,18 @@ async function cmdIdentify(argv) {
   await Promise.all(Array.from({ length: width }, worker));
 
   found.sort((a, b) => b.n - a.n);
-  let linked = 0;
   say("");
   for (const f of found) {
-    // A name Claude is only "medium" sure of goes on screen, never into the
-    // store. Writing a guessed identity onto 2,000 messages is worse than
-    // leaving them unattributed, because nothing downstream would ever doubt it.
-    // findPerson exits the process when it finds nothing, which is right for a
-    // command the user typed and wrong here: not matching is the normal case.
-    const existing = d
-      .prepare("SELECT id FROM people WHERE deleted_at IS NULL AND lower(name) = lower(?) LIMIT 1")
-      .get(f.name);
-    const write = f.confidence === "high" && !flags["dry-run"];
-    const tag = write
-      ? existing
+    const tag = f.written
+      ? f.written === "linked"
         ? c.grn("linked  ")
         : c.cyn("new     ")
       : f.confidence === "high"
         ? c.cyn("would   ")
         : c.yel(String(f.confidence || "?").padEnd(8));
-    say(`  ${tag} ${String(f.n).padStart(5)}  ${c.b(f.name.padEnd(24))} ${f.handle.padEnd(24)} ${c.dim(String(f.evidence || "").slice(0, 70))}`);
-    if (!write) continue;
-
-    let pid = existing ? existing.id : null;
-    if (!pid) {
-      pid = uuid();
-      const isEmail = String(f.handle).includes("@");
-      d.prepare(
-        "INSERT INTO people (id, name, phone, email, created_at) VALUES (?,?,?,?,?)",
-      ).run(pid, f.name, isEmail ? null : f.handle, isEmail ? f.handle : null, nowISO());
-    }
-    const key = normHandle(f.handle);
-    if (key)
-      d.prepare(
-        "INSERT INTO identities (person_id, kind, value) VALUES (?,?,?) ON CONFLICT(kind, value) DO UPDATE SET person_id = excluded.person_id",
-      ).run(pid, key.includes("@") ? "email" : "phone", key);
-    d.prepare("UPDATE messages SET person_id=? WHERE person_id IS NULL AND handle=?").run(pid, f.handle);
-    insertObservation({
-      personId: pid,
-      circleId: null,
-      body: `identified from group-chat context: ${f.evidence || "named by others in the thread"}`,
-      flags: { source: "inferred", kind: "note" },
-    });
-    linked++;
+    say(
+      `  ${tag} ${String(f.n).padStart(5)}  ${c.b(f.name.padEnd(24))} ${f.handle.padEnd(24)} ${c.dim(String(f.evidence || "").slice(0, 70))}`,
+    );
   }
   say("");
   say(
