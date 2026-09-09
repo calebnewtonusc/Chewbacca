@@ -79,9 +79,9 @@ right skill loads itself.
 ## It reads half a million of your texts
 
 Point it at your Mac and it indexes your entire iMessage history locally. On the
-author's machine that is **501,205 messages going back to 2018**, 74% of them
-matched to a real person in a contact store that also holds 1,165 people, 630
-recorded facts, and every interaction.
+author's machine that is **502,618 messages going back to 2018**, 76% of them
+matched to a real person in a contact store that also holds 1,154 people, 154
+group chats resolved into circles, 4,000 recorded facts, and every interaction.
 
 That is what makes the difference between an assistant and a chat window. It
 knows when you last spoke to someone, what you owe them, and who is slipping.
