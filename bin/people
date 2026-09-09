@@ -343,6 +343,12 @@ function migrate(d) {
   // this answers "because something is happening to them in November".
   ensureColumn(d, "people", "next_check_at", "next_check_at TEXT");
   ensureColumn(d, "people", "next_check_reason", "next_check_reason TEXT");
+  // MUTED IS NOT DELETED. An ex you archived, a shortcode, a service number,
+  // a landline that once got an auto-observation: all real rows worth keeping
+  // and all wrong to be nudged about. Deleting them loses the message history,
+  // so they get excluded from reconnect and ranking instead.
+  ensureColumn(d, "people", "muted_at", "muted_at TEXT");
+  ensureColumn(d, "people", "muted_reason", "muted_reason TEXT");
   d.exec(SCHEMA_V2);
   d.exec(SCHEMA_V3);
   d.exec(SCHEMA_V4);
@@ -2421,7 +2427,7 @@ function cmdStats() {
 // tool is worthless if you have to remember to open it, so the questions it
 // answers are "who is slipping" and "what is coming up", not "what do I know".
 
-const FIELDS = ["phone", "email", "company", "role", "location", "birthday", "handle", "how_we_met"];
+const FIELDS = ["name", "phone", "email", "company", "role", "location", "birthday", "handle", "how_we_met"];
 
 function cmdUpdate(argv) {
   const { flags, rest } = parseArgs(argv);
@@ -2487,7 +2493,7 @@ function overdueList(limit = 20) {
     .prepare(
       `SELECT p.*, s.base_score, s.warmth, s.last_interaction_at, s.observation_count
          FROM people p LEFT JOIN person_scores s ON s.person_id = p.id
-        WHERE p.deleted_at IS NULL`,
+        WHERE p.deleted_at IS NULL AND p.muted_at IS NULL`,
     )
     .all();
   const now = nowISO();
@@ -2518,6 +2524,37 @@ function overdueList(limit = 20) {
   }
   out.sort((a, b) => b.urgency - a.urgency);
   return out.slice(0, limit);
+}
+
+function cmdMute(argv) {
+  const { flags, rest } = parseArgs(argv);
+  const who = rest.join(" ");
+  if (!who) die('Try: people mute "Lexi" --because "archived"');
+  const p = findPerson(who);
+  db().prepare("UPDATE people SET muted_at = ?, muted_reason = ?, updated_at = ? WHERE id = ?")
+    .run(nowISO(), flags.because ? String(flags.because) : null, nowISO(), p.id);
+  say(`${c.grn("muted")} ${p.name}${flags.because ? c.dim("  " + flags.because) : ""}`);
+  say(c.dim("  kept in full, just out of reconnect and ranking"));
+}
+
+function cmdUnmute(argv) {
+  const { rest } = parseArgs(argv);
+  const who = rest.join(" ");
+  if (!who) die('Try: people unmute "Lexi"');
+  const p = findPerson(who);
+  db().prepare("UPDATE people SET muted_at = NULL, muted_reason = NULL, updated_at = ? WHERE id = ?")
+    .run(nowISO(), p.id);
+  say(`${c.grn("unmuted")} ${p.name}`);
+}
+
+function cmdMuted() {
+  const rows = db()
+    .prepare("SELECT name, muted_reason, muted_at FROM people WHERE muted_at IS NOT NULL AND deleted_at IS NULL ORDER BY name")
+    .all();
+  if (!rows.length) return say(c.dim("  nobody muted"));
+  say("");
+  for (const r of rows) say(`  ${c.b(r.name.padEnd(30))}${c.dim(r.muted_reason || "")}`);
+  say(c.dim(`\n  ${rows.length} muted. people unmute <name> to bring one back\n`));
 }
 
 function cmdReconnect(argv) {
@@ -3829,6 +3866,9 @@ const COMMANDS = {
   texts: cmdTexts,
   msgs: cmdTexts,
   today: cmdToday,
+  mute: cmdMute,
+  unmute: cmdUnmute,
+  muted: cmdMuted,
   reconnect: cmdReconnect,
   due: cmdReconnect,
   birthdays: cmdBirthdays,

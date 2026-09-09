@@ -44,6 +44,8 @@ people show maggie                # everything known about one person
 people note maggie "got promoted" --dim financial
 people log maggie --channel call  # you actually talked
 people reconnect                  # who you owe a message
+people mute <who> --because "..."  # keep the record, stop the nudges
+people unmute <who> | people muted
 people rank --dim financial       # who is struggling with what
 people search "hiking"
 people intro Anthropic            # who could introduce them
@@ -107,6 +109,8 @@ Things that should always produce a write:
 | They met someone new                  | `people add "Name" --met "where"`                         |
 | A group of people belongs together    | `people circle create` then `people circle add`           |
 | They want to hear from someone more   | `people update <who> --cadence 30`                        |
+| An ex, a service number, a shortcode  | `people mute <who> --because "..."` (keeps the history)   |
+| A contact saved under a nickname      | `people update <who> --name "Real Name"`                  |
 | **They promised somebody something**  | `people task add <who> "..." --due DATE`                  |
 | A recurring date that is not a birthday | `people date add <who> "label" --on MM-DD`              |
 | Money or an object changed hands      | `people loan <who> --lent "..."` or `--borrowed`          |
