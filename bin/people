@@ -349,6 +349,11 @@ function migrate(d) {
   // so they get excluded from reconnect and ranking instead.
   ensureColumn(d, "people", "muted_at", "muted_at TEXT");
   ensureColumn(d, "people", "muted_reason", "muted_reason TEXT");
+  ensureColumn(d, "people", "linkedin", "linkedin TEXT");
+  // WHERE A MESSAGE CAME FROM. iMessage rows key on chat.db's ROWID; anything
+  // imported from elsewhere is offset well past it so one FTS index can cover
+  // every channel without the ids colliding.
+  ensureColumn(d, "messages", "source", "source TEXT NOT NULL DEFAULT 'imessage'");
   d.exec(SCHEMA_V2);
   d.exec(SCHEMA_V3);
   d.exec(SCHEMA_V4);
@@ -1599,7 +1604,37 @@ function cmdNote(argv) {
 function cmdMe(argv) {
   const { flags, rest } = parseArgs(argv);
   const body = rest.join(" ").trim();
-  if (!body) die('Try: people me "starting the neuro sequence this fall" --dim intellectual');
+
+  // With no text, `me` reads instead of writes. Facts about Caleb were being
+  // written and then never surfaced anywhere, which is the same as not having
+  // them. Self-observations carry person_id NULL, so they are one query away.
+  if (!body || flags.list) {
+    const d = db();
+    let sql =
+      "SELECT body, observed_at FROM observations" +
+      " WHERE person_id IS NULL AND circle_id IS NULL AND deleted_at IS NULL";
+    const args = [];
+    if (flags.search) {
+      sql += " AND body LIKE ?";
+      args.push(`%${flags.search}%`);
+    }
+    sql += " ORDER BY observed_at DESC LIMIT ?";
+    args.push(Number(flags.limit) || 40);
+    const rows = d.prepare(sql).all(...args);
+    if (!rows.length) {
+      say(c.dim("nothing recorded about you yet"));
+      say(c.dim('  people me "starting the neuro sequence this fall"'));
+      return;
+    }
+    say("");
+    say(c.b("you") + c.dim(`  ${rows.length} of ` + d.prepare(
+      "SELECT count(*) n FROM observations WHERE person_id IS NULL AND circle_id IS NULL AND deleted_at IS NULL",
+    ).get().n));
+    for (const r of rows) say(`  ${c.dim(String(r.observed_at).slice(0, 10))}  ${r.body}`);
+    say("");
+    return;
+  }
+
   const { dims } = insertObservation({ personId: null, circleId: null, body, flags });
   say(`${c.grn("noted")} about ${c.b("you")}${dims.length ? c.dim(` [${dims.join(", ")}]`) : ""}`);
 }
@@ -2370,7 +2405,8 @@ function cmdScore() {
   say(`${c.grn("scored")} ${n} people`);
 }
 
-function cmdCheck() {
+function cmdCheck(argv = []) {
+  const { flags } = parseArgs(argv);
   const d = db();
   let bad = 0;
   const orphanDims = d
@@ -2398,6 +2434,27 @@ function cmdCheck() {
     )
     .get().n;
   if (stale) say(c.dim(`  ${stale} observations are past their valid_until (down-weighted, not deleted)`));
+  // Orphaned dimension links survive a merge, because deleting the losing
+  // person's observations does not always run the cascade. They are pure
+  // garbage, so `check --fix` clears them rather than only counting them.
+  const orphans = d
+    .prepare(
+      "SELECT count(*) AS n FROM observation_dimensions od" +
+        " WHERE NOT EXISTS (SELECT 1 FROM observations o WHERE o.id = od.observation_id)",
+    )
+    .get().n;
+  if (orphans) {
+    if (flags.fix) {
+      d.prepare(
+        "DELETE FROM observation_dimensions WHERE observation_id NOT IN (SELECT id FROM observations)",
+      ).run();
+      say(c.grn(`  cleared ${orphans} orphaned dimension links`));
+    } else {
+      say(c.yel(`  ${orphans} orphaned dimension links  people check --fix`));
+      bad++;
+    }
+  }
+
   const fk = d.prepare("PRAGMA foreign_key_check").all();
   if (fk.length) {
     say(c.red(`  ${fk.length} foreign key violations`));
@@ -2491,7 +2548,10 @@ function overdueList(limit = 20) {
   const P = params();
   const rows = d
     .prepare(
-      `SELECT p.*, s.base_score, s.warmth, s.last_interaction_at, s.observation_count
+      `SELECT p.*, s.base_score, s.warmth, s.last_interaction_at, s.observation_count,
+              (SELECT count(*) FROM observations o
+                WHERE o.person_id = p.id AND o.deleted_at IS NULL
+                  AND o.source <> 'imported') AS authored_observations
          FROM people p LEFT JOIN person_scores s ON s.person_id = p.id
         WHERE p.deleted_at IS NULL AND p.muted_at IS NULL`,
     )
@@ -2504,7 +2564,11 @@ function overdueList(limit = 20) {
     // the list is alphabetical noise: landlines, "??? USC", a dentist. Someone
     // qualifies once there is a reason to think you care, which means you wrote
     // something down, logged a conversation, or set a cadence by hand.
-    const known = (r.observation_count || 0) > 0 || r.cadence_days || r.last_interaction_at;
+    // AN IMPORT IS NOT EVIDENCE YOU CARE. Bulk sources write an observation per
+    // row ("connected on LinkedIn 5/2/26"), which would let two thousand people
+    // you have never spoken to clear the same bar as someone you took a note
+    // about. Only observations you actually authored count toward getting in.
+    const known = (r.authored_observations || 0) > 0 || r.cadence_days || r.last_interaction_at;
     if (!known) continue;
     const score = r.base_score || 0;
     const cadence = r.cadence_days || Math.round(30 + (1 - score) * 300);
@@ -2555,6 +2619,92 @@ function cmdMuted() {
   say("");
   for (const r of rows) say(`  ${c.b(r.name.padEnd(30))}${c.dim(r.muted_reason || "")}`);
   say(c.dim(`\n  ${rows.length} muted. people unmute <name> to bring one back\n`));
+}
+
+
+// WHAT SOMEBODY TOLD YOU ABOUT THEMSELVES, PULLED OUT OF THE THREAD. Half a
+// million messages is not knowledge if answering "what music does he like"
+// means a full-text search every time. These rules read only what the other
+// person said about themselves, in their own words, and file it under a slot
+// so the answer is a lookup.
+//
+// EVERY FACT KEEPS ITS VERBATIM QUOTE AND ITS DATE. Never paraphrase a person
+// into a claim they did not make; a wrong fact about a friend is worse than no
+// fact, because you will say it out loud to them.
+const MINE_RULES = [
+  // Each rule is [slot, regex, group]. Group 0 keeps the whole matched phrase,
+  // which is what makes a family fact readable: "my sister goes to Berkeley"
+  // is worth storing and "sister" is not.
+  ["music", /\bi(?:'m| am)?\s*(?:really\s+)?(?:listen(?:ing)? to|love|like|fw|into|been (?:listening to|on))\s+(?:a lot of\s+|mostly\s+|mainly\s+)?(?:hip ?hop|rap|r&b|rnb|country music|jazz|k-?pop|classical|edm|indie|rock|metal|afrobeat\w*|reggae|gospel|worship music|lo-?fi|house music|techno|punk|soul music|blues|folk)\b[^.!?\n]{0,40}/i, 0],
+  ["music", /\bmy favorite (?:artist|band|rapper|singer|album|song|genre) (?:is|are)\s+[^.!?,\n]{2,50}/i, 0],
+  ["food", /\bi(?:'m| am)\s+allergic to\s+[^.!?,\n]{2,40}/i, 0],
+  ["food", /\bi(?:'m| am)\s+(?:a\s+)?(?:vegan|vegetarian|pescatarian|gluten[- ]free|lactose intolerant)\b/i, 0],
+  ["food", /\bi (?:don'?t|can'?t|cannot) eat\s+[^.!?,\n]{2,40}/i, 0],
+  ["sports", /\bi (?:play|played|run|swim|row|wrestle)\s+(?:varsity |club |d1 |jv )?(?:baseball|basketball|football|soccer|tennis|golf|volleyball|water polo|lacrosse|hockey|track|cross country|swim(?:ming)?|rugby|softball|badminton|ultimate|crew|rowing|wrestling|chess|piano|guitar|violin|drums)\b[^.!?\n]{0,40}/i, 0],
+  ["works_on", /\bi(?:'m| am)\s+(?:currently\s+)?(?:working (?:on|at)|interning at|studying|majoring in)\s+[^.!?,\n]{3,60}/i, 0],
+  // Only durable family facts. "my mom said yes" is logistics and expires in an
+  // hour; "my sister is a Girl Scout" is worth knowing next year.
+  ["family", /\bmy (?:mom|dad|mother|father|brother|sister|parents|grandma|grandpa|wife|husband|son|daughter|twin)\s+(?:is|are|was|were|works|worked|goes|went|lives|lived|studies|studied|plays|played|teaches|died|passed)\b[^.!?\n]{3,55}/i, 0],
+  ["faith", /\bi(?:'m| am)\s+(?:a\s+)?(?:christian|catholic|muslim|jewish|hindu|buddhist|agnostic|atheist)\b[^.!?\n]{0,30}/i, 0],
+  ["health", /\bi(?:'m| am)\s+(?:diagnosed with|dealing with|struggling with)\s+[^.!?,\n]{3,45}/i, 0],
+  ["cares_about", /\bi(?:'m| am)\s+(?:really\s+)?(?:passionate about|obsessed with)\s+[^.!?,\n]{3,50}/i, 0],
+];
+
+function cmdMine(argv) {
+  const { flags, rest } = parseArgs(argv);
+  const d = db();
+  const who = rest.join(" ");
+  let sql =
+    "SELECT m.person_id, m.body, m.sent_at, p.name" +
+    "  FROM messages m JOIN people p ON p.id = m.person_id" +
+    " WHERE m.from_me = 0 AND p.deleted_at IS NULL";
+  const args = [];
+  if (who) {
+    const found = findPerson(who);
+    sql += " AND m.person_id = ?";
+    args.push(found.id);
+  }
+  sql += " ORDER BY m.sent_at ASC"; // later statements overwrite earlier ones
+  const rows = d.prepare(sql).all(...args);
+
+  const hits = new Map(); // person_id + slot -> fact
+  for (const r of rows) {
+    if (!r.body || r.body.length > 600) continue;
+    for (const rule of MINE_RULES) {
+      const slot = rule[0];
+      const m = r.body.match(rule[1]);
+      if (!m) continue;
+      const val = String(m[rule[2] || 0] || m[0]).trim().replace(/\s+/g, " ");
+      if (val.length < 2) continue;
+      hits.set(r.person_id + " " + slot, {
+        person_id: r.person_id,
+        slot: slot,
+        value: val,
+        name: r.name,
+        quote: r.body.length > 160 ? r.body.slice(0, 157) + "..." : r.body,
+        at: r.sent_at,
+      });
+    }
+  }
+
+  if (flags["dry-run"]) {
+    const show = [...hits.values()].slice(0, Number(flags.limit || 30));
+    for (const f of show) say("  " + c.b(f.name.padEnd(24)) + " " + c.cyn(f.slot.padEnd(9)) + " " + f.value);
+    return say(c.dim("\n  " + hits.size + " facts would be written (dry run)\n"));
+  }
+
+  const up = d.prepare(
+    "INSERT INTO quick_facts (person_id, key, value, updated_at) VALUES (?,?,?,?)" +
+      " ON CONFLICT(person_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+  );
+  d.exec("BEGIN");
+  for (const f of hits.values())
+    up.run(f.person_id, f.slot, f.value + '  - them, ' + f.at.slice(0, 10) + ': "' + f.quote + '"', nowISO());
+  d.exec("COMMIT");
+
+  const people = new Set([...hits.values()].map((f) => f.person_id)).size;
+  say("  " + c.grn("mined") + " " + hits.size + " facts about " + people + " people");
+  say(c.dim("  people show <name>  to see them\n"));
 }
 
 function cmdReconnect(argv) {
@@ -3866,6 +4016,7 @@ const COMMANDS = {
   texts: cmdTexts,
   msgs: cmdTexts,
   today: cmdToday,
+  mine: cmdMine,
   mute: cmdMute,
   unmute: cmdUnmute,
   muted: cmdMuted,
