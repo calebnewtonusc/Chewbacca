@@ -79,14 +79,31 @@ right skill loads itself.
 ## It reads half a million of your texts
 
 Point it at your Mac and it indexes your entire iMessage history locally. On the
-author's machine that is **502,618 messages going back to 2018**, 76% of them
-matched to a real person in a contact store that also holds 1,154 people, 154
-group chats resolved into circles, 4,000 recorded facts, and every interaction.
+author's machine that is **505,443 messages going back to 2018**, 82% of them
+matched to a real person, in a store that also holds 3,184 people, 154 group
+chats resolved into circles, and 6,500 observations.
 
-That is what makes the difference between an assistant and a chat window. It
-knows when you last spoke to someone, what you owe them, and who is slipping.
-It scores the people in your life across six dimensions with independent decay
-rates, because someone's job situation changes faster than their faith does.
+Indexing is the easy half. The store held half a million messages and still
+could not answer "what music is my friend into", because everything was
+retrievable and nothing was *known*. So `people distill` hands new messages to
+Claude in batches and writes back durable facts, with a per-person watermark so
+it never re-reads one. It runs nightly. It refuses to extract anything about
+someone else's crisis, addiction, or the breakdown of a relationship, and that
+refusal is a pattern in code rather than a line in a prompt.
+
+Facts also expire. "Visiting SF for a month" and "moved to SF" are the same
+sentence to anything that only reads text, and nobody sends a correction when a
+trip ends, so a fact that says it is temporary gets marked once it has outlived
+itself.
+
+It knows when you last spoke to someone, what you owe them, and who is
+slipping. It scores the people in your life across six dimensions with
+independent decay rates, because someone's job situation changes faster than
+their faith does.
+
+The full catalogue of what a store like this should answer, with an honest
+verdict on each of a hundred cases, is in
+[chewbacca-usecases](https://github.com/calebnewtonusc/chewbacca-usecases).
 
 None of it leaves your Mac. There is no server to send it to.
 
