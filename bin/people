@@ -2731,10 +2731,17 @@ async function classifyCircle(d, circle, model) {
     ...msgs.map((m) => `- ${m.body.replace(/\s+/g, " ")}`),
     "",
     "What is this group? One sentence a stranger would understand, naming the",
-    "shared context (a class, a team, a church, a trip, a family, a project).",
-    "Then one word for its kind.",
+    "shared context: a class, a team, a church, a trip, a family, a project.",
     "",
-    'Reply with only: {"what": "one sentence", "kind": "family|school|sports|faith|work|friends|event|other"}',
+    "Then its kind, from exactly this list and no other word:",
+    "  affiliation  a standing group you belong to: a family, a team, a class,",
+    "               a club, a church, a cohort, a company.",
+    "  experience   a group formed around something that happened or will:",
+    "               a trip, an event, a one-off project, a wedding.",
+    "  interest     a group formed around a shared thing you like.",
+    "  other        none of the above fits.",
+    "",
+    'Reply with only: {"what": "one sentence", "kind": "affiliation|experience|interest|other"}',
   ].join("\n");
 
   const out = await claudeJSON(prompt, CLASSIFY_SYSTEM, model);
@@ -2779,9 +2786,16 @@ async function cmdClassify(argv) {
       const got = await classifyCircle(d, work[i], model);
       done++;
       if (got && got.what) {
-        upd.run(String(got.kind || "other").slice(0, 20), String(got.what).slice(0, 400), nowISO(), work[i].id);
+        // The column has a CHECK constraint. A model that answers "family"
+        // instead of "affiliation" should cost that row its kind, not kill the
+        // whole pass.
+        const allowed = ["interest", "experience", "affiliation", "other"];
+        const kind = allowed.includes(String(got.kind || "").toLowerCase())
+          ? String(got.kind).toLowerCase()
+          : "other";
+        upd.run(kind, String(got.what).slice(0, 400), nowISO(), work[i].id);
         named++;
-        say(`  ${c.cyn(String(got.kind || "?").padEnd(8))} ${c.b(work[i].name.padEnd(28))} ${c.dim(String(got.what).slice(0, 72))}`);
+        say(`  ${c.cyn(kind.padEnd(11))} ${c.b(work[i].name.padEnd(28))} ${c.dim(String(got.what).slice(0, 72))}`);
       }
       if (done % 20 === 0) say(c.dim(`  ${done}/${work.length}`));
     }
