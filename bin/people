@@ -456,6 +456,17 @@ CREATE TABLE IF NOT EXISTS quick_fact_template (
   prompt     TEXT NOT NULL,
   sort_order INTEGER NOT NULL DEFAULT 100
 );
+-- One person, many handles. Contacts gives you a mobile and an iCloud address;
+-- a group chat can carry either. Storing a single phone and a single email meant
+-- ~4,000 messages sat unattributed because someone texted from their other address.
+CREATE TABLE IF NOT EXISTS identities (
+  person_id TEXT NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+  kind      TEXT NOT NULL CHECK (kind IN ('phone', 'email')),
+  value     TEXT NOT NULL,
+  PRIMARY KEY (kind, value)
+);
+CREATE INDEX IF NOT EXISTS identities_person_idx ON identities (person_id);
+
 CREATE TABLE IF NOT EXISTS quick_facts (
   person_id  TEXT NOT NULL REFERENCES people (id) ON DELETE CASCADE,
   key        TEXT NOT NULL,
@@ -2405,6 +2416,48 @@ function cmdScore() {
   say(`${c.grn("scored")} ${n} people`);
 }
 
+function cmdAlias(argv) {
+  const { rest } = parseArgs(argv);
+  const d = db();
+
+  // No arguments: show the handles that are sending you messages and belong to
+  // nobody, biggest first. That list is the whole reason this command exists.
+  if (!rest.length) {
+    const rows = d
+      .prepare(
+        `SELECT handle, count(*) AS n, max(sent_at) AS last FROM messages
+          WHERE person_id IS NULL AND from_me = 0 AND handle IS NOT NULL AND handle <> ''
+          GROUP BY handle ORDER BY n DESC LIMIT 15`,
+      )
+      .all();
+    if (!rows.length) return say(c.grn("  every sender is attributed"));
+    say("");
+    say(c.b("handles nobody owns") + c.dim("   people alias <name> <handle>"));
+    for (const r of rows) {
+      const t = d
+        .prepare("SELECT who FROM messages WHERE handle=? AND who IS NOT NULL AND who <> '' GROUP BY who ORDER BY count(*) DESC LIMIT 1")
+        .get(r.handle);
+      say(`  ${String(r.n).padStart(5)}  ${r.handle.padEnd(26)} ${c.dim((t ? t.who : "") + "  last " + String(r.last).slice(0, 10))}`);
+    }
+    say("");
+    return;
+  }
+
+  const handle = rest.pop();
+  const who = rest.join(" ");
+  if (!who) die('Try: people alias "Carlo Repetto" carloarep@icloud.com');
+  const key = normHandle(handle);
+  if (!key) die(`Not a phone or an email: ${handle}`);
+  const p = findPerson(who);
+  d.prepare("INSERT INTO identities (person_id, kind, value) VALUES (?,?,?) ON CONFLICT(kind, value) DO UPDATE SET person_id = excluded.person_id")
+    .run(p.id, key.includes("@") ? "email" : "phone", key);
+  const n = d
+    .prepare("UPDATE messages SET person_id=? WHERE person_id IS NULL AND handle=?")
+    .run(p.id, handle).changes;
+  say(`${c.grn("linked")} ${handle} to ${c.b(p.name)}${n ? c.dim(`  (${n} messages attributed)`) : ""}`);
+  if (n) recomputeScores();
+}
+
 function cmdCheck(argv = []) {
   const { flags } = parseArgs(argv);
   const d = db();
@@ -3433,15 +3486,30 @@ function syncState(key, val) {
 
 // Match a thread to someone already in the store. Handle first because a phone
 // number is exact; the display name is a fallback and is allowed to miss.
+// One canonical form for a phone or an address, so "+1 (626) 688-7382",
+// "6266887382" and "+16266887382" are the same key.
+function normHandle(v) {
+  if (!v) return null;
+  const s = String(v).trim();
+  if (s.includes("@")) return s.toLowerCase();
+  let d = s.replace(/\D/g, "");
+  if (d.length === 11 && d.startsWith("1")) d = d.slice(1);
+  return d.length === 10 ? d : null;
+}
+
 function resolvePerson(who, handle) {
   const d = db();
   if (handle) {
+    const alias = d
+      .prepare("SELECT person_id FROM identities WHERE value = ?")
+      .get(normHandle(handle) || "");
+    if (alias) return alias.person_id;
     const digits = String(handle).replace(/\D/g, "").slice(-10);
     if (digits.length === 10) {
       const hit = d
         .prepare(
           `SELECT id FROM people WHERE deleted_at IS NULL
-             AND replace(replace(replace(replace(coalesce(phone,''),'+',''),'-',''),' ',''),'()','') LIKE ?`,
+             AND replace(replace(replace(replace(replace(coalesce(phone,''),'+',''),'-',''),' ',''),'(',''),')','') LIKE ?`,
         )
         .get("%" + digits);
       if (hit) return hit.id;
@@ -3569,9 +3637,33 @@ function cmdTexts(argv) {
       .all()) {
       const pid = resolvePerson(row.who, row.handle);
       if (!pid) continue;
-      relinked += d
-        .prepare("UPDATE messages SET person_id=? WHERE person_id IS NULL AND who=?")
-        .run(pid, row.who).changes;
+      // Match on the handle when there is one. Matching on the thread name
+      // instead credited every sender in a group chat to whichever member
+      // happened to resolve first, and left the rest orphaned. The handle
+      // says who actually sent the message; the thread name does not.
+      relinked += row.handle
+        ? d
+            .prepare("UPDATE messages SET person_id=? WHERE person_id IS NULL AND handle=?")
+            .run(pid, row.handle).changes
+        : d
+            .prepare("UPDATE messages SET person_id=? WHERE person_id IS NULL AND who=? AND handle IS NULL")
+            .run(pid, row.who).changes;
+    }
+
+    // Undo the damage the old rule did. A message whose handle belongs to a
+    // different person in the store was credited to the wrong one.
+    let recredited = 0;
+    for (const row of d
+      .prepare(
+        `SELECT DISTINCT m.handle, m.person_id FROM messages m
+          WHERE m.from_me = 0 AND m.handle IS NOT NULL AND m.handle <> '' AND m.person_id IS NOT NULL`,
+      )
+      .all()) {
+      const truth = resolvePerson(null, row.handle);
+      if (!truth || truth === row.person_id) continue;
+      recredited += d
+        .prepare("UPDATE messages SET person_id=? WHERE handle=? AND person_id=? AND from_me=0")
+        .run(truth, row.handle, row.person_id).changes;
     }
 
     syncState("messages_max_id", maxId);
@@ -3594,6 +3686,7 @@ function cmdTexts(argv) {
 
     say(`${c.grn("synced")} ${added} new messages${c.dim(`  (${days}d window)`)}`);
     if (relinked) say(c.dim(`  ${relinked} older messages linked to people you have since added`));
+    if (recredited) say(c.dim(`  ${recredited} messages re-credited to the person who actually sent them`));
     if (logged.changes) say(c.dim(`  ${logged.changes} people had their last-contact updated`));
     if (unlinked.size) {
       const top = [...unlinked.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
@@ -3719,6 +3812,8 @@ const HELP = `${c.b("people")} ${c.dim("- everything you know about the people i
   ${c.b("people update")} maggie --company Anthropic --cadence 30
   ${c.b("people intro")} Anthropic            who could introduce you
   ${c.b("people import")} --mac | --vcf FILE | --csv FILE
+  ${c.b("people alias")}                          handles sending you texts that nobody owns
+  ${c.b("people alias")} "Carlo Repetto" carloarep@icloud.com
 
   ${c.b("people rank")} [--dim financial] [--limit 20]
   ${c.b("people search")} "hiking"
@@ -4017,6 +4112,8 @@ const COMMANDS = {
   msgs: cmdTexts,
   today: cmdToday,
   mine: cmdMine,
+  alias: cmdAlias,
+  aliases: cmdAlias,
   mute: cmdMute,
   unmute: cmdUnmute,
   muted: cmdMuted,
