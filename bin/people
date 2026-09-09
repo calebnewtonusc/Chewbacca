@@ -2450,20 +2450,29 @@ function cmdScore() {
 }
 
 function cmdAlias(argv) {
-  const { rest } = parseArgs(argv);
+  const { flags, rest } = parseArgs(argv);
   const d = db();
 
-  // No arguments: show the handles that are sending you messages and belong to
-  // nobody, biggest first. That list is the whole reason this command exists.
+  // No arguments: show the handles sending you messages that belong to nobody.
+  // That list is the whole reason this command exists.
   if (!rest.length) {
     const rows = d
       .prepare(
+        // Recency first, not raw volume. A stranger from a 2019 middle-school
+        // group chat has thousands of messages and no chance of being named
+        // six years later; a teammate from last semester has two hundred and
+        // is someone you actually know. --all restores the volume ordering.
         `SELECT handle, count(*) AS n, max(sent_at) AS last FROM messages
           WHERE person_id IS NULL AND from_me = 0 AND handle IS NOT NULL AND handle <> ''
-          GROUP BY handle ORDER BY n DESC LIMIT 15`,
+            -- A shortcode is a bank, a carrier or a two-factor robot. It is
+            -- never a person, and it crowded out everyone who is.
+            AND (handle LIKE '+%' OR handle LIKE '%@%')
+          GROUP BY handle
+          ${flags.all ? "ORDER BY n DESC" : "HAVING last > date('now', '-18 months') ORDER BY last DESC"}
+          LIMIT ?`,
       )
-      .all();
-    if (!rows.length) return say(c.grn("  every sender is attributed"));
+      .all(Number(flags.limit) || 20);
+    if (!rows.length) return say(c.grn("  every recent sender is attributed") + c.dim("  people alias --all for the whole backlog"));
     say("");
     say(c.b("handles nobody owns") + c.dim("   people alias <name> <handle>"));
     for (const r of rows) {
