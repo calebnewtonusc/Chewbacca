@@ -350,6 +350,9 @@ function migrate(d) {
   ensureColumn(d, "people", "muted_at", "muted_at TEXT");
   ensureColumn(d, "people", "muted_reason", "muted_reason TEXT");
   ensureColumn(d, "people", "linkedin", "linkedin TEXT");
+  // Per-person, not one global watermark. A run that dies halfway through a
+  // rate limit used to throw away everything it had already paid for.
+  ensureColumn(d, "people", "distilled_at", "distilled_at TEXT");
   // WHERE A MESSAGE CAME FROM. iMessage rows key on chat.db's ROWID; anything
   // imported from elsewhere is offset well past it so one FTS index can cover
   // every channel without the ids colliding.
@@ -1205,12 +1208,14 @@ function claudeBinUncached() {
 // that resolves to null is indistinguishable from "this person had no facts".
 // That silently drops people from a full pass, so retry with backoff and let
 // the caller see a real failure when it still will not go through.
-async function claudeJSON(prompt, system, model, tries = 4) {
+async function claudeJSON(prompt, system, model, tries = 7) {
   for (let attempt = 0; ; attempt++) {
     const out = await claudeJSONOnce(prompt, system, model);
     if (out !== RATE_LIMITED) return out;
     if (attempt >= tries - 1) return null;
-    const wait = Math.round(2000 * Math.pow(2, attempt) * (0.7 + Math.random() * 0.6));
+    // Caps around two minutes. These run unattended overnight, so waiting out
+    // a rate limit is strictly better than dropping the person from the pass.
+    const wait = Math.min(120000, Math.round(2000 * Math.pow(2, attempt) * (0.7 + Math.random() * 0.6)));
     await new Promise((r) => setTimeout(r, wait));
   }
 }
@@ -2685,6 +2690,106 @@ function factLearnedAt(value) {
   return m ? m[1] : null;
 }
 
+
+// ---------------------------------------------------------------- classify
+// 154 group chats with names like "Thor HW" and "Champa Chompers" and nothing
+// recording what they actually are. The messages say: who is in it, what it is
+// for, and whether it is still alive.
+
+const CLASSIFY_SYSTEM =
+  "You describe what a group chat is, from its messages. " +
+  "You reply with a JSON object and nothing else: no preamble, no prayer.";
+
+async function classifyCircle(d, circle, model) {
+  const msgs = d
+    .prepare(
+      `SELECT body FROM messages
+        WHERE who = ? AND body IS NOT NULL AND length(body) BETWEEN 12 AND 240
+        ORDER BY random() LIMIT 70`,
+    )
+    .all(circle.name);
+  if (msgs.length < 5) return null;
+
+  const members = d
+    .prepare(
+      `SELECT p.name FROM circle_members cm JOIN people p ON p.id = cm.person_id
+        WHERE cm.circle_id = ? AND p.deleted_at IS NULL LIMIT 25`,
+    )
+    .all(circle.id)
+    .map((r) => r.name);
+
+  const span = d
+    .prepare("SELECT min(sent_at) AS a, max(sent_at) AS b FROM messages WHERE who = ?")
+    .get(circle.name);
+
+  const prompt = [
+    `Group chat name: ${circle.name}`,
+    `Members: ${members.join(", ") || "unknown"}`,
+    `Active: ${String(span.a).slice(0, 10)} to ${String(span.b).slice(0, 10)}`,
+    "",
+    "A sample of messages:",
+    ...msgs.map((m) => `- ${m.body.replace(/\s+/g, " ")}`),
+    "",
+    "What is this group? One sentence a stranger would understand, naming the",
+    "shared context (a class, a team, a church, a trip, a family, a project).",
+    "Then one word for its kind.",
+    "",
+    'Reply with only: {"what": "one sentence", "kind": "family|school|sports|faith|work|friends|event|other"}',
+  ].join("\n");
+
+  const out = await claudeJSON(prompt, CLASSIFY_SYSTEM, model);
+  if (!out) return null;
+  const a = out.indexOf("{");
+  const b = out.lastIndexOf("}");
+  if (a < 0 || b <= a) return null;
+  try {
+    return JSON.parse(out.slice(a, b + 1));
+  } catch {
+    return null;
+  }
+}
+
+async function cmdClassify(argv) {
+  const { flags } = parseArgs(argv);
+  const d = db();
+  const model = flags.model || "claude-sonnet-5";
+
+  const todo = d
+    .prepare(
+      `SELECT c.id, c.name FROM circles c
+        WHERE c.deleted_at IS NULL ${flags.all ? "" : "AND c.classified_fact IS NULL"}
+        ORDER BY (SELECT count(*) FROM messages m WHERE m.who = c.name) DESC`,
+    )
+    .all();
+  if (!todo.length) return say(c.grn("  every circle is classified"));
+
+  const work = todo.slice(0, Number(flags.limit) || todo.length);
+  say("");
+  say(`${c.b("classify")} ${work.length} circles`);
+
+  const width = Math.max(1, Math.min(Number(flags.concurrency) || 4, 12));
+  let cursor = 0, done = 0, named = 0;
+  const upd = d.prepare(
+    "UPDATE circles SET classified_kind=?, classified_fact=?, classified_at=? WHERE id=?",
+  );
+  const worker = async () => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= work.length) return;
+      const got = await classifyCircle(d, work[i], model);
+      done++;
+      if (got && got.what) {
+        upd.run(String(got.kind || "other").slice(0, 20), String(got.what).slice(0, 400), nowISO(), work[i].id);
+        named++;
+        say(`  ${c.cyn(String(got.kind || "?").padEnd(8))} ${c.b(work[i].name.padEnd(28))} ${c.dim(String(got.what).slice(0, 72))}`);
+      }
+      if (done % 20 === 0) say(c.dim(`  ${done}/${work.length}`));
+    }
+  };
+  await Promise.all(Array.from({ length: width }, worker));
+  say(`${c.grn("classified")} ${named} of ${work.length}`);
+}
+
 function cmdPurge(argv) {
   const { flags, rest } = parseArgs(argv);
   const who = rest.join(" ");
@@ -2848,6 +2953,7 @@ async function cmdDistill(argv) {
         WHERE m.from_me = 0 AND p.deleted_at IS NULL AND p.muted_at IS NULL
           AND m.body IS NOT NULL AND length(m.body) BETWEEN 20 AND 500
           AND m.sent_at > ?
+          AND (p.distilled_at IS NULL OR m.sent_at > p.distilled_at)
         ORDER BY m.person_id, m.sent_at`,
     )
     .all(since);
@@ -2913,6 +3019,8 @@ async function cmdDistill(argv) {
           wrote++;
         }
       }
+      if (!error)
+        d.prepare("UPDATE people SET distilled_at=? WHERE id=?").run(nowISO(), pid);
       if (done % 25 === 0) say(c.dim(`  ${done}/${work.length}  ${wrote} facts`));
     }
   };
@@ -4307,6 +4415,7 @@ const HELP = `${c.b("people")} ${c.dim("- everything you know about the people i
   ${c.b("people import")} --mac | --vcf FILE | --csv FILE
   ${c.b("people distill")} [--limit 50] [--dry-run]   turn new messages into facts, with Claude
   ${c.b("people identify")} [--min 25] [--dry-run]     work out who unnamed group senders are
+  ${c.b("people classify")}                        work out what each group chat actually is
   ${c.b("people purge")} "Name" --yes                delete a person and their messages, for good
   ${c.b("people alias")}                          handles sending you texts that nobody owns
   ${c.b("people alias")} "Carlo Repetto" carloarep@icloud.com
@@ -4612,6 +4721,7 @@ const COMMANDS = {
   distill: cmdDistill,
   identify: cmdIdentify,
   purge: cmdPurge,
+  classify: cmdClassify,
   aliases: cmdAlias,
   mute: cmdMute,
   unmute: cmdUnmute,
