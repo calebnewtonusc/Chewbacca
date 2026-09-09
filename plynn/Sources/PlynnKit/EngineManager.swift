@@ -139,8 +139,8 @@ public final class EngineManager {
         preparationFailed = false
         preparationTimedOut = false
         let timeout = warmUpTimeoutSeconds
-        let task = Task { [engine, timeout] () -> WarmOutcome in
-            let outcome = await withTaskTimeout(seconds: timeout) {
+        let task = Task { [weak self, engine, timeout] () -> WarmOutcome in
+            let result = await withTaskTimeout(seconds: timeout) {
                 do {
                     try await engine.start()
                     return WarmOutcome.loaded
@@ -149,26 +149,38 @@ public final class EngineManager {
                     return WarmOutcome.failed
                 }
             }
-            if outcome == nil {
+            if result == nil {
                 NSLog("plynn: engine warm timed out (%@) after %.1fs", engine.displayName, timeout)
-                return .timedOut
             }
-            return outcome!
+            let outcome = result ?? .timedOut
+            // Settle the state INSIDE the task, before anyone can observe the
+            // return value. A second caller waits on this same task, and its
+            // continuation can resume ahead of the first caller's, so state
+            // applied after the await was readable as "not ready" on a warm
+            // that had in fact succeeded. That is what made launch-to-ready
+            // silent while the engine was loaded and working.
+            self?.applyWarmOutcome(outcome, for: choice)
+            return outcome
         }
         warmTask = task
-        let outcome = await task.value
+        _ = await task.value
         warmTask = nil
+        return activeEngineReady
+    }
 
-        if outcome == .loaded, activeChoice == choice {
+    /// Record a finished warm-up, ignoring one whose engine is no longer the
+    /// active choice (the user switched engines while it was loading).
+    private func applyWarmOutcome(_ outcome: WarmOutcome, for choice: EngineChoice) {
+        guard activeChoice == choice else { return }
+        if outcome == .loaded {
             readyChoice = choice
             preparationFailed = false
             preparationTimedOut = false
-        } else if activeChoice == choice {
+        } else {
             readyChoice = nil
             preparationFailed = true
             preparationTimedOut = outcome == .timedOut
         }
-        return activeEngineReady
     }
 
     private func downloadParakeet() {
