@@ -1321,7 +1321,43 @@ if should_run plugins; then
 section "Installing skills and plugins"
 
 mkdir -p "$GLOBAL_CLAUDE/skills"
-cp -R "$SCRIPT_DIR/skills/." "$GLOBAL_CLAUDE/skills/" 2>/dev/null || true
+# Symlink each skill, and count what landed.
+#
+# This was `cp -R ... 2>/dev/null || true`, which produced two failures at once
+# and reported neither. Copies froze at whatever existed when setup last ran, so
+# a skill fixed in the repo stayed broken on disk; and skills added since the
+# last run were simply absent. Seven of twenty-seven were missing on this
+# machine, `people`, `texts`, `study-guide` and `stack-rules` among them, which
+# is why sentences about those subjects loaded no skill: there was nothing to
+# load. A skill that is not installed is not a skill with a bad description.
+#
+# Only this repo's own skills are touched. ~/.claude/skills holds many skills
+# from elsewhere and nothing here may remove or overwrite one of those.
+_skills_want=0; _skills_have=0
+for _sk in "$SCRIPT_DIR"/skills/*/; do
+  [ -d "$_sk" ] || continue
+  _skn="$(basename "$_sk")"
+  _skills_want=$((_skills_want + 1))
+  _dst="$GLOBAL_CLAUDE/skills/$_skn"
+  # A real directory here is a copy from an older setup, or someone else's skill
+  # of the same name. Replace our own copies; never touch a foreign one.
+  if [ -d "$_dst" ] && [ ! -L "$_dst" ] && [ ! -f "$_dst/.chewbacca" ] && [ -f "$_sk/SKILL.md" ]; then
+    if cmp -s "$_dst/SKILL.md" "$_sk/SKILL.md" 2>/dev/null || grep -q "^name: $_skn$" "$_dst/SKILL.md" 2>/dev/null; then
+      rm -rf "$_dst"
+    else
+      warn "skill '$_skn' already exists and is not ours, leaving it alone"
+      continue
+    fi
+  fi
+  ln -sfn "$_sk" "$_dst"
+  [ -f "$_dst/SKILL.md" ] && _skills_have=$((_skills_have + 1))
+done
+if [ "$_skills_have" -lt "$_skills_want" ]; then
+  warn "skills: $_skills_have of $_skills_want linked into $GLOBAL_CLAUDE/skills"
+else
+  log "Skills linked to ~/.claude/skills/ ($_skills_have)"
+fi
+unset _sk _skn _dst _skills_want _skills_have
 log "Skills installed to ~/.claude/skills/"
 
 # BEGIN GENERATED: extensions
