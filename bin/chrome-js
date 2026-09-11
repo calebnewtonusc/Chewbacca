@@ -43,6 +43,36 @@ done
 TMP_JS="$(mktemp /tmp/chrome-js.XXXXXX.js)"
 trap 'rm -f "$TMP_JS"' EXIT
 
+# ── The password floor ────────────────────────────────────────────────────────
+# This tool runs arbitrary JS in a browser that is signed in to the user's real
+# accounts, usually while an agent is driving it. The one thing it must never do
+# is read a secret out of a page and hand it back through a transcript, where it
+# is then in a log, a context window, and possibly a model provider's servers.
+#
+# So: reading a password field is refused here, in every mode, with no flag to
+# turn it off. An agent that needs a credential on a page is asking for the
+# wrong thing. The right shape is the one Realm uses (31Carlton7/realm): the
+# human enrolls the credential in an OS keychain out of band, and the fill is a
+# separate privileged operation that puts the value straight into key events
+# without any layer above ever holding it. Chewbacca does not implement that
+# store, so its floor is simply: not through here.
+#
+# This is a floor, not a wall. It stops the common accident (an agent writes
+# `document.querySelector("input[type=password]").value` because that is the
+# obvious way to check a login form) and it does not stop a determined bypass.
+# Obfuscated DOM access will get through. The value is in making the honest path
+# refuse loudly instead of quietly succeeding.
+refuse_password_access() {
+  local src="$1" what="$2"
+  if grep -qiE "type=[\"']?password|input\[type=password|\.password|passwordField|autocomplete=[\"']?current-password" "$src" 2>/dev/null; then
+    echo "chrome-js: refused. $what touches a password field." >&2
+    echo "  Reading a credential out of a page puts it in the transcript, the" >&2
+    echo "  logs, and the model's context. There is no flag for this." >&2
+    echo "  If a sign-in is genuinely needed, do it by hand in the window." >&2
+    exit 3
+  fi
+}
+
 if [ "$MODE" = "check" ]; then
   # "Allow JavaScript from Apple Events" is per PROFILE, not per browser, and a
   # profile without it fails every --eval with the same opaque error. Report the
@@ -143,6 +173,11 @@ JS
     fi
     ;;
 esac
+
+# Every mode funnels through one file, so one check covers --eval, --file, stdin
+# and the generated click script. Placed after the case and before the injection
+# on purpose: a guard on only the paths someone remembered is not a guard.
+refuse_password_access "$TMP_JS" "the script"
 
 # `|| true`: osascript exits non-zero when the page rejects the script, and
 # set -e would abort here before the diagnosis below ever prints.

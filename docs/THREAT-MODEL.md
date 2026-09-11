@@ -76,6 +76,54 @@ bash Chewbacca/start.sh --full-send
 Anyone who would not run a script without reading it should take that path, and
 the README should say so more loudly than it does.
 
+## Driving a browser you are signed in to
+
+`chrome-js` runs JavaScript in a real Chrome that is logged in to real accounts,
+usually with an agent choosing the script. That is a genuinely dangerous shape,
+and the rules below are what keeps it usable.
+
+**Reading a password field is refused, in every mode, with no override flag.**
+A credential read out of a page lands in the transcript, the hook log, and the
+model's context in one step, and it cannot be recalled from any of them. The
+check is a pattern match over the script before injection, so it is a floor
+against the common accident, not a wall against a determined bypass. It is
+deliberately not configurable: a flag to disable it would be set once, in a
+hurry, and never unset.
+
+**There is no credential store here, on purpose.** The safe version of
+agent-driven sign-in is the one [Realm](https://github.com/31Carlton7/realm)
+implements, and it is worth naming because it shows what the bar actually is:
+
+- the human enrolls the credential themselves, in app settings. No tool, no RPC
+  call, and no chat message can create one, which is the only reason the origin
+  check below is worth anything
+- values live in the OS keychain, encrypted by the platform, decrypted only
+  inside the privileged process, never readable back over any bridge
+- a fill is gated three ways: the page's current origin, read from the browser,
+  must exactly equal the enrolled origin (no subdomains, no lookalikes); the
+  human approves that specific fill on a card naming origin, username and label;
+  and a biometric prompt confirms a person is present
+- the approval card appears **in every permission mode**, including a
+  bypass-everything mode, is never batched with other approvals, and answering
+  "always" licenses nothing
+- fills are logged with timestamp, origin, credential id and outcome, and never
+  the value, the field name, or its length
+- typing into a password field with the generic "act on the page" tool stays
+  refused everywhere; the fill is a separate, narrower operation, not a way
+  around the refusal
+- two-factor is not automated and is not planned. A push prompt cannot be driven
+  from here, so an SSO sign-in stays partly manual by design
+
+Chewbacca implements none of that machinery, so it takes the only other honest
+position: secrets do not pass through this tool at all. Sign in by hand, in the
+window, and let the agent take it from the authenticated page.
+
+**Screen capture is the other leak.** `peekaboo image` photographs whatever is
+on screen, including a visible password field or an open password manager. The
+capture tools are not restricted, because restricting them would break the
+feature; the mitigation is that `chrome-js` exists specifically so that reading
+a page does not require photographing the desktop.
+
 ## Reporting
 
 See [SECURITY.md](../.github/SECURITY.md). Anything that lets content the user
