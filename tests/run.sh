@@ -187,6 +187,16 @@ if group "tools"; then
   check  "secret scan finds nothing in the repo" python3 "$ROOT/bin/secret-scan" "$ROOT"
   check  "checksums are current" python3 "$ROOT/tools/checksums.py" --check
   check  "skills declare their tool dependencies" bash -c "python3 '$ROOT/tools/skill_requires.py' | grep -q '^chewie:'"
+  # A skill whose YAML is malformed is not registered, so it never fires and
+  # the user concludes the skill is bad at triggering. life-ops shipped that
+  # way for weeks over one unquoted colon in its description.
+  check  "every skill frontmatter parses" python3 "$ROOT/tools/frontmatter.py"
+  FM="$TMP/fmcheck/skills/broken"; mkdir -p "$FM"
+  printf -- '---\nname: broken\ndescription: a thing that is not code: it breaks\n---\n\n# x\n' > "$FM/SKILL.md"
+  expect "an unquoted colon is caught" "unquoted value contains" \
+    bash -c "python3 '$ROOT/tools/frontmatter.py' '$TMP/fmcheck/skills' 2>&1 || true"
+  exits  "and the checker exits non-zero" 1 \
+    bash -c "python3 '$ROOT/tools/frontmatter.py' '$TMP/fmcheck/skills'"
   check  "AGENTS.md exports for other agents" python3 "$ROOT/tools/agents_md.py" "$TMP"
   check  "the export leaks no @imports" bash -c "! grep -q '^@' '$TMP/AGENTS.md'"
   check  "slop check holds the line" python3 "$ROOT/bin/slop-check" "$ROOT/docs" "$ROOT/skills" --max 60

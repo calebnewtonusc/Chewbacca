@@ -700,6 +700,25 @@ else
   warn "no install manifest. Uninstall will fall back to pattern matching"
 fi
 
+# ── Skill frontmatter ─────────────────────────────────────────────────────────
+# A skill with malformed YAML is not registered. It does not error, it does not
+# warn, it is simply absent, and the user concludes the skill is bad at
+# triggering. `life-ops` shipped that way over one unquoted colon in its
+# description, and nothing here looked until an external linter said so.
+section "Skill frontmatter"
+
+FM_OUT="$(python3 "$REPO_DIR_EARLY/tools/frontmatter.py" --installed 2>&1)"
+if [ $? -eq 0 ]; then
+  ok "$(echo "$FM_OUT" | tail -1 | sed 's/^ok  //')"
+else
+  FM_N=$(echo "$FM_OUT" | grep -c "SKILL.md:")
+  bad "$FM_N skill(s) have frontmatter that does not parse, so they never fire" \
+      "python3 tools/frontmatter.py --installed" major
+  echo "$FM_OUT" | grep "SKILL.md:" | head -5 | while IFS= read -r l; do
+    [ "$QUIET" -eq 1 ] || echo "          $l"
+  done
+fi
+
 # ── Always-on imports ─────────────────────────────────────────────────────────
 # Claude Code resolves `@~/path.md` in CLAUDE.md by reading that file. A path
 # that does not exist is not an error and not a warning: the line is simply

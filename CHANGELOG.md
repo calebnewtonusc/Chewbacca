@@ -37,6 +37,7 @@ real commit; nothing here is written by hand.
 - send the root early
 
 ### Other
+- guide: keep the attempts, so a topic can be seen slipping
 - changelog: stop logging regenerations as if they were changes
 - doctor: check that the always-on imports actually resolve, and judge hooks on p95
 - wire live and guide into the CLI, and cover both in the suite

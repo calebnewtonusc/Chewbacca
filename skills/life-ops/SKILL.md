@@ -1,6 +1,6 @@
 ---
 name: life-ops
-description: The half of a week that is not code and not class: appointments, renewals, forms, commitments made in passing, the weekly review, and deciding what to drop when the week does not fit. Use when the user is planning a week, is overloaded, asks what they are forgetting, mentions an appointment or a deadline that is not academic, wants a review, or is deciding whether to take something else on.
+description: "The half of a week that is not code and not class: appointments, renewals, forms, commitments made in passing, the weekly review, and deciding what to drop when the week does not fit. Use when the user is planning a week, is overloaded, asks what they are forgetting, mentions an appointment or a deadline that is not academic, wants a review, or is deciding whether to take something else on."
 ---
 
 # Life ops
