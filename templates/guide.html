@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<style>
+  :root {
+    --ink: #16161a; --dim: #6b6b76; --line: #e3e3e8; --bg: #fbfbfc;
+    --card: #ffffff; --accent: #3b5bdb; --good: #2b8a3e; --bad: #c92a2a;
+    --good-bg: #ebfbee; --bad-bg: #fff5f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e8e8ed; --dim: #9a9aa6; --line: #2c2c34; --bg: #131317;
+      --card: #1b1b21; --accent: #748ffc; --good: #69db7c; --bad: #ff8787;
+      --good-bg: #13261a; --bad-bg: #2b1618;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2.5rem 1.25rem 6rem; background: var(--bg); color: var(--ink);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  .rg-guide { max-width: 44rem; margin: 0 auto; }
+  h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -.02em; }
+  h2 { font-size: 1.25rem; margin: 2.5rem 0 .75rem; letter-spacing: -.01em; }
+  h3 { font-size: 1rem; margin: 0 0 .4rem; }
+  .rg-lede { color: var(--dim); font-size: 1.05rem; margin: 0 0 2rem; }
+  code { background: var(--card); border: 1px solid var(--line); border-radius: 4px;
+         padding: .1em .35em; font-size: .9em; }
+  pre { background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+        padding: 1rem; overflow-x: auto; }
+  pre code { border: 0; padding: 0; background: none; }
+
+  /* quiz */
+  .rg-quiz { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+             padding: 1.25rem 1.4rem 1.4rem; margin: 1.5rem 0; }
+  .rg-quiz h2 { margin-top: 0; }
+  .rg-question { margin: 0 0 1.5rem; }
+  .rg-question > p { margin: 0 0 .6rem; font-weight: 500; }
+  .rg-options { list-style: none; margin: 0; padding: 0; }
+  .rg-options li { margin: .3rem 0; }
+  .rg-options label { display: flex; gap: .6rem; align-items: flex-start; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 8px; padding: .55rem .75rem; }
+  .rg-options label:hover { border-color: var(--accent); }
+  .rg-options input { margin-top: .3rem; flex: none; }
+  .rg-input { width: 100%; padding: .6rem .75rem; border: 1px solid var(--line);
+    border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
+  .rg-explain { display: none; margin-top: .7rem; padding: .7rem .85rem; border-radius: 8px;
+    background: var(--bg); border-left: 3px solid var(--accent); color: var(--dim); font-size: .94rem; }
+  .rg-question.rg-done .rg-explain { display: block; }
+  .rg-question.rg-right > p::after { content: " correct"; color: var(--good); font-weight: 600; font-size: .8rem; }
+  .rg-question.rg-wrong > p::after { content: " not yet"; color: var(--bad); font-weight: 600; font-size: .8rem; }
+  .rg-question.rg-right label.rg-sel { background: var(--good-bg); border-color: var(--good); }
+  .rg-question.rg-wrong label.rg-sel { background: var(--bad-bg); border-color: var(--bad); }
+  .rg-question.rg-wrong label.rg-key { border-color: var(--good); border-style: dashed; }
+  button { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--accent);
+    background: var(--accent); color: #fff; padding: .5rem 1rem; }
+  button.rg-ghost { background: none; color: var(--accent); }
+  button[disabled] { opacity: .45; cursor: default; }
+  .rg-score { margin-left: .8rem; color: var(--dim); font-size: .9rem; }
+
+  /* steps */
+  .rg-steps { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.25rem 1.4rem; margin: 1.5rem 0; }
+  .rg-step { display: none; } .rg-step.rg-on { display: block; }
+  .rg-stepbar { display: flex; align-items: center; gap: .6rem; margin-top: 1rem;
+    border-top: 1px solid var(--line); padding-top: .9rem; }
+  .rg-stepbar .rg-count { color: var(--dim); font-size: .88rem; margin-left: auto; }
+
+  /* flashcards */
+  .rg-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: .75rem; margin: 1.5rem 0; }
+  .rg-card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 1rem; min-height: 6.5rem; display: flex; align-items: center; justify-content: center;
+    text-align: center; cursor: pointer; }
+  .rg-card .rg-back { display: none; color: var(--dim); }
+  .rg-card.rg-flip .rg-front { display: none; }
+  .rg-card.rg-flip .rg-back { display: block; }
+
+  details.rg-reveal { background: var(--card); border: 1px solid var(--line);
+    border-radius: 10px; padding: .8rem 1rem; margin: 1rem 0; }
+  details.rg-reveal summary { cursor: pointer; font-weight: 500; }
+
+  .rg-sources { margin-top: 3rem; border-top: 1px solid var(--line); padding-top: 1rem;
+    color: var(--dim); font-size: .9rem; }
+  .rg-sources h2 { font-size: 1rem; }
+  .rg-saved { position: fixed; bottom: 1rem; right: 1rem; background: var(--card);
+    border: 1px solid var(--line); border-radius: 999px; padding: .4rem .9rem;
+    font-size: .82rem; color: var(--dim); opacity: 0; transition: opacity .2s; }
+  .rg-saved.rg-show { opacity: 1; }
+</style>
+</head>
+<body>
+<main class="rg-guide">
+__BODY__
+</main>
+<div class="rg-saved" id="rg-saved"></div>
+<script>
+/* The guide runtime. Written once here, never by the author of a guide: a guide
+   is markup. Two jobs, and the second is the one that matters.
+
+   1. Wire quizzes, step-throughs and flashcards from plain markup.
+   2. Persist per-topic results so the NEXT session can ask about what was
+      missed. A study guide that forgets what you got wrong is a worksheet.
+
+   Persistence has two backends, chosen by how the file was opened:
+     served by `guide open`  -> POST to /progress, which writes a JSON sidecar
+                                next to the file. Readable by `guide progress`,
+                                and therefore by Claude in a later session.
+     opened as a file:// URL -> localStorage only. Works, survives reloads, and
+                                is invisible to everything outside that browser.
+   The badge says which one is live, because silently degrading to a store no
+   other tool can read is how someone finds out in October that nothing saved. */
+(function () {
+  var SERVED = location.protocol === "http:" || location.protocol === "https:";
+  var KEY = "guide:" + location.pathname;
+  var badge = document.getElementById("rg-saved");
+
+  function flash(msg) {
+    badge.textContent = msg; badge.classList.add("rg-show");
+    setTimeout(function () { badge.classList.remove("rg-show"); }, 2200);
+  }
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { return {}; }
+  }
+  function save(state) {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    if (!SERVED) { flash("saved in this browser only"); return; }
+    fetch("/progress", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: location.pathname, state: state })
+    }).then(function () { flash("saved"); })
+      .catch(function () { flash("could not save to disk"); });
+  }
+
+  /* Answer forms, all three of which a guide author will actually use:
+       "c"                  one letter
+       "2"                  1-based index
+       "a,c"                select all that apply, order-insensitive
+       "write-back|wb"      free text, any alternative, case and space folded */
+  function norm(s) { return String(s).trim().toLowerCase().replace(/\s+/g, " "); }
+  function letters(key) {
+    return norm(key).split(",").map(function (t) {
+      t = t.trim();
+      return /^[0-9]+$/.test(t) ? String.fromCharCode(96 + parseInt(t, 10)) : t;
+    }).sort().join(",");
+  }
+
+  var state = load();
+
+  document.querySelectorAll(".rg-quiz").forEach(function (quiz) {
+    var topic = quiz.dataset.topic || "untitled";
+    var questions = [].slice.call(quiz.querySelectorAll(".rg-question"));
+
+    questions.forEach(function (q, qi) {
+      var opts = q.querySelector(".rg-options");
+      if (!opts) return;
+      var multi = (q.dataset.answer || "").indexOf(",") !== -1;
+      [].slice.call(opts.children).forEach(function (li, i) {
+        var id = "q" + qi + "_" + i + "_" + Math.random().toString(36).slice(2, 7);
+        var label = document.createElement("label");
+        label.setAttribute("for", id);
+        label.dataset.letter = String.fromCharCode(97 + i);
+        var input = document.createElement("input");
+        input.type = multi ? "checkbox" : "radio";
+        input.name = "q" + qi + "_" + topic; input.id = id;
+        input.value = String.fromCharCode(97 + i);
+        var span = document.createElement("span");
+        span.innerHTML = li.innerHTML;
+        label.appendChild(input); label.appendChild(span);
+        li.innerHTML = ""; li.appendChild(label);
+      });
+    });
+
+    var btn = quiz.querySelector(".rg-check");
+    if (!btn) { btn = document.createElement("button"); btn.className = "rg-check";
+                btn.textContent = "Check answers"; quiz.appendChild(btn); }
+    var score = document.createElement("span");
+    score.className = "rg-score"; btn.after(score);
+
+    var prior = state[topic];
+    if (prior) score.textContent = "last time: " + prior.correct + "/" + prior.total;
+
+    btn.addEventListener("click", function () {
+      var correct = 0, missed = [];
+      questions.forEach(function (q) {
+        var key = q.dataset.answer || "";
+        var got, right;
+        var text = q.querySelector(".rg-input");
+        if (text) {
+          got = norm(text.value);
+          right = norm(key).split("|").some(function (alt) { return norm(alt) === got; });
+        } else {
+          var picked = [].slice.call(q.querySelectorAll("input:checked")).map(function (i) { return i.value; });
+          got = picked.sort().join(",");
+          right = got !== "" && got === letters(key);
+          q.querySelectorAll("label").forEach(function (l) {
+            if (l.querySelector("input").checked) l.classList.add("rg-sel");
+            if (letters(key).split(",").indexOf(l.dataset.letter) !== -1) l.classList.add("rg-key");
+          });
+        }
+        q.classList.add("rg-done");
+        q.classList.toggle("rg-right", right);
+        q.classList.toggle("rg-wrong", !right);
+        if (right) correct++;
+        else missed.push((q.querySelector("p") || {}).textContent || "");
+      });
+      score.textContent = correct + "/" + questions.length;
+      state[topic] = {
+        correct: correct, total: questions.length,
+        missed: missed, at: new Date().toISOString()
+      };
+      save(state);
+    });
+  });
+
+  document.querySelectorAll(".rg-steps").forEach(function (box) {
+    var steps = [].slice.call(box.querySelectorAll(".rg-step"));
+    if (!steps.length) return;
+    var at = 0;
+    var bar = document.createElement("div"); bar.className = "rg-stepbar";
+    var prev = document.createElement("button"); prev.className = "rg-ghost"; prev.textContent = "Prev";
+    var next = document.createElement("button"); next.textContent = "Next";
+    var count = document.createElement("span"); count.className = "rg-count";
+    bar.appendChild(prev); bar.appendChild(next); bar.appendChild(count);
+    box.appendChild(bar);
+    function show() {
+      steps.forEach(function (s, i) { s.classList.toggle("rg-on", i === at); });
+      count.textContent = (at + 1) + " of " + steps.length;
+      prev.disabled = at === 0; next.disabled = at === steps.length - 1;
+    }
+    prev.addEventListener("click", function () { if (at > 0) { at--; show(); } });
+    next.addEventListener("click", function () { if (at < steps.length - 1) { at++; show(); } });
+    box.addEventListener("keydown", function (e) {
+      if (e.key === "ArrowLeft") prev.click();
+      if (e.key === "ArrowRight") next.click();
+    });
+    box.tabIndex = 0;
+    show();
+  });
+
+  document.querySelectorAll(".rg-card").forEach(function (card) {
+    card.addEventListener("click", function () { card.classList.toggle("rg-flip"); });
+  });
+})();
+</script>
+</body>
+</html>

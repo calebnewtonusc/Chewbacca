@@ -1,0 +1,292 @@
+#!/usr/bin/env python3
+"""guide - interactive study guides that remember what you got wrong.
+
+The study-system skill is good at asking questions and bad at keeping them. A
+session ends, the retrieval practice goes with it, and next week starts from
+zero against material the user has already failed once.
+
+A guide is one HTML file with quizzes, step-throughs and flashcards, plus a JSON
+sidecar holding per-topic results. The sidecar is the point: `guide progress`
+reads it back, so the next session can open on the three things that were missed
+instead of asking what to review.
+
+  guide new "cache coherence" --course CSCI170   create guides/cache-coherence.html
+  guide open cache-coherence                     serve it, so results reach disk
+  guide progress                                 what was missed, everywhere
+  guide progress cache-coherence --json          one topic, for a skill to read
+  guide list                                     every guide and its last score
+
+Guides live in ./guides by default, or $GUIDE_DIR.
+"""
+import json
+import os
+import re
+import sys
+import http.server
+import socketserver
+import threading
+import webbrowser
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+TEMPLATE = ROOT / "templates" / "guide.html"
+DIR = Path(os.environ.get("GUIDE_DIR", "guides")).resolve()
+
+
+def die(msg, code=1):
+    print(f"guide: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def slug(s):
+    return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-") or "guide"
+
+
+def sidecar(path):
+    """Next to the guide, dot-prefixed. Never inside the HTML: a guide should stay
+    copyable and mailable without carrying one person's wrong answers with it."""
+    return path.parent / f".{path.name}.progress.json"
+
+
+def read_progress(path):
+    p = sidecar(path)
+    if not p.is_file():
+        return {}
+    try:
+        return json.loads(p.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def resolve(name):
+    """Accept 'cache-coherence', 'cache-coherence.html', or a real path."""
+    if not name:
+        return None
+    p = Path(name)
+    for cand in (p, DIR / name, DIR / f"{slug(name)}.html", DIR / f"{name}.html"):
+        if cand.is_file():
+            return cand.resolve()
+    return None
+
+
+# ── new ───────────────────────────────────────────────────────────────────────
+STARTER = """  <h1>{title}</h1>
+  <p class="rg-lede">What this covers, and what you should be able to do
+  afterwards. Replace this.</p>
+
+  <h2>The idea</h2>
+  <p>Explain the concept once, plainly. Everything below this line is retrieval
+  practice, and retrieval only works on something already understood.</p>
+
+  <section class="rg-quiz" data-topic="{topic}-basics">
+    <h2>Check yourself</h2>
+    <div class="rg-question" data-answer="b">
+      <p>Replace this with a real question.</p>
+      <ol class="rg-options">
+        <li>A wrong answer that is plausible</li>
+        <li>The right answer</li>
+        <li>Another plausible wrong answer</li>
+      </ol>
+      <div class="rg-explain">Why the right answer is right, and why the most
+      tempting wrong one is wrong.</div>
+    </div>
+    <div class="rg-question" data-answer="one term|another accepted spelling">
+      <p>A question that needs a term typed from memory.</p>
+      <input class="rg-input" placeholder="one or two words">
+    </div>
+    <button class="rg-check">Check answers</button>
+  </section>
+
+  <h2>Worked example</h2>
+  <div class="rg-steps">
+    <div class="rg-step">
+      <h3>1. First move</h3>
+      <p>What happens, and the state AFTER it. State, not just action.</p>
+    </div>
+    <div class="rg-step">
+      <h3>2. Second move</h3>
+      <p>Same again.</p>
+    </div>
+  </div>
+
+  <div class="rg-cards">
+    <div class="rg-card"><div class="rg-front">Term</div><div class="rg-back">Definition</div></div>
+    <div class="rg-card"><div class="rg-front">Term</div><div class="rg-back">Definition</div></div>
+  </div>
+
+  <details class="rg-reveal">
+    <summary>Show the derivation</summary>
+    <p>Hidden until asked for, so the reader tries first.</p>
+  </details>
+
+  <footer class="rg-sources">
+    <h2>Sources</h2>
+    <ul><li>Cite the lecture, slide range, or reading this came from.</li></ul>
+  </footer>"""
+
+
+def cmd_new(args):
+    if not args:
+        die('what topic? Try: guide new "cache coherence"')
+    title = args[0]
+    course = None
+    if "--course" in args:
+        i = args.index("--course")
+        if i + 1 >= len(args):
+            die("--course needs a value")
+        course = args[i + 1]
+    if not TEMPLATE.is_file():
+        die(f"missing template at {TEMPLATE}")
+
+    name = slug(title)
+    DIR.mkdir(parents=True, exist_ok=True)
+    out = DIR / f"{name}.html"
+    if out.exists():
+        die(f"{out} already exists. Extend it rather than starting a second guide "
+            f"on the same topic, or delete it first.")
+
+    heading = f"{title} ({course})" if course else title
+    html = (TEMPLATE.read_text()
+            .replace("__TITLE__", heading)
+            .replace("__BODY__", STARTER.format(title=heading, topic=name)))
+    out.write_text(html)
+    print(f"wrote {out}")
+    print(f"  edit it, then: guide open {name}")
+
+
+# ── open ──────────────────────────────────────────────────────────────────────
+def cmd_open(args):
+    """Serve the guide dir over localhost.
+
+    A guide opened as file:// can only save to localStorage, which no other tool
+    can read, so the whole point (a later session knowing what was missed) is
+    lost. Serving it costs one command and makes the sidecar real."""
+    target = resolve(args[0]) if args else None
+    if args and not target:
+        die(f"no guide named '{args[0]}'. Try: guide list")
+
+    port = 7374
+    if "--port" in args:
+        port = int(args[args.index("--port") + 1])
+
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, directory=str(DIR), **kw)
+
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            if self.path != "/progress":
+                self.send_error(404)
+                return
+            try:
+                raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                payload = json.loads(raw)
+                # The browser reports its own pathname. Resolve it inside DIR and
+                # refuse anything that escapes: this is a local server, but it is
+                # still a server taking a path from a page.
+                rel = Path(payload.get("path", "")).name
+                page = (DIR / rel).resolve()
+                if page.parent != DIR or not page.is_file():
+                    self.send_error(400, "unknown guide")
+                    return
+                state = payload.get("state", {})
+                for topic in state.values():
+                    topic.setdefault("at", datetime.now(timezone.utc).isoformat())
+                sidecar(page).write_text(json.dumps(state, indent=2))
+            except (ValueError, OSError, TypeError) as e:
+                self.send_error(400, str(e))
+                return
+            self.send_response(204)
+            self.end_headers()
+
+    if not DIR.is_dir():
+        die(f"no guides directory at {DIR}. Make one: guide new \"a topic\"")
+
+    socketserver.TCPServer.allow_reuse_address = True
+    try:
+        srv = socketserver.TCPServer(("127.0.0.1", port), Handler)
+    except OSError as e:
+        die(f"port {port} is busy ({e}). Try: guide open {args[0] if args else ''} --port 7375")
+
+    url = f"http://127.0.0.1:{port}/" + (target.name if target else "")
+    print(f"serving {DIR} at {url}")
+    print("  quiz results save to a sidecar next to the guide. Ctrl-C to stop.")
+    threading.Timer(0.4, lambda: webbrowser.open(url)).start()
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        print("\nstopped")
+        srv.server_close()
+
+
+# ── progress ──────────────────────────────────────────────────────────────────
+def cmd_progress(args):
+    as_json = "--json" in args
+    args = [a for a in args if a != "--json"]
+    pages = [resolve(args[0])] if args else sorted(DIR.glob("*.html")) if DIR.is_dir() else []
+    if args and not pages[0]:
+        die(f"no guide named '{args[0]}'. Try: guide list")
+
+    out = {}
+    for page in pages:
+        prog = read_progress(page)
+        if prog:
+            out[page.stem] = prog
+
+    if as_json:
+        print(json.dumps(out, indent=2))
+        return
+
+    if not out:
+        print("no results yet. Take a quiz: guide open <name>")
+        return
+
+    for name, topics in out.items():
+        print(f"\n{name}")
+        for topic, r in sorted(topics.items()):
+            c, t = r.get("correct", 0), r.get("total", 0)
+            when = (r.get("at") or "")[:10]
+            mark = "  " if t and c == t else "->"
+            print(f"  {mark} {topic}: {c}/{t}  {when}")
+            for m in r.get("missed", []):
+                if m.strip():
+                    print(f"       missed: {m.strip()[:90]}")
+    print("\nStill wrong above. Start the next session there, not at the top.")
+
+
+def cmd_list(args):
+    if not DIR.is_dir():
+        print(f"no guides yet in {DIR}")
+        return
+    pages = sorted(DIR.glob("*.html"))
+    if not pages:
+        print(f"no guides yet in {DIR}")
+        return
+    for p in pages:
+        prog = read_progress(p)
+        if prog:
+            c = sum(r.get("correct", 0) for r in prog.values())
+            t = sum(r.get("total", 0) for r in prog.values())
+            note = f"{c}/{t} across {len(prog)} topic(s)"
+        else:
+            note = "never taken"
+        print(f"  {p.stem:<34} {note}")
+
+
+def main():
+    argv = sys.argv[1:]
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return
+    cmd, rest = argv[0], argv[1:]
+    table = {"new": cmd_new, "open": cmd_open, "progress": cmd_progress, "list": cmd_list}
+    if cmd not in table:
+        die(f'unknown command "{cmd}". One of: {", ".join(table)}', 2)
+    table[cmd](rest)
+
+
+if __name__ == "__main__":
+    main()

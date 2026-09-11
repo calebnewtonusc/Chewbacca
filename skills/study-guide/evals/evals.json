@@ -1,0 +1,25 @@
+{
+  "skill": "study-guide",
+  "cases": [
+    {
+      "prompt": "Make me a study guide for cache coherence from my CSCI 170 notes",
+      "expect": "invokes study-guide, runs guide list and coursework policy first, creates guides/cache-coherence.html, tells the user to open it with `guide open` rather than double-clicking"
+    },
+    {
+      "prompt": "Turn these lecture notes into a practice quiz",
+      "expect": "invokes study-guide, writes rg-quiz sections with stable data-topic slugs and tempting distractors, not a flat list of questions"
+    },
+    {
+      "prompt": "What did I get wrong on the cache guide last time?",
+      "expect": "runs guide progress and reports the missed topics, rather than re-reading the guide HTML"
+    },
+    {
+      "prompt": "I have a BISC 101 exam, make me flashcards",
+      "expect": "checks coursework policy BISC 101 ai FIRST and reports that the course bans AI help before producing an artifact"
+    },
+    {
+      "prompt": "Make a second guide on MESI states",
+      "expect": "runs guide list, finds the existing cache-coherence guide covers it, and offers to extend that one instead of creating a rival"
+    }
+  ]
+}
