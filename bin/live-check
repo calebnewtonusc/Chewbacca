@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# chewbacca live — run the checks that need the real machine.
+#
+# tests/run.sh is hermetic and proves the kit's own logic. It runs in CI, it is
+# fast, and it cannot tell you that `mac calendar list` comes back empty on this
+# laptop because TCC granted writeOnly. Nothing could, without calling it.
+#
+# So: a second suite, run by hand (or by `chewbacca doctor --live`), against the
+# real binaries, with three states instead of two. A missing or unpermitted
+# dependency is a SKIP and is reported as one. It is never counted as a pass.
+#
+#   chewbacca live              every check
+#   chewbacca live mac          one
+#   chewbacca live --list       what exists
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DIR="$ROOT/tests/live"
+GRN='\033[0;32m'; RED='\033[0;31m'; YEL='\033[0;33m'; BLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
+
+case "${1:-}" in
+  --list|-l)
+    echo "live checks in $DIR:"
+    for f in "$DIR"/*.sh; do
+      [ "$(basename "$f")" = harness.sh ] && continue
+      printf '  %-12s %s\n' "$(basename "$f" .sh)" \
+        "$(sed -n '2s/^# Live: //p' "$f")"
+    done
+    exit 0 ;;
+  -h|--help)
+    sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+    exit 0 ;;
+esac
+
+ONLY="${1:-}"
+PASSED=0; FAILED=0; SKIPPED=0
+declare -a FAILED_NAMES=() SKIPPED_NAMES=()
+
+for f in "$DIR"/*.sh; do
+  name="$(basename "$f" .sh)"
+  [ "$name" = harness.sh ] && continue
+  [ -n "$ONLY" ] && [ "$ONLY" != "$name" ] && continue
+
+  printf "\n${BLD}%s${NC}\n" "$name"
+  bash "$f"
+  rc=$?
+  case "$rc" in
+    0)  PASSED=$((PASSED+1)) ;;
+    77) SKIPPED=$((SKIPPED+1)); SKIPPED_NAMES+=("$name") ;;
+    *)  FAILED=$((FAILED+1));   FAILED_NAMES+=("$name") ;;
+  esac
+done
+
+if [ "$((PASSED+FAILED+SKIPPED))" -eq 0 ]; then
+  echo "live: no check named '$ONLY'. Try: chewbacca live --list" >&2
+  exit 2
+fi
+
+printf "\n"
+printf "${DIM}%s${NC}\n" "────────────────────────────────────────"
+# The skipped count is printed on its own line, always, even at zero. A suite
+# that hides its skips reads as fully green when half of it never ran.
+printf "${GRN}%d file(s) passed${NC}  ${RED}%d failed${NC}  ${YEL}%d skipped${NC}\n" \
+  "$PASSED" "$FAILED" "$SKIPPED"
+for n in "${SKIPPED_NAMES[@]:-}"; do
+  [ -n "$n" ] && printf "  ${YEL}skipped${NC} %s ${DIM}— nothing was proven here${NC}\n" "$n"
+done
+for n in "${FAILED_NAMES[@]:-}"; do
+  [ -n "$n" ] && printf "  ${RED}failed${NC}  %s\n" "$n"
+done
+[ "$FAILED" -eq 0 ] || exit 1
+exit 0
