@@ -23,31 +23,21 @@ real commit; nothing here is written by hand.
 - the listener died when the display restarted
 
 ### Changed
-- regenerate counts and checksums
 - fix a fresh database, and catch the duplicates tags were hiding
-- regenerate extension inventory
-- regenerate extension inventory
-- regenerate extension inventory
-- regenerate extension inventory
 - report a warm-up that succeeded as succeeded
 - classify group chats, and survive a rate limit without losing work
 - a fact extractor that runs itself, and facts that know when they expired
 - fix message attribution, which was wrong in three separate ways
 - make what you know about yourself readable, and stop merges leaving garbage
 - add mute, and let update rename a contact
-- regenerate extension inventory
-- regenerate extension inventory
 - stop the event scan writing the same event twice
-- regenerate extension inventory
-- regenerate extension inventory
-- regenerate extension inventory
-- regenerate extension inventory
 - ignore the coverage file swift test leaves behind
 
 ### Documentation
 - send the root early
 
 ### Other
+- doctor: check that the always-on imports actually resolve, and judge hooks on p95
 - wire live and guide into the CLI, and cover both in the suite
 - rules: where a lesson goes, and stop reading passwords out of pages
 - guide: study guides that remember what you got wrong
@@ -58,7 +48,6 @@ real commit; nothing here is written by hand.
 - identify writes as it goes, not at the end
 - amber-pull: what Karthik and Sagar shipped since you last looked
 - stop-check: a home directory under git is not unfinished work
-- 1000: regenerate status and changelog
 - setup: --skip, and say what did not run
 
 ## v1.1.0 - 2026-09-04
@@ -83,7 +72,6 @@ real commit; nothing here is written by hand.
 - contributing: what review is actually for when the kit runs as you
 - install: pin it, and check what landed against what is in git
 - install: stop destroying a CLAUDE.md somebody wrote by hand
-- 1000: regenerate the status file
 - 1000: a status file generated from the commit log, and twelve corrections
 - skills: declare the tools they promise, and doctor reads the declaration
 - skills: declare the tools they promise, and doctor reads the declaration
@@ -150,36 +138,16 @@ real commit; nothing here is written by hand.
 - carry the hotkey split and the warm-session work into the patch
 - a scan must survive contention and a bad batch
 - commit each batch as it lands, and stop paying for stdin
-- regenerate extension inventory
-- regenerate extension inventory
 - make the event scan actually reach the model
 - log what actually happened, on the day it happened
 - repair the patch, and ship the Chewie voice-agent path with it
 - make the temporal curves real on actual data
 - relationship graphs over time, and fix the backfill that silently did nothing
-- regenerate extension inventory
-- regenerate extension inventory
-- regenerate extension inventory
-- regenerate extension inventory
-- regenerate extension inventory
-- regenerate extension inventory
-- regenerate extension inventory
-- regenerate extension inventory from installed state
-- regenerate extension inventory from installed state
-- regenerate extension inventory from installed state
-- regenerate extension inventory from installed state
 - update bin/skill-scan
-- regenerate extension inventory from installed state
-- regenerate extension inventory from installed state
-- regenerate extension inventory from installed state
-- regenerate extension inventory from installed state
-- regenerate extension inventory from installed state
 - update docs/SYSTEM-PROMPTS.md
-- regenerate extension inventory from installed state
 - update setup.sh
 - update docs/SKILLS.md
 - update docs/EXTENSIONS.md
-- regenerate extension inventory from installed state
 - update README.md
 - update README.md
 - update README.md

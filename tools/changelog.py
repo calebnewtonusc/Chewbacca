@@ -44,17 +44,22 @@ def tags():
 # happened twice in one evening before anybody noticed it was a loop rather
 # than a chore. A changelog is a record of what changed for a reader, and
 # "regenerated the changelog" has never changed anything for one.
-HOUSEKEEPING = (
-    "regenerate the changelog",
-    "regenerate the readme counts",
-    "regenerate checksums",
-    "regenerate the component reference",
-)
+# A four-item allowlist was the first attempt, and it leaked. It matched on the
+# exact wording of four known messages, so "regenerate extension inventory"
+# (four times) and "regenerate counts and checksums" went straight into the
+# changelog as if they were changes. An allowlist of phrasings is a list of the
+# messages someone happened to have written by then, and every new generated
+# artifact adds one nobody remembers to register.
+#
+# The rule that does not rot: regenerating a generated file is never a change
+# for a reader, whatever the file is called. So the verb is the test.
+HOUSEKEEPING_VERBS = ("regenerate", "regen")
 
 
 def is_housekeeping(subject):
     body = subject.split(":", 1)[-1].strip().lower()
-    return any(body.startswith(h) for h in HOUSEKEEPING)
+    first = body.split(" ", 1)[0]
+    return first in HOUSEKEEPING_VERBS
 
 
 def commits(rng):
