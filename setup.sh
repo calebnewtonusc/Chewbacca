@@ -1290,9 +1290,29 @@ esac
 # their absence as warnings on a perfectly healthy machine.
 echo "$PROFILE" > "$GLOBAL_CLAUDE/.chewbacca-profile"
 
-log "Commands installed to ~/.claude/commands/ ($(ls "$SCRIPT_DIR"/.claude/commands/*.md | wc -l | tr -d ' ') files)"
-log "Rules installed to ~/.claude/rules/ ($(ls "$SCRIPT_DIR"/.claude/rules/*.md | wc -l | tr -d ' ') files)"
-log "Subagents installed to ~/.claude/agents/ ($(ls "$SCRIPT_DIR"/.claude/agents/*.md | wc -l | tr -d ' ') agents)"
+# Count what LANDED, not what was offered.
+#
+# Every cp above is `2>/dev/null || true`, so a failure is silent by
+# construction. These lines used to count the SOURCE directory and report that
+# as the install, which means a run where nothing copied still printed "Rules
+# installed to ~/.claude/rules/ (12 files)". On this machine seven of the nine
+# rules CLAUDE.md imports were absent while setup had reported success, so every
+# session silently loaded two standards instead of nine.
+installed_count() {
+  local src="$1" dst="$2" label="$3"
+  local want have
+  want=$(ls "$src"/*.md 2>/dev/null | wc -l | tr -d ' ')
+  have=$(ls "$dst"/*.md 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$have" -lt "$want" ]; then
+    warn "$label: $have of $want landed in $dst"
+    warn "  Check permissions on that directory, then re-run setup."
+  else
+    log "$label installed to $dst ($have files)"
+  fi
+}
+installed_count "$SCRIPT_DIR/.claude/commands" "$GLOBAL_CLAUDE/commands" "Commands"
+installed_count "$SCRIPT_DIR/.claude/rules"    "$GLOBAL_CLAUDE/rules"    "Rules"
+installed_count "$SCRIPT_DIR/.claude/agents"   "$GLOBAL_CLAUDE/agents"   "Subagents"
 log "CLAUDE.md installed to ~/.claude/CLAUDE.md ($(basename "$STANDARDS"))"
 fi
 
