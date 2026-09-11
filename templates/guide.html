@@ -114,6 +114,7 @@ __BODY__
    The badge says which one is live, because silently degrading to a store no
    other tool can read is how someone finds out in October that nothing saved. */
 (function () {
+  var MAX_ATTEMPTS = 50;
   var SERVED = location.protocol === "http:" || location.protocol === "https:";
   var KEY = "guide:" + location.pathname;
   var badge = document.getElementById("rg-saved");
@@ -182,7 +183,13 @@ __BODY__
     score.className = "rg-score"; btn.after(score);
 
     var prior = state[topic];
-    if (prior) score.textContent = "last time: " + prior.correct + "/" + prior.total;
+    if (prior && prior.last) {
+      score.textContent = "last time: " + prior.last.correct + "/" + prior.last.total +
+        (prior.attempts && prior.attempts.length > 1
+          ? "  (best " + prior.best.correct + "/" + prior.best.total +
+            " over " + prior.attempts.length + ")"
+          : "");
+    }
 
     btn.addEventListener("click", function () {
       var correct = 0, missed = [];
@@ -209,10 +216,29 @@ __BODY__
         else missed.push((q.querySelector("p") || {}).textContent || "");
       });
       score.textContent = correct + "/" + questions.length;
-      state[topic] = {
+      // Keep the ATTEMPTS, not just the latest score.
+      //
+      // Overwriting on each run answers "how did that go" and cannot answer the
+      // only question worth asking a week later: is this getting better. A
+      // single 3/5 is ambiguous; 2/5 then 3/5 then 5/5 is learning, and 5/5
+      // then 3/5 is a topic that was never actually consolidated.
+      //
+      // Capped, because a guide someone drills daily for a semester should not
+      // grow without bound inside a file they might open on a phone.
+      var attempt = {
         correct: correct, total: questions.length,
         missed: missed, at: new Date().toISOString()
       };
+      var rec = state[topic] || { attempts: [] };
+      rec.attempts = (rec.attempts || []).concat([attempt]).slice(-MAX_ATTEMPTS);
+      rec.last = attempt;
+      // Best by ratio, then by most recent, so a later equal score wins and the
+      // record reflects the most recent evidence of the ceiling.
+      rec.best = rec.attempts.reduce(function (b, a) {
+        if (!b) return a;
+        return (a.correct / a.total) >= (b.correct / b.total) ? a : b;
+      }, null);
+      state[topic] = rec;
       save(state);
     });
   });

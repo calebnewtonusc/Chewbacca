@@ -296,6 +296,20 @@ if group "guide"; then
 {"mesi-states":{"correct":1,"total":3,"missed":["What happens on eviction?"],"at":"2026-09-11T00:00:00Z"}}
 JSON
   expect "progress reads the sidecar back"  "mesi-states" "${G[@]}" progress
+  # A last-score-only view cannot answer the question that matters a week
+  # later: is this getting better. These two are the whole reason the runtime
+  # keeps attempts instead of overwriting.
+  cat > "$TMP/guides/.trend.html.progress.json" <<'JSON'
+{"up":{"attempts":[{"correct":1,"total":5,"at":"2026-09-01T00:00:00Z"},{"correct":5,"total":5,"at":"2026-09-09T00:00:00Z"}],"last":{"correct":5,"total":5,"at":"2026-09-09T00:00:00Z"}},
+ "down":{"attempts":[{"correct":5,"total":5,"at":"2026-09-01T00:00:00Z"},{"correct":1,"total":5,"missed":["it"],"at":"2026-09-09T00:00:00Z"}],"last":{"correct":1,"total":5,"missed":["it"],"at":"2026-09-09T00:00:00Z"}},
+ "old":{"correct":1,"total":2,"missed":["flat shape"],"at":"2026-09-02T00:00:00Z"}}
+JSON
+  cp "$TMP/guides/cache-coherence.html" "$TMP/guides/trend.html"
+  expect "an improving topic is named as such"  "improving over 2" "${G[@]}" progress trend
+  expect "a slipping topic is called out"       "SLIPPING over 2"  "${G[@]}" progress trend
+  # Sidecars written before attempts existed must still read, or an upgrade
+  # silently throws away the history it was added to keep.
+  expect "the pre-history sidecar shape still reads" "flat shape" "${G[@]}" progress trend
   expect "progress names what was missed"   "eviction"    "${G[@]}" progress
   check  "progress --json is valid JSON" bash -c "GUIDE_DIR='$TMP/guides' python3 '$ROOT/bin/guide' progress --json | python3 -m json.tool"
   expect "list reports the score"     "1/3" "${G[@]}" list

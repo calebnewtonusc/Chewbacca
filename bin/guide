@@ -59,6 +59,39 @@ def read_progress(path):
         return {}
 
 
+def latest(rec):
+    """The most recent attempt.
+
+    Two shapes exist: the current one keeps an `attempts` list, and sidecars
+    written before that kept a single flat result. Reading both means a guide
+    someone has been using does not lose its history to an upgrade."""
+    if isinstance(rec, dict) and rec.get("last"):
+        return rec["last"]
+    if isinstance(rec, dict) and rec.get("attempts"):
+        return rec["attempts"][-1]
+    return rec if isinstance(rec, dict) else {}
+
+
+def trend(rec):
+    """Whether this topic is actually getting better.
+
+    A single 3/5 is ambiguous. 2/5 then 3/5 then 5/5 is learning. 5/5 then 3/5
+    is a topic that was never consolidated, and it is the one worth reopening
+    first, which a last-score-only view hides completely."""
+    attempts = (rec or {}).get("attempts") or []
+    if len(attempts) < 2:
+        return ""
+    def ratio(a):
+        return a.get("correct", 0) / max(a.get("total", 0) or 1, 1)
+    first, last = ratio(attempts[0]), ratio(attempts[-1])
+    n = len(attempts)
+    if last > first:
+        return f"improving over {n}"
+    if last < first:
+        return f"SLIPPING over {n}"
+    return f"flat over {n}"
+
+
 def resolve(name):
     """Accept 'cache-coherence', 'cache-coherence.html', or a real path."""
     if not name:
@@ -247,11 +280,12 @@ def cmd_progress(args):
     for name, topics in out.items():
         print(f"\n{name}")
         for topic, r in sorted(topics.items()):
-            c, t = r.get("correct", 0), r.get("total", 0)
-            when = (r.get("at") or "")[:10]
+            last = latest(r)
+            c, t = last.get("correct", 0), last.get("total", 0)
+            when = (last.get("at") or "")[:10]
             mark = "  " if t and c == t else "->"
-            print(f"  {mark} {topic}: {c}/{t}  {when}")
-            for m in r.get("missed", []):
+            print(f"  {mark} {topic}: {c}/{t}  {when}  {trend(r)}")
+            for m in last.get("missed", []):
                 if m.strip():
                     print(f"       missed: {m.strip()[:90]}")
     print("\nStill wrong above. Start the next session there, not at the top.")
@@ -268,9 +302,13 @@ def cmd_list(args):
     for p in pages:
         prog = read_progress(p)
         if prog:
-            c = sum(r.get("correct", 0) for r in prog.values())
-            t = sum(r.get("total", 0) for r in prog.values())
+            lasts = [latest(r) for r in prog.values()]
+            c = sum(a.get("correct", 0) for a in lasts)
+            t = sum(a.get("total", 0) for a in lasts)
+            slipping = sum(1 for r in prog.values() if trend(r).startswith("SLIPPING"))
             note = f"{c}/{t} across {len(prog)} topic(s)"
+            if slipping:
+                note += f", {slipping} slipping"
         else:
             note = "never taken"
         print(f"  {p.stem:<34} {note}")
