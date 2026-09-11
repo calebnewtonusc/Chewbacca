@@ -23,6 +23,7 @@ real commit; nothing here is written by hand.
 - the listener died when the display restarted
 
 ### Changed
+- fix a fresh database, and catch the duplicates tags were hiding
 - regenerate extension inventory
 - regenerate extension inventory
 - regenerate extension inventory
@@ -46,6 +47,11 @@ real commit; nothing here is written by hand.
 - send the root early
 
 ### Other
+- wire live and guide into the CLI, and cover both in the suite
+- rules: where a lesson goes, and stop reading passwords out of pages
+- guide: study guides that remember what you got wrong
+- live: check the real tools, and never count a skip as a pass
+- setup: symlink the tools instead of copying them
 - alias: rank by recency, and stop listing robots
 - README: the real numbers, and the half that was missing
 - identify writes as it goes, not at the end
