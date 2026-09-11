@@ -151,6 +151,27 @@ if group "doctor"; then
   check  "--json is valid JSON" bash -c "bash '$ROOT/doctor.sh' --json | python3 -m json.tool"
   expect "--json carries severities" '"severity"' bash -c "bash '$ROOT/doctor.sh' --json"
   expect "--json carries sections" '"section"' bash -c "bash '$ROOT/doctor.sh' --json"
+
+  # A silently-dropped @import is the cheapest bug in the kit to have: Claude
+  # Code does not error on a path that is not there, it just runs without the
+  # standard. Seven of nine rules were missing on a machine setup had called
+  # successful, and 65 other checks never looked.
+  D="$TMP/dhome"; mkdir -p "$D/.claude/rules"
+  cp "$ROOT/CLAUDE.md" "$D/.claude/CLAUDE.md"
+  expect "a missing always-on import is caught" "do not exist" \
+    bash -c "HOME='$D' bash '$ROOT/doctor.sh' 2>&1"
+  expect "the report names the missing file" "rules/git.md" \
+    bash -c "HOME='$D' bash '$ROOT/doctor.sh' 2>&1"
+  # The mutant: with every rule present the same check must go quiet, or it is
+  # reporting the weather rather than the install.
+  cp "$ROOT/.claude/rules/"*.md "$D/.claude/rules/"
+  expect "and passes once they are all there" "always-on imports resolve" \
+    bash -c "HOME='$D' bash '$ROOT/doctor.sh' 2>&1"
+
+  # p95, not max: judging a hook on its single worst run accused one whose
+  # median was 108ms, and a p95 over 11 samples is noise, not a measurement.
+  check "doctor judges hooks on p95 with a sample floor" \
+    bash -c "grep -q 'MIN_RUNS_FOR_VERDICT' '$ROOT/doctor.sh'"
 fi
 
 # ── tools ─────────────────────────────────────────────────────────────────────

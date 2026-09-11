@@ -23,6 +23,7 @@ real commit; nothing here is written by hand.
 - the listener died when the display restarted
 
 ### Changed
+- regenerate counts and checksums
 - fix a fresh database, and catch the duplicates tags were hiding
 - regenerate extension inventory
 - regenerate extension inventory

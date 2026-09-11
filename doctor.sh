@@ -700,6 +700,49 @@ else
   warn "no install manifest. Uninstall will fall back to pattern matching"
 fi
 
+# ── Always-on imports ─────────────────────────────────────────────────────────
+# Claude Code resolves `@~/path.md` in CLAUDE.md by reading that file. A path
+# that does not exist is not an error and not a warning: the line is simply
+# dropped, and the session runs without a standard everyone believes is loaded.
+#
+# This is how seven of nine rules went missing on a machine that had run setup
+# and reported success. Nothing in 65 other checks looked at whether the kit's
+# own always-on imports resolve, which made this the cheapest possible bug to
+# have and the most expensive to notice.
+section "Always-on imports"
+
+GLOBAL_MD="$HOME/.claude/CLAUDE.md"
+if [ ! -f "$GLOBAL_MD" ]; then
+  bad "no ~/.claude/CLAUDE.md, so none of the standards load" "chewbacca setup" major
+else
+  IMPORT_MISSING=""
+  IMPORT_TOTAL=0
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    IMPORT_TOTAL=$((IMPORT_TOTAL + 1))
+    # Expand a leading ~ ourselves; the glob is already literal by this point.
+    resolved="${line/#\~/$HOME}"
+    case "$resolved" in
+      /*) ;;                               # absolute, use as is
+      *)  resolved="$HOME/.claude/$resolved" ;;   # relative to the file
+    esac
+    [ -e "$resolved" ] || IMPORT_MISSING="$IMPORT_MISSING ${line}"
+  done <<< "$(grep -oE '^@[^[:space:]]+' "$GLOBAL_MD" | sed 's/^@//')"
+
+  if [ "$IMPORT_TOTAL" -eq 0 ]; then
+    warn "~/.claude/CLAUDE.md imports nothing. The standards are not loading"
+  elif [ -n "$IMPORT_MISSING" ]; then
+    MISSING_N=$(echo "$IMPORT_MISSING" | wc -w | tr -d ' ')
+    bad "$MISSING_N of $IMPORT_TOTAL always-on imports do not exist, so they silently do not load" \
+        "chewbacca setup" major
+    for m in $IMPORT_MISSING; do
+      [ "$QUIET" -eq 1 ] || echo "          missing: $m"
+    done
+  else
+    ok "all $IMPORT_TOTAL always-on imports resolve"
+  fi
+fi
+
 # ── Hook health ───────────────────────────────────────────────────────────────
 section "Hook health"
 
@@ -717,13 +760,50 @@ else
   else
     bad "$HOOK_FAILS of $HOOK_RUNS hook runs failed" "chewbacca log errors" major
   fi
-  # A hook over a second is a hook the user feels on every single session.
-  SLOWEST=$(awk -F'|' '{if($3+0>m){m=$3+0;n=$2}}END{print m"|"n}' "$HOOK_LOG")
-  SLOW_MS="${SLOWEST%%|*}"; SLOW_NAME="${SLOWEST##*|}"
-  if [ "${SLOW_MS:-0}" -gt 2000 ]; then
-    bad "$SLOW_NAME took ${SLOW_MS}ms, which every session pays" "chewbacca bench" minor
+  # Judge a hook on its TYPICAL run, not its worst one.
+  #
+  # This used to take the single slowest row in the whole log and report it as
+  # "which every session pays". On this machine that read 3800ms for a hook
+  # whose median is 108ms and whose p95 is 209ms: 4 slow runs out of 969, all of
+  # them a cold cache or a machine under load. The check was sending people to
+  # optimize a hook that was already fast, which is worse than not checking,
+  # because it spends real attention on a fabricated problem.
+  #
+  # p95 is the threshold because it is the slowest run a person actually
+  # notices happening regularly. The max is still printed, as context, never as
+  # the verdict.
+  # A p95 over a handful of runs is noise, not a measurement. The first version
+  # of this fix immediately accused a hook with ELEVEN recorded runs, where the
+  # "95th percentile" was just the second-slowest of eleven. Below this many
+  # samples a hook is reported and never failed on.
+  MIN_RUNS_FOR_VERDICT=30
+  SLOW=$(awk -F'|' -v minruns="$MIN_RUNS_FOR_VERDICT" '
+    $3+0 > 0 { n[$2]++; all[$2 "|" n[$2]] = $3+0 }
+    { if ($3+0 > maxv) { maxv = $3+0; maxn = $2 } }
+    END {
+      worst_p95 = 0; worst_name = "none"
+      for (h in n) {
+        c = 0; split("", v)
+        for (k = 1; k <= n[h]; k++) v[++c] = all[h "|" k]
+        # insertion sort; every hook here has a few thousand rows at most
+        for (i = 2; i <= c; i++) { x = v[i]; j = i - 1
+          while (j > 0 && v[j] > x) { v[j+1] = v[j]; j-- }
+          v[j+1] = x }
+        if (c < minruns) continue
+        idx = int(c * 0.95); if (idx < 1) idx = 1
+        if (v[idx] > worst_p95) { worst_p95 = v[idx]; worst_name = h }
+      }
+      print worst_p95 "|" worst_name "|" maxv "|" maxn
+    }' "$HOOK_LOG")
+  SLOW_MS="$(echo "$SLOW" | cut -d'|' -f1)"
+  SLOW_NAME="$(echo "$SLOW" | cut -d'|' -f2)"
+  MAX_MS="$(echo "$SLOW" | cut -d'|' -f3)"
+  MAX_NAME="$(echo "$SLOW" | cut -d'|' -f4)"
+  if [ "${SLOW_MS:-0}" -gt 1000 ]; then
+    bad "$SLOW_NAME is over a second on 1 run in 20 (p95 ${SLOW_MS}ms), which a session feels" \
+        "chewbacca bench" minor
   else
-    ok "slowest hook run ${SLOW_MS:-0}ms ($SLOW_NAME)"
+    ok "hooks are quick (worst p95 ${SLOW_MS:-0}ms, $SLOW_NAME; one-off max ${MAX_MS:-0}ms, $MAX_NAME)"
   fi
 fi
 
