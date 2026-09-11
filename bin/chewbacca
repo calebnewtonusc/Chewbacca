@@ -50,6 +50,7 @@ COMMANDS=(
   "evals|run the skill evals"
   "live|check the real tools on this machine, not just the install"
   "guide|interactive study guides that remember what you got wrong"
+  "triggers|say things out loud and see whether any skill fires"
   "export|bundle this machine's kit state"
   "import|restore a bundle onto this machine"
   "completion|print shell completion for zsh, bash, or fish"
@@ -185,6 +186,10 @@ live)
 guide)
   shift
   python3 "$ROOT/bin/guide" "$@"
+  ;;
+triggers)
+  shift
+  python3 "$ROOT/tools/triggers.py" "$@"
   ;;
 export)
   shift

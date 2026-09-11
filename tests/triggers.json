@@ -1,0 +1,13 @@
+[
+  {"group": "covered half (school, mac, life)", "prompt": "what's due this week?", "expect_any": ["coursework"], "expect_tool": ["coursework due"]},
+  {"group": "covered half (school, mac, life)", "prompt": "quiz me on cache coherence", "expect_any": ["study-system", "study-guide"], "expect_tool": ["guide "]},
+  {"group": "covered half (school, mac, life)", "prompt": "what am I forgetting this week?", "expect_any": ["life-ops", "mac-followups"], "expect_tool": ["coursework", "people "]},
+  {"group": "covered half (school, mac, life)", "prompt": "what's on my screen right now?", "expect_any": ["mac-see", "mac-control", "peekaboo"], "expect_tool": ["peekaboo"]},
+  {"group": "covered half (school, mac, life)", "prompt": "when did I last talk to Carlton?", "expect_any": ["people", "texts"], "expect_tool": ["people "]},
+
+  {"group": "uncovered half (dev workflow, tasks)", "prompt": "review this code for bugs before I open a PR", "expect_any": ["code-review", "github-deep-review", "stack-rules"], "expect_tool": []},
+  {"group": "uncovered half (dev workflow, tasks)", "prompt": "write tests for the guide CLI", "expect_any": ["stack-rules", "webapp-testing"], "expect_tool": []},
+  {"group": "uncovered half (dev workflow, tasks)", "prompt": "check if any of my dependencies are vulnerable", "expect_any": ["stack-rules"], "expect_tool": ["npm audit", "audit"]},
+  {"group": "uncovered half (dev workflow, tasks)", "prompt": "add a task to remind me to call my mom", "expect_any": ["things-todo", "reminders", "life-ops"], "expect_tool": ["rem add", "things"]},
+  {"group": "uncovered half (dev workflow, tasks)", "prompt": "clean up the dead code in bin/guide", "expect_any": ["stack-rules"], "expect_tool": []}
+]
