@@ -6,11 +6,13 @@ real commit; nothing here is written by hand.
 ## Unreleased
 
 ### Added
+- people dashboard, who you texted ranked and categorised
 - it speaks first
 - Chewie can draw on the screen
 - hud demo
 
 ### Fixed
+- stop counting untracked siblings as work
 - subscribe before receiving events
 - a course with no attendance grade is not a gap
 - the changelog was eating its own tail
@@ -23,12 +25,31 @@ real commit; nothing here is written by hand.
 ### Changed
 - regenerate extension inventory
 - regenerate extension inventory
+- regenerate extension inventory
+- regenerate extension inventory
+- report a warm-up that succeeded as succeeded
+- classify group chats, and survive a rate limit without losing work
+- a fact extractor that runs itself, and facts that know when they expired
+- fix message attribution, which was wrong in three separate ways
+- make what you know about yourself readable, and stop merges leaving garbage
+- add mute, and let update rename a contact
+- regenerate extension inventory
+- regenerate extension inventory
+- stop the event scan writing the same event twice
+- regenerate extension inventory
+- regenerate extension inventory
+- regenerate extension inventory
+- regenerate extension inventory
 - ignore the coverage file swift test leaves behind
 
 ### Documentation
 - send the root early
 
 ### Other
+- alias: rank by recency, and stop listing robots
+- README: the real numbers, and the half that was missing
+- identify writes as it goes, not at the end
+- amber-pull: what Karthik and Sagar shipped since you last looked
 - stop-check: a home directory under git is not unfinished work
 - 1000: regenerate status and changelog
 - setup: --skip, and say what did not run

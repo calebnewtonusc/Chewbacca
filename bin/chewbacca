@@ -48,6 +48,8 @@ COMMANDS=(
   "bench|time the things that run on every session"
   "context|measure what the kit costs you before you type"
   "evals|run the skill evals"
+  "live|check the real tools on this machine, not just the install"
+  "guide|interactive study guides that remember what you got wrong"
   "export|bundle this machine's kit state"
   "import|restore a bundle onto this machine"
   "completion|print shell completion for zsh, bash, or fish"
@@ -175,6 +177,14 @@ context)
 evals)
   shift
   python3 "$ROOT/tools/evals.py" "$@"
+  ;;
+live)
+  shift
+  run bin/live-check "$@"
+  ;;
+guide)
+  shift
+  python3 "$ROOT/bin/guide" "$@"
   ;;
 export)
   shift

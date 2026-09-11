@@ -255,6 +255,49 @@ if group "hud"; then
   expect "the skill teaches the wire format" "Bob Lines" cat "$ROOT/skills/hud/SKILL.md"
 fi
 
+# ── guide ─────────────────────────────────────────────────────────────────────
+if group "guide"; then
+  export GUIDE_DIR="$TMP/guides"
+  G=("python3" "$ROOT/bin/guide")
+  check  "guide compiles"            python3 -m py_compile "$ROOT/bin/guide"
+  check  "the template exists"       test -f "$ROOT/templates/guide.html"
+  check  "new writes a guide"        "${G[@]}" new "cache coherence" --course CSCI170
+  check  "the file landed"           test -f "$TMP/guides/cache-coherence.html"
+  expect "the title carries the course" "CSCI170" cat "$TMP/guides/cache-coherence.html"
+  expect "the runtime is inlined, not linked" "rg-quiz" cat "$TMP/guides/cache-coherence.html"
+  check  "no external script tags"   bash -c "! grep -qE '<script[^>]+src=' '$TMP/guides/cache-coherence.html'"
+  expect "list shows it untaken"     "never taken" "${G[@]}" list
+  expect "progress says so plainly"  "no results yet" "${G[@]}" progress
+  exits  "a second guide on the same topic is refused" 1 "${G[@]}" new "cache coherence"
+  exits  "an unknown subcommand exits 2" 2 "${G[@]}" nonsense
+  # The sidecar is the whole point, so read-back is the test that matters.
+  cat > "$TMP/guides/.cache-coherence.html.progress.json" <<'JSON'
+{"mesi-states":{"correct":1,"total":3,"missed":["What happens on eviction?"],"at":"2026-09-11T00:00:00Z"}}
+JSON
+  expect "progress reads the sidecar back"  "mesi-states" "${G[@]}" progress
+  expect "progress names what was missed"   "eviction"    "${G[@]}" progress
+  check  "progress --json is valid JSON" bash -c "GUIDE_DIR='$TMP/guides' python3 '$ROOT/bin/guide' progress --json | python3 -m json.tool"
+  expect "list reports the score"     "1/3" "${G[@]}" list
+  unset GUIDE_DIR
+fi
+
+# ── live checks (structure only; chewbacca live runs them for real) ───────────
+if group "live"; then
+  check  "the runner parses"  bash -n "$ROOT/bin/live-check"
+  check  "the harness parses" bash -n "$ROOT/tests/live/harness.sh"
+  for f in "$ROOT"/tests/live/*.sh; do
+    n="$(basename "$f")"; [ "$n" = harness.sh ] && continue
+    check "$n parses" bash -n "$f"
+    # A live check that cannot skip will report green on a machine missing the
+    # very tool it exists to exercise, which is the failure mode it was written
+    # to prevent. Every file must have an exit path that is not pass or fail.
+    check "$n can SKIP" bash -c "grep -qE 'need |unproven ' '$f'"
+    check "$n has a mutant" bash -c "grep -q 'mutant ' '$f'"
+  done
+  expect "--list describes each check" "mac" bash "$ROOT/bin/live-check" --list
+  exits  "an unknown check exits 2" 2 bash "$ROOT/bin/live-check" no-such-check
+fi
+
 # ── verdict ───────────────────────────────────────────────────────────────────
 echo ""
 if [ "$FAIL" -eq 0 ]; then
