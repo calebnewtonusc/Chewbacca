@@ -131,3 +131,37 @@ Track these to know if your setup is working:
 - [docs/CLOUDFLARE.md](CLOUDFLARE.md) for D1-specific patterns
 - [docs/PROMPTS.md](PROMPTS.md) for example prompts
 - [docs/SYSTEM-PROMPTS.md](SYSTEM-PROMPTS.md) for writing the prompt that governs an agent across sessions
+
+---
+
+## Nobody should ever have to type a slash command
+
+A slash command is a shortcut for someone who already knows this kit. It is
+never the way a behavior is reached for the first time, because the person this
+kit is for will type "what's due" and will never type `/due`. They do not know
+the command exists, and a feature nobody can find is not a feature.
+
+So every command needs a skill covering the same ground, and the skill is the
+real artifact. The command is a keyboard shortcut over it.
+
+Three things follow, and they are the reason this rule is not just a slogan:
+
+**A skill's description is load-bearing product surface.** It is the only text
+Claude reads when deciding whether to load it. A skill with a vague description
+is a skill that does not fire, which under this rule means a feature that does
+not exist. Descriptions get the same care as the body.
+
+**Malformed frontmatter is a total outage, not a lint warning.** A SKILL.md
+whose YAML does not parse is never registered. It does not error and it does not
+warn, it is simply absent. With slash commands as a fallback that is an
+annoyance; under this rule it is the entire feature gone, silently.
+`tools/frontmatter.py` checks this and `doctor.sh` runs it.
+
+**Judgment must live in the skill, not the command.** When a command carries
+instructions the skill does not have, the slash path gives a better answer than
+the spoken one, and the rule is broken even though both paths "work".
+`tools/commands.py` compares the two and ranks commands by how little of their
+language any skill shares.
+
+That tool reports a gradient, never a verdict. Word overlap is not firing, and
+the only way to know a skill fires on a sentence is to say the sentence.
