@@ -291,6 +291,7 @@ if group "guide"; then
   export GUIDE_DIR="$TMP/guides"
   G=("python3" "$ROOT/bin/guide")
   check  "guide compiles"            python3 -m py_compile "$ROOT/bin/guide"
+  check  "unit tests pass"           python3 "$ROOT/tests/test_guide.py"
   check  "the template exists"       test -f "$ROOT/templates/guide.html"
   check  "new writes a guide"        "${G[@]}" new "cache coherence" --course CSCI170
   check  "the file landed"           test -f "$TMP/guides/cache-coherence.html"
@@ -340,6 +341,18 @@ if group "live"; then
     check "$n has a mutant" bash -c "grep -q 'mutant ' '$f'"
   done
   expect "--list describes each check" "mac" bash "$ROOT/bin/live-check" --list
+  # triggers.py drives the real CLI, so the suite only checks it is well formed.
+  # Running it for real is `chewbacca triggers`, which costs minutes and tokens.
+  check  "the trigger harness compiles" python3 -m py_compile "$ROOT/tools/triggers.py"
+  check  "the trigger cases are valid JSON" bash -c "python3 -m json.tool < '$ROOT/tests/triggers.json' >/dev/null"
+  check  "every trigger case states an expectation" bash -c "python3 -c \"
+import json
+cs=json.load(open('$ROOT/tests/triggers.json'))
+assert cs, 'no cases'
+for c in cs:
+    assert c.get('prompt'), c
+    assert c.get('expect_any') is not None or c.get('expect_tool') is not None, c
+\""
   exits  "an unknown check exits 2" 2 bash "$ROOT/bin/live-check" no-such-check
 fi
 
