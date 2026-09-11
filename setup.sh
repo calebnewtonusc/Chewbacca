@@ -593,15 +593,34 @@ cp "$SCRIPT_DIR/.claude/hooks/"*.sh "$HOME/.claude/hooks/" 2>/dev/null || true
 chmod +x "$HOME/.claude/hooks/"*.sh 2>/dev/null || true
 log "Hooks installed to ~/.claude/hooks/"
 
+# Symlink, never copy.
+#
+# On 2026-09-07 the installed `people` was a stale COPY of the repo's, three days
+# behind it. `events` and `merge` existed in the repo and not on PATH, so the
+# nightly scan was silently dead for three days while every surface reported a
+# healthy install: `command -v people` said yes, and it was pointing at the wrong
+# file. `cp` here is what produced that, and a `cp` in an installer is a promise
+# to reproduce it on the next `chewbacca update`.
+#
+# A symlink makes the repo the only copy, so pulling the repo IS updating the
+# tool. `tests/live/people.sh` asserts the link, so this cannot quietly regress.
+link_tool() {
+  local name="$1" src="$SCRIPT_DIR/bin/$1" dst="$HOME/.local/bin/$1"
+  [ -f "$src" ] || return 1
+  mkdir -p "$HOME/.local/bin"
+  # -n so that when dst is already a symlink to a DIRECTORY we replace it rather
+  # than writing inside it; -f to replace an existing copy from an older setup.
+  ln -sfn "$src" "$dst"
+  chmod +x "$src"
+}
+
 # Both scanners score something with no model in the loop, so a cheap
 # deterministic check can run before anything spends tokens. ai-scan reads prose
 # for AI-writing tells; skill-scan reads skills for whether they will fire.
 _installed_scanners=""
 for _tool in ai-scan skill-scan; do
   if [ -f "$SCRIPT_DIR/bin/$_tool" ]; then
-    mkdir -p "$HOME/.local/bin"
-    cp "$SCRIPT_DIR/bin/$_tool" "$HOME/.local/bin/$_tool"
-    chmod +x "$HOME/.local/bin/$_tool"
+    link_tool "$_tool"
     _installed_scanners="$_installed_scanners $_tool"
   fi
 done
@@ -625,9 +644,7 @@ unset _tool _installed_scanners
 _installed_hud=""
 for _tool in hud hud-listen hud-context hud-watch; do
   if [ -f "$SCRIPT_DIR/bin/$_tool" ]; then
-    mkdir -p "$HOME/.local/bin"
-    cp "$SCRIPT_DIR/bin/$_tool" "$HOME/.local/bin/$_tool"
-    chmod +x "$HOME/.local/bin/$_tool"
+    link_tool "$_tool"
     _installed_hud="$_installed_hud $_tool"
   fi
 done
@@ -652,16 +669,12 @@ unset _tool _installed_hud
 # kits finds every kit on this machine by its .kit marker, so a session knows
 # what has already been built instead of rebuilding it or answering turn by turn.
 if [ -f "$SCRIPT_DIR/bin/kits" ]; then
-  mkdir -p "$HOME/.local/bin"
-  cp "$SCRIPT_DIR/bin/kits" "$HOME/.local/bin/kits"
-  chmod +x "$HOME/.local/bin/kits"
+  link_tool kits
   log "kits installed to ~/.local/bin/"
 fi
 
 if [ -f "$SCRIPT_DIR/bin/coursework" ]; then
-  mkdir -p "$HOME/.local/bin"
-  cp "$SCRIPT_DIR/bin/coursework" "$HOME/.local/bin/coursework"
-  chmod +x "$HOME/.local/bin/coursework"
+  link_tool coursework
   COURSEWORK_HOME="${COURSEWORK_DIR:-$HOME/coursework}"
   mkdir -p "$COURSEWORK_HOME/courses" "$COURSEWORK_HOME/syllabi" "$COURSEWORK_HOME/templates"
   cp "$SCRIPT_DIR/templates/coursework/"*.yml "$COURSEWORK_HOME/templates/" 2>/dev/null || true
@@ -673,9 +686,7 @@ fi
 # who you are drifting out of touch with. One SQLite file on this machine, no
 # account and no network. Needs node 22.5+ for the built-in sqlite module.
 if [ -f "$SCRIPT_DIR/bin/people" ]; then
-  mkdir -p "$HOME/.local/bin"
-  cp "$SCRIPT_DIR/bin/people" "$HOME/.local/bin/people"
-  chmod +x "$HOME/.local/bin/people"
+  link_tool people
   PEOPLE_HOME="${PEOPLE_DIR:-$HOME/.chewbacca/people}"
   mkdir -p "$PEOPLE_HOME"
   if node -e "require('node:sqlite')" >/dev/null 2>&1; then
@@ -685,6 +696,12 @@ if [ -f "$SCRIPT_DIR/bin/people" ]; then
     warn "people installed, but this node has no node:sqlite (needs 22.5+)."
     echo "    Fix with: brew upgrade node"
   fi
+fi
+
+# guide builds interactive study guides that remember what was missed, so the
+# next session opens on the three questions they got wrong instead of the top.
+if link_tool guide; then
+  log "guide installed to ~/.local/bin/"
 fi
 
 # Hooks read their paths from here instead of having them baked in by string
