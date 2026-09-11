@@ -353,14 +353,20 @@ function migrate(d) {
   // Per-person, not one global watermark. A run that dies halfway through a
   // rate limit used to throw away everything it had already paid for.
   ensureColumn(d, "people", "distilled_at", "distilled_at TEXT");
-  // WHERE A MESSAGE CAME FROM. iMessage rows key on chat.db's ROWID; anything
-  // imported from elsewhere is offset well past it so one FTS index can cover
-  // every channel without the ids colliding.
-  ensureColumn(d, "messages", "source", "source TEXT NOT NULL DEFAULT 'imessage'");
   d.exec(SCHEMA_V2);
   d.exec(SCHEMA_V3);
   d.exec(SCHEMA_V4);
   d.exec(SCHEMA_V5);
+  // AFTER the CREATE TABLEs, not before. `messages` is created by SCHEMA_V3, so
+  // running this above that exec threw "no such table: messages" on every open
+  // of a FRESH database and took every subcommand down with it. An existing
+  // database already had the table, which is why it survived this long: the one
+  // machine it broke was the one nobody had set up yet.
+  //
+  // WHERE A MESSAGE CAME FROM. iMessage rows key on chat.db's ROWID; anything
+  // imported from elsewhere is offset well past it so one FTS index can cover
+  // every channel without the ids colliding.
+  ensureColumn(d, "messages", "source", "source TEXT NOT NULL DEFAULT 'imessage'");
   seedTemplate(d);
 }
 
@@ -4438,6 +4444,10 @@ const HELP = `${c.b("people")} ${c.dim("- everything you know about the people i
   ${c.b("people dashboard")}                     who you texted, ranked + categorised
   ${c.b("people dashboard --install")}           keep it running, and after a reboot
 
+  ${c.b("people dedupe")}                        likely duplicate records
+  ${c.b("people merge <keep> <absorb>")}         fold one record into another
+  ${c.b("people events scan")}                   log what happened, from your texts
+
   ${c.b("people texts sync")}                    pull new iMessages in (local only)
   ${c.b("people texts")} [--days 3] [--who maggie]   the running log
   ${c.b("people texts search")} "the trip"
@@ -4528,12 +4538,27 @@ function duplicatePairs(d) {
       const na = normName(a.name), nb = normName(b.name);
       if (na && na === nb) reasons.push("same name");
       else if (na && nb) {
-        // "Maggie" against "Maggie Chen": one name is a prefix of the other and
-        // they share a company. First names alone are not enough.
         const shorter = na.length < nb.length ? na : nb;
         const longer = na.length < nb.length ? nb : na;
-        if (longer.startsWith(shorter + " ") && a.company && a.company === b.company)
-          reasons.push("one name contains the other, same company");
+        if (longer.startsWith(shorter + " ")) {
+          // Two different confidences, so two different gates.
+          //
+          // "Maggie" against "Maggie Chen" is one token extended: weak, because
+          // a first name matches a lot of people. It needs the company to agree.
+          //
+          // "Carlton Aikins" against "Carlton Aikins USC" is a FULL name plus a
+          // tag, and that is strong on its own. Requiring a company match here
+          // missed the real case this was written for: the LinkedIn import wrote
+          // "Carlton Aikins / Stora" and the Contacts import wrote "Carlton
+          // Aikins USC" with no company at all, so the companies could not agree
+          // and one person sat in the store twice for months. The contact-name
+          // suffix (" USC", " FCA Prez", " Arcadia") is this user's own tagging
+          // habit, which means it is the COMMON case here, not the rare one.
+          const fullName = shorter.split(" ").length >= 2;
+          if (fullName) reasons.push("same full name, one carries a tag");
+          else if (a.company && a.company === b.company)
+            reasons.push("one name contains the other, same company");
+        }
       }
       if (reasons.length) pairs.push({ a, b, reasons });
     }
