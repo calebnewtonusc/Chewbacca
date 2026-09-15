@@ -1733,10 +1733,31 @@ function cmdShow(argv) {
           WHERE st.person_id = ? ORDER BY dm.sort_order`,
       )
       .all(p.id);
+    // THESE BARS SAY KNOWN, NOT GOOD. The idea and the wording are Karthik
+    // Devarakonda's, from amber-id, and the reasoning is worth keeping intact:
+    // the evidence is whatever somebody happened to mention, so a zero means
+    // nothing was ever recorded about that part of a person's life, not that
+    // the part is thin. Presenting it as a verdict would invent an assessment
+    // out of note-taking, about someone who never agreed to be assessed and
+    // would have no way to know the judgment was made of silence.
+    //
+    // It matters more here than it did there. This is a kit strangers install
+    // and point at their friends, and six labelled bars next to a name read as
+    // a scorecard unless the header says otherwise.
+    const recorded = states.filter((st) => st.score > 0).length;
     say("");
+    say(c.dim(`  what you have written down, not how they are doing`));
     for (const st of states) {
       say(`  ${st.label.padEnd(13)} ${bar(st.score)} ${fmt(st.score)}${st.evidence ? c.dim(`  ${st.evidence}`) : ""}`);
     }
+    if (recorded === 0)
+      say(c.dim(`  nothing recorded in any dimension yet`));
+    else if (recorded < states.length)
+      say(
+        c.dim(
+          `  ${states.length - recorded} of ${states.length} are empty because nothing was recorded, not because they are low`,
+        ),
+      );
     say(
       c.dim(
         `\n  score ${fmt(s.base_score)}   warmth ${fmt(s.warmth)}   known ${Math.round(s.completeness * 100)}%` +
