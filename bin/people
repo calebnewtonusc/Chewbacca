@@ -3591,6 +3591,157 @@ function linkedinClay(m, flags) {
   say();
 }
 
+// ---------------------------------------------------------------- find
+//
+// The question a relationship store exists to answer: "who do I know who ...".
+//
+// It reads a plain sentence and pulls facets out of it rather than asking for
+// flags, because the questions people actually ask are sentences. What it will
+// not do is pretend. A query about a city is answered with the people it can
+// find and an explicit line saying the city was ignored and why, because 0 of
+// 3,229 people in this store have a location. Silently dropping the half of a
+// question you cannot answer is how a demo becomes a lie: the list looks right
+// and nobody notices the filter never ran.
+const FACETS = [
+  {
+    key: "yc",
+    test: /\b(yc|y ?combinator)\b/i,
+    label: "Y Combinator",
+    sql: `(p.company REGEXP_YC)`,
+    match: (p) => /\(YC ?[SWFX]?\d|\bY Combinator\b/i.test(p.company || ""),
+  },
+  {
+    key: "founder",
+    test: /\b(founder|founded|co-?founder|ceo|started a company)\b/i,
+    label: "founders and CEOs",
+    match: (p) => /\b(founder|co-?founder|cofounder|ceo)\b/i.test(p.role || ""),
+  },
+  {
+    key: "hardware",
+    test: /\b(hardware|robotics|semiconductor|chips?|silicon|embedded|devices)\b/i,
+    label: "hardware",
+    match: (p) =>
+      /\b(hardware|robotics|semiconductor|chip|silicon|embedded|devices|electrical)\b/i.test(
+        `${p.company || ""} ${p.role || ""}`,
+      ),
+  },
+  // Two different questions that share vocabulary. "Who has raised" is about
+  // people whose own company took money; "who is an investor" is about people
+  // who work at a fund. Conflating them returned a medical scribe at Unio
+  // Health Partners for a question about funded founders, because the word
+  // "Partners" is in half the company names in America.
+  {
+    key: "funded",
+    test: /\b(raised|raising|funded|funding|pre-?seed|seed round|series [a-d]|got into y ?combinator)\b/i,
+    label: "founders whose company raised",
+    match: (p) =>
+      /\(YC ?[SWFX]?\d|\bY Combinator\b/i.test(p.company || "") ||
+      (/\b(founder|co-?founder|cofounder|ceo)\b/i.test(p.role || "") &&
+        /stealth|\(YC|labs|\bAI\b|technologies|inc\b/i.test(p.company || "")),
+  },
+  {
+    key: "investor",
+    test: /\b(vc|investor|angel|venture capital|works at a fund)\b/i,
+    label: "investors",
+    match: (p) =>
+      /\b(ventures?|capital|vc)\b/i.test(p.company || "") ||
+      /\b(investor|investment|venture|partner)\b/i.test(p.role || ""),
+  },
+  {
+    key: "stealth",
+    test: /\bstealth\b/i,
+    label: "stealth",
+    match: (p) => /stealth/i.test(p.company || ""),
+  },
+];
+
+// Places this store cannot filter on, because nothing fills `location`. Listed
+// so the gap can be named precisely rather than guessed at.
+const PLACE = /\b(nyc|new york|san francisco|sf|bay area|los angeles|la|chicago|boston|seattle|austin|london|naperville|wisconsin|remote|[A-Z][a-z]+, ?[A-Z]{2})\b/i;
+
+function cmdWho(argv) {
+  const { rest, flags } = parseArgs(argv);
+  const q = rest.join(" ").trim();
+  if (!q) die('Ask a question: people who "founders at YC companies"');
+
+  const d = db();
+  const rows = d
+    .prepare(
+      `SELECT p.name, p.role, p.company, p.linkedin, p.nickname,
+              COALESCE(s.base_score,0) AS score
+         FROM people p LEFT JOIN person_scores s ON s.person_id = p.id
+        WHERE p.deleted_at IS NULL AND p.muted_at IS NULL`,
+    )
+    .all();
+
+  const hits = FACETS.filter((f) => f.test.test(q));
+  // Only proper nouns survive as free text. "everyone who has gotten funded"
+  // contains no searchable term, and matching its words against every company
+  // and role returns whatever happens to contain "assistant". A capitalised
+  // word that is not the first word of the sentence is a name, a company or a
+  // school, and those are the only leftovers worth filtering on.
+  const stripped = q
+    .replace(new RegExp(FACETS.map((f) => f.test.source).join("|"), "gi"), " ")
+    .replace(new RegExp(PLACE.source, "gi"), " ");
+  const freeText = stripped
+    .split(/\s+/)
+    .slice(1)
+    .filter((w) => /^[A-Z][a-zA-Z&.-]{2,}$/.test(w))
+    .map((w) => w.replace(/[^\w&.-]/g, ""))
+    .filter(Boolean);
+
+  let out = rows;
+  for (const f of hits) out = out.filter(f.match);
+  if (freeText.length)
+    out = out.filter((p) =>
+      freeText.some((w) =>
+        new RegExp(`\\b${w}`, "i").test(`${p.company || ""} ${p.role || ""} ${p.name}`),
+      ),
+    );
+
+  out.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  const limit = Number(flags.limit || 25);
+
+  say();
+  say(`  ${c.b(q)}`);
+  const applied = [
+    ...hits.map((f) => f.label),
+    ...(freeText.length ? [`matching "${freeText.join(" ")}"`] : []),
+  ];
+  say(
+    c.dim(
+      `  ${applied.length ? `filtered on ${applied.join(", ")}` : "no filter matched, showing everyone"}  ${c.b(String(out.length))} found`,
+    ),
+  );
+  say();
+
+  for (const p of out.slice(0, limit)) {
+    const who = p.nickname ? `${p.name} ${c.dim(`(${p.nickname})`)}` : p.name;
+    say(
+      `    ${c.b(who.padEnd(p.nickname ? 38 : 24))} ${c.cyn((p.role || "").slice(0, 26).padEnd(27))} ${c.dim((p.company || "").slice(0, 34))}`,
+    );
+  }
+  if (out.length > limit) say(c.dim(`    ... and ${out.length - limit} more`));
+  say();
+
+  // The honest half. A place in the question that this store cannot filter on.
+  const place = q.match(PLACE);
+  if (place) {
+    const withLoc = d
+      .prepare(`SELECT COUNT(*) n FROM people WHERE location IS NOT NULL AND location<>'' AND deleted_at IS NULL`)
+      .get().n;
+    say(`  ${c.yel("Location was not applied.")}`);
+    say(
+      c.dim(
+        `  You asked about "${place[0]}", and ${withLoc} of ${rows.length} people here have a location.`,
+      ),
+    );
+    say(c.dim(`  That field is what Clay returns. Until then this list is unfiltered by place.`));
+    say(c.dim(`  people linkedin clay --limit 5   to see the rows that would be enriched.`));
+    say();
+  }
+}
+
 function cmdStats() {
   const d = db();
   const q = (s) => d.prepare(s).get().n;
@@ -4880,6 +5031,8 @@ const HELP = `${c.b("people")} ${c.dim("- everything you know about the people i
   ${c.b("people dashboard")}                     who you texted, ranked + categorised
   ${c.b("people dashboard --install")}           keep it running, and after a reboot
 
+  ${c.b("people who")} "founders at YC"          ask who you know, in a sentence
+
   ${c.b("people linkedin sync")}                 match a LinkedIn export to your contacts
   ${c.b("people linkedin audit")}                contacts with no LinkedIn connection
   ${c.b("people linkedin clay")} [--limit 5]     rows to enrich, in Clay's shape
@@ -5218,6 +5371,7 @@ const COMMANDS = {
   distill: cmdDistill,
   identify: cmdIdentify,
   purge: cmdPurge,
+  who: cmdWho,
   linkedin: cmdLinkedin,
   li: cmdLinkedin,
   classify: cmdClassify,
