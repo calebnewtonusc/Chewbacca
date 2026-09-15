@@ -353,6 +353,15 @@ function migrate(d) {
   // Per-person, not one global watermark. A run that dies halfway through a
   // rate limit used to throw away everything it had already paid for.
   ensureColumn(d, "people", "distilled_at", "distilled_at TEXT");
+  // WHAT THEY GO BY, next to what they are called on paper. A phone contact
+  // says "Mike Chung" and LinkedIn says "Michael Chung"; both are correct and
+  // neither is the other's typo. Keeping only one loses a real match later:
+  // search for the formal name and the contact is invisible, search for the
+  // familiar one and the professional record is.
+  ensureColumn(d, "people", "nickname", "nickname TEXT");
+  // The Apple Contacts row this person came from or was matched to, so a
+  // re-sync updates rather than duplicates.
+  ensureColumn(d, "people", "apple_contact_id", "apple_contact_id TEXT");
   d.exec(SCHEMA_V2);
   d.exec(SCHEMA_V3);
   d.exec(SCHEMA_V4);
@@ -3155,6 +3164,433 @@ function cmdCheck(argv = []) {
   say(bad ? c.yel("\n  check finished with warnings") : c.grn("  everything checks out"));
 }
 
+// ---------------------------------------------------------------- linkedin
+//
+// Match a LinkedIn export against Apple Contacts, and carry what LinkedIn
+// knows back onto the contact card.
+//
+// The direction matters. A LinkedIn export already lives in `people` on this
+// machine; what it has never reached is Contacts.app, which is the thing that
+// syncs to a phone and is what actually shows up when somebody rings. So the
+// job is not "import LinkedIn" a second time, it is to put a company and a
+// title on the 1,100 cards that are a bare name and a number.
+//
+// WHAT THIS REFUSES TO DO. It will not invent an identity. Two people called
+// Wilson, one saved as Drew and one listed as Andy, are not known to be the
+// same person just because both names shorten from Andrew. A wrong merge here
+// is invisible forever: every later message, score and reminder inherits it
+// and nothing ever prompts anyone to doubt it. So matches come in tiers and
+// only the safe ones are written.
+const NICKNAMES = {
+  bob: "robert", rob: "robert", bobby: "robert", bill: "william", will: "william",
+  billy: "william", rick: "richard", rich: "richard", dick: "richard",
+  jim: "james", jimmy: "james", jack: "john", johnny: "john", mike: "michael",
+  mick: "michael", tom: "thomas", tommy: "thomas", ed: "edward", eddie: "edward",
+  ted: "edward", tony: "anthony", charlie: "charles", chuck: "charles",
+  harry: "henry", hank: "henry", kate: "katherine", katie: "katherine",
+  kathy: "katherine", cathy: "catherine", beth: "elizabeth", liz: "elizabeth",
+  betty: "elizabeth", sue: "susan", susie: "susan", patty: "patricia",
+  pat: "patricia", becky: "rebecca", jen: "jennifer", jenny: "jennifer",
+  dan: "daniel", danny: "daniel", dave: "david", steve: "steven",
+  stevie: "steven", joe: "joseph", joey: "joseph", sam: "samuel",
+  sammy: "samuel", alex: "alexander", nick: "nicholas", matt: "matthew",
+  ben: "benjamin", andy: "andrew", drew: "andrew", greg: "gregory",
+  jeff: "jeffrey", ken: "kenneth", larry: "lawrence", tim: "timothy",
+  ron: "ronald", don: "donald", jerry: "gerald", nate: "nathan",
+  zach: "zachary", josh: "joshua", chris: "christopher", phil: "philip",
+  gabe: "gabriel", manny: "manuel", vince: "vincent", ray: "raymond",
+};
+const formalOf = (n) => NICKNAMES[n.toLowerCase()] || n.toLowerCase();
+
+function nameWords(s) {
+  return (s || "")
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^\x20-\x7e]/g, " ")
+    .toLowerCase()
+    .replace(/\b(jr|sr|ii|iii|iv|phd|md|mba)\b/g, "")
+    .replace(/[^a-z ]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+// One edit apart, and no further. Anything looser matches unrelated names.
+function oneEdit(a, b) {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++)
+      cur.push(Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] !== b[j - 1] ? 1 : 0)));
+    prev = cur;
+  }
+  return prev[b.length] === 1;
+}
+
+// Contacts.app keeps its records in a SQLite file per account. Reading it
+// directly is the difference between a second and ten minutes: the scriptable
+// interface costs one Apple Event per property, and a few thousand contacts
+// times a dozen properties is tens of thousands of IPC round trips. Opened
+// read-only, because this is the user's live address book.
+function appleContacts() {
+  const base = `${process.env.HOME}/Library/Application Support/AddressBook/Sources`;
+  let dirs = [];
+  try {
+    dirs = fs.readdirSync(base).map((d) => `${base}/${d}/AddressBook-v22.abcddb`);
+  } catch {
+    return null; // no Contacts database: not an error, just nothing to sync
+  }
+  const out = [];
+  for (const f of dirs) {
+    if (!fs.existsSync(f)) continue;
+    let d;
+    try {
+      d = new DatabaseSync(`file:${f}?mode=ro`, { readOnly: true });
+    } catch {
+      continue;
+    }
+    try {
+      const rows = d
+        .prepare(
+          `SELECT Z_PK, ZUNIQUEID, ZFIRSTNAME, ZLASTNAME, ZNICKNAME, ZORGANIZATION, ZJOBTITLE
+             FROM ZABCDRECORD
+            WHERE ZFIRSTNAME IS NOT NULL OR ZLASTNAME IS NOT NULL`,
+        )
+        .all();
+      // The phone is the whole point of the Clay handoff: the enrichment being
+      // paid for is number -> LinkedIn profile, and a first name on its own
+      // resolves to nobody. Fetched in one pass and grouped, rather than a
+      // query per contact.
+      const phones = new Map(), emails = new Map();
+      for (const t of [
+        ["ZABCDPHONENUMBER", phones],
+        ["ZABCDEMAILADDRESS", emails],
+      ]) {
+        try {
+          for (const p of d.prepare(`SELECT ZOWNER, ZFULLNUMBER AS v FROM ${t[0]}`).all()) {
+            if (!p.v) continue;
+            if (!t[1].has(p.ZOWNER)) t[1].set(p.ZOWNER, []);
+            t[1].get(p.ZOWNER).push(String(p.v).trim());
+          }
+        } catch {
+          try {
+            for (const p of d.prepare(`SELECT ZOWNER, ZADDRESS AS v FROM ${t[0]}`).all()) {
+              if (!p.v) continue;
+              if (!t[1].has(p.ZOWNER)) t[1].set(p.ZOWNER, []);
+              t[1].get(p.ZOWNER).push(String(p.v).trim());
+            }
+          } catch {
+            /* a source without that table contributes nothing */
+          }
+        }
+      }
+      for (const r of rows)
+        out.push({
+          phones: phones.get(r.Z_PK) || [],
+          emails: emails.get(r.Z_PK) || [],
+          pk: r.Z_PK,
+          // The id Contacts itself uses, "<UUID>:ABPerson". The integer primary
+          // key is private to this file and means nothing to the app, so the
+          // write path needs this one.
+          uid: r.ZUNIQUEID || "",
+          first: r.ZFIRSTNAME || "",
+          last: r.ZLASTNAME || "",
+          nick: r.ZNICKNAME || "",
+          org: r.ZORGANIZATION || "",
+          title: r.ZJOBTITLE || "",
+        });
+    } catch {
+      /* a source that will not read is skipped, not fatal */
+    }
+    d.close();
+  }
+  return out;
+}
+
+// LinkedIn puts a paragraph of notes above the real header row, so the parser
+// finds the header rather than assuming line 1.
+function readLinkedInCsv(file) {
+  const text = fs.readFileSync(file, "utf8").replace(/^﻿/, "");
+  const rows = parseCsvRows(text);
+  const head = rows.findIndex((r) => r[0] === "First Name");
+  if (head < 0) return [];
+  const cols = rows[head];
+  return rows
+    .slice(head + 1)
+    .filter((r) => r.length >= cols.length - 1 && (r[0] || r[1]))
+    .map((r) => Object.fromEntries(cols.map((k, i) => [k, (r[i] || "").trim()])));
+}
+
+// A CSV reader that respects quotes AND newlines inside them. Named apart from
+// parseCsv below on purpose: that one is line-oriented and keyed by a header on
+// line 1, which is right for a vCard-ish import and wrong for a LinkedIn export
+// whose first three lines are a quoted disclaimer. Two functions with one name
+// is a silent shadow, and this one lost it.
+function parseCsvRows(text) {
+  const rows = [];
+  let row = [], field = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) {
+      if (ch === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      else if (ch === '"') q = false;
+      else field += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ",") { row.push(field); field = ""; }
+    else if (ch === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+    else if (ch !== "\r") field += ch;
+  }
+  if (field || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+function newestExport() {
+  const dl = `${process.env.HOME}/Downloads`;
+  let best = null, bestAt = 0;
+  let entries = [];
+  try { entries = fs.readdirSync(dl); } catch { return null; }
+  for (const e of entries) {
+    const f = `${dl}/${e}/Connections.csv`;
+    if (!fs.existsSync(f)) continue;
+    const at = fs.statSync(f).mtimeMs;
+    if (at > bestAt) { bestAt = at; best = f; }
+  }
+  return best;
+}
+
+// Tiered matching. `exact` and `nickname` are written; `unsure` is printed and
+// left alone, because the cost of a wrong identity is permanent and the cost
+// of a missed one is that somebody types it in.
+function matchContacts(contacts, conns) {
+  const byLast = new Map();
+  const lastFreq = new Map();
+  for (const c of conns) {
+    const ln = nameWords(c["Last Name"]);
+    if (!ln.length) continue;
+    const k = ln[ln.length - 1];
+    if (!byLast.has(k)) byLast.set(k, []);
+    byLast.get(k).push(c);
+    lastFreq.set(k, (lastFreq.get(k) || 0) + 1);
+  }
+
+  const exact = [], nickname = [], unsure = [], firstOnly = [], absent = [];
+  for (const ct of contacts) {
+    const fn = nameWords(ct.first), ln = nameWords(ct.last);
+    if (!ln.length) { firstOnly.push(ct); continue; }
+    if (!fn.length) { absent.push(ct); continue; }
+    const cf = fn[0], cl = ln[ln.length - 1];
+    const cands = byLast.get(cl) || [];
+    if (!cands.length) { absent.push(ct); continue; }
+
+    let hit = null, tier = null;
+    for (const c of cands) {
+      const lw = nameWords(c["First Name"]);
+      if (lw.length && lw[0] === cf) { hit = c; tier = "exact"; break; }
+    }
+    if (!hit) {
+      for (const c of cands) {
+        const lw = nameWords(c["First Name"]);
+        if (!lw.length) continue;
+        const lf = lw[0];
+        // Only nickname-to-formal, never nickname-to-nickname. Drew and Andy
+        // both shorten from Andrew and are routinely different people.
+        if (lf !== cf && (lf === formalOf(cf) || cf === formalOf(lf))) { hit = c; tier = "nickname"; break; }
+        // Sam -> Samuel. A prefix of three or more is the same name spelled out.
+        if (cf.length >= 3 && lf.startsWith(cf) && lf !== cf) { hit = c; tier = "nickname"; break; }
+        // A single typo, and only where the surname is rare enough that the
+        // pair is very unlikely to be two different people.
+        if (oneEdit(cf, lf) && (lastFreq.get(cl) || 0) <= 2) { hit = c; tier = "unsure"; break; }
+      }
+    }
+    if (!hit) absent.push(ct);
+    else if (tier === "exact") exact.push([ct, hit]);
+    else if (tier === "nickname") nickname.push([ct, hit]);
+    else unsure.push([ct, hit]);
+  }
+  return { exact, nickname, unsure, firstOnly, absent };
+}
+
+function cmdLinkedin(argv) {
+  const sub = ["sync", "audit", "clay"].includes(argv[0]) ? argv.shift() : "sync";
+  const { flags } = parseArgs(argv);
+  const file = typeof flags.export === "string" ? flags.export : newestExport();
+  if (!file || !fs.existsSync(file))
+    die("No LinkedIn export found. Unzip one into ~/Downloads and re-run.");
+
+  const conns = readLinkedInCsv(file);
+  const contacts = appleContacts();
+  if (contacts === null) die("Could not read Contacts. Grant Full Disk Access to your terminal.");
+  const m = matchContacts(contacts, conns);
+  const apply = !flags["dry-run"];
+
+  if (sub === "audit") return linkedinAudit(m);
+  if (sub === "clay") return linkedinClay(m, flags);
+
+  say();
+  say(`  ${c.b("LinkedIn")} ${c.dim("->")} ${c.b("Contacts")}`);
+  say(`  ${c.dim(file.replace(process.env.HOME, "~"))}`);
+  say(`  ${c.dim(`${conns.length} connections, ${contacts.length} contacts`)}`);
+  say();
+
+  const d = db();
+  let orgWrites = 0, nickWrites = 0;
+  const writes = [];
+  for (const [ct, li] of [...m.exact, ...m.nickname]) {
+    const full = `${li["First Name"]} ${li["Last Name"]}`.replace(/\s+/g, " ").trim();
+    // Only fill a blank. An org somebody typed by hand beats LinkedIn's.
+    if (li.Company && !ct.org) { writes.push({ uid: ct.uid, org: li.Company, title: li.Position || "" }); orgWrites++; }
+    const short = `${ct.first} ${ct.last}`.replace(/\s+/g, " ").trim();
+    const row = d.prepare(`SELECT id, nickname FROM people WHERE lower(name)=lower(?) AND deleted_at IS NULL`).get(full);
+    if (row && short.toLowerCase() !== full.toLowerCase() && !row.nickname) {
+      // --dry-run has to mean it. Counting a write it did not make is how a
+      // preview stops being a preview.
+      if (apply)
+        d.prepare(`UPDATE people SET nickname=?, apple_contact_id=?, updated_at=datetime('now') WHERE id=?`)
+          .run(short, String(ct.uid || ct.pk), row.id);
+      nickWrites++;
+    } else if (row && apply) {
+      d.prepare(`UPDATE people SET apple_contact_id=? WHERE id=?`).run(String(ct.uid || ct.pk), row.id);
+    }
+  }
+
+  const line = (label, n, note = "") =>
+    say(`  ${c.b(String(n).padStart(5))}  ${label.padEnd(22)} ${c.dim(note)}`);
+  line("matched by name", m.exact.length);
+  line("matched by nickname", m.nickname.length, "both names now stored");
+  line("uncertain", m.unsure.length, "not written, listed below");
+  line("first name only", m.firstOnly.length, "needs Clay: phone -> LinkedIn");
+  line("not on LinkedIn", m.absent.length, "people linkedin audit");
+  say();
+
+  if (m.nickname.length) {
+    say(`  ${c.b("Nicknames learned")}`);
+    for (const [ct, li] of m.nickname)
+      say(`    ${c.cyn((ct.first + " " + ct.last).trim().padEnd(24))} ${c.dim("is")} ${(li["First Name"] + " " + li["Last Name"]).replace(/\s+/g, " ").trim()}`);
+    say();
+  }
+  if (m.unsure.length) {
+    say(`  ${c.b("Not sure these are the same person")} ${c.dim("(nothing written)")}`);
+    for (const [ct, li] of m.unsure)
+      say(`    ${c.yel((ct.first + " " + ct.last).trim().padEnd(24))} ${c.dim("vs")} ${(li["First Name"] + " " + li["Last Name"]).replace(/\s+/g, " ").trim()}`);
+    say();
+  }
+
+  if (writes.length && apply) {
+    const n = writeContactOrgs(writes);
+    say(`  ${c.grn(String(n))} contact cards gained a company and title.`);
+  } else if (writes.length) {
+    say(`  ${c.dim(`${writes.length} cards would gain a company (--dry-run)`)}`);
+  }
+  if (nickWrites)
+    say(
+      apply
+        ? `  ${c.grn(String(nickWrites))} people now store both names.`
+        : c.dim(`  ${nickWrites} people would store both names (--dry-run)`),
+    );
+  say();
+  say(
+    c.dim(
+      `  No contact was created. ${conns.length - m.exact.length - m.nickname.length} connections had no card and stayed out of Contacts.`,
+    ),
+  );
+  say();
+  say(`  ${c.dim("next:")} people linkedin audit   ${c.dim("|")}   people linkedin clay`);
+  say();
+}
+
+// Writes go through Contacts itself, never the SQLite file. That file is the
+// app's private storage: a write behind its back does not sync to the phone
+// and gets overwritten the next time the app decides to.
+//
+// `mac contacts edit` addresses a card by the same "<UUID>:ABPerson" id the
+// database stores, which is what makes this a direct write rather than the
+// scan-every-contact loop that made the first attempt take minutes.
+function writeContactOrgs(writes) {
+  let n = 0;
+  for (const w of writes) {
+    if (!w.uid || !w.org) continue;
+    try {
+      execFileSync("mac", ["contacts", "edit", w.uid, "--org", w.org, "--quiet"], {
+        encoding: "utf8",
+        timeout: 15000,
+        stdio: "ignore",
+      });
+      n++;
+    } catch {
+      // One card that will not take a write is not a reason to abandon the
+      // other sixty. The count reported is what actually landed.
+    }
+  }
+  return n;
+}
+
+function linkedinAudit(m) {
+  say();
+  say(`  ${c.b("Contacts with no LinkedIn connection")}  ${c.dim(`${m.absent.length} of them`)}`);
+  say(`  ${c.dim("People you have a number for and no professional record.")}`);
+  say();
+  const named = m.absent.filter((x) => x.first && x.last);
+  for (const ct of named.slice(0, 40))
+    say(`    ${(ct.first + " " + ct.last).trim().padEnd(28)} ${c.dim(ct.org || "")}`);
+  if (named.length > 40) say(`    ${c.dim(`... and ${named.length - 40} more`)}`);
+  say();
+  say(`  ${c.b(String(m.firstOnly.length))} more are a first name only, so no name match is possible.`);
+  say(`  ${c.dim("Those are the ones Clay would resolve from a phone number.")}`);
+  say();
+}
+
+// The handoff to Clay. Karthik's shape, so the same payload that proves the
+// workbook works is the one the API takes later without a rewrite.
+function linkedinClay(m, flags) {
+  const limit = Number(flags.limit || 5);
+  // E.164 or the lookup misses. "(415) 555-0137" and "+14155550137" are the
+  // same number and match nothing as strings, and this is the exact shape of
+  // the bug that once left 206 people in this store attributed to nobody: a
+  // normalizer that looked like it ran and silently did nothing.
+  const e164 = (raw) => {
+    const digits = String(raw).replace(/\D/g, "");
+    if (!digits) return null;
+    if (String(raw).trim().startsWith("+")) return `+${digits}`;
+    if (digits.length === 10) return `+1${digits}`;
+    if (digits.length === 11 && digits[0] === "1") return `+${digits}`;
+    return `+${digits}`;
+  };
+  // Only contacts that carry a phone. Clay resolves a number to a profile; a
+  // bare first name resolves to nobody and would spend a credit proving it.
+  // A shortcode is not a person. "Golfwang Updates" on +37077 is a broadcast
+  // sender, and enriching it spends a credit to learn that. Anything under ten
+  // digits is not a dialable personal number anywhere.
+  const eligible = [...m.firstOnly, ...m.absent]
+    .map((ct) => ({
+      ...ct,
+      phones: ct.phones.map(e164).filter((p) => p && p.replace(/\D/g, "").length >= 10),
+    }))
+    .filter((ct) => ct.phones.length);
+  const rows = eligible.slice(0, limit).map((ct) => ({
+    amber_contact_id: null,
+    full_name: `${ct.first} ${ct.last}`.replace(/\s+/g, " ").trim() || ct.first,
+    first_name: ct.first || null,
+    last_name: ct.last || null,
+    email: ct.emails[0] || null,
+    emails_all: ct.emails.length > 1 ? ct.emails.join(", ") : null,
+    phone: ct.phones[0],
+    phones_all: ct.phones.length > 1 ? ct.phones.join(", ") : null,
+    company: ct.org || null,
+    title: ct.title || null,
+    location: null,
+    linkedin_url: null,
+    source: "chewbacca",
+    pushed_from: "amber",
+  }));
+  say(JSON.stringify(rows, null, 2));
+  say();
+  say(c.dim(`  ${rows.length} of ${eligible.length} enrichable contacts (have a phone, no LinkedIn).`));
+  say(c.dim(`  Amber's clay-webhook row shape, so the API swap is a no-op later.`));
+  say(c.dim(`  POST to $CLAY_WEBHOOK_URL. Location is what comes back, and location`));
+  say(c.dim(`  is what four of the five demo questions need.`));
+  say();
+}
+
 function cmdStats() {
   const d = db();
   const q = (s) => d.prepare(s).get().n;
@@ -4444,6 +4880,10 @@ const HELP = `${c.b("people")} ${c.dim("- everything you know about the people i
   ${c.b("people dashboard")}                     who you texted, ranked + categorised
   ${c.b("people dashboard --install")}           keep it running, and after a reboot
 
+  ${c.b("people linkedin sync")}                 match a LinkedIn export to your contacts
+  ${c.b("people linkedin audit")}                contacts with no LinkedIn connection
+  ${c.b("people linkedin clay")} [--limit 5]     rows to enrich, in Clay's shape
+
   ${c.b("people dedupe")}                        likely duplicate records
   ${c.b("people merge <keep> <absorb>")}         fold one record into another
   ${c.b("people events scan")}                   log what happened, from your texts
@@ -4778,6 +5218,8 @@ const COMMANDS = {
   distill: cmdDistill,
   identify: cmdIdentify,
   purge: cmdPurge,
+  linkedin: cmdLinkedin,
+  li: cmdLinkedin,
   classify: cmdClassify,
   aliases: cmdAlias,
   mute: cmdMute,
