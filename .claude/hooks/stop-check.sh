@@ -57,7 +57,35 @@ elif git remote | grep -q .; then
   NO_UPSTREAM=1
 fi
 
-[ "$DIRTY_COUNT" -eq 0 ] && [ "$AHEAD_COUNT" -eq 0 ] && [ "$NO_UPSTREAM" -eq 0 ] && exit 0
+# Repeating a warning the user has already seen and declined to act on is the
+# same noise this hook was twice rewritten to stop making. A reminder that
+# fires every turn against unchanged state trains the reader to skip it, so the
+# turn it finally matters it gets skipped too.
+#
+# So fingerprint exactly what is about to be reported and stay silent when it
+# is identical to the last thing reported for this repo. Any real change, a new
+# edit, a commit, a push, re-arms it, because the fingerprint moves. Mid-flight
+# work warns once and then goes quiet; it does not go quiet forever.
+STATE_DIR="$HOME/.chewbacca/stop-check"
+STATE_FILE=""
+if mkdir -p "$STATE_DIR" 2>/dev/null; then
+  STATE_KEY="$(printf '%s' "$REPO_ROOT" | shasum 2>/dev/null | cut -d' ' -f1)"
+  [ -n "$STATE_KEY" ] && STATE_FILE="$STATE_DIR/$STATE_KEY"
+fi
+
+if [ "$DIRTY_COUNT" -eq 0 ] && [ "$AHEAD_COUNT" -eq 0 ] && [ "$NO_UPSTREAM" -eq 0 ]; then
+  # Clean, so forget what was reported before. Otherwise a repo that returns to
+  # a byte-identical dirty state later would be suppressed against a stale
+  # fingerprint and never warn again.
+  [ -n "$STATE_FILE" ] && rm -f "$STATE_FILE" 2>/dev/null
+  exit 0
+fi
+
+if [ -n "$STATE_FILE" ]; then
+  FINGERPRINT="$(git status --porcelain 2>/dev/null | shasum 2>/dev/null | cut -d' ' -f1)|$AHEAD_COUNT|$NO_UPSTREAM"
+  [ "$(cat "$STATE_FILE" 2>/dev/null)" = "$FINGERPRINT" ] && exit 0
+  printf '%s' "$FINGERPRINT" > "$STATE_FILE" 2>/dev/null || true
+fi
 
 export DIRTY_COUNT AHEAD_COUNT NO_UPSTREAM
 export BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
