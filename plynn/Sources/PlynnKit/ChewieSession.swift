@@ -17,6 +17,12 @@ import Foundation
 ///   keep the project and user instructions out of every turn. The tools are
 ///   unaffected: they are configured separately from the prompt, and a run in
 ///   that shape still shells out to `people` correctly.
+/// - `--setting-sources ""` keeps the *user* settings out, which is what a
+///   bare directory alone does not do. Without it every turn still ran the
+///   SessionStart hooks and loaded CLAUDE.md, measured at 47,502 tokens and
+///   12.7 s for a one-word answer. With it: 26,831 tokens and 1.1 s, same
+///   answer. `--bare` would go further but forces API-key auth, and this
+///   machine signs in with a subscription, so it is not an option here.
 public actor ChewieSession {
 
     private var proc: Process?
@@ -25,6 +31,17 @@ public actor ChewieSession {
     /// Bytes read but not yet split into a complete line.
     private var pending = Data()
     private let queue = DispatchQueue(label: "chewie.session")
+
+    /// When the live process was spawned, and how many turns it has answered.
+    /// Every turn stays in one conversation, so an old session carries all of
+    /// its history into each new request and gets slower and dearer as it
+    /// ages. One was found alive after six days.
+    private var startedAt: Date?
+    private var turns = 0
+    /// Past either of these the session is replaced before the next turn.
+    /// Recycling costs one cold start; not recycling costs every turn.
+    private static let maxAge: TimeInterval = 60 * 60 * 6
+    private static let maxTurns = 40
 
     public init() {}
 
@@ -53,6 +70,7 @@ public actor ChewieSession {
             "--output-format", "stream-json",
             "--verbose",  // stream-json output requires it
             "--strict-mcp-config",
+            "--setting-sources", "",
             "--model", UserDefaults.standard.string(forKey: "chewieModel") ?? "haiku",
             "--system-prompt", ChewieRouter.voiceStyle,
         ]
@@ -74,6 +92,8 @@ public actor ChewieSession {
         input = inPipe.fileHandleForWriting
         output = outPipe.fileHandleForReading
         pending = Data()
+        startedAt = Date()
+        turns = 0
     }
 
     public func stop() {
@@ -83,6 +103,15 @@ public actor ChewieSession {
         input = nil
         output = nil
         pending = Data()
+        startedAt = nil
+        turns = 0
+    }
+
+    /// True once the live session has grown old or long enough that a fresh
+    /// one would answer faster than it will.
+    private var isStale: Bool {
+        guard proc?.isRunning == true, let startedAt else { return false }
+        return turns >= Self.maxTurns || Date().timeIntervalSince(startedAt) >= Self.maxAge
     }
 
     /// Send one turn and wait for its result.
@@ -90,10 +119,12 @@ public actor ChewieSession {
     /// Throws rather than hanging: a wedged session must fall back to a
     /// one-shot run, not leave the user holding a key in front of a spinner.
     public func ask(_ prompt: String, timeout: TimeInterval = 120) async throws -> String {
+        if isStale { stop() }
         start()
         guard let input, let output, proc?.isRunning == true else {
             throw ChewieRouter.ChewieError.notInstalled
         }
+        turns += 1
 
         let turn: [String: Any] = [
             "type": "user",
