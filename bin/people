@@ -7409,10 +7409,61 @@ function cmdOrgs(argv) {
   );
 }
 
+// THE SAME SENTENCE ON FIFTY PEOPLE IS NOT FIFTY FACTS.
+//
+// An import wrote "he wrote when inviting them: Hey goat can we coffee chat"
+// onto 50 different people. Every copy is true and none of them tells you
+// anything about the person, because the text is identical for all fifty. It
+// is the broadcast problem again, one table over: observation_count feeds
+// completeness, so fifty people read as better known than they are.
+//
+// A shared event is the thing this must not touch. Twelve people really did
+// attend the same Bible study, and that observation IS about each of them.
+// The difference is that a shared event describes what happened with them,
+// while a broadcast quotes what went out to everybody. Quoting is the signal,
+// so only observations that embed a quoted outbound message are eligible.
+const QUOTED_OUTBOUND = /\b(?:wrote|sent|texted|messaged)\b[^:]{0,40}:/i;
+
+function cmdPruneBroadcasts(argv) {
+  const { flags } = parseArgs(argv);
+  const apply = !!flags.apply;
+  const limit = Number(flags.min || 10);
+  const d = db();
+  const rows = d
+    .prepare(
+      `SELECT body, COUNT(DISTINCT person_id) AS n FROM observations
+        WHERE deleted_at IS NULL
+        GROUP BY body HAVING n >= ?1 ORDER BY n DESC`,
+    )
+    .all(limit);
+
+  const hits = rows.filter((r) => QUOTED_OUTBOUND.test(r.body));
+  if (!hits.length) {
+    say(c.dim(`\n  nothing sent verbatim to ${limit} or more people\n`));
+    return;
+  }
+  say("");
+  let total = 0;
+  for (const h of hits) {
+    say(`  ${String(h.n).padStart(3)}  ${String(h.body).replace(/\n/g, " ").slice(0, 60)}`);
+    total += h.n;
+  }
+  if (!apply) {
+    say(c.dim(`\n  ${total} observations on ${hits.length} broadcasts. --apply to retire them\n`));
+    return;
+  }
+  const up = d.prepare(
+    `UPDATE observations SET deleted_at = datetime('now') WHERE body = ? AND deleted_at IS NULL`,
+  );
+  for (const h of hits) up.run(h.body);
+  say(c.grn(`\n  retired ${total} observations. run people score to refresh completeness\n`));
+}
+
 const COMMANDS = {
   add: cmdAdd,
   dedupe: cmdDedupe,
   orgs: cmdOrgs,
+  "prune-broadcasts": cmdPruneBroadcasts,
   merge: cmdMerge,
   note: cmdNote,
   me: cmdMe,
