@@ -208,7 +208,7 @@ it off is `--session-opener none`. To write your own, add it to `OPENERS` in
 | Piece                   | Details                                                                                                                 |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | **macOS tools**         | 9 installed alongside the kit: Anki, bd, cap, mac, Maccy, mac-use, peekaboo, summarize, yt-transcript                        |
-| **Skills and plugins**  | 78 skills (19 shipped here, 6 cloned from upstream, 53 from 1 skill pack) plus 19 plugins across 4 marketplaces         |
+| **Skills and plugins**  | 79 skills (20 shipped here, 6 cloned from upstream, 53 from 1 skill pack) plus 19 plugins across 4 marketplaces         |
 | **Second brain**        | A private notes repo Claude reads at the start of every session and writes to as things change. Syncs to GitHub         |
 | **Coursework ledger**   | Your syllabi become deadlines, attendance budgets, and a per-course AI policy Claude checks before touching graded work |
 | **On-device dictation** | Builds `plynn/`: hold fn to type, hold left Option to ask Chewie. Speech and cleanup run on your Mac, nothing uploaded  |
@@ -744,6 +744,7 @@ fires, which is the thing that matters most.
 | --------------------------------------------------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------- |
 | [skills/agent-setup](skills/agent-setup)                                                                        | Skill  | Finishing the install steps that need a browser or a permission dialog                         |
 | [skills/coursework](skills/coursework)                                                                          | Skill  | Your syllabi as a ledger: deadlines, attendance math, per-course AI policy                     |
+| [skills/demo](skills/demo)                                                                                      | Skill  | Recording a product demo by reading the product's code, not guessing at its UI                 |
 | [skills/graph-engineering](skills/graph-engineering)                                                            | Skill  | Knowledge graphs and agent task graphs, with teaching mode                                     |
 | [skills/kit-builder](skills/kit-builder)                                                                        | Skill  | Building a kit for a long bureaucratic process, and the test for when not to                   |
 | [skills/life-context](skills/life-context)                                                                      | Skill  | Learning about someone without handing them a blank page                                       |
