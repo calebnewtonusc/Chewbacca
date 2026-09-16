@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""craft-gate: refuse to produce an artifact in a craft nobody here has studied.
+
+THE FAILURE THIS EXISTS FOR. Asked to record a product demo, this kit drove the
+UI competently and produced four taps on a tab bar. Every mechanical part
+worked. The artifact was worthless, because nothing in the process had ever
+asked what makes a product demo good.
+
+The fix was written into `.claude/rules/research-the-craft.md`, and that fix
+would have done nothing, which is the actual lesson. This repo is full of good
+judgment in markdown and almost none of it fires. The rules that DO fire are the
+slop rules, and the only reason is `prose-check` running in a Stop hook that
+refuses the turn. Enforcement is code that runs, not a paragraph.
+
+So this is the demo rules' version of that hook. A producer calls it before it
+produces. With no craft notes for the genre it exits 1 and the production stops.
+
+    craft-gate demo-video            exit 1 until the craft is recorded
+    craft-gate demo-video --why      print what is known, for the producer to apply
+    craft-gate --list                every craft studied so far
+    craft-gate demo-video --record <file>   file the research
+
+Notes live in ~/.chewbacca/craft/<genre>.md, so the research happens once and
+every later session inherits it. The repo seeds crafts/ with what has been
+studied already; setup.sh copies them in.
+"""
+
+import argparse
+import os
+import shutil
+import sys
+from pathlib import Path
+
+HOME = Path.home()
+STORE = Path(os.environ.get("CRAFT_DIR", HOME / ".chewbacca/craft"))
+SEED = Path(__file__).resolve().parent.parent / "crafts"
+
+# A file shorter than this is somebody typing "do it well" to get past the gate.
+# Set from the demo-video notes, the only real example when this was written:
+# they are 1.8k of rules with attribution. 400 admits a genuinely terse craft
+# and still refuses a one-liner.
+MIN_BYTES = 400
+
+
+def path_for(genre):
+    return STORE / f"{genre}.md"
+
+
+def known():
+    if not STORE.is_dir():
+        return []
+    return sorted(p.stem for p in STORE.glob("*.md") if p.stat().st_size >= MIN_BYTES)
+
+
+def seed_if_missing(genre):
+    """The repo ships the crafts it has already studied. Use them before failing."""
+    src = SEED / f"{genre}.md"
+    if src.is_file() and not path_for(genre).is_file():
+        STORE.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, path_for(genre))
+        return True
+    return False
+
+
+def fail(genre):
+    print(f"\n  craft-gate: nothing recorded about how to make a good {genre}.\n", file=sys.stderr)
+    print("  Driving the tool is not the skill. It is the part that looks like", file=sys.stderr)
+    print("  the skill. Before producing this, go learn the craft:\n", file=sys.stderr)
+    print("    1. Find three good ones and one teardown by somebody who makes", file=sys.stderr)
+    print("       them for a living. Use yt-transcript for video, summarize for", file=sys.stderr)
+    print("       a page. Never WebFetch a YouTube URL.", file=sys.stderr)
+    print('    2. Extract RULES, not vibes. "One to three features, never more"', file=sys.stderr)
+    print('       is a rule. "Make it engaging" is nothing.', file=sys.stderr)
+    print(f"    3. craft-gate {genre} --record notes.md\n", file=sys.stderr)
+    if known():
+        print(f"  Studied so far: {', '.join(known())}\n", file=sys.stderr)
+    return 1
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="craft-gate")
+    ap.add_argument("genre", nargs="?", help="the craft, e.g. demo-video")
+    ap.add_argument("--list", action="store_true", help="every craft studied")
+    ap.add_argument("--why", action="store_true", help="print the rules to apply")
+    ap.add_argument("--record", metavar="FILE", help="file research for this craft")
+    args = ap.parse_args()
+
+    if args.list or not args.genre:
+        k = known()
+        print("  crafts studied: " + (", ".join(k) if k else "(none)"))
+        return 0
+
+    if args.record:
+        src = Path(args.record)
+        if not src.is_file():
+            sys.exit(f"craft-gate: no such file {src}")
+        if src.stat().st_size < MIN_BYTES:
+            sys.exit(
+                f"craft-gate: {src} is {src.stat().st_size} bytes. That is not research."
+            )
+        STORE.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, path_for(args.genre))
+        print(f"  recorded: {path_for(args.genre)}")
+        return 0
+
+    seed_if_missing(args.genre)
+    p = path_for(args.genre)
+    if not p.is_file() or p.stat().st_size < MIN_BYTES:
+        return fail(args.genre)
+
+    if args.why:
+        print(p.read_text(encoding="utf-8"))
+    else:
+        # THE GATE PRINTS THE RULES EVEN WHEN IT PASSES, and that is the point.
+        # A gate that only says "ok" gets satisfied and forgotten; the producer
+        # then applies none of what was learned, which is the exact failure this
+        # was built for, one level up.
+        print(f"  craft-gate: {args.genre} ok. Apply these:\n")
+        for line in p.read_text(encoding="utf-8").splitlines():
+            if line.startswith("- ") or line.startswith("**"):
+                print("   " + line)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

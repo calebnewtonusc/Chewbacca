@@ -225,6 +225,14 @@ if group "tools"; then
   check  "slop check holds the line" python3 "$ROOT/bin/slop-check" "$ROOT/docs" "$ROOT/skills" --max 60
   check  "code-slop scores its own tests" python3 "$ROOT/tests/test_code_slop.py"
   check  "inventory parses frontmatter and holds house style" python3 "$ROOT/tests/test_inventory.py"
+  # The craft gate is the only thing making the demo rules fire rather than sit
+  # in a markdown file, so its fail-closed behaviour is the property to pin.
+  check  "craft-gate refuses a craft nobody studied" bash -c "! CRAFT_DIR='$TMP/craft-empty' python3 '$ROOT/bin/craft-gate' pitch-deck >/dev/null 2>&1"
+  check  "craft-gate passes a studied craft" bash -c "CRAFT_DIR='$TMP/craft-seed' python3 '$ROOT/bin/craft-gate' demo-video >/dev/null 2>&1"
+  check  "craft-gate prints the rules, not just ok" bash -c "CRAFT_DIR='$TMP/craft-seed' python3 '$ROOT/bin/craft-gate' demo-video | grep -q 'One to three features'"
+  check  "craft-gate rejects a stub as research" bash -c "echo hi > '$TMP/stub.md'; ! CRAFT_DIR='$TMP/craft-empty2' python3 '$ROOT/bin/craft-gate' x --record '$TMP/stub.md' >/dev/null 2>&1"
+  # demo-shoot must not be able to record without the gate having run.
+  check  "demo-shoot calls the craft gate" grep -q "craft-gate demo-video" "$ROOT/bin/demo-shoot"
   # The house style here is deliberately high-comment, so the one thing that
   # would make this tool useless is firing on its own codebase.
   check  "code-slop is quiet on this codebase" bash -c "python3 '$ROOT/bin/code-slop' '$ROOT/bin/people' '$ROOT/bin/slop-check' '$ROOT/bin/code-slop' $ROOT/bin/lib/*.js --max 0"
