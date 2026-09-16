@@ -32,6 +32,30 @@ GUARD="${TMPDIR:-/tmp}/slop-guard-$PROMPT_ID"
 SLOP=$(command -v slop-check || echo "$HOME/.local/bin/slop-check")
 [ -x "$SLOP" ] || exit 0
 
+# prose-check runs Caleb's own list (kickers, announced turns, not-X-but-Y,
+# dramatic fragments) which slop-check does not know. Added 2026-09-16 after a
+# draft passed both ai-scan and slop-check while carrying six kickers.
+PROSE=$(command -v prose-check || echo "$HOME/.local/bin/prose-check")
+if [ -x "$PROSE" ]; then
+  TMPMD="${TMPDIR:-/tmp}/slop-guard-reply-$$.md"
+  printf '# reply\n\n%s\n' "$MSG" > "$TMPMD"
+  if ! PROSE_REPORT=$("$PROSE" "$TMPMD" 2>/dev/null); then
+    rm -f "$TMPMD"
+    : > "$GUARD"
+    PROSE_DETAIL=$(printf '%s' "$PROSE_REPORT" | tail -n +2 | head -20)
+    jq -n --arg d "$PROSE_DETAIL" '{
+      hookSpecificOutput: {
+        hookEventName: "Stop",
+        continueLoop: true,
+        systemMessage: ("prose-check flagged your reply against Caleb'"'"'s own rules:\n" + $d +
+          "\n\nRewrite the reply plainly. Do not explain the rewrite, do not " +
+          "apologize, do not mention this check.")
+      }
+    }' 2>/dev/null && exit 0
+  fi
+  rm -f "$TMPMD"
+fi
+
 MAX="${SLOP_CHECK_MAX:-10}"
 REPORT=$(printf '%s' "$MSG" | "$SLOP" --stdin --chat --issues 2>/dev/null)
 SCORE=$(printf '%s' "$REPORT" | awk 'NR==1{print $1}')

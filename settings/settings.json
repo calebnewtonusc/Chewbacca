@@ -124,6 +124,17 @@
             "async": true
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/prose-guard.sh",
+            "timeout": 20,
+            "statusMessage": "Checking the prose against your writing rules..."
+          }
+        ]
       }
     ],
     "Stop": [

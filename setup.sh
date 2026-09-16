@@ -618,7 +618,12 @@ link_tool() {
 # deterministic check can run before anything spends tokens. ai-scan reads prose
 # for AI-writing tells; skill-scan reads skills for whether they will fire.
 _installed_scanners=""
-for _tool in ai-scan skill-scan; do
+# prose-check is the third scanner and the one that knows Caleb's own list.
+# ai-scan and skill-scan score generic AI-writing tells; on 2026-09-16 a draft
+# passed both while carrying six kickers, three not-X-but-Y constructions and
+# two announced turns, because neither knows what a kicker is. prose-check
+# encodes voice.md and the fifteen 180DC corrections. Python, so no node needed.
+for _tool in ai-scan skill-scan prose-check; do
   if [ -f "$SCRIPT_DIR/bin/$_tool" ]; then
     link_tool "$_tool"
     _installed_scanners="$_installed_scanners $_tool"
