@@ -6,6 +6,8 @@ real commit; nothing here is written by hand.
 ## Unreleased
 
 ### Added
+- demo, which reads the product's code instead of guessing at its UI
+- bake Cap in, the screen recorder whose zoom follows your clicks
 - code-slop, because every scanner here has only ever read prose
 - work out a contact's labels from the address book instead of a list
 - prose-check, a slop detector that knows Caleb's list
@@ -29,6 +31,7 @@ real commit; nothing here is written by hand.
 - hud demo
 
 ### Fixed
+- do not register Cap's MCP server, all 76 of its tools are cloud-only
 - show where somebody last spoke, not only when
 - setup.sh installs code-slop, so the one scanner that reads code is on PATH
 - asking amber-pull for a fixed window no longer eats the bookmark
@@ -72,6 +75,7 @@ real commit; nothing here is written by hand.
 - ignore the coverage file swift test leaves behind
 
 ### Documentation
+- record that Cap recording needs no account but its MCP server does
 - teach the skill to synthesise across sources instead of running one filter
 - teach the skill to answer "who do I know who ...", with no command to learn
 - send the root early
