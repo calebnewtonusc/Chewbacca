@@ -6598,6 +6598,17 @@ function duplicatePairs(d) {
   return pairs;
 }
 
+// Invisible characters that make two identical names compare as different:
+// private use (U+E000..U+F8FF), variation selectors, zero-width space, joiner
+// and non-joiner, and the BOM.
+function cleanName(n) {
+  return String(n || "")
+    .replace(/[\uE000-\uF8FF\uFE00-\uFE0F\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 function cmdDedupe(argv) {
   const { flags } = parseArgs(argv);
   const d = db();
@@ -6607,7 +6618,19 @@ function cmdDedupe(argv) {
   for (const { a, b, reasons } of pairs) {
     say(`  ${c.b(a.name)} ${c.dim("and")} ${c.b(b.name)}`);
     say(`    ${c.dim(reasons.join(", "))}`);
-    say(`    ${c.dim(`people merge "${a.name}" "${b.name}"`)}`);
+    // Two rows with the same name both resolve to whichever one comes first,
+    // so a name-based command for that pair is a guaranteed failure. Print ids
+    // when the names match, which is half of this list.
+    // TRIM DOES NOT STRIP AN APPLE LOGO. "Aditi Raman" and "Aadhya
+    // Sivakumar\uF8FF" are two rows whose names look identical in every
+    // terminal, because U+F8FF is a private-use character she carries in her
+    // LinkedIn display name. SQLite's TRIM leaves it, so the pair reported as
+    // "same name" and then printed a name-based command that cannot work.
+    // Private-use, variation selectors and zero-width joiners all do this.
+    const same = cleanName(a.name) === cleanName(b.name);
+    say(
+      `    ${c.dim(same ? `people merge ${a.id} ${b.id}` : `people merge "${a.name}" "${b.name}"`)}`,
+    );
   }
   say("");
   say(c.dim(`${pairs.length} likely duplicate pair(s). Nothing was changed.`));
@@ -6621,11 +6644,25 @@ function cmdMerge(argv) {
   const { rest, flags } = parseArgs(argv);
   if (rest.length < 2)
     die('Merge which two? people merge "Maggie Chen" "Maggie"   (the first one survives)');
-  const keep = findPerson(rest[0]);
-  const drop = findPerson(rest[1]);
-  if (keep.id === drop.id) die("Those are the same person already.");
-
+  // AN ID IS A VALID ARGUMENT, because half the backlog is same-name pairs.
+  //
+  // findPerson resolves by name, so two rows called "Anika Rao" both resolve
+  // to whichever one it finds first, and the merge refuses itself. 80 of the
+  // 166 outstanding duplicate pairs share a name exactly, which made them
+  // unmergeable through the CLI, and `people dedupe` printed a name-based
+  // command for each one that could not possibly work.
   const d = db();
+  const byId = (arg) =>
+    d.prepare(`SELECT * FROM people WHERE id = ? AND deleted_at IS NULL`).get(arg);
+  const keep = byId(rest[0]) || findPerson(rest[0]);
+  const drop = byId(rest[1]) || findPerson(rest[1]);
+  if (keep.id === drop.id)
+    die(
+      "Those resolve to the same row. For two people with the same name, pass ids:\n" +
+        "  people dedupe   prints them, and they are safe to copy.",
+      2,
+    );
+
   const moved = {};
   d.exec("BEGIN");
   try {
