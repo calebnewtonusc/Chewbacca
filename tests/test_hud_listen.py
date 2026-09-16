@@ -22,17 +22,25 @@ import time
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
-import pytest
+# Optional. tests/run.sh executes this file as a plain script, and the CI runner
+# has no pytest installed, so a hard import turned the whole suite red for a
+# fixture that only pytest ever uses.
+try:
+    import pytest
+except ModuleNotFoundError:
+    pytest = None
 
 BIN = Path(__file__).resolve().parent.parent / "bin" / "hud-listen"
 
 failures: list[str] = []
 
 
-@pytest.fixture
-def m():
-    """Load the hud-listen script as a module for unit tests."""
-    return load()
+if pytest is not None:
+
+    @pytest.fixture
+    def m():
+        """Load the hud-listen script as a module for unit tests."""
+        return load()
 
 
 def check(name: str, condition: bool, detail: str = "") -> None:

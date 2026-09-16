@@ -265,7 +265,7 @@ if group "tools"; then
   check  "kits --register adds nothing to the registry when refused" \
     bash -c "! grep -q '$TMP/k1' '$TMP/reg-none' 2>/dev/null"
   check  "kits --register prints the kit rules when gated" \
-    bash -c "CRAFT_DIR='$TMP/craft-all' KITS_REGISTRY='$TMP/reg-ok' sh '$ROOT/bin/kits' --register '$TMP/k1' | grep -q 'Diátaxis'"
+    bash -c "CRAFT_DIR='$TMP/craft-all' KITS_REGISTRY='$TMP/reg-ok' sh '$ROOT/bin/kits' --register '$TMP/k1' | grep -q 'Know which of the four things'"
   check  "kits calls the craft gate" grep -q "craft-gate onboarding-kit" "$ROOT/bin/kits"
 
   check  "brief calls the craft gate" grep -q 'craft_gate("daily-brief"' "$ROOT/mac/lib/brief.py"

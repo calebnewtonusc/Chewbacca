@@ -57,9 +57,14 @@ fi
 
 if [ -z "$FOUND" ]; then
   [ "$MODE" = "--context" ] && exit 0
-  echo "No kits found."
-  echo "Build one from https://github.com/calebnewtonusc/kit-template, or load the kit-builder skill."
-  exit 0
+  # --register is the whole answer to "the scan cannot see my kit", so it has to
+  # work on a machine where the scan found nothing. That is the first kit
+  # anybody builds, and this used to print "No kits found" and exit 0 at them.
+  if [ "$MODE" != "--register" ]; then
+    echo "No kits found."
+    echo "Build one from https://github.com/calebnewtonusc/kit-template, or load the kit-builder skill."
+    exit 0
+  fi
 fi
 
 field() { grep -m1 "^$2:" "$1" 2>/dev/null | sed "s/^$2: *//"; }

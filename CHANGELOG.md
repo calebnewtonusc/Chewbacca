@@ -7,6 +7,7 @@ real commit; nothing here is written by hand.
 
 ### Added
 - gate the other producers on having studied the craft
+- claude-tab, so Chewbacca can hold a conversation with another Claude
 - craft-gate, so the demo rules fire instead of sitting in a file
 - land the four process skills that had been sitting untracked
 - retire observations that were one broadcast copied onto everybody
@@ -69,6 +70,7 @@ real commit; nothing here is written by hand.
 - the listener died when the display restarted
 
 ### Changed
+- ignore .worktrees, which CLAUDE.md requires and the Stop hook would commit
 - register the deslop skill in the generated inventory
 - shard the location backfill, seven hours is not a backfill
 - fix a fresh database, and catch the duplicates tags were hiding
