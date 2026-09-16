@@ -4522,6 +4522,8 @@ function cmdWho(argv) {
   }
   if (out.length > limit) say(c.dim(`    ... and ${out.length - limit} more`));
   say();
+  // An empty answer from an empty store is not an answer about their network.
+  if (!out.length) sayNextStep(d);
   clayAdvice(q, out.length || rows.length);
 
 }
@@ -5152,6 +5154,77 @@ function cmdInfer(argv) {
   say();
 }
 
+// WHAT TO DO NEXT, said out loud, because an empty store looks like a working one.
+//
+// A new install answers "who do I know in SF" with "0 found" and "what needs me
+// today" with "nothing needs you today". Both are true and both are useless:
+// they read as an answer about the user's life rather than as a tool that has
+// never been given anything. Somebody who installs this and sees that concludes
+// it is broken, or worse, that it works and they have no friends.
+//
+// So the store reports its own emptiness, and names the single next step rather
+// than a setup document. One step at a time, in the order that makes the next
+// one worth doing: people first, then what they said, then who they are
+// professionally, then where they are, then what it all means.
+function nextStep(d) {
+  const n = (q) => {
+    try {
+      return d.prepare(q).get().n;
+    } catch {
+      return 0;
+    }
+  };
+  const people = n(`SELECT count(*) n FROM people WHERE deleted_at IS NULL`);
+  const msgs = n(`SELECT count(*) n FROM messages`);
+  const linked = n(`SELECT count(*) n FROM people WHERE linkedin IS NOT NULL AND linkedin<>''`);
+  const located = n(`SELECT count(*) n FROM people WHERE location IS NOT NULL AND location<>''`);
+  const facts = n(`SELECT count(*) n FROM quick_facts`);
+
+  if (!people && !msgs)
+    return {
+      why: "This store is empty. Nothing has been imported yet.",
+      run: "people texts sync",
+      then: "reads your Messages history, which stays on this machine.",
+    };
+  if (!msgs)
+    return {
+      why: `${people} people, but no message history.`,
+      run: "people texts sync",
+      then: "is what makes every other question answerable.",
+    };
+  if (!linked)
+    return {
+      why: `${msgs.toLocaleString()} messages, but nothing professional about anyone.`,
+      run: "people linkedin sync",
+      then: "reads a LinkedIn export from ~/Downloads. Ask LinkedIn for one under Settings, Data Privacy.",
+    };
+  if (linked && located < linked * 0.25)
+    return {
+      why: `${linked} people from LinkedIn, ${located} with a location.`,
+      run: "people linkedin locate",
+      then: "fills in where they live and what they have done. It costs nothing.",
+    };
+  if (facts < people * 0.1)
+    return {
+      why: `${msgs.toLocaleString()} messages read, ${facts} facts kept from them.`,
+      run: "people distill",
+      then: "turns conversations into what you actually know about people.",
+    };
+  return null;
+}
+
+// Printed under a thin or empty answer, never over a good one.
+function sayNextStep(d, { force = false } = {}) {
+  const step = nextStep(d);
+  if (!step) return false;
+  say();
+  say(`  ${c.yel(step.why)}`);
+  say(`  ${c.b(step.run)}  ${c.dim(step.then)}`);
+  say();
+  void force;
+  return true;
+}
+
 function cmdStats() {
   const d = db();
   const q = (s) => d.prepare(s).get().n;
@@ -5524,7 +5597,11 @@ function cmdToday() {
       say(`    ${r.name.padEnd(22)}${r.days === null ? c.dim("never logged") : c.dim(Math.round(r.days) + "d")}`);
     say("");
   }
-  if (!printed) say(c.grn("  nothing needs you today") + "\n");
+  if (!printed) {
+    // "Nothing needs you today" is a reassuring sentence and a lie when the
+    // store has never been given anything. Say which one this is.
+    if (!sayNextStep(db())) say(c.grn("  nothing needs you today") + "\n");
+  }
 }
 
 // WHO COULD INTRODUCE ME. Mesh does this across a team's networks; single-user
