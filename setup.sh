@@ -1608,13 +1608,12 @@ else
     else
       warn "could not install the cap shim"
     fi
-    # Cap ships its own Claude skill, a cap-demo skill, and its MCP
-    # registration. --yes is safe here because --dry-run showed the
-    # plan is creates plus one additive merge; it authorizes local
-    # setup only, never an account, upload or billing action.
+    # skill, not all: `all` would also register the cloud-only MCP server
+    # described above. This installs Cap's own routing skill plus the
+    # cap-demo skill, both of which drive the local CLI.
     if [ -d "$HOME/.claude/skills/cap" ]; then
       log "Cap Claude integration already installed"
-    elif "$CAP_CLI" agents install --target claude --component all --yes &>/dev/null; then
+    elif "$CAP_CLI" agents install --target claude --component skill --yes &>/dev/null; then
       log "Cap skills and MCP registered for Claude"
     else
       warn "could not install the Cap Claude integration"
