@@ -7337,9 +7337,82 @@ function cmdDashboard(argv) {
   });
 }
 
+// A STUDENT CLUB IS NOT AN EMPLOYER.
+//
+// LinkedIn puts club officer roles in the same experience list as jobs, so
+// the import wrote "Kappa Theta Pi" and "SEP at USC" into `company` next to
+// "Google". Anything that reads company as a place of work ("who do I know at
+// a 20-200 person company") silently counts fraternity members as employees.
+//
+// This does not rewrite the field, because for USC staff the university IS
+// the employer and the same string is correct. It classifies, and the caller
+// decides. Role is the tiebreaker: an Academic Advisor at USC is employed, a
+// VP of Internal Affairs is holding a club office.
+const GREEK =
+  "alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|omicron|pi|rho|sigma|tau|upsilon|phi|chi|psi|omega";
+const CLUB_PATTERNS = [
+  // Two Greek letters is a chapter. One is a company name (Alpha Vantage, Sigma).
+  new RegExp(`\\b(?:${GREEK})\\b.*\\b(?:${GREEK})\\b`, "i"),
+  /\bfraternity|sorority\b/i,
+  // "X at USC" is the campus-chapter naming convention. The anchor is what
+  // makes it safe: a bare "consulting group" is Boston Consulting Group.
+  /\bat (?:USC|UCLA|Berkeley|Stanford|[A-Z][a-z]+ (?:University|College))\b/,
+  /\b(?:hackathon|student (?:government|association|union))\b/i,
+  /\bLA Hacks\b|\bLavaLab\b/i,
+];
+const CLUB_ROLES =
+  /\b(?:vp|vice president|president|treasurer|secretary|chair|director) of (?:internal|external|finance|marketing|membership|operations|recruitment)\b|\b(?:pledge|rush|social) chair\b|\bco-?founder'?s? education\b/i;
+const SCHOOL_PATTERNS = /\b(?:university|college|school of|academy|institute of technology)\b/i;
+const STAFF_ROLES =
+  /\b(?:professor|lecturer|advisor|adviser|researcher|dean|provost|postdoc|staff|faculty|instructor|coordinator|administrator|scientist)\b/i;
+
+function affiliationKind(company, role) {
+  if (!company) return null;
+  const r = role || "";
+  if (CLUB_PATTERNS.some((re) => re.test(company)) || CLUB_ROLES.test(r)) return "club";
+  // A university with a staff-shaped title is a real job. With a student-shaped
+  // title or none at all, it is somebody's school.
+  if (SCHOOL_PATTERNS.test(company)) return STAFF_ROLES.test(r) ? "employer" : "school";
+  return "employer";
+}
+
+function cmdOrgs(argv) {
+  const { flags } = parseArgs(argv);
+  const want = flags.kind || null;
+  const rows = db()
+    .prepare(
+      `SELECT name, company, role FROM people
+        WHERE deleted_at IS NULL AND company IS NOT NULL AND company <> ''
+        ORDER BY company, name`,
+    )
+    .all();
+  const buckets = { club: [], school: [], employer: [] };
+  for (const r of rows) buckets[affiliationKind(r.company, r.role)].push(r);
+
+  for (const kind of ["club", "school", "employer"]) {
+    if (want && want !== kind) continue;
+    const list = buckets[kind];
+    say(`\n  ${c.b(kind)}  ${c.dim(String(list.length) + " people")}`);
+    if (kind === "employer" && !want) {
+      say(c.dim("    (use --kind employer to list)"));
+      continue;
+    }
+    const byOrg = new Map();
+    for (const r of list) byOrg.set(r.company, (byOrg.get(r.company) || 0) + 1);
+    for (const [org, n] of [...byOrg].sort((a, b) => b[1] - a[1]).slice(0, 25))
+      say(`    ${String(n).padStart(3)}  ${org}`);
+  }
+  say(
+    c.dim(
+      `\n  club and school are affiliations, not jobs. Anything asking "who works at"\n  should read employer only.\n`,
+    ),
+  );
+}
+
 const COMMANDS = {
   add: cmdAdd,
   dedupe: cmdDedupe,
+  orgs: cmdOrgs,
   merge: cmdMerge,
   note: cmdNote,
   me: cmdMe,
