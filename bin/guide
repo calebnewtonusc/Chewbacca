@@ -21,6 +21,8 @@ Guides live in ./guides by default, or $GUIDE_DIR.
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import http.server
 import socketserver
@@ -159,9 +161,37 @@ STARTER = """  <h1>{title}</h1>
   </footer>"""
 
 
+def craft_gate(genre):
+    """Refuse to build until somebody has studied the craft this belongs to.
+
+    FAILS CLOSED, deliberately. If craft-gate cannot be found or cannot be run,
+    this stops rather than shrugging and continuing. A gate that passes when it
+    could not actually check is worse than no gate, because it reads to everyone
+    downstream as enforcement while enforcing nothing.
+
+    On success craft-gate prints the rules, which is the whole reason the call
+    sits here in the execution path instead of in a paragraph somebody skims.
+    """
+    exe = shutil.which("craft-gate")
+    if not exe:
+        local = Path(__file__).resolve().parent / "craft-gate"
+        exe = str(local) if local.is_file() else None
+    if not exe:
+        sys.exit(
+            f"guide: craft-gate not found, so nothing here knows what makes a good\n"
+            f"{genre}. Refusing to build one. Install it with ./setup.sh"
+        )
+    if subprocess.run([sys.executable, exe, genre]).returncode != 0:
+        sys.exit(1)
+
+
 def cmd_new(args):
     if not args:
         die('what topic? Try: guide new "cache coherence"')
+    # Before the file exists, not after. A guide that presents material back to
+    # the learner instead of making them retrieve it is the documented failure
+    # condition, and the gate prints the rules that prevent it.
+    craft_gate("study-guide")
     title = args[0]
     course = None
     if "--course" in args:

@@ -233,6 +233,48 @@ if group "tools"; then
   check  "craft-gate rejects a stub as research" bash -c "echo hi > '$TMP/stub.md'; ! CRAFT_DIR='$TMP/craft-empty2' python3 '$ROOT/bin/craft-gate' x --record '$TMP/stub.md' >/dev/null 2>&1"
   # demo-shoot must not be able to record without the gate having run.
   check  "demo-shoot calls the craft gate" grep -q "craft-gate demo-video" "$ROOT/bin/demo-shoot"
+
+  # Every other producer gets the same treatment. The property that matters is
+  # FAIL CLOSED: with no craft-gate reachable at all, the producer must refuse
+  # rather than shrug and carry on. That is tested by copying the producer
+  # somewhere with no sibling craft-gate and a PATH that cannot reach one, which
+  # is deterministic whether or not chewbacca is installed on this machine.
+  PY="$(command -v python3)"
+  BARE="/usr/bin:/bin"
+  mkdir -p "$TMP/nogate"
+  cp "$ROOT/bin/guide" "$ROOT/bin/kits" "$TMP/nogate/"
+  # A craft dir seeded from the repo, so the pass-path tests do not depend on
+  # which craft-gate copy gets found first.
+  for g in study-guide daily-brief onboarding-kit; do
+    CRAFT_DIR="$TMP/craft-all" python3 "$ROOT/bin/craft-gate" "$g" \
+      --record "$ROOT/crafts/$g.md" >/dev/null 2>&1
+  done
+
+  check  "guide new fails closed with no craft-gate reachable" \
+    bash -c "! env PATH='$BARE' GUIDE_DIR='$TMP/g-none' '$PY' '$TMP/nogate/guide' new zzz >/dev/null 2>&1"
+  check  "guide new writes nothing when the gate refuses" \
+    bash -c "test ! -f '$TMP/g-none/zzz.html'"
+  check  "guide new prints the study-guide rules before writing" \
+    bash -c "CRAFT_DIR='$TMP/craft-all' GUIDE_DIR='$TMP/g-ok' python3 '$ROOT/bin/guide' new zzz | grep -q 'retrieve, never re-read'"
+  check  "guide new still produces the guide once gated" \
+    bash -c "test -f '$TMP/g-ok/zzz.html'"
+  check  "guide calls the craft gate" grep -q 'craft_gate("study-guide")' "$ROOT/bin/guide"
+
+  check  "kits --register fails closed with no craft-gate reachable" \
+    bash -c "mkdir -p '$TMP/k1' && touch '$TMP/k1/.kit'; ! env PATH='$BARE' KITS_REGISTRY='$TMP/reg-none' sh '$TMP/nogate/kits' --register '$TMP/k1' >/dev/null 2>&1"
+  check  "kits --register adds nothing to the registry when refused" \
+    bash -c "! grep -q '$TMP/k1' '$TMP/reg-none' 2>/dev/null"
+  check  "kits --register prints the kit rules when gated" \
+    bash -c "CRAFT_DIR='$TMP/craft-all' KITS_REGISTRY='$TMP/reg-ok' sh '$ROOT/bin/kits' --register '$TMP/k1' | grep -q 'Diátaxis'"
+  check  "kits calls the craft gate" grep -q "craft-gate onboarding-kit" "$ROOT/bin/kits"
+
+  check  "brief calls the craft gate" grep -q 'craft_gate("daily-brief"' "$ROOT/mac/lib/brief.py"
+  # The rules must not land on stdout in --json mode, or the agent parsing the
+  # brief gets rule prose where it expected an object.
+  check  "brief --json stays parseable with the gate in front" \
+    bash -c "CRAFT_DIR='$TMP/craft-all' python3 '$ROOT/mac/lib/brief.py' --json 2>/dev/null | python3 -c 'import json,sys; json.load(sys.stdin)'"
+  check  "brief sends the rules to stderr in --json mode" \
+    bash -c "CRAFT_DIR='$TMP/craft-all' python3 '$ROOT/mac/lib/brief.py' --json 2>&1 >/dev/null | grep -q 'One page'"
   # The house style here is deliberately high-comment, so the one thing that
   # would make this tool useless is firing on its own codebase.
   check  "code-slop is quiet on this codebase" bash -c "python3 '$ROOT/bin/code-slop' '$ROOT/bin/people' '$ROOT/bin/slop-check' '$ROOT/bin/code-slop' $ROOT/bin/lib/*.js --max 0"
@@ -325,6 +367,11 @@ fi
 # ── guide ─────────────────────────────────────────────────────────────────────
 if group "guide"; then
   export GUIDE_DIR="$TMP/guides"
+  # cmd_new runs the craft gate before it writes, so this group needs a craft
+  # store holding the study-guide notes. Seeded from the repo rather than
+  # stubbed out, so these tests still run against the real gate.
+  export CRAFT_DIR="$TMP/guide-craft"
+  python3 "$ROOT/bin/craft-gate" study-guide --record "$ROOT/crafts/study-guide.md" >/dev/null 2>&1
   G=("python3" "$ROOT/bin/guide")
   check  "guide compiles"            python3 -m py_compile "$ROOT/bin/guide"
   check  "unit tests pass"           python3 "$ROOT/tests/test_guide.py"

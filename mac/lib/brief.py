@@ -10,8 +10,9 @@ so the judging is auditable.
     chewie brief            human-readable dump
     chewie brief --json     structured, for the agent to triage
 """
-import argparse, glob, json, os, subprocess, sys
+import argparse, glob, json, os, shutil, subprocess, sys
 from datetime import datetime
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from texts import read as read_texts
@@ -133,11 +134,44 @@ def render(b):
             print(f"  {mark} {frm:30}  {e['subject'][:50]}")
 
 
+def craft_gate(genre, quiet_stdout=False):
+    """Refuse to hand over brief material until somebody has studied the craft.
+
+    FAILS CLOSED. If craft-gate cannot be found or cannot run, this stops rather
+    than continuing. A gate that passes when it could not check is worse than no
+    gate, because everything downstream reads it as enforcement.
+
+    quiet_stdout routes the rules to stderr, because `--json` output is parsed
+    by the agent and rule text on stdout would corrupt it. The rules still have
+    to reach the agent: that is the entire reason the gate prints on success.
+    """
+    exe = shutil.which("craft-gate")
+    if not exe:
+        local = Path(__file__).resolve().parents[2] / "bin" / "craft-gate"
+        exe = str(local) if local.is_file() else None
+    if not exe:
+        sys.exit(
+            f"brief: craft-gate not found, so nothing here knows what makes a good\n"
+            f"{genre}. Refusing to produce one. Install it with ./setup.sh"
+        )
+    r = subprocess.run([sys.executable, exe, genre], capture_output=True, text=True)
+    if r.stdout:
+        print(r.stdout, end="", file=sys.stderr if quiet_stdout else sys.stdout)
+    if r.stderr:
+        print(r.stderr, end="", file=sys.stderr)
+    if r.returncode != 0:
+        sys.exit(1)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=1)
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
+    # Before any data is gathered. This tool deliberately does not triage, so
+    # the agent downstream is the one writing the brief, and these are the rules
+    # it has to write to.
+    craft_gate("daily-brief", quiet_stdout=a.json)
     b = gather(days=a.days)
     print(json.dumps(b, indent=2) if a.json else "", end="")
     if not a.json:
