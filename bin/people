@@ -4640,38 +4640,20 @@ Guessing is worse than -1: a wrong match here is filed forever and never doubted
 // to look for; the reason to look for evidence against it is that a contact
 // book is full of it and it is more reliable than the thing being inferred.
 const INFERENCE_RULES = [
-  {
-    id: "smhs-classmate",
-    claim: "probably went to San Marino High School",
-    window: ["2021-08", "2025-06"],
-    phrases: ["san marino", "smhs", "titans"],
-    min: 3,
-    // Every one of these is another school, a role that is not a student, or a
-    // relative. All of them appeared in the first run's output.
-    against: ["sphs", "cvhs", "mkhs", "gabrielino", "gabrilino", "arcadia",
-              "monrovia", "duarte", "muir", "temple city", "alhambra", "keppel",
-              "coach", "teacher", "principal",
-              "mom", "dad", "sister", "brother", "newton"],
-    // The school's own name in a message is the evidence. Homework is not:
-    // parents, siblings and a girlfriend at another school all discuss it.
-    exclude: (e) => e.isGroup || e.looksFamily,
-    confidence: 0.6,
-    dimension: "social",
-  },
-  {
-    id: "usc-classmate",
-    claim: "probably overlaps with USC",
-    window: ["2025-08", null],
-    phrases: ["usc", "trojan", "iya", "sc campus", "the village"],
-    min: 3,
-    against: ["ucla", "berkeley", "stanford", "mom", "dad", "sister", "brother", "newton"],
-    exclude: (e) => e.isGroup || e.looksFamily,
-    confidence: 0.55,
-    dimension: "social",
-  },
+  // NO SCHOOL IS HARDCODED HERE ANY MORE. This shipped with "San Marino High
+  // School" and "USC" written into the kit, which made two of the five
+  // built-in rules useless to everyone except the person who wrote them, and
+  // quietly wrong for anybody whose own school shares a word with his.
+  //
+  // Where somebody went to school is already on their disk. Education.csv sits
+  // in every LinkedIn export and describes the owner, not their connections,
+  // so the school rules are generated from it at run time with the years
+  // attended as the window. That is exactly the inference Caleb asked for:
+  // someone talking about a school in the years you were there is probably
+  // there with you. See schoolRules().
   {
     id: "teammate-baseball",
-    claim: "probably played baseball with him",
+    claim: "probably played a sport with them",
     window: null,
     phrases: ["practice", "scrimmage", "bullpen", "batting", "the team", "coach"],
     min: 6,
@@ -4682,7 +4664,7 @@ const INFERENCE_RULES = [
   },
   {
     id: "church-community",
-    claim: "probably shares his church or ministry community",
+    claim: "probably shares their church or ministry community",
     window: null,
     phrases: ["church", "bible study", "worship", "small group", "fellowship", "pray for"],
     min: 5,
@@ -4692,7 +4674,7 @@ const INFERENCE_RULES = [
   },
   {
     id: "works-together",
-    claim: "probably works or has worked with him",
+    claim: "probably works or has worked with them",
     window: null,
     phrases: ["standup", "the repo", "deploy", "pull request", "the client", "our team", "sprint"],
     min: 5,
@@ -4701,6 +4683,67 @@ const INFERENCE_RULES = [
     dimension: "intellectual",
   },
 ];
+
+// The user's own schools, read from their own LinkedIn export.
+//
+// Education.csv is the one file in that export that is about the owner rather
+// than their connections, and it carries the school name and the years. That
+// is everything a school rule needs, and it is different for every person who
+// installs this, which is the whole reason it cannot be a constant.
+//
+// The window matters as much as the name. Somebody who mentions a school in
+// the years you were enrolled is plausibly there with you; the same words in
+// 2019 are somebody talking about a place. An acronym is generated only when
+// the school name yields a distinctive one, because two-letter initials match
+// half the language.
+function schoolRules() {
+  const out = [];
+  for (const conns of allExports()) {
+    const f = conns.replace(/Connections\.csv$/, "Education.csv");
+    if (!fs.existsSync(f)) continue;
+    let rows;
+    try {
+      rows = parseCsvRows(fs.readFileSync(f, "utf8").replace(/^﻿/, ""));
+    } catch {
+      continue;
+    }
+    const head = rows.findIndex((r) => r.includes("School Name"));
+    if (head < 0) continue;
+    const cols = rows[head];
+    const at = (r, n) => r[cols.indexOf(n)] || "";
+    for (const r of rows.slice(head + 1)) {
+      const school = at(r, "School Name").trim();
+      if (!school || school.length < 4) continue;
+      const from = at(r, "Start Date").trim();
+      const to = at(r, "End Date").trim();
+      const words = school.toLowerCase().replace(/[^a-z ]/g, " ").split(/\s+/).filter(Boolean);
+      const stop = new Set(["the", "of", "and", "university", "college", "school", "high", "academy", "institute"]);
+      const distinctive = words.filter((w) => !stop.has(w) && w.length > 3);
+      const acronym = words.filter((w) => !stop.has(w)).map((w) => w[0]).join("");
+      const phrases = [school.toLowerCase(), ...distinctive];
+      if (acronym.length >= 3) phrases.push(acronym);
+      const id = `school-${distinctive[0] || acronym || "x"}`;
+      if (out.some((x) => x.id === id)) continue;
+      out.push({
+        id,
+        claim: `probably overlapped with them at ${school}`,
+        // A year alone is what LinkedIn stores, so it becomes a January
+        // boundary rather than a guessed month.
+        window: [from ? `${from.slice(-4)}-01` : null, to ? `${to.slice(-4)}-12` : null],
+        phrases: [...new Set(phrases)],
+        min: 3,
+        // Relatives discuss school constantly without attending it, and a
+        // coach or a teacher is at the school without being a classmate.
+        against: ["mom", "dad", "mother", "father", "sister", "brother",
+                  "coach", "teacher", "professor", "principal"],
+        exclude: (e) => e.isGroup || e.looksFamily,
+        confidence: 0.55,
+        dimension: "social",
+      });
+    }
+  }
+  return out;
+}
 
 // Anything the user drops in here is treated exactly like a built-in rule, so
 // a new kind of inference costs a JSON entry rather than a release.
@@ -4720,7 +4763,7 @@ function loadRules() {
   } catch {
     /* no user rules is the normal case */
   }
-  return [...INFERENCE_RULES, ...user];
+  return [...INFERENCE_RULES, ...schoolRules(), ...user];
 }
 
 // One pass over a person's messages produces everything every rule needs, so
@@ -6406,7 +6449,7 @@ function dashboardModule() {
   die("Cannot find bin/lib/people-dashboard.js. Re-run setup.sh.");
 }
 
-const AGENT_LABEL = "com.calebnewton.people-dashboard";
+const AGENT_LABEL = "com.chewbacca.people-dashboard";
 
 function agentPlistPath() {
   return path.join(HOME, "Library", "LaunchAgents", AGENT_LABEL + ".plist");
