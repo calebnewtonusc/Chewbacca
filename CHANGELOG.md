@@ -80,6 +80,7 @@ real commit; nothing here is written by hand.
 - ignore the coverage file swift test leaves behind
 
 ### Documentation
+- teach the demo skill what a demo video actually is
 - record that Cap recording needs no account but its MCP server does
 - teach the skill to synthesise across sources instead of running one filter
 - teach the skill to answer "who do I know who ...", with no command to learn
