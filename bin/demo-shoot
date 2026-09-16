@@ -19,6 +19,24 @@ HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${
 SHOOT="$HERE/lib/demo-shoot.mjs"
 [ -f "$SHOOT" ] || { echo "demo-shoot: missing $SHOOT" >&2; exit 2; }
 
+# THE CRAFT GATE RUNS BEFORE THE CAMERA, and it can refuse.
+#
+# The first demo this kit produced was four taps on a tab bar. Every mechanical
+# part worked; nothing had ever asked what makes a demo good. The fix was
+# written into a rules file, and a rules file would have changed nothing, which
+# is the real lesson: in this repo the only judgment that fires is the judgment
+# with code behind it (prose-check, in a Stop hook, refusing the turn).
+#
+# So the gate is in the execution path rather than in prose. It exits non-zero
+# on a craft nobody has studied, and on a craft that HAS been studied it prints
+# the rules every single run, because a gate that just says "ok" gets satisfied
+# and then ignored.
+if command -v craft-gate >/dev/null 2>&1; then
+  craft-gate demo-video || exit 1
+elif [ -x "$HERE/craft-gate" ]; then
+  "$HERE/craft-gate" demo-video || exit 1
+fi
+
 # Cap installs its skill into whichever agent home it was told about. Check the
 # ones this kit can plausibly be running under before giving up.
 DEPS=""
