@@ -165,6 +165,35 @@ that wants your Mac login password.
 Never opened Terminal? Paste this repo's link at Claude and say "install this for
 me." It runs that command for you.
 
+### After it installs, it asks before it reads anything
+
+Nothing is imported until you say so. Ask it "where do I start" and it offers
+what it can read, one source at a time, and tells you what each one is actually
+good for:
+
+- **your texts**, so it knows who you are drifting from and what people told you
+- **your contacts**, so cards get names and companies instead of bare numbers
+- **your LinkedIn export**, for where people work and who changed jobs
+- **your files**, as a place to look things up rather than an index of everything
+
+Start with one. Somebody who says yes to all of it at once spends an hour on
+macOS permission dialogs and quits.
+
+It walks you through each permission as it comes up, including the part everyone
+misses: after granting Full Disk Access you have to **quit and reopen the
+terminal**, or the grant silently does nothing.
+
+### Getting files in without downloading your whole life
+
+For Google Drive, iCloud or Dropbox, the goal is somewhere to look things up:
+leases, policies, tax documents, medical records, contracts. Download those
+folders, unzip them into `~/life-reference/` one folder per area, and stop.
+There is no import step, because it reads that folder directly when a question
+needs it.
+
+Leave out video, raw photos and anything over about 25MB. They cost hours of
+downloading and answer nothing.
+
 ### What it costs
 
 Nothing beyond the Claude subscription. It does spend context before you type:

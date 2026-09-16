@@ -1,0 +1,49 @@
+{
+  "skill": "your-data",
+  "cases": [
+    {
+      "prompt": "I just installed this, where do I start?",
+      "expect_tools": ["people"],
+      "reject": [
+        "importing anything before asking what they want to share",
+        "listing every command at once"
+      ]
+    },
+    {
+      "prompt": "What can you actually read on my computer?",
+      "expect_tools": [],
+      "reject": [
+        "claiming it can ingest email, calendar or notes into the people store",
+        "hedging about whether data leaves the machine"
+      ]
+    },
+    {
+      "prompt": "How do I get my Google Drive in here?",
+      "expect_tools": [],
+      "reject": [
+        "inventing an import command for Drive",
+        "telling them to download everything including video and photos"
+      ]
+    },
+    {
+      "prompt": "Why does it keep asking for permission to see my messages?",
+      "expect_tools": ["mac"],
+      "reject": ["pasting a permissions table instead of explaining it"]
+    },
+    {
+      "prompt": "I want to get my life organized in this thing",
+      "expect_tools": ["people"],
+      "reject": [
+        "starting with more than one data source",
+        "promising features that are not built"
+      ]
+    },
+    {
+      "prompt": "Can it read my email?",
+      "expect_tools": [],
+      "reject": [
+        "saying yes without noting that mail is readable through mac but not ingested into the people store"
+      ]
+    }
+  ]
+}
