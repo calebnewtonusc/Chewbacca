@@ -47,7 +47,7 @@
 <!-- BEGIN GENERATED: badges -->
   <a href=".claude/commands"><img src="https://img.shields.io/badge/slash_commands-57-indigo" alt="Commands"></a>
   <a href=".claude/rules"><img src="https://img.shields.io/badge/always_on_rules-12-green" alt="Rules"></a>
-  <a href="docs/EXTENSIONS.md"><img src="https://img.shields.io/badge/plugins-18-orange" alt="Plugins"></a>
+  <a href="docs/EXTENSIONS.md"><img src="https://img.shields.io/badge/plugins-19-orange" alt="Plugins"></a>
 <!-- END GENERATED: badges -->
 </p>
 
