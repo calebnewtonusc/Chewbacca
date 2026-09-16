@@ -3494,7 +3494,7 @@ function matchContacts(contacts, conns) {
 }
 
 function cmdLinkedin(argv) {
-  const sub = ["sync", "audit", "clay", "changes"].includes(argv[0]) ? argv.shift() : "sync";
+  const sub = ["sync", "audit", "clay", "changes", "locate"].includes(argv[0]) ? argv.shift() : "sync";
   const { flags } = parseArgs(argv);
   const files = typeof flags.export === "string" ? [flags.export] : allExports();
   if (!files.length) die("No LinkedIn export found. Unzip one into ~/Downloads and re-run.");
@@ -3507,6 +3507,7 @@ function cmdLinkedin(argv) {
   if (sub === "audit") return linkedinAudit(m, flags);
   if (sub === "clay") return linkedinClay(m, flags);
   if (sub === "changes") return linkedinChanges(changes, flags);
+  if (sub === "locate") return linkedinLocate(flags);
 
   say();
   say(`  ${c.b("LinkedIn")} ${c.dim("->")} ${c.b("Contacts")}`);
@@ -3797,6 +3798,64 @@ function run(argv) {
   } finally {
     try { fs.unlinkSync(f); } catch {}
   }
+}
+
+// Fill in where people live, for nothing.
+//
+// The export gives a company and a title and never a location, and location is
+// the field every "who do I know in New York" question turns on. Enriching a
+// phone number into a profile is billed per record; searching by name is not.
+// And because the export already carries each person's LinkedIn URL, the
+// search result can be matched on that URL exactly rather than guessed at, so
+// the free path has none of the ambiguity that made the paid one attractive.
+// Six of six matched on the first run and the credit balance did not move.
+//
+// RESUMABLE, PER PERSON. A run over two thousand people will be interrupted,
+// and a pass that banks everything until the end and then dies has bought
+// nothing. Each person is written as they resolve.
+function linkedinLocate(flags) {
+  const key = clayKey();
+  if (!key) die("No Clay key. Put one at ~/.chewbacca/clay-key");
+  const d = db();
+  const limit = Number(flags.limit || 50);
+  const rows = d
+    .prepare(
+      `SELECT id, name, linkedin FROM people
+        WHERE deleted_at IS NULL AND linkedin IS NOT NULL AND linkedin<>''
+          AND (location IS NULL OR location='')
+        ORDER BY name`,
+    )
+    .all()
+    .slice(0, limit);
+
+  const total = d
+    .prepare(`SELECT COUNT(*) n FROM people WHERE deleted_at IS NULL AND linkedin IS NOT NULL AND linkedin<>'' AND (location IS NULL OR location='')`)
+    .get().n;
+
+  say();
+  say(`  ${c.b("Finding where people live")}  ${c.dim(`${total} still without a location`)}`);
+  say(c.dim(`  Searching by name and matching on the LinkedIn URL you already have.`));
+  say(c.dim(`  Clay bills enrichment, not search, so this costs nothing.`));
+  say();
+
+  const norm = (u) => String(u || "").trim().replace(/\/+$/, "").toLowerCase().replace(/^https?:\/\/(www\.)?/, "");
+  let found = 0, missed = 0;
+  for (const p of rows) {
+    const cands = clayCandidates(p.name, 10);
+    const mine = norm(p.linkedin);
+    const hit = cands.find((x) => norm(x.linkedin) === mine);
+    if (hit && hit.location) {
+      d.prepare(`UPDATE people SET location=?, updated_at=datetime('now') WHERE id=?`).run(hit.location, p.id);
+      found++;
+      say(`    ${c.grn(p.name.slice(0, 26).padEnd(28))} ${hit.location.slice(0, 44)}`);
+    } else {
+      missed++;
+    }
+  }
+  say();
+  say(`  ${c.b(String(found))} located, ${missed} not found in Clay's database.`);
+  if (total > rows.length) say(c.dim(`  ${total - rows.length} still to go. Re-run to continue; finished people are skipped.`));
+  say();
 }
 
 function linkedinChanges(changes, flags) {
@@ -4115,6 +4174,9 @@ function cmdResolve(argv) {
   const { flags } = parseArgs(argv);
   const limit = Number(flags.limit || 20);
   const apply = !!flags.apply;
+  const useClay = !!flags.clay;
+  let clayUsed = 0;
+  if (useClay && !clayKey()) die("No Clay key at ~/.chewbacca/clay-key");
   const d = db();
 
   const conns = d
@@ -4137,6 +4199,13 @@ function cmdResolve(argv) {
     const first = w[0];
     const others = w.slice(1).filter((x) => !RESOLVE_CONTEXT.has(x));
     let cands = byFirst.get(first) || [];
+    // Fall through to Clay's database only when your own connections cannot
+    // help. Free, but it is a network call per contact, so it stays opt-in.
+    if (!cands.length && useClay && w.length > 1) {
+      const full = w.map((x) => x[0].toUpperCase() + x.slice(1)).join(" ");
+      cands = clayCandidates(full, 5).filter((x) => x.linkedin);
+      if (cands.length) clayUsed++;
+    }
     if (!cands.length) { noCandidates++; continue; }
     if (others.length) {
       const kept = cands.filter((c) => others.includes(c.surname));
@@ -4152,7 +4221,8 @@ function cmdResolve(argv) {
   say();
   say(`  ${c.b(String(queue.length).padStart(5))}  have at least one candidate`);
   say(`  ${c.b(String(rejected).padStart(5))}  ${c.dim("rejected: the surname you typed contradicts every candidate")}`);
-  say(`  ${c.b(String(noCandidates).padStart(5))}  ${c.dim("no candidate on your LinkedIn, these are the Clay ones")}`);
+  say(`  ${c.b(String(noCandidates).padStart(5))}  ${c.dim(useClay ? "no candidate, even in Clay" : "no candidate on your LinkedIn, try --clay")}`);
+  if (clayUsed) say(`  ${c.b(String(clayUsed).padStart(5))}  ${c.dim("got candidates from Clay search, 0 credits")}`);
   say();
 
   let decided = 0, abstained = 0;
@@ -4196,6 +4266,65 @@ function cmdResolve(argv) {
   say(`  ${c.b(String(decided))} resolved, ${abstained} left alone.`);
   if (!apply) say(c.dim(`  Nothing was written. Re-run with --apply once the list looks right.`));
   say();
+}
+
+// Clay's GTM database as a candidate list, for the contacts your own
+// connections cannot cover.
+//
+// SEARCH IS FREE AND ENRICHMENT IS NOT, and the whole design turns on that
+// line. Measured against a live workspace: creating a search and reading its
+// results moved the credit balance not at all, while a phone-number lookup is
+// an enrichment and is billed per record. Clay's own query reference says the
+// dataset cannot filter on a phone number or an email at all, so the cheap
+// path and the expensive one are not even the same operation.
+//
+// What this does is the cheap one: ask by name, get back people with LinkedIn
+// URLs, and let the caller decide which is the right one from evidence that
+// never leaves this machine.
+function clayKey() {
+  const f = `${process.env.HOME}/.chewbacca/clay-key`;
+  try {
+    return fs.readFileSync(f, "utf8").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function clayCandidates(fullName, limit = 5) {
+  const key = clayKey();
+  if (!key || !fullName) return [];
+  const post = (url, body) => {
+    const out = execFileSync(
+      "curl",
+      ["-s", "-X", "POST", "--url", url, "-H", "Content-Type: application/json",
+       "-H", `clay-api-key: ${key}`, "--data", JSON.stringify(body)],
+      { encoding: "utf8", timeout: 45000 },
+    );
+    return JSON.parse(out);
+  };
+  try {
+    const made = post("https://api.clay.com/public/v0/search/query-mode", {
+      query: `select from people where full_name = ${JSON.stringify(fullName)}`,
+    });
+    if (!made || !made.search_id) return [];
+    const ran = post(
+      `https://api.clay.com/public/v0/search/query-mode/${made.search_id}/run`,
+      { limit },
+    );
+    return (ran.data || []).map((r) => {
+      const exp = (r.experiences || [])[0] || {};
+      return {
+        name: r.full_name || r.name || fullName,
+        company: exp.company || exp.company_name || "",
+        role: exp.job_title || exp.title || "",
+        linkedin: r.linkedin_url || "",
+        location: r.location ? r.location.name || "" : "",
+        fromClay: true,
+      };
+    });
+  } catch {
+    return [];
+  }
 }
 
 // The model sees a label, a few extracted words, and names. Never a message.
@@ -5525,6 +5654,7 @@ const HELP = `${c.b("people")} ${c.dim("- everything you know about the people i
   ${c.b("people linkedin audit")}                contacts with no LinkedIn connection
   ${c.b("people linkedin clay")} [--limit 5]     rows to enrich, in Clay's shape
   ${c.b("people linkedin changes")}              job changes, free, from your own exports
+  ${c.b("people linkedin locate")}               where people live, free, via Clay search
 
   ${c.b("people dedupe")}                        likely duplicate records
   ${c.b("people merge <keep> <absorb>")}         fold one record into another
