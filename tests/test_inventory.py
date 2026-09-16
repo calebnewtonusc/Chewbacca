@@ -102,5 +102,9 @@ for rel in ("docs/REFERENCE.md", "README.md", "settings/toolkit.json"):
     check(f"{rel} carries no em dash", "—" not in body)
     check(f"{rel} carries no leaked scalar marker", ">- " not in body and "| >-" not in body)
 
-print(f"\n{PASSED} passed, {FAILED} failed.")
-sys.exit(1 if FAILED else 0)
+# Guarded because the filename matches pytest's discovery pattern. Without
+# this, importing the module to collect it runs sys.exit and pytest aborts the
+# whole session with INTERNALERROR, taking every other test file down with it.
+if __name__ == "__main__":
+    print(f"\n{PASSED} passed, {FAILED} failed.")
+    sys.exit(1 if FAILED else 0)

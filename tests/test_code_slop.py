@@ -145,5 +145,9 @@ check(
 # be able to fail the check no matter how far it goes.
 check("density does not contribute to the score", repo["density"] > 0.10, repo["density"])
 
-print(f"\n{PASSED} passed, {FAILED} failed.")
-sys.exit(1 if FAILED else 0)
+# Guarded because the filename matches pytest's discovery pattern. Without
+# this, importing the module to collect it runs sys.exit and pytest aborts the
+# whole session with INTERNALERROR, taking every other test file down with it.
+if __name__ == "__main__":
+    print(f"\n{PASSED} passed, {FAILED} failed.")
+    sys.exit(1 if FAILED else 0)
