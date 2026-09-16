@@ -109,6 +109,66 @@ run it again and it skips everyone already done.
 For anyone already connected, a fresh export is the cheapest job-change feed
 there is, and no paid lookup is needed.
 
+## Questions that need more than one source
+
+`people who` filters one table. Most interesting questions are not one filter,
+and answering them with a single command is the difference between a database
+and an assistant. **Decompose, run several commands, then synthesise, and say
+which source each claim came from.**
+
+Five sources, and they know nothing about each other:
+
+| Source           | Holds                                                       | Reach it with                    |
+| ---------------- | ----------------------------------------------------------- | -------------------------------- |
+| Texts, distilled | what somebody said they care about, believe, are working on | `people show`, `people search`   |
+| Texts, inferred  | affiliations nobody typed, with a confidence                | `people infer`                   |
+| LinkedIn export  | employer, title, dated career, who asked to connect first   | `people who`, `people show`      |
+| Clay search      | where they live now, roles with dates, free                 | `people linkedin locate`         |
+| Group threads    | who talks in which room, and to whom                        | `people show`, the `room` column |
+
+**They cover different people, and that is the whole problem.** On this machine
+583 people have facts from texts and 2,242 have a LinkedIn record, and only 99
+have both. The people you text and the people you connect with professionally
+are two populations with a thin, valuable overlap. A question that assumes
+every person has every kind of data returns nothing and looks like an empty
+answer rather than a mismatch.
+
+### Worked decomposition
+
+> "Who should I get coffee with in SF next week?"
+
+Wrong: one `people who "people in SF"` and a list.
+
+Right, four passes:
+
+```bash
+people who "people I know in San Francisco"   # LinkedIn + Clay: who is there
+people reconnect                               # who is overdue, from message history
+people show <each candidate>                   # facts from texts: what they care about
+people infer --rule <relevant>                 # anything inferred, marked as such
+```
+
+Then answer as a person would: three names, why each one, when they last spoke,
+and one concrete thing to open with that came out of an actual conversation.
+
+> "Which of my USC friends ended up somewhere I'd want to work?"
+
+`people who "people I know at YC companies"` gives employers. `people show` on
+each gives what they said in texts. The answer joins them: not a list of
+companies, but "you talked to X about Y, and he is now at Z."
+
+### Rules for synthesising
+
+- **Name the source of each claim.** "He said in March" and "his LinkedIn says"
+  and "inferred from how often he mentions it" carry different weight, and the
+  user needs to know which one they are acting on.
+- **Say who was excluded for missing data**, not just who matched. "Four more
+  are in SF but I have never recorded anything about them" is part of the
+  answer.
+- **Prefer the text over the profile** when they disagree about a person. A
+  title is what somebody publishes; a message is what they said.
+- **Never merge an inference into a stated fact.** See below.
+
 ### Inferred answers are marked, never blended
 
 `people infer` concludes things nobody typed in, from rules over the message
