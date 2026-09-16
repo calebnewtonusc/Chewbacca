@@ -3818,14 +3818,23 @@ function linkedinLocate(flags) {
   if (!key) die("No Clay key. Put one at ~/.chewbacca/clay-key");
   const d = db();
   const limit = Number(flags.limit || 50);
+  // Two sequential HTTP calls per person means a single pass over two thousand
+  // people takes about seven hours. The work is entirely network-bound and the
+  // requests are independent, so it shards: run this N times with --of N and a
+  // different --shard each, and they divide the list with no overlap and no
+  // coordination. Writes are per person into WAL-mode SQLite, which handles
+  // several writers appending short transactions.
+  const of = Math.max(1, Number(flags.of || 1));
+  const shard = Math.max(0, Number(flags.shard || 0)) % of;
   const rows = d
     .prepare(
       `SELECT id, name, linkedin FROM people
         WHERE deleted_at IS NULL AND linkedin IS NOT NULL AND linkedin<>''
           AND (location IS NULL OR location='')
-        ORDER BY name`,
+        ORDER BY id`,
     )
     .all()
+    .filter((_, i) => i % of === shard)
     .slice(0, limit);
 
   const total = d
