@@ -1398,6 +1398,8 @@ while IFS='|' read -r SK_NAME SK_URL SK_PATH SK_LICENSE SK_AUTHOR; do
   rm -rf "$TMP_SK"
 done <<'UPSTREAM_SKILLS'
 avoid-ai-writing|https://github.com/conorbronsdon/avoid-ai-writing||MIT|conorbronsdon
+cap|https://github.com/CapSoftware/Cap|installed by `cap agents install --target claude`|see upstream|CapSoftware
+cap-demo|https://github.com/CapSoftware/Cap|installed by `cap agents install --target claude`|see upstream|CapSoftware
 deslop|https://github.com/31Carlton7/skills|deslop|see upstream|31Carlton7
 no-ai-slop|https://github.com/petergyang/no-ai-slop|skills/no-ai-slop|MIT|petergyang
 youtube-transcripts|https://github.com/calebnewtonusc/claude-youtube-transcripts|skills/youtube-transcripts|MIT|calebnewtonusc
@@ -1582,6 +1584,42 @@ if command -v brew &>/dev/null; then
   fi
 else
   warn "Homebrew not found. macOS tools skipped: see docs/MACOS-TOOLS.md"
+fi
+
+# cap: Screen recording with spring-physics zoom that follows your clicks, scriptable with --json on every command
+if [ "$(uname -s)" != "Darwin" ]; then
+  :
+elif ! command -v brew &>/dev/null; then
+  warn "Homebrew not found, skipping Cap"
+else
+  if [ -d /Applications/Cap.app ]; then
+    log "Cap already installed"
+  elif brew install --cask cap &>/dev/null; then
+    log "Cap installed"
+  else
+    warn "could not install Cap"
+  fi
+  CAP_CLI=/Applications/Cap.app/Contents/MacOS/cap-cli
+  if [ -x "$CAP_CLI" ]; then
+    if command -v cap &>/dev/null; then
+      log "cap shim already on PATH"
+    elif "$CAP_CLI" desktop install-cli &>/dev/null; then
+      log "cap shim installed to ~/.local/bin"
+    else
+      warn "could not install the cap shim"
+    fi
+    # Cap ships its own Claude skill, a cap-demo skill, and its MCP
+    # registration. --yes is safe here because --dry-run showed the
+    # plan is creates plus one additive merge; it authorizes local
+    # setup only, never an account, upload or billing action.
+    if [ -d "$HOME/.claude/skills/cap" ]; then
+      log "Cap Claude integration already installed"
+    elif "$CAP_CLI" agents install --target claude --component all --yes &>/dev/null; then
+      log "Cap skills and MCP registered for Claude"
+    else
+      warn "could not install the Cap Claude integration"
+    fi
+  fi
 fi
 
 # mac: Calendar, Reminders, Contacts, Mail, Messages, Notes, and Finder as JSON

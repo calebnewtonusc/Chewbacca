@@ -31,6 +31,20 @@
         "author": "conorbronsdon"
       },
       {
+        "name": "cap",
+        "url": "https://github.com/CapSoftware/Cap",
+        "path": "installed by `cap agents install --target claude`",
+        "license": "see upstream",
+        "author": "CapSoftware"
+      },
+      {
+        "name": "cap-demo",
+        "url": "https://github.com/CapSoftware/Cap",
+        "path": "installed by `cap agents install --target claude`",
+        "license": "see upstream",
+        "author": "CapSoftware"
+      },
+      {
         "name": "deslop",
         "url": "https://github.com/31Carlton7/skills",
         "path": "deslop",
@@ -297,6 +311,12 @@
       "url": "https://github.com/gastownhall/beads",
       "install": "brew install beads",
       "description": "Issue tracker your agent reads and writes, so work survives a context reset"
+    },
+    {
+      "display": "cap",
+      "url": "https://github.com/CapSoftware/Cap",
+      "install": "brew install --cask cap, then cap desktop install-cli",
+      "description": "Screen recording with spring-physics zoom that follows your clicks, scriptable with --json on every command"
     },
     {
       "display": "mac",
