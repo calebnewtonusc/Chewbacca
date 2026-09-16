@@ -86,6 +86,7 @@ real commit; nothing here is written by hand.
 - send the root early
 
 ### Other
+- test: cover guide trends and trigger cases, and make hud-listen pytest-runnable
 - Add docs/ADVISING.md: helping someone reach a goal
 - triggers: say the thing out loud and see whether any skill fires
 - nobody should ever have to type a slash command
