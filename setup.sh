@@ -630,7 +630,9 @@ _installed_scanners=""
 # below it or a section banner in a 40-line file, and nothing here looked for
 # them until 2026-09-16. It pairs with the `deslop` skill, which holds the
 # judgement calls.
-for _tool in ai-scan skill-scan prose-check code-slop; do
+# demo-shoot is a wrapper, not a scanner, but it installs the same way: a
+# small executable in bin/ that needs to reach ~/.local/bin.
+for _tool in ai-scan skill-scan prose-check code-slop demo-shoot; do
   if [ -f "$SCRIPT_DIR/bin/$_tool" ]; then
     link_tool "$_tool"
     _installed_scanners="$_installed_scanners $_tool"
