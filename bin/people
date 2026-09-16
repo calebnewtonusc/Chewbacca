@@ -3365,18 +3365,51 @@ function parseCsvRows(text) {
   return rows;
 }
 
-function newestExport() {
+// EVERY export, oldest first, not just the newest.
+//
+// Two reasons. 56 people in the June file are missing from September: a
+// connection that ends, or a profile whose URL changed, disappears from the
+// current export and taking only the latest silently forgets them. And the
+// Company column moving between two exports IS a job change, which is the
+// thing Clay would otherwise be paid to discover. 551 of them sit in files
+// already on this disk.
+function allExports() {
   const dl = `${process.env.HOME}/Downloads`;
-  let best = null, bestAt = 0;
+  const found = [];
   let entries = [];
-  try { entries = fs.readdirSync(dl); } catch { return null; }
+  try { entries = fs.readdirSync(dl); } catch { return found; }
   for (const e of entries) {
     const f = `${dl}/${e}/Connections.csv`;
-    if (!fs.existsSync(f)) continue;
-    const at = fs.statSync(f).mtimeMs;
-    if (at > bestAt) { bestAt = at; best = f; }
+    if (fs.existsSync(f)) found.push({ file: f, at: fs.statSync(f).mtimeMs });
   }
-  return best;
+  return found.sort((a, b) => a.at - b.at).map((x) => x.file);
+}
+
+// Merge them into one record per profile URL, newest winning, and keep what
+// the older files said about where somebody used to work.
+function mergeExports(files) {
+  const byUrl = new Map();
+  const changes = [];
+  for (const f of files) {
+    for (const r of readLinkedInCsv(f)) {
+      const url = (r.URL || "").trim().replace(/\/+$/, "");
+      const key = url || `${r["First Name"]} ${r["Last Name"]}`.toLowerCase();
+      const prev = byUrl.get(key);
+      if (prev && prev.Company && r.Company && prev.Company.trim() !== r.Company.trim()) {
+        changes.push({
+          name: `${r["First Name"]} ${r["Last Name"]}`.replace(/\s+/g, " ").trim(),
+          from: prev.Company.trim(),
+          to: r.Company.trim(),
+          role: r.Position || "",
+          url,
+        });
+      }
+      // The newer file wins field by field, so a blank in September does not
+      // erase a company June knew about.
+      byUrl.set(key, prev ? { ...prev, ...Object.fromEntries(Object.entries(r).filter(([, v]) => v)) } : r);
+    }
+  }
+  return { conns: [...byUrl.values()], changes };
 }
 
 // Tiered matching. `exact` and `nickname` are written; `unsure` is printed and
@@ -3399,30 +3432,59 @@ function matchContacts(contacts, conns) {
     const fn = nameWords(ct.first), ln = nameWords(ct.last);
     if (!ln.length) { firstOnly.push(ct); continue; }
     if (!fn.length) { absent.push(ct); continue; }
-    const cf = fn[0], cl = ln[ln.length - 1];
-    const cands = byLast.get(cl) || [];
+    const cf = fn[0];
+    // THE SURNAME IS NOT ALWAYS THE LAST WORD. A third of this address book
+    // carries context in the name field: "Owen Marsh IYA", "Arcadia FCA
+    // Prez", "Benitez Suitemate". Those labels are how somebody recognises a
+    // caller, so they are never edited, but reading only the final word makes
+    // Leo Reid's surname "IYA" and loses the match. Every word is a
+    // candidate, and the one that hits is remembered so the remainder can be
+    // kept as what it actually is: how they are known.
+    const cands = [];
+    const seen = new Set();
+    for (const w of ln) {
+      for (const c of byLast.get(w) || []) {
+        const k = c.URL || `${c["First Name"]} ${c["Last Name"]}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        cands.push([c, w]);
+      }
+    }
     if (!cands.length) { absent.push(ct); continue; }
 
-    let hit = null, tier = null;
-    for (const c of cands) {
+    let hit = null, tier = null, usedSurname = null;
+    for (const [c, w] of cands) {
       const lw = nameWords(c["First Name"]);
-      if (lw.length && lw[0] === cf) { hit = c; tier = "exact"; break; }
+      if (lw.length && lw[0] === cf) { hit = c; tier = "exact"; usedSurname = w; break; }
     }
     if (!hit) {
-      for (const c of cands) {
+      for (const [c, w] of cands) {
         const lw = nameWords(c["First Name"]);
         if (!lw.length) continue;
         const lf = lw[0];
         // Only nickname-to-formal, never nickname-to-nickname. Drew and Andy
         // both shorten from Andrew and are routinely different people.
-        if (lf !== cf && (lf === formalOf(cf) || cf === formalOf(lf))) { hit = c; tier = "nickname"; break; }
+        if (lf !== cf && (lf === formalOf(cf) || cf === formalOf(lf))) { hit = c; tier = "nickname"; usedSurname = w; break; }
         // Sam -> Samuel. A prefix of three or more is the same name spelled out.
-        if (cf.length >= 3 && lf.startsWith(cf) && lf !== cf) { hit = c; tier = "nickname"; break; }
+        if (cf.length >= 3 && lf.startsWith(cf) && lf !== cf) { hit = c; tier = "nickname"; usedSurname = w; break; }
         // A single typo, and only where the surname is rare enough that the
         // pair is very unlikely to be two different people.
-        if (oneEdit(cf, lf) && (lastFreq.get(cl) || 0) <= 2) { hit = c; tier = "unsure"; break; }
+        if (oneEdit(cf, lf) && (lastFreq.get(w) || 0) <= 2) { hit = c; tier = "unsure"; usedSurname = w; break; }
       }
     }
+    // Whatever was in the name field and is not the surname is how this person
+    // is known: the club, the trip, the dorm. Kept, never deleted.
+    //
+    // Taken from the ORIGINAL text, not the normalised words. Normalising
+    // strips case and digits, which turns "A2F" into "a f" and "Superman IYA"
+    // into lowercase. Those strings are names of real things, and a label the
+    // user wrote is worth preserving exactly or not at all.
+    if (hit)
+      ct.context = ct.last
+        .split(/\s+/)
+        .filter((w) => nameWords(w)[0] !== usedSurname)
+        .join(" ")
+        .trim();
     if (!hit) absent.push(ct);
     else if (tier === "exact") exact.push([ct, hit]);
     else if (tier === "nickname") nickname.push([ct, hit]);
@@ -3432,46 +3494,68 @@ function matchContacts(contacts, conns) {
 }
 
 function cmdLinkedin(argv) {
-  const sub = ["sync", "audit", "clay"].includes(argv[0]) ? argv.shift() : "sync";
+  const sub = ["sync", "audit", "clay", "changes"].includes(argv[0]) ? argv.shift() : "sync";
   const { flags } = parseArgs(argv);
-  const file = typeof flags.export === "string" ? flags.export : newestExport();
-  if (!file || !fs.existsSync(file))
-    die("No LinkedIn export found. Unzip one into ~/Downloads and re-run.");
-
-  const conns = readLinkedInCsv(file);
+  const files = typeof flags.export === "string" ? [flags.export] : allExports();
+  if (!files.length) die("No LinkedIn export found. Unzip one into ~/Downloads and re-run.");
+  const { conns, changes } = mergeExports(files);
   const contacts = appleContacts();
   if (contacts === null) die("Could not read Contacts. Grant Full Disk Access to your terminal.");
   const m = matchContacts(contacts, conns);
   const apply = !flags["dry-run"];
 
-  if (sub === "audit") return linkedinAudit(m);
+  if (sub === "audit") return linkedinAudit(m, flags);
   if (sub === "clay") return linkedinClay(m, flags);
+  if (sub === "changes") return linkedinChanges(changes, flags);
 
   say();
   say(`  ${c.b("LinkedIn")} ${c.dim("->")} ${c.b("Contacts")}`);
-  say(`  ${c.dim(file.replace(process.env.HOME, "~"))}`);
+  say(`  ${c.dim(`${files.length} export(s) merged`)}`);
   say(`  ${c.dim(`${conns.length} connections, ${contacts.length} contacts`)}`);
   say();
 
   const d = db();
-  let orgWrites = 0, nickWrites = 0;
+  let orgWrites = 0, nickWrites = 0, metWrites = 0;
   const writes = [];
   for (const [ct, li] of [...m.exact, ...m.nickname]) {
     const full = `${li["First Name"]} ${li["Last Name"]}`.replace(/\s+/g, " ").trim();
-    // Only fill a blank. An org somebody typed by hand beats LinkedIn's.
-    if (li.Company && !ct.org) { writes.push({ uid: ct.uid, org: li.Company, title: li.Position || "" }); orgWrites++; }
-    const short = `${ct.first} ${ct.last}`.replace(/\s+/g, " ").trim();
-    const row = d.prepare(`SELECT id, nickname FROM people WHERE lower(name)=lower(?) AND deleted_at IS NULL`).get(full);
-    if (row && short.toLowerCase() !== full.toLowerCase() && !row.nickname) {
-      // --dry-run has to mean it. Counting a write it did not make is how a
-      // preview stops being a preview.
-      if (apply)
-        d.prepare(`UPDATE people SET nickname=?, apple_contact_id=?, updated_at=datetime('now') WHERE id=?`)
-          .run(short, String(ct.uid || ct.pk), row.id);
-      nickWrites++;
-    } else if (row && apply) {
-      d.prepare(`UPDATE people SET apple_contact_id=? WHERE id=?`).run(String(ct.uid || ct.pk), row.id);
+    // LinkedIn wins on employer, because people update it when they move and
+    // an address book is where a job title goes to die. A card saying Cisco
+    // for somebody who has been at MindFort since June is not a preserved
+    // preference, it is a stale fact. The old value is not lost: it goes in
+    // the note as where they used to be.
+    if (li.Company && ct.org !== li.Company) {
+      writes.push({ uid: ct.uid, org: li.Company, title: li.Position || "", was: ct.org || "" });
+      orgWrites++;
     }
+    const row = d
+      .prepare(`SELECT id, nickname, how_we_met FROM people WHERE lower(name)=lower(?) AND deleted_at IS NULL`)
+      .get(full);
+    if (!row) continue;
+
+    // A NICKNAME IS A DIFFERENT FIRST NAME, not a longer line. Mike for
+    // Michael is one. "Leo Owen Marsh IYA" is a full name with the
+    // club he is from typed after it, and filing that as what he goes by would
+    // be wrong in a way that then gets printed next to his name forever.
+    const liFirst = nameWords(li["First Name"])[0] || "";
+    const ctFirst = nameWords(ct.first)[0] || "";
+    const isNickname = ctFirst && liFirst && ctFirst !== liFirst;
+    if (isNickname && !row.nickname) {
+      if (apply)
+        d.prepare(`UPDATE people SET nickname=?, updated_at=datetime('now') WHERE id=?`)
+          .run(ct.first.trim(), row.id);
+      nickWrites++;
+    }
+    // The rest of what was typed into the name field is how this person is
+    // known, which is the one thing an address book records that LinkedIn
+    // never will.
+    if (ct.context && !row.how_we_met) {
+      if (apply)
+        d.prepare(`UPDATE people SET how_we_met=?, updated_at=datetime('now') WHERE id=?`)
+          .run(ct.context, row.id);
+      metWrites++;
+    }
+    if (apply) d.prepare(`UPDATE people SET apple_contact_id=? WHERE id=?`).run(String(ct.uid || ct.pk), row.id);
   }
 
   const line = (label, n, note = "") =>
@@ -3496,17 +3580,40 @@ function cmdLinkedin(argv) {
     say();
   }
 
+  // Everything known about each matched person, onto the card itself.
+  const notes = [];
+  for (const [ct, li] of [...m.exact, ...m.nickname]) {
+    const full = `${li["First Name"]} ${li["Last Name"]}`.replace(/\s+/g, " ").trim();
+    const row = d.prepare(`SELECT id FROM people WHERE lower(name)=lower(?) AND deleted_at IS NULL`).get(full);
+    const body = composeNote(d, row && row.id, li, ct.context);
+    if (body && ct.uid) notes.push({ id: ct.uid, body });
+  }
+
   if (writes.length && apply) {
     const n = writeContactOrgs(writes);
-    say(`  ${c.grn(String(n))} contact cards gained a company and title.`);
+    const moved = writes.filter((w) => w.was).length;
+    say(`  ${c.grn(String(n))} contact cards updated with a current company.`);
+    if (moved) say(c.dim(`    ${moved} of those had an older employer on the card.`));
   } else if (writes.length) {
-    say(`  ${c.dim(`${writes.length} cards would gain a company (--dry-run)`)}`);
+    say(c.dim(`  ${writes.length} cards would gain or update a company (--dry-run)`));
+  }
+  if (notes.length && apply) {
+    const n = writeContactNotes(notes);
+    say(`  ${c.grn(String(n))} notes written, with the LinkedIn link and what you know.`);
+  } else if (notes.length) {
+    say(c.dim(`  ${notes.length} notes would be written (--dry-run)`));
   }
   if (nickWrites)
     say(
       apply
         ? `  ${c.grn(String(nickWrites))} people now store both names.`
         : c.dim(`  ${nickWrites} people would store both names (--dry-run)`),
+    );
+  if (metWrites)
+    say(
+      apply
+        ? `  ${c.grn(String(metWrites))} gained how you know them, kept from your own labels.`
+        : c.dim(`  ${metWrites} would gain how you know them (--dry-run)`),
     );
   say();
   say(
@@ -3545,18 +3652,169 @@ function writeContactOrgs(writes) {
   return n;
 }
 
-function linkedinAudit(m) {
+// A job change, found for free by comparing two exports that were already on
+// the disk. This is the answer to "can Clay watch for job updates": for anyone
+// already connected on LinkedIn, it does not need to. A fresh export is free
+// and takes two minutes, and the Company column moving is the event.
+// Everything this store knows, written onto the contact card itself.
+//
+// The card is the thing that is there when the phone rings, offline, with no
+// terminal. So the note carries the links and the facts rather than pointing
+// at a database the person holding the phone cannot open.
+//
+// FENCED AND IDEMPOTENT. Anything the user typed above or below the fence is
+// theirs and survives every re-run; only the block between the markers is
+// rewritten. A sync that appended would grow the note forever, and one that
+// replaced the whole field would delete a note somebody wrote by hand.
+const NOTE_START = "--- chewbacca ---";
+const NOTE_END = "--- end chewbacca ---";
+
+function composeNote(d, personId, li, context) {
+  const lines = [];
+  const p = personId
+    ? d.prepare(`SELECT * FROM people WHERE id=?`).get(personId)
+    : null;
+  const role = (p && p.role) || (li && li.Position) || "";
+  const company = (p && p.company) || (li && li.Company) || "";
+  if (role || company) lines.push([role, company].filter(Boolean).join(" at "));
+  const url = (p && p.linkedin) || (li && li.URL) || "";
+  if (url) lines.push(url);
+  if (context) lines.push(`known from: ${context}`);
+
+  if (p) {
+    const circles = d
+      .prepare(
+        `SELECT c.name FROM circle_members m JOIN circles c ON c.id=m.circle_id
+          WHERE m.person_id=? AND c.deleted_at IS NULL ORDER BY c.name`,
+      )
+      .all(p.id)
+      .map((r) => r.name);
+    if (circles.length) lines.push(`circles: ${circles.join(", ")}`);
+
+    const facts = d
+      .prepare(`SELECT key, value FROM quick_facts WHERE person_id=? ORDER BY key`)
+      .all(p.id);
+    for (const f of facts) lines.push(`${f.key.replace(/_/g, " ")}: ${String(f.value).slice(0, 220)}`);
+
+    const s = d.prepare(`SELECT last_interaction_at FROM person_scores WHERE person_id=?`).get(p.id);
+    if (s && s.last_interaction_at) lines.push(`last contact: ${s.last_interaction_at.slice(0, 10)}`);
+    if (p.nickname) lines.push(`also known as: ${p.nickname}`);
+  }
+  return lines.filter(Boolean).join("\n");
+}
+
+function writeContactNotes(rows) {
+  if (!rows.length) return 0;
+  const script = `
+function run(argv) {
+  var rows = JSON.parse(argv[0]);
+  var app = Application("Contacts");
+  var START = ${JSON.stringify(NOTE_START)};
+  var END = ${JSON.stringify(NOTE_END)};
+  var n = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    try {
+      var p = app.people.byId(r.id);
+      var cur = p.note() || "";
+      var s = cur.indexOf(START), e = cur.indexOf(END);
+      var before = s >= 0 ? cur.slice(0, s) : cur;
+      var after = e >= 0 ? cur.slice(e + END.length) : "";
+      if (s < 0 && cur && !cur.match(/\\n$/)) before = cur + "\\n";
+      var block = START + "\\n" + r.body + "\\n" + END;
+      p.note = (before + block + after).replace(/\\n{3,}/g, "\\n\\n");
+      n++;
+    } catch (err) {}
+  }
+  app.save();
+  return String(n);
+}`;
+  const f = `${require("node:os").tmpdir()}/chewbacca-notes-${process.pid}.js`;
+  fs.writeFileSync(f, script);
+  try {
+    const out = execFileSync("osascript", ["-l", "JavaScript", f, JSON.stringify(rows)], {
+      encoding: "utf8",
+      timeout: 180000,
+    });
+    return Number(String(out).trim()) || 0;
+  } catch {
+    return 0;
+  } finally {
+    try { fs.unlinkSync(f); } catch {}
+  }
+}
+
+function linkedinChanges(changes, flags) {
+  const limit = Number(flags.limit || 30);
   say();
-  say(`  ${c.b("Contacts with no LinkedIn connection")}  ${c.dim(`${m.absent.length} of them`)}`);
-  say(`  ${c.dim("People you have a number for and no professional record.")}`);
+  say(`  ${c.b("Job changes")}  ${c.dim(`${changes.length} found across your exports, at no cost`)}`);
   say();
-  const named = m.absent.filter((x) => x.first && x.last);
-  for (const ct of named.slice(0, 40))
-    say(`    ${(ct.first + " " + ct.last).trim().padEnd(28)} ${c.dim(ct.org || "")}`);
-  if (named.length > 40) say(`    ${c.dim(`... and ${named.length - 40} more`)}`);
+  for (const ch of changes.slice(0, limit)) {
+    say(`    ${c.b(ch.name)}`);
+    say(`      ${c.dim(ch.from.slice(0, 44))} ${c.dim("->")} ${c.cyn(ch.to.slice(0, 44))}`);
+  }
+  if (changes.length > limit) say(c.dim(`    ... and ${changes.length - limit} more`));
   say();
-  say(`  ${c.b(String(m.firstOnly.length))} more are a first name only, so no name match is possible.`);
-  say(`  ${c.dim("Those are the ones Clay would resolve from a phone number.")}`);
+  say(c.dim(`  Re-export LinkedIn and re-run to pick up the next batch.`));
+  say();
+}
+
+// Everyone in the address book with no LinkedIn record, ordered by how much
+// you actually talk to them.
+//
+// Alphabetical would be useless: the question behind this list is "who do I
+// know well and have no professional record for", and the answer has to put
+// the person you text every day above a landline from 2019. Messages sent is
+// the right measure rather than messages total, because what you sent is a
+// thing you chose.
+function linkedinAudit(m, flags = {}) {
+  const d = db();
+  const limit = Number(flags.limit || 40);
+  const counts = new Map();
+  for (const r of d
+    .prepare(
+      `SELECT who, SUM(CASE WHEN from_me=1 THEN 1 ELSE 0 END) sent,
+              SUM(CASE WHEN from_me=0 THEN 1 ELSE 0 END) recvd, COUNT(*) n
+         FROM messages GROUP BY who`,
+    )
+    .all())
+    counts.set(String(r.who || "").toLowerCase(), r);
+
+  const scored = m.absent
+    .filter((x) => x.first)
+    .map((ct) => {
+      const full = `${ct.first} ${ct.last}`.replace(/\s+/g, " ").trim().toLowerCase();
+      let best = counts.get(full);
+      if (!best)
+        for (const [k, v] of counts)
+          if (k.includes(ct.first.toLowerCase()) && (!ct.last || k.includes(nameWords(ct.last)[0] || ""))) {
+            best = v;
+            break;
+          }
+      return { ct, sent: best ? best.sent : 0, recvd: best ? best.recvd : 0 };
+    })
+    .sort((a, b) => b.sent - a.sent);
+
+  const talk = scored.filter((x) => x.sent > 0);
+  say();
+  say(`  ${c.b("In your contacts, not on your LinkedIn")}  ${c.dim(`${m.absent.length} people`)}`);
+  say(`  ${c.dim("Ranked by how many messages you have sent them.")}`);
+  say();
+  for (const { ct, sent, recvd } of scored.slice(0, limit)) {
+    const name = `${ct.first} ${ct.last}`.replace(/\s+/g, " ").trim();
+    const bar = sent > 0 ? c.cyn(String(sent).padStart(5)) : c.dim("    0");
+    say(`   ${bar} sent ${c.dim(String(recvd).padStart(5) + " recvd")}   ${name.slice(0, 40)}`);
+  }
+  if (scored.length > limit) say(c.dim(`\n    ... and ${scored.length - limit} more`));
+  say();
+  say(
+    c.dim(
+      `  ${talk.length} of these you have actually texted. The rest are numbers you kept.`,
+    ),
+  );
+  say(
+    `  ${c.b(String(m.firstOnly.length))} more are a first name only, so no name match is possible. ${c.dim("Clay resolves those from a phone number.")}`,
+  );
   say();
 }
 
@@ -5057,6 +5315,7 @@ const HELP = `${c.b("people")} ${c.dim("- everything you know about the people i
   ${c.b("people linkedin sync")}                 match a LinkedIn export to your contacts
   ${c.b("people linkedin audit")}                contacts with no LinkedIn connection
   ${c.b("people linkedin clay")} [--limit 5]     rows to enrich, in Clay's shape
+  ${c.b("people linkedin changes")}              job changes, free, from your own exports
 
   ${c.b("people dedupe")}                        likely duplicate records
   ${c.b("people merge <keep> <absorb>")}         fold one record into another
