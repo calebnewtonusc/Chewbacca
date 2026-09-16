@@ -3849,8 +3849,17 @@ function linkedinLocate(flags) {
 
   const norm = (u) => String(u || "").trim().replace(/\/+$/, "").toLowerCase().replace(/^https?:\/\/(www\.)?/, "");
   let found = 0, missed = 0;
+  let errors = 0;
   for (const p of rows) {
-    const cands = clayCandidates(p.name, 10);
+    let cands;
+    try {
+      cands = clayCandidates(p.name, 10);
+    } catch {
+      // Throttled or broken. NOT a miss: the row keeps its NULL location and
+      // the next run retries it, which is the whole reason this is resumable.
+      errors++;
+      continue;
+    }
     const mine = norm(p.linkedin);
     const hit = cands.find((x) => norm(x.linkedin) === mine);
     if (hit && (hit.location || hit.experiences.length)) {
@@ -3887,7 +3896,11 @@ function linkedinLocate(flags) {
     }
   }
   say();
-  say(`  ${c.b(String(found))} located, ${missed} not found in Clay's database.`);
+  say(`  ${c.b(String(found))} located, ${missed} genuinely not in Clay's database.`);
+  if (errors)
+    say(
+      c.yel(`  ${errors} were never looked up: rate limited or failed. They keep a NULL location and retry next run.`),
+    );
   if (total > rows.length) say(c.dim(`  ${total - rows.length} still to go. Re-run to continue; finished people are skipped.`));
   say();
 }
@@ -4331,15 +4344,37 @@ function clayCandidates(fullName, limit = 5) {
   // readable by any process on the machine through `ps`, and this one belongs
   // to somebody else's Clay workspace. curl reads its config, headers included,
   // from stdin instead, which no process listing can see.
+  // A RATE LIMIT IS NOT AN ABSENCE. Clay answers 429 with "too many concurrent
+  // requests in your workspace", and the first version of this caught every
+  // error and returned an empty list, so a throttled run reported "270 not
+  // found in Clay's database" about people who were never actually looked up.
+  // It finished, it printed a number, and the number was a lie.
+  //
+  // So the status code is read, 429 is retried with backoff, and anything
+  // still failing is raised rather than flattened into "no match".
   const post = (url, body) => {
     const cfg =
       `header = "clay-api-key: ${key}"\n` + `header = "Content-Type: application/json"\n`;
-    const out = execFileSync(
-      "curl",
-      ["-s", "-K", "-", "-X", "POST", "--url", url, "--data", JSON.stringify(body)],
-      { encoding: "utf8", timeout: 45000, input: cfg },
-    );
-    return JSON.parse(out);
+    let wait = 1500;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const raw = execFileSync(
+        "curl",
+        ["-s", "-K", "-", "-w", "\\n%{http_code}", "-X", "POST", "--url", url,
+         "--data", JSON.stringify(body)],
+        { encoding: "utf8", timeout: 45000, input: cfg },
+      );
+      const cut = raw.lastIndexOf("\n");
+      const status = Number(raw.slice(cut + 1).trim());
+      const payload = raw.slice(0, cut);
+      if (status === 429 || status === 503) {
+        execFileSync("sleep", [String(wait / 1000)]);
+        wait = Math.min(wait * 2, 20000);
+        continue;
+      }
+      if (status >= 400) throw new Error(`clay ${status}`);
+      return JSON.parse(payload);
+    }
+    throw new Error("clay 429 after retries");
   };
   try {
     const made = post("https://api.clay.com/public/v0/search/query-mode", {
@@ -4376,8 +4411,9 @@ function clayCandidates(fullName, limit = 5) {
         fromClay: true,
       };
     });
-  } catch {
-    return [];
+  } catch (e) {
+    // Raised, not flattened. The caller counts these apart from a genuine miss.
+    throw e;
   }
 }
 
