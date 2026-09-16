@@ -4375,6 +4375,41 @@ function clayAdvice(q, affected) {
 // order in this list is load-bearing.
 const PLACE = /\b(new york city|san francisco bay area|bay area|san francisco|new york|los angeles|nyc|sf|la\b|chicago|boston|seattle|austin|denver|miami|london|naperville|wisconsin|madison|remote|[A-Z][a-z]+, ?[A-Z]{2})\b/i;
 
+/**
+ * The words in a question that no structured filter consumed.
+ *
+ * This used to be computed inline purely so the output could say "ignored: X".
+ * It is now the input to the evidence search as well, so it is one function:
+ * the terms reported as unanswered and the terms actually searched must be the
+ * same list, or the report is lying about what was tried.
+ *
+ * The stopword set is grammar, not domain knowledge, and that distinction comes
+ * from Karthik's gather.js. There is deliberately no synonym table: a question's
+ * own words work for "podcasting" and "orthodontist" without anybody predicting
+ * them, and a hand-written vocabulary only ever fits the person who wrote it.
+ */
+function ignoredTerms(stripped, freeText) {
+  return stripped
+    .replace(new RegExp(PLACE.source, "gi"), " ")
+    .replace(
+      /\b(who|whom|what|which|do|does|did|i|me|my|know|that|is|are|am|in|at|the|a|an|of|from|with|and|or|to|for|people|anyone|someone|connections?|list|pull|up|show|find|tell|give)\b/gi,
+      " ",
+    )
+    // MORE GRAMMAR, once these terms started being SEARCHED rather than just
+    // printed. "founders who went to school with me" was searching for "went",
+    // which hits any observation containing the word and contributes nothing
+    // but noise to the result. Verbs of motion and being are grammar in a
+    // question about people, the same way "know" and "tell" already were.
+    .replace(
+      /\b(went|goes|going|gone|been|being|was|were|has|have|had|get|got|also|still|any|some|their|there|they|them|his|her|he|she|we|us|our|you|your|about|like|than|then|when|where|how|why|all|both|each|other|same|such|only|own|very|can|will|would|should|could|may|might|must|shall)\b/gi,
+      " ",
+    )
+    .replace(/[^\w ]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !freeText.includes(w))
+    .slice(0, 8); // a ceiling, because each term is a LIKE over every observation
+}
+
 function cmdWho(argv) {
   const { rest, flags } = parseArgs(argv);
   const q = rest.join(" ").trim();
@@ -4383,7 +4418,7 @@ function cmdWho(argv) {
   const d = db();
   const rows = d
     .prepare(
-      `SELECT p.name, p.role, p.company, p.linkedin, p.nickname, p.location,
+      `SELECT p.id, p.name, p.role, p.company, p.linkedin, p.nickname, p.location,
               COALESCE(s.base_score,0) AS score
          FROM people p LEFT JOIN person_scores s ON s.person_id = p.id
         WHERE p.deleted_at IS NULL AND p.muted_at IS NULL`,
@@ -4507,6 +4542,68 @@ function cmdWho(argv) {
       ),
     );
 
+  // THE PART OF THE QUESTION NOTHING ANSWERED IS A SEARCH, NOT A SHRUG.
+  //
+  // Ported from Karthik's retrieval ladder in amber-id (`src/db/gather.js`).
+  // His finding: Amber routed each question to one fixed slice of the database
+  // chosen by how it was PHRASED, so "who do I know at USC" read observations
+  // and "who goes to USC" read nothing. The author had data everywhere, so it
+  // looked fine to him and shrugged at everybody else.
+  //
+  // `people who` had the same shape. It filtered the `people` table only, and
+  // never once read `observations` -- which is where `people distill` and
+  // `people infer --apply` write everything they learn. Inference was
+  // write-only: the kit could conclude somebody went to your school, store it,
+  // and then answer "who went to school with me" by ignoring it.
+  //
+  // So this does not route. Whatever the facets and place and free text could
+  // not consume is searched against the evidence tables directly, and the
+  // INVENTORY IS REPORTED INCLUDING ZEROS. "I searched 41,000 observations for
+  // 'school' and 3 matched" is a fact the user can act on. "nothing answers
+  // that yet" is a shrug that cannot be checked.
+  const leftover = ignoredTerms(stripped, freeText);
+  let evidence = null;
+  if (leftover.length) {
+    const like = leftover.map(() => `(o.body LIKE ? COLLATE NOCASE)`).join(" OR ");
+    const args = leftover.map((w) => `%${w}%`);
+    const obs = d
+      .prepare(
+        `SELECT DISTINCT o.person_id AS id FROM observations o
+          WHERE o.deleted_at IS NULL AND o.person_id IS NOT NULL AND (${like})`,
+      )
+      .all(...args);
+    const facts = d
+      .prepare(
+        `SELECT DISTINCT person_id AS id FROM quick_facts
+          WHERE ${leftover.map(() => `(value LIKE ? COLLATE NOCASE)`).join(" OR ")}`,
+      )
+      .all(...args);
+    const found = new Set([...obs, ...facts].map((r) => r.id));
+    const scanned = d
+      .prepare(
+        `SELECT COUNT(*) AS n FROM observations WHERE deleted_at IS NULL AND person_id IS NOT NULL`,
+      )
+      .get().n;
+    const inSet = out.filter((p) => found.has(p.id));
+    evidence = {
+      terms: leftover,
+      scanned,
+      people: found.size,
+      matched: inSet.length,
+      // DID THE EVIDENCE ACTUALLY DISCRIMINATE? Terms are OR'd, so one common
+      // word carries the whole clause: "investors who love pickleball" matched
+      // every one of 19 investors, because "love" appears all over a decade of
+      // messages. Narrowing 19 to 19 and announcing it reads as a finding when
+      // nothing was found, which is the same class of lie as the silent drop
+      // this whole layer exists to fix.
+      discriminated: inSet.length > 0 && inSet.length < out.length,
+    };
+    // NARROW ONLY WHEN THERE IS SOMETHING TO NARROW WITH, the same rule the
+    // place filter already follows. Filtering a set where nobody has evidence
+    // returns an empty list that reads like a confident answer.
+    if (inSet.length) out = inSet;
+  }
+
   out.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
   const limit = Number(flags.limit || 25);
 
@@ -4524,22 +4621,51 @@ function cmdWho(argv) {
   // a list that looks right is the only evidence the user gets. The leftover
   // span is already computed above for free-text matching; it just was never
   // reported.
-  const ignored = stripped
-    .replace(new RegExp(PLACE.source, "gi"), " ")
-    .replace(/\b(who|whom|what|which|do|does|did|i|me|my|know|that|is|are|am|in|at|the|a|an|of|from|with|and|or|to|for|people|anyone|someone|connections?|list|pull|up|show|find|tell|give)\b/gi, " ")
-    .replace(/[^\w ]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length > 2 && !freeText.includes(w))
-    .join(" ")
-    .trim();
+  const ignored = leftover.join(" ");
   if (recency) applied.push(`started within ${recency[1]} ${recency[2]}s`);
   say(
     c.dim(
       `  ${applied.length ? `filtered on ${applied.join(", ")}` : "no filter matched, showing everyone"}  ${c.b(String(out.length))} found`,
     ),
   );
-  if (ignored)
+  // THE INVENTORY, INCLUDING THE ZEROS. An answer path that cannot say what it
+  // looked at can only shrug, and a shrug is indistinguishable from a bug.
+  if (evidence) {
+    const { terms, scanned, people, matched } = evidence;
+    const what = `"${terms.join(" ")}"`;
+    // SAY WHAT THE EVIDENCE IS, NOT JUST THAT THERE WAS SOME. A keyword hit in
+    // a recorded fact is weaker than a role or a company, which are structured
+    // fields somebody filled in. Karthik's rule is that every layer is returned
+    // labelled with what it is so the weak evidence can be offered AS weak; the
+    // failure it prevents is a list of twelve keyword matches reading like
+    // twelve verified answers.
+    if (matched && evidence.discriminated)
+      say(
+        c.dim(
+          `  ${what} is not a field, so it was matched against ${scanned} recorded facts: ${people} people mention it, ${matched} of them here. Showing those, on that evidence alone.`,
+        ),
+      );
+    else if (matched)
+      say(
+        c.yel(
+          `  ${what} matched every one of these ${matched} already, so it ruled nobody out. Treat the list as answering the rest of the question only.`,
+        ),
+      );
+    else if (people)
+      say(
+        c.yel(
+          `  searched ${scanned} recorded facts for ${what}: ${people} people match, but none of them passed the other filters. Not narrowed.`,
+        ),
+      );
+    else
+      say(
+        c.yel(
+          `  searched ${scanned} recorded facts for ${what} and found nothing. Try "people distill" or "people infer --apply" to record more.`,
+        ),
+      );
+  } else if (ignored) {
     say(c.yel(`  ignored: "${ignored}" - nothing in this store answers that yet`));
+  }
   if (placeNote) say(c.dim(`  ${placeNote}`));
   if (recencyNote) say(c.dim(`  ${recencyNote}`));
   if (riseNote) say(c.dim(`  ${riseNote}`));

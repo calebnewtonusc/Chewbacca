@@ -113,6 +113,29 @@ if group "people"; then
     expect "the merged fact survives" "must survive" "${P[@]}" show "Dup Person"
     expect "search still finds it" "Dup Person" "${P[@]}" search "must survive"
     check  "the absorbed record is gone" bash -c "! '$ROOT/bin/people' show 'Dup' 2>/dev/null | grep -q '^Dup$'"
+
+    # `people who` used to filter the people table only and never read
+    # `observations`, so everything `distill` and `infer --apply` recorded was
+    # write-only: it could conclude somebody went to your school, store it, and
+    # then answer "who went to school with me" by ignoring it. The half of the
+    # question it could not parse was printed as "ignored" and never searched.
+    "${P[@]}" add "Evidence One" --role Founder --company Acme >/dev/null 2>&1
+    "${P[@]}" add "Evidence Two" --role Founder --company Acme >/dev/null 2>&1
+    "${P[@]}" note "Evidence One" "we both rowed crew at university" >/dev/null 2>&1
+    expect "who reads observations, not just table columns" "Evidence One" \
+           "${P[@]}" who "founders who rowed crew"
+    expect "who excludes people the evidence does not cover" "" \
+           bash -c "'$ROOT/bin/people' who 'founders who rowed crew' | grep -c 'Evidence Two' | grep '^0$'"
+    # The inventory has to report zeros. A path that cannot say what it searched
+    # can only shrug, and a shrug is indistinguishable from a bug.
+    expect "who reports a search that found nothing" "found nothing" \
+           "${P[@]}" who "founders who do zymurgy"
+    # Terms are OR'd, so one common word can carry the whole clause and "narrow"
+    # a set to itself. Announcing that as a finding is the same class of lie as
+    # the silent drop this layer exists to fix.
+    "${P[@]}" note "Evidence Two" "we both rowed crew at university" >/dev/null 2>&1
+    expect "who says when the evidence ruled nobody out" "ruled nobody out" \
+           "${P[@]}" who "founders who rowed crew"
     check  "the database validates" bash -c "sqlite3 '$PEOPLE_DIR/people.db' 'pragma integrity_check' | grep -q ok"
     # A second add of the same name must not silently create a duplicate row.
     "${P[@]}" add "Test Person" >/dev/null 2>&1
