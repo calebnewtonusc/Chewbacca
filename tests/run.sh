@@ -206,7 +206,11 @@ if group "tools"; then
   # Not --check: every commit made after the last regeneration invalidates it,
   # so a --check here would fail on the commit that adds a test.
   check  "changelog generates" python3 "$ROOT/tools/changelog.py"
-  check  "memory compact dry run is safe" python3 "$ROOT/tools/memory_compact.py" --dry-run
+  if [ -f "$HOME/second-brain/memory/MEMORY.md" ]; then
+    check "memory compact dry run is safe" python3 "$ROOT/tools/memory_compact.py" --dry-run
+  else
+    skip "memory compact dry run is safe" "no second-brain on this machine"
+  fi
   check  "secret scan finds nothing in the repo" python3 "$ROOT/bin/secret-scan" "$ROOT"
   check  "checksums are current" python3 "$ROOT/tools/checksums.py" --check
   check  "skills declare their tool dependencies" bash -c "python3 '$ROOT/tools/skill_requires.py' | grep -q '^chewie:'"

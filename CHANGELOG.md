@@ -37,6 +37,7 @@ real commit; nothing here is written by hand.
 - hud demo
 
 ### Fixed
+- kits --register was unreachable on a machine with no kits
 - stop two test scripts from aborting the whole pytest session
 - one definition of last contact, and show who is waiting on whom
 - do not register Cap's MCP server, all 76 of its tools are cloud-only
