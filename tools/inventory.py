@@ -150,6 +150,7 @@ KIT_MCP = {
 # not the local copy's, so the generator only confirms they still exist.
 VENDORED = {
     "second-brain": "Reading, writing, and auditing your personal context repo",
+    "demo": "Recording a product demo by reading the product's code, not guessing at its UI",
     "stack-rules": "The 12 stack-specific standards, loaded only when the work needs them",
     "graph-engineering": "Knowledge graphs and agent task graphs, with teaching mode",
     "agent-setup": "Finishing the install steps that need a browser or a permission dialog",

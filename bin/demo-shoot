@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Run the plan-driven demo shoot with playwright-core resolvable.
+#
+# demo-shoot.mjs lives in this repo, because it is the kit's code and has to
+# survive `cap agents install` overwriting the vendored skill directory. But its
+# one dependency, playwright-core, is installed inside that vendored directory,
+# because Cap's own package.json is what declares it.
+#
+# So the script cannot simply live next to its dependency, and vendoring a
+# second copy of playwright-core would put ~130MB of Chromium bindings in a repo
+# that ships as a config kit. NODE_PATH bridges the two: the module resolver
+# falls back to that directory after the normal walk up from the script fails.
+#
+#   demo-shoot <plan.json> <outDir> <slug>
+
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")" && pwd)"
+SHOOT="$HERE/lib/demo-shoot.mjs"
+[ -f "$SHOOT" ] || { echo "demo-shoot: missing $SHOOT" >&2; exit 2; }
+
+# Cap installs its skill into whichever agent home it was told about. Check the
+# ones this kit can plausibly be running under before giving up.
+DEPS=""
+for cand in "$HOME/.claude/skills/cap-demo/node_modules" \
+            "$HOME/.cursor/skills/cap-demo/node_modules" \
+            "${CODEX_HOME:-$HOME/.codex}/skills/cap-demo/node_modules"; do
+  [ -d "$cand/playwright-core" ] && { DEPS="$cand"; break; }
+done
+
+if [ -z "$DEPS" ]; then
+  cat >&2 <<'EOF'
+demo-shoot: playwright-core not found.
+
+It ships as a dependency of Cap's cap-demo skill, which this reuses rather than
+vendoring a second copy of Chromium's bindings. Install it once:
+
+  cd ~/.claude/skills/cap-demo && npm install
+
+If that directory does not exist, Cap's agent integration was never installed:
+
+  /Applications/Cap.app/Contents/MacOS/cap-cli agents install \
+    --target claude --component skill --yes
+EOF
+  exit 2
+fi
+
+exec env NODE_PATH="$DEPS" node "$SHOOT" "$@"
