@@ -4503,12 +4503,29 @@ function cmdWho(argv) {
     ...(freeText.length ? [`matching "${freeText.join(" ")}"`] : []),
   ];
   if (placeMatch) applied.push(`in ${placeMatch[0]}`);
+  // WHAT THE QUESTION ASKED AND THIS DID NOT DO.
+  //
+  // "founders who went to school with me" answered "founders" and returned 356
+  // rows. The school half contributed nothing and the output never said so, so
+  // a list that looks right is the only evidence the user gets. The leftover
+  // span is already computed above for free-text matching; it just was never
+  // reported.
+  const ignored = stripped
+    .replace(new RegExp(PLACE.source, "gi"), " ")
+    .replace(/\b(who|whom|what|which|do|does|did|i|me|my|know|that|is|are|am|in|at|the|a|an|of|from|with|and|or|to|for|people|anyone|someone|connections?|list|pull|up|show|find|tell|give)\b/gi, " ")
+    .replace(/[^\w ]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !freeText.includes(w))
+    .join(" ")
+    .trim();
   if (recency) applied.push(`started within ${recency[1]} ${recency[2]}s`);
   say(
     c.dim(
       `  ${applied.length ? `filtered on ${applied.join(", ")}` : "no filter matched, showing everyone"}  ${c.b(String(out.length))} found`,
     ),
   );
+  if (ignored)
+    say(c.yel(`  ignored: "${ignored}" - nothing in this store answers that yet`));
   if (placeNote) say(c.dim(`  ${placeNote}`));
   if (recencyNote) say(c.dim(`  ${recencyNote}`));
   if (riseNote) say(c.dim(`  ${riseNote}`));
@@ -4941,7 +4958,20 @@ function schoolRules() {
       const to = at(r, "End Date").trim();
       const words = school.toLowerCase().replace(/[^a-z ]/g, " ").split(/\s+/).filter(Boolean);
       const stop = new Set(["the", "of", "and", "university", "college", "school", "high", "academy", "institute"]);
-      const distinctive = words.filter((w) => !stop.has(w) && w.length > 3);
+      // THE SHORT WORD IS THE ONE PEOPLE TYPE. Dropping anything under four
+      // characters deleted "usc" from "USC Jimmy Iovine and Dr. Dre Knox
+      // Academy" and kept "jimmy", "iovine" and "young", so the rule searched
+      // for a first name and a colour and found forty hits on a little
+      // brother. USC, UCLA, MIT, NYU and SMHS are all the distinctive part of
+      // their own names.
+      //
+      // An all-caps token in the original string is a school's short name, and
+      // is kept whatever its length. Everything else still needs four.
+      const caps = (school.match(/\b[A-Z]{2,5}\b/g) || []).map((w) => w.toLowerCase());
+      const distinctive = [
+        ...caps,
+        ...words.filter((w) => !stop.has(w) && w.length > 3 && !caps.includes(w)),
+      ];
       const acronym = words.filter((w) => !stop.has(w)).map((w) => w[0]).join("");
       const phrases = [school.toLowerCase(), ...distinctive];
       if (acronym.length >= 3) phrases.push(acronym);
