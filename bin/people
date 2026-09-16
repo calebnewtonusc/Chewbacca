@@ -3517,6 +3517,53 @@ function cmdLinkedin(argv) {
   const d = db();
   let orgWrites = 0, nickWrites = 0, metWrites = 0;
   const writes = [];
+
+  // FIRST, EVERY CONNECTION GETS A ROW.
+  //
+  // This was missing and it is the difference between "matched" and "saved".
+  // The command walked the address book looking for LinkedIn records and never
+  // wrote the connections themselves, so 124 people who appear in an export
+  // existed nowhere in the store: no row, unsearchable, and invisible to every
+  // later question. Matching is what happens after the people exist.
+  //
+  // Keyed on the profile URL, which is the only stable identifier here. A name
+  // is not: two Daniel Kims are two rows, and one person who changes their
+  // display name must not become a second.
+  let imported = 0, refreshed = 0;
+  const haveUrl = new Map();
+  for (const r of d
+    .prepare(`SELECT id, linkedin, company, role FROM people WHERE linkedin IS NOT NULL AND linkedin<>'' AND deleted_at IS NULL`)
+    .all())
+    haveUrl.set(String(r.linkedin).trim().replace(/\/+$/, ""), r);
+
+  for (const li of conns) {
+    const url = (li.URL || "").trim().replace(/\/+$/, "");
+    if (!url) continue;
+    const name = `${li["First Name"]} ${li["Last Name"]}`.replace(/\s+/g, " ").trim();
+    if (!name) continue;
+    const existing = haveUrl.get(url);
+    if (!existing) {
+      if (apply)
+        d.prepare(
+          `INSERT INTO people (id, name, company, role, linkedin, source, how_we_met)
+           VALUES (?,?,?,?,?,'linkedin',?)`,
+        ).run(
+          uuid(),
+          name,
+          li.Company || null,
+          li.Position || null,
+          url,
+          li["Connected On"] ? `connected on LinkedIn ${li["Connected On"]}` : null,
+        );
+      imported++;
+    } else if (li.Company && existing.company !== li.Company) {
+      // The merged export is newer than whatever is on the row.
+      if (apply)
+        d.prepare(`UPDATE people SET company=?, role=COALESCE(?,role), updated_at=datetime('now') WHERE id=?`)
+          .run(li.Company, li.Position || null, existing.id);
+      refreshed++;
+    }
+  }
   for (const [ct, li] of [...m.exact, ...m.nickname]) {
     const full = `${li["First Name"]} ${li["Last Name"]}`.replace(/\s+/g, " ").trim();
     // LinkedIn wins on employer, because people update it when they move and
@@ -3558,6 +3605,14 @@ function cmdLinkedin(argv) {
     if (apply) d.prepare(`UPDATE people SET apple_contact_id=? WHERE id=?`).run(String(ct.uid || ct.pk), row.id);
   }
 
+  if (imported || refreshed) {
+    say(
+      apply
+        ? `  ${c.grn(String(imported))} new people saved from your exports, ${refreshed} had their employer refreshed.`
+        : c.dim(`  ${imported} new people would be saved, ${refreshed} refreshed (--dry-run)`),
+    );
+    say();
+  }
   const line = (label, n, note = "") =>
     say(`  ${c.b(String(n).padStart(5))}  ${label.padEnd(22)} ${c.dim(note)}`);
   line("matched by name", m.exact.length);
