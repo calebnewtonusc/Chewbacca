@@ -30,7 +30,8 @@ driving apps, [mac/](mac/) the layer model.
 [CLAUDE-QUICK.md](CLAUDE-QUICK.md) the short version of the standards,
 [CLAUDE-PERSONAL.md](CLAUDE-PERSONAL.md) making them yours,
 [SKILLS.md](SKILLS.md) what a skill is, [PROMPTS.md](PROMPTS.md) things to say,
-[METHODOLOGY.md](METHODOLOGY.md) how the kit is built.
+[METHODOLOGY.md](METHODOLOGY.md) how the kit is built,
+[ADVISING.md](ADVISING.md) helping someone reach a goal rather than write code.
 
 **Specialized**
 [SCHOOL.md](SCHOOL.md) the semester ledger,
