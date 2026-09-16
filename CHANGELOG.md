@@ -6,6 +6,7 @@ real commit; nothing here is written by hand.
 ## Unreleased
 
 ### Added
+- code-slop, because every scanner here has only ever read prose
 - work out a contact's labels from the address book instead of a list
 - prose-check, a slop detector that knows Caleb's list
 - ask what somebody wants to share before reading any of it
@@ -28,6 +29,8 @@ real commit; nothing here is written by hand.
 - hud demo
 
 ### Fixed
+- show where somebody last spoke, not only when
+- setup.sh installs code-slop, so the one scanner that reads code is on PATH
 - asking amber-pull for a fixed window no longer eats the bookmark
 - the half of the question it could not parse is now searched, not shrugged at
 - the setup I did by hand is now what the tool does by itself
@@ -56,6 +59,7 @@ real commit; nothing here is written by hand.
 - the listener died when the display restarted
 
 ### Changed
+- register the deslop skill in the generated inventory
 - shard the location backfill, seven hours is not a backfill
 - fix a fresh database, and catch the duplicates tags were hiding
 - report a warm-up that succeeded as succeeded

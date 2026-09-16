@@ -469,6 +469,32 @@ else
     warn "mac missing, no Calendar/Contacts/Messages/Notes access"
   fi
 
+  # The cask drops Cap.app in /Applications and leaves the CLI buried at
+  # Contents/MacOS/cap-cli, so "installed" and "usable" are two different
+  # questions here. A registered MCP server pointing at a `cap` that is not on
+  # PATH fails silently at every startup, which is the state this separates out.
+  if [ -d "/Applications/Cap.app" ]; then
+    # CAPTURE FIRST, GREP THE VARIABLE, exactly as the `mac` check above does.
+    # Piping run_limited straight into `grep -q` reports a false negative under
+    # this file's `set -o pipefail`: grep exits the moment it matches and closes
+    # the pipe, run_limited's printf takes the EPIPE, and pipefail promotes that
+    # to a failed pipeline. The check then says "not granted" about a permission
+    # that is granted, which is the worst kind of doctor output.
+    CAP_DOC="$(run_limited 8 cap doctor --json)"
+    if ! command -v cap >/dev/null 2>&1; then
+      bad "Cap installed but its CLI is not on PATH" \
+        "/Applications/Cap.app/Contents/MacOS/cap-cli desktop install-cli"
+    elif printf '%s' "$CAP_DOC" | grep -q '"screenRecording": *"granted"'; then
+      ok "cap present and permitted"
+    elif [ -z "$CAP_DOC" ]; then
+      warn "cap doctor did not answer in 8s"
+    else
+      warn "cap on PATH but Screen Recording is not granted yet (cap doctor)"
+    fi
+  else
+    warn "Cap missing, no click-following screen recording (brew install --cask cap)"
+  fi
+
   [ -d "/Applications/Anki.app" ] &&
     ok "Anki installed (the study skills write cards for it)" ||
     warn "Anki missing, so generated flashcards have nowhere to go"
@@ -698,6 +724,42 @@ if [ -f "$HOME/.chewbacca/install-manifest.json" ]; then
   ok "install manifest present, uninstall knows what to remove"
 else
   warn "no install manifest. Uninstall will fall back to pattern matching"
+fi
+
+# ── Skills actually installed ─────────────────────────────────────────────────
+# A skill in the repo and not on disk is not a skill with a weak description, it
+# is a skill that cannot fire at all. Seven of this kit's own twenty-seven were
+# missing here, `people` and `study-guide` among them, because the installer
+# copied with errors suppressed and never counted what landed. Under the rule
+# that nobody should have to type a slash command, an uninstalled skill is a
+# feature that does not exist.
+section "Skills installed"
+
+SK_SRC="$REPO_DIR_EARLY/skills"
+SK_DST="$HOME/.claude/skills"
+SK_MISS=""; SK_COPY=""; SK_WANT=0
+if [ -d "$SK_SRC" ]; then
+  for sk in "$SK_SRC"/*/; do
+    [ -d "$sk" ] || continue
+    n="$(basename "$sk")"
+    SK_WANT=$((SK_WANT + 1))
+    if [ ! -f "$SK_DST/$n/SKILL.md" ]; then
+      SK_MISS="$SK_MISS $n"
+    elif [ ! -L "$SK_DST/$n" ]; then
+      # A copy goes stale the moment the repo moves, which is how a skill stays
+      # broken on disk after it is fixed in git.
+      SK_COPY="$SK_COPY $n"
+    fi
+  done
+  if [ -n "$SK_MISS" ]; then
+    bad "$(echo $SK_MISS | wc -w | tr -d ' ') of $SK_WANT skills are not installed, so they can never fire" \
+        "chewbacca setup" major
+    [ "$QUIET" -eq 1 ] || echo "          missing:$SK_MISS"
+  elif [ -n "$SK_COPY" ]; then
+    warn "$(echo $SK_COPY | wc -w | tr -d ' ') skill(s) are copies, not symlinks, so repo fixes will not reach them"
+  else
+    ok "all $SK_WANT skills installed, as symlinks"
+  fi
 fi
 
 # ── Skill frontmatter ─────────────────────────────────────────────────────────
