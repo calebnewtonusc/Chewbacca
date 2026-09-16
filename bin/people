@@ -4596,6 +4596,7 @@ function loadRules() {
     user = user.map((r) => ({
       ...r,
       against: r.against || [],
+      where: r.where || [],
       exclude: (e) => (r.excludeGroups && e.isGroup) || (r.excludeFamily && e.looksFamily),
     }));
   } catch {
@@ -4639,6 +4640,34 @@ function evidenceFor(d, who, phraseSet, window) {
   };
 }
 
+// A rule may also test the person's own columns, not just their messages.
+//
+// This is what makes the engine general rather than a text matcher. Half this
+// store is now structured: a company, a title, a city, a dated career history,
+// a cadence, a last-contact date. A rule that can only grep message bodies
+// cannot say "founders in Los Angeles who have gone quiet", which is a
+// question made entirely of facts already sitting in columns.
+//
+// Operators are deliberately few. `has` and `lacks` cover presence, `is` and
+// `contains` cover value, `gt`/`lt` cover numbers and dates as strings, which
+// sorts correctly for ISO. Anything more expressive belongs in SQL, and a rule
+// that needs SQL is not a rule, it is a report.
+function fieldTest(person, cond) {
+  const val = (person[cond.field] ?? "").toString();
+  const v = val.toLowerCase();
+  const want = (cond.value ?? "").toString().toLowerCase();
+  switch (cond.op) {
+    case "has": return val.trim() !== "";
+    case "lacks": return val.trim() === "";
+    case "is": return v === want;
+    case "contains": return want !== "" && v.includes(want);
+    case "excludes": return want !== "" && !v.includes(want);
+    case "gt": return val > cond.value;
+    case "lt": return val < cond.value;
+    default: return false;
+  }
+}
+
 function cmdInfer(argv) {
   const { flags } = parseArgs(argv);
   const apply = !!flags.apply;
@@ -4668,19 +4697,25 @@ function cmdInfer(argv) {
   const proposals = [];
   let blocked = 0;
   for (const r of rules) {
-    const phraseSet = r.phrases.map((p) => p.toLowerCase());
+    const phraseSet = (r.phrases || []).map((p) => p.toLowerCase());
     for (const t of threads) {
       const e = evidenceFor(d, t.who, phraseSet, r.window);
-      if (e.hitCount < r.min) continue;
+      // min defaults to 0 so a purely structural rule is legal: "founders in
+      // Los Angeles" needs no word to appear in any message.
+      if (e.hitCount < (r.min || 0)) continue;
       if (r.exclude && r.exclude(e)) continue;
       if (r.require && !r.require(e)) continue;
       const person = d
         .prepare(
-          `SELECT id, name, company, role, how_we_met, nickname FROM people
-            WHERE lower(name)=lower(?) AND deleted_at IS NULL`,
+          `SELECT p.*, s.base_score, s.warmth, s.last_interaction_at
+             FROM people p LEFT JOIN person_scores s ON s.person_id = p.id
+            WHERE lower(p.name)=lower(?) AND p.deleted_at IS NULL`,
         )
         .get(t.who);
       if (!person) continue;
+      // Column conditions run before the expensive message scan where possible,
+      // and always before anything is proposed.
+      if (r.where && !r.where.every((cond) => fieldTest(person, cond))) continue;
       // Counter-evidence beats evidence. What the user typed about somebody is
       // a firmer fact than anything inferred from how often a word came up.
       if (r.against && r.against.length) {
@@ -4690,10 +4725,13 @@ function cmdInfer(argv) {
         if (blocker) { blocked++; continue; }
       }
       const top = [...e.hits.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+      const fieldWhy = (r.where || [])
+        .map((cnd) => `${cnd.field} ${cnd.op}${cnd.value ? ` ${cnd.value}` : ""}`)
+        .join(", ");
       proposals.push({
         rule: r,
         person,
-        because: top.map(([p, n]) => `"${p}" x${n}`).join(", "),
+        because: [top.map(([p, n]) => `"${p}" x${n}`).join(", "), fieldWhy].filter(Boolean).join(" | "),
         window: r.window ? `${r.window[0] || "any"} to ${r.window[1] || "now"}` : "any time",
       });
     }
