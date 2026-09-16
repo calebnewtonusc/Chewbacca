@@ -251,6 +251,59 @@ CLI_TOOLS = {
             'fi',
         ],
     },
+    "cap": {
+        "display": "cap",
+        "url": "https://github.com/CapSoftware/Cap",
+        "install": "brew install --cask cap, then cap desktop install-cli",
+        "probe": ("bin", "cap"),
+        "description": "Screen recording with spring-physics zoom that follows your clicks, scriptable with --json on every command",
+        # DELIBERATELY NO mcp_serve, even though `cap mcp serve` exists. The
+        # `cap agents install` step below already merges the server into
+        # ~/.claude.json, and the generator's mcp_serve path would then run
+        # `claude mcp add cap` against the same file. One registration, through
+        # the vendor's own supported command.
+        #
+        # The cask alone is not enough: it drops Cap.app in /Applications and
+        # leaves the CLI buried at Contents/MacOS/cap-cli, so nothing is on PATH
+        # and the MCP entry it registers would point at a command that does not
+        # resolve. The shim and the agent install are the other two thirds.
+        "shell": [
+            'if [ "$(uname -s)" != "Darwin" ]; then',
+            "  :",
+            "elif ! command -v brew &>/dev/null; then",
+            '  warn "Homebrew not found, skipping Cap"',
+            "else",
+            "  if [ -d /Applications/Cap.app ]; then",
+            '    log "Cap already installed"',
+            "  elif brew install --cask cap &>/dev/null; then",
+            '    log "Cap installed"',
+            "  else",
+            '    warn "could not install Cap"',
+            "  fi",
+            "  CAP_CLI=/Applications/Cap.app/Contents/MacOS/cap-cli",
+            "  if [ -x \"$CAP_CLI\" ]; then",
+            "    if command -v cap &>/dev/null; then",
+            '      log "cap shim already on PATH"',
+            '    elif "$CAP_CLI" desktop install-cli &>/dev/null; then',
+            '      log "cap shim installed to ~/.local/bin"',
+            "    else",
+            '      warn "could not install the cap shim"',
+            "    fi",
+            "    # Cap ships its own Claude skill, a cap-demo skill, and its MCP",
+            "    # registration. --yes is safe here because --dry-run showed the",
+            "    # plan is creates plus one additive merge; it authorizes local",
+            "    # setup only, never an account, upload or billing action.",
+            "    if [ -d \"$HOME/.claude/skills/cap\" ]; then",
+            '      log "Cap Claude integration already installed"',
+            '    elif "$CAP_CLI" agents install --target claude --component all --yes &>/dev/null; then',
+            '      log "Cap skills and MCP registered for Claude"',
+            "    else",
+            '      warn "could not install the Cap Claude integration"',
+            "    fi",
+            "  fi",
+            "fi",
+        ],
+    },
     "mac-cli": {
         "display": "mac",
         "url": "https://github.com/31Carlton7/mac-cli",
@@ -342,6 +395,24 @@ CLI_TOOLS = {
 }
 
 
+def house_style(value):
+    """Normalise third-party text before it is published under this repo's name.
+
+    Vendored skills are written to their authors' house rules, not this one, and
+    their descriptions land verbatim in README.md and docs/REFERENCE.md, which
+    ship publicly. Cap's cap-demo description arrived carrying an em dash and
+    put one straight into the generated table, where the kit's own writing rules
+    ban it outright.
+
+    This rewrites the generated copy only. The vendored SKILL.md on disk is left
+    exactly as its author wrote it, which matters because `cap agents install`
+    and every other upstream updater will overwrite it anyway.
+    """
+    if not isinstance(value, str):
+        return value
+    return value.replace(" — ", ": ").replace("—", ", ")
+
+
 def read_frontmatter(path):
     """Pull name/description/license out of a SKILL.md without a YAML dep."""
     try:
@@ -361,10 +432,15 @@ def read_frontmatter(path):
         if m and not line.startswith(" "):
             key = m.group(1)
             val = m.group(2).strip()
-            out[key] = "" if val in ("|", ">") else val
+            # A YAML block scalar opens with | or >, either of which may carry a
+            # chomping indicator (- or +) and an explicit indentation digit.
+            # Matching only the bare "|" and ">" let Cap's `description: >-`
+            # through as a literal value, so the marker was published into
+            # docs/REFERENCE.md ahead of the text it was supposed to introduce.
+            out[key] = "" if re.fullmatch(r"[|>][+-]?\d?", val) else val
         elif key and line.startswith(" "):
             out[key] = (out[key] + " " + line.strip()).strip()
-    return out
+    return {k: house_style(v) for k, v in out.items()}
 
 
 def first_sentence(text, limit=96):

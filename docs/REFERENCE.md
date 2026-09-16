@@ -207,8 +207,8 @@ it off is `--session-opener none`. To write your own, add it to `OPENERS` in
 
 | Piece                   | Details                                                                                                                 |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| **macOS tools**         | 8 installed alongside the kit: Anki, bd, mac, Maccy, mac-use, peekaboo, summarize, yt-transcript                        |
-| **Skills and plugins**  | 76 skills (19 shipped here, 4 cloned from upstream, 53 from 1 skill pack) plus 19 plugins across 4 marketplaces         |
+| **macOS tools**         | 9 installed alongside the kit: Anki, bd, cap, mac, Maccy, mac-use, peekaboo, summarize, yt-transcript                        |
+| **Skills and plugins**  | 78 skills (19 shipped here, 6 cloned from upstream, 53 from 1 skill pack) plus 19 plugins across 4 marketplaces         |
 | **Second brain**        | A private notes repo Claude reads at the start of every session and writes to as things change. Syncs to GitHub         |
 | **Coursework ledger**   | Your syllabi become deadlines, attendance budgets, and a per-course AI policy Claude checks before touching graded work |
 | **On-device dictation** | Builds `plynn/`: hold fn to type, hold left Option to ask Chewie. Speech and cleanup run on your Mac, nothing uploaded  |
@@ -762,6 +762,8 @@ fires, which is the thing that matters most.
 | [skills/stack-rules](skills/stack-rules)                                                                        | Skill  | The 12 stack-specific standards, loaded only when the work needs them                          |
 | [skills/study-system](skills/study-system)                                                                      | Skill  | Retrieval practice over rereading, exam run-ups, and the four-cause postmortem                 |
 | [avoid-ai-writing](https://github.com/conorbronsdon/avoid-ai-writing)                                           | Skill  | Audit and rewrite content to remove AI writing patterns ("AI-isms").                           |
+| [cap](https://github.com/CapSoftware/Cap)                                                                       | Skill  | Always use Cap's CLI or local MCP first when the user mentions Cap, a Cap URL, screen…         |
+| [cap-demo](https://github.com/CapSoftware/Cap)                                                                  | Skill  | Generate a cinematic 3D product-demo video from any URL: scouts the page, records it with…     |
 | [deslop](https://github.com/31Carlton7/skills)                                                                  | Skill  | De-slop a diff or codebase before review: strip AI-authored tells (narration comments,…        |
 | [no-ai-slop](https://github.com/petergyang/no-ai-slop)                                                          | Skill  | Edit drafts into sharper, more human writing while preserving the writer's personal voice, or… |
 | [youtube-transcripts](https://github.com/calebnewtonusc/claude-youtube-transcripts)                             | Skill  | Get the transcript of a YouTube video, channel, or playlist.                                   |
@@ -811,16 +813,17 @@ installed alongside the kit, not vendored into it.
 
 <!-- BEGIN GENERATED: cli -->
 
-| Tool                                                                          | Install                                                                | What it does                                                                 |
-| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| [Anki](https://github.com/ankitects/anki)                                     | `brew install --cask anki`                                             | Spaced repetition, where the flashcards the study skills write actually live |
-| [bd](https://github.com/gastownhall/beads)                                    | `brew install beads`                                                   | Issue tracker your agent reads and writes, so work survives a context reset  |
-| [mac](https://github.com/31Carlton7/mac-cli)                                  | see docs/MACOS-APP-CONTROL.md (clone plus swift build, no formula yet) | Calendar, Reminders, Contacts, Mail, Messages, Notes, and Finder as JSON     |
-| [Maccy](https://github.com/p0deje/Maccy)                                      | `brew install --cask maccy`                                            | Clipboard history, so a value scrolled past is still recoverable             |
-| [mac-use](https://github.com/browser-use/macOS-use)                           | see docs/MACOS-TOOLS.md (clone plus a uv venv, no formula)             | Natural-language agent that drives any Mac app through Accessibility         |
-| [peekaboo](https://github.com/openclaw/Peekaboo)                              | `brew install steipete/tap/peekaboo`                                   | Screenshots, UI inspection, and click/type automation for any macOS app      |
-| [summarize](https://github.com/steipete/summarize)                            | `brew install steipete/tap/summarize`                                  | Gist of any URL, YouTube video, podcast, or local file                       |
-| [yt-transcript](https://github.com/calebnewtonusc/claude-youtube-transcripts) | see docs/MACOS-TOOLS.md (its own installer, no formula)                | Transcript of any YouTube video, channel, or playlist, read without asking   |
+| Tool                                                                          | Install                                                                | What it does                                                                                                |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| [Anki](https://github.com/ankitects/anki)                                     | `brew install --cask anki`                                             | Spaced repetition, where the flashcards the study skills write actually live                                |
+| [bd](https://github.com/gastownhall/beads)                                    | `brew install beads`                                                   | Issue tracker your agent reads and writes, so work survives a context reset                                 |
+| [cap](https://github.com/CapSoftware/Cap)                                     | `brew install --cask cap, then cap desktop install-cli`                | Screen recording with spring-physics zoom that follows your clicks, scriptable with --json on every command |
+| [mac](https://github.com/31Carlton7/mac-cli)                                  | see docs/MACOS-APP-CONTROL.md (clone plus swift build, no formula yet) | Calendar, Reminders, Contacts, Mail, Messages, Notes, and Finder as JSON                                    |
+| [Maccy](https://github.com/p0deje/Maccy)                                      | `brew install --cask maccy`                                            | Clipboard history, so a value scrolled past is still recoverable                                            |
+| [mac-use](https://github.com/browser-use/macOS-use)                           | see docs/MACOS-TOOLS.md (clone plus a uv venv, no formula)             | Natural-language agent that drives any Mac app through Accessibility                                        |
+| [peekaboo](https://github.com/openclaw/Peekaboo)                              | `brew install steipete/tap/peekaboo`                                   | Screenshots, UI inspection, and click/type automation for any macOS app                                     |
+| [summarize](https://github.com/steipete/summarize)                            | `brew install steipete/tap/summarize`                                  | Gist of any URL, YouTube video, podcast, or local file                                                      |
+| [yt-transcript](https://github.com/calebnewtonusc/claude-youtube-transcripts) | see docs/MACOS-TOOLS.md (its own installer, no formula)                | Transcript of any YouTube video, channel, or playlist, read without asking                                  |
 
 <!-- END GENERATED: cli -->
 
