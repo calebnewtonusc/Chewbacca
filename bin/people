@@ -3037,6 +3037,32 @@ async function cmdDistill(argv) {
     byPerson.get(r.person_id).lines.push(`${String(r.sent_at).slice(0, 10)} ${r.body.replace(/\s+/g, " ")}`);
   }
 
+  // IMPORTANT PEOPLE FIRST, because this run will be interrupted.
+  //
+  // A full pass is 1,236 model calls over 132,000 messages, and something will
+  // stop it: a rate limit, a closed laptop, a change of mind. Arbitrary order
+  // means a run that dies at 40% has read a random 40%, and the per-person
+  // watermark then records that as done. Ordering by how much the relationship
+  // scores, and by how much was actually said, means the half that completes is
+  // the half worth having, and the tail that never runs is people with twenty
+  // messages from 2019.
+  const rank = new Map(
+    d
+      .prepare(
+        `SELECT p.id, COALESCE(s.base_score,0) AS score, COALESCE(s.observation_count,0) AS obs
+           FROM people p LEFT JOIN person_scores s ON s.person_id = p.id`,
+      )
+      .all()
+      .map((r) => [r.id, r.score]),
+  );
+  const ordered = [...byPerson.entries()].sort((a, b) => {
+    const sa = rank.get(a[0]) || 0, sb = rank.get(b[0]) || 0;
+    if (sb !== sa) return sb - sa;
+    return b[1].lines.length - a[1].lines.length;
+  });
+  byPerson.clear();
+  for (const [k, v] of ordered) byPerson.set(k, v);
+
   // Someone who sent three logistics texts has nothing to distill. Spending a
   // model call on them is the main way this gets expensive for no reason.
   const queue = [...byPerson.entries()].filter(([, v]) => v.lines.length >= minMsgs);
