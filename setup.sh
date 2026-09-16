@@ -632,12 +632,21 @@ _installed_scanners=""
 # judgement calls.
 # demo-shoot is a wrapper, not a scanner, but it installs the same way: a
 # small executable in bin/ that needs to reach ~/.local/bin.
-for _tool in ai-scan skill-scan prose-check code-slop demo-shoot; do
+for _tool in ai-scan skill-scan prose-check code-slop demo-shoot craft-gate; do
   if [ -f "$SCRIPT_DIR/bin/$_tool" ]; then
     link_tool "$_tool"
     _installed_scanners="$_installed_scanners $_tool"
   fi
 done
+# The crafts this kit has already studied. Seeded so the research happens once
+# and every machine inherits it; craft-gate refuses to produce in a craft with
+# no notes, so an empty store would block the demo tooling on a fresh install.
+if [ -d "$SCRIPT_DIR/crafts" ]; then
+  mkdir -p "$HOME/.chewbacca/craft"
+  cp "$SCRIPT_DIR/crafts/"*.md "$HOME/.chewbacca/craft/" 2>/dev/null || true
+  log "seeded $(ls "$SCRIPT_DIR/crafts" | wc -l | tr -d ' ') craft notes"
+fi
+
 if [ -n "$_installed_scanners" ]; then
   if command -v node &>/dev/null; then
     log "Installed to ~/.local/bin/:$_installed_scanners"
