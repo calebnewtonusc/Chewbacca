@@ -276,6 +276,46 @@ ffmpeg -y -i out.mp4 -vf "crop=500:1008:0:72" -c:v libx264 -crf 18 final.mp4
 That crop removes the Simulator's macOS title bar and keeps the phone bezel,
 which reads as a product shot rather than a screen grab.
 
+## Demoing Chewbacca itself: driving another Claude tab
+
+A demo of this kit is usually a demo of an agent doing something, which means
+the footage needs a second Claude visibly working. `claude-tab` drives one.
+
+```bash
+claude-tab new                         open a fresh tab, verified
+claude-tab ask "<prompt>" --timeout 300   send, then block until it finishes
+claude-tab status                      idle | busy | absent
+```
+
+`ask` is the piece that makes a back-and-forth possible. Before it existed every
+attempt used a fixed `sleep`, and the recording made that way stopped while the
+other Claude was still thinking, so the clip had no payoff in it. A real turn on
+this machine took 29.4s; guessing that number is how you lose the ending.
+
+**How it knows.** The message input's placeholder is the run state: it reads
+"Queue another message…" while a turn is in flight and "⌘ Esc to focus or unfocus
+Claude" the moment it finishes. The field is exposed to the accessibility tree
+with `description: "Message input"`, so it is found by description and clicked by
+element id rather than by coordinate.
+
+**The one coordinate.** The Claude toolbar icon renders inside the Electron
+webview and is not exposed, so opening a tab is a derived click: 154px in from
+the window's right edge, 53px down. `claude-tab new` verifies a tab actually
+appeared instead of trusting it.
+
+**Two constraints worth knowing before planning a shot:**
+
+- **Only the frontmost tab's state is published.** `status` reports whichever
+  Claude tab is on top, never one hidden behind it. Drive one at a time.
+- **`send` refuses a tab that is mid-turn.** The session running the tool is
+  itself a Claude tab in the same window and is busy for as long as it runs, so
+  without that guard a `send` issued before `new` succeeded types the prompt
+  into its own input box. `--force` queues deliberately.
+
+Record the VS Code window the same way as any other: `cap record start --detach
+--window <id>`, and resolve the id with `claude-tab window`, which picks the
+largest window because VS Code also publishes 1512x37 menu-bar strips.
+
 ## When there is no repo
 
 Fall back to `cap-demo <url>`, Cap's deterministic pipeline, and say plainly

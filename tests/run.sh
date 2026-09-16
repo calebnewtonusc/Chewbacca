@@ -233,6 +233,7 @@ if group "tools"; then
   check  "craft-gate rejects a stub as research" bash -c "echo hi > '$TMP/stub.md'; ! CRAFT_DIR='$TMP/craft-empty2' python3 '$ROOT/bin/craft-gate' x --record '$TMP/stub.md' >/dev/null 2>&1"
   # demo-shoot must not be able to record without the gate having run.
   check  "demo-shoot calls the craft gate" grep -q "craft-gate demo-video" "$ROOT/bin/demo-shoot"
+  check  "claude-tab classifies run state and guards its own tab" python3 "$ROOT/tests/test_claude_tab.py"
   # The house style here is deliberately high-comment, so the one thing that
   # would make this tool useless is firing on its own codebase.
   check  "code-slop is quiet on this codebase" bash -c "python3 '$ROOT/bin/code-slop' '$ROOT/bin/people' '$ROOT/bin/slop-check' '$ROOT/bin/code-slop' $ROOT/bin/lib/*.js --max 0"
