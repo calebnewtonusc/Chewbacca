@@ -1391,6 +1391,7 @@ while IFS='|' read -r SK_NAME SK_URL SK_PATH SK_LICENSE SK_AUTHOR; do
   rm -rf "$TMP_SK"
 done <<'UPSTREAM_SKILLS'
 avoid-ai-writing|https://github.com/conorbronsdon/avoid-ai-writing||MIT|conorbronsdon
+deslop|https://github.com/31Carlton7/skills|deslop|see upstream|31Carlton7
 no-ai-slop|https://github.com/petergyang/no-ai-slop|skills/no-ai-slop|MIT|petergyang
 youtube-transcripts|https://github.com/calebnewtonusc/claude-youtube-transcripts|skills/youtube-transcripts|MIT|calebnewtonusc
 UPSTREAM_SKILLS
