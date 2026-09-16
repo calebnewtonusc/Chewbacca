@@ -772,12 +772,35 @@ function recomputeScores() {
   d.exec(`CREATE TEMP TABLE IF NOT EXISTS replied_on AS
           SELECT DISTINCT person_id, date(sent_at) AS d FROM messages
            WHERE from_me = 0 AND person_id IS NOT NULL`);
+  // ONE DEFINITION OF LAST CONTACT, NOT TWO.
+  //
+  // This used to read `interactions` alone while the history path (`intFor`)
+  // read interactions UNION messages, so the same person had two different
+  // last-contact dates depending on which command you ran, and the one that
+  // got written into person_scores was the wrong one.
+  //
+  // `interactions` is sparse: Cole Gawin had 46 messages and 2 interaction
+  // rows. His newer row fell on a 113-recipient broadcast day he did not
+  // answer, so it was correctly discounted, and the fallback was the only
+  // other row, four months stale. The entire two-way conversation in between,
+  // where he replied six times, was in `messages` and invisible here.
   const lastInt = d.prepare(
-    `SELECT max(happened_at) AS t FROM interactions
-      WHERE person_id = ?1
-        AND (date(happened_at) NOT IN (SELECT d FROM broadcast_days)
-             OR EXISTS (SELECT 1 FROM replied_on r
-                         WHERE r.person_id = ?1 AND r.d = date(happened_at)))`,
+    `SELECT max(t) AS t FROM (
+       SELECT max(happened_at) AS t FROM interactions
+        WHERE person_id = ?1
+          AND (date(happened_at) NOT IN (SELECT d FROM broadcast_days)
+               OR EXISTS (SELECT 1 FROM replied_on r
+                           WHERE r.person_id = ?1 AND r.d = date(happened_at)))
+       UNION ALL
+       -- Inbound is never a broadcast, so only from_me = 1 is testable here.
+       SELECT max(sent_at) AS t FROM messages
+        WHERE person_id = ?1
+          AND NOT (from_me = 1
+                   AND date(sent_at) IN (SELECT d FROM broadcast_days)
+                   AND NOT EXISTS (SELECT 1 FROM replied_on r
+                                    WHERE r.person_id = ?1
+                                      AND r.d = date(messages.sent_at)))
+     )`,
   );
 
   const upDim = d.prepare(
@@ -1848,6 +1871,37 @@ function cmdShow(argv) {
         `  last spoke ${lastRoom.room ? `in ${c.b(lastRoom.room)}` : "one to one"}, ${String(lastRoom.sent_at).slice(0, 16)}`,
       ),
     );
+
+  // WHO IS WAITING ON WHOM. The store knew every message but had no notion of
+  // an outbound that never got an answer, so a thread you dropped and a thread
+  // that dropped you looked identical. Derived from messages, never stored, so
+  // it cannot go stale the way a hand-maintained field does.
+  const r = d
+    .prepare(
+      `SELECT MAX(CASE WHEN from_me = 0 THEN sent_at END) AS last_in,
+              MAX(CASE WHEN from_me = 1 THEN sent_at END) AS last_out
+         FROM messages WHERE person_id = ?`,
+    )
+    .get(p.id);
+  if (r && (r.last_in || r.last_out)) {
+    const days = (t) =>
+      Math.floor((Date.now() - new Date(String(t).replace(" ", "T")).getTime()) / 86400000);
+    if (r.last_in && (!r.last_out || r.last_in > r.last_out)) {
+      say(c.yel(`  they wrote last, ${days(r.last_in)}d ago, and you have not replied`));
+    } else if (r.last_out) {
+      // Every outbound since their last word. Three in a row unanswered is a
+      // different situation from one, and the count is the whole signal.
+      const n = d
+        .prepare(
+          `SELECT COUNT(*) AS n FROM messages
+            WHERE person_id = ? AND from_me = 1 AND sent_at > COALESCE(?, '')`,
+        )
+        .get(p.id, r.last_in).n;
+      if (n > 1)
+        say(c.yel(`  you have sent ${n} since they last wrote, ${days(r.last_out)}d ago`));
+      else if (!r.last_in) say(c.dim("  you have written, they never have"));
+    }
+  }
 
   const qf = d.prepare("SELECT key, value FROM quick_facts WHERE person_id=? ORDER BY key").all(p.id);
   if (qf.length) {
