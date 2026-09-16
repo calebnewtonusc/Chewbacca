@@ -3853,10 +3853,35 @@ function linkedinLocate(flags) {
     const cands = clayCandidates(p.name, 10);
     const mine = norm(p.linkedin);
     const hit = cands.find((x) => norm(x.linkedin) === mine);
-    if (hit && hit.location) {
-      d.prepare(`UPDATE people SET location=?, updated_at=datetime('now') WHERE id=?`).run(hit.location, p.id);
+    if (hit && (hit.location || hit.experiences.length)) {
+      // Everything that came back, not just the city. A blank company on the
+      // row is filled from the current job; one already there is left alone,
+      // because the export is the user's own data and this is a lookup.
+      d.prepare(
+        `UPDATE people SET location=COALESCE(NULLIF(?,''), location),
+                           company=COALESCE(NULLIF(company,''), NULLIF(?,'')),
+                           role=COALESCE(NULLIF(role,''), NULLIF(?,'')),
+                           updated_at=datetime('now')
+          WHERE id=?`,
+      ).run(hit.location, hit.company, hit.role, p.id);
+
+      // The dated history is the part that answers a question about time:
+      // who moved up, who joined a company in the last two years.
+      if (hit.experiences.length) {
+        const career = hit.experiences
+          .slice(0, 8)
+          .map((e) => `${e.title || "?"} at ${e.company || "?"}${e.from ? ` (${e.from}${e.to ? ` to ${e.to}` : " to now"})` : ""}`)
+          .join("; ");
+        d.prepare(
+          `INSERT INTO quick_facts (person_id, key, value) VALUES (?, 'career', ?)
+           ON CONFLICT(person_id, key) DO UPDATE SET value=excluded.value`,
+        ).run(p.id, career.slice(0, 1200));
+      }
       found++;
-      say(`    ${c.grn(p.name.slice(0, 26).padEnd(28))} ${hit.location.slice(0, 44)}`);
+      const label = hit.location || (hit.experiences[0] && hit.experiences[0].company) || "";
+      say(
+        `    ${c.grn(p.name.slice(0, 24).padEnd(26))} ${String(label).slice(0, 34).padEnd(35)} ${c.dim(`${hit.experiences.length} role(s)`)}`,
+      );
     } else {
       missed++;
     }
@@ -4302,12 +4327,17 @@ function clayKey() {
 function clayCandidates(fullName, limit = 5) {
   const key = clayKey();
   if (!key || !fullName) return [];
+  // THE KEY NEVER ENTERS argv. A header passed as a command-line argument is
+  // readable by any process on the machine through `ps`, and this one belongs
+  // to somebody else's Clay workspace. curl reads its config, headers included,
+  // from stdin instead, which no process listing can see.
   const post = (url, body) => {
+    const cfg =
+      `header = "clay-api-key: ${key}"\n` + `header = "Content-Type: application/json"\n`;
     const out = execFileSync(
       "curl",
-      ["-s", "-X", "POST", "--url", url, "-H", "Content-Type: application/json",
-       "-H", `clay-api-key: ${key}`, "--data", JSON.stringify(body)],
-      { encoding: "utf8", timeout: 45000 },
+      ["-s", "-K", "-", "-X", "POST", "--url", url, "--data", JSON.stringify(body)],
+      { encoding: "utf8", timeout: 45000, input: cfg },
     );
     return JSON.parse(out);
   };
@@ -4320,14 +4350,29 @@ function clayCandidates(fullName, limit = 5) {
       `https://api.clay.com/public/v0/search/query-mode/${made.search_id}/run`,
       { limit },
     );
+    // Take everything the search returns, not just a city. `matched_experiences`
+    // is a dated career history: company, title, where, and when. That is what
+    // answers "moved into a higher role" and "raised in the last 24 months",
+    // and it arrives in the same free response as the location.
     return (ran.data || []).map((r) => {
-      const exp = (r.experiences || [])[0] || {};
+      const exps = (r.matched_experiences || r.experiences || []).map((e) => ({
+        company: e.company || e.company_name || "",
+        title: e.title || e.job_title || "",
+        where: e.location || "",
+        from: e.start_date || "",
+        to: e.end_date || "",
+      }));
+      const cur = exps.find((e) => !e.to) || exps[0] || {};
+      const loc = r.location || {};
       return {
-        name: r.full_name || r.name || fullName,
-        company: exp.company || exp.company_name || "",
-        role: exp.job_title || exp.title || "",
+        name: r.name || r.full_name || fullName,
+        company: cur.company || "",
+        role: cur.title || "",
         linkedin: r.linkedin_url || "",
-        location: r.location ? r.location.name || "" : "",
+        location: typeof loc === "string" ? loc : loc.name || "",
+        city: typeof loc === "string" ? "" : loc.city || "",
+        region: typeof loc === "string" ? "" : loc.state_or_province || "",
+        experiences: exps,
         fromClay: true,
       };
     });
