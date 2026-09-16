@@ -1,0 +1,25 @@
+{
+  "skill": "debugging",
+  "cases": [
+    {
+      "prompt": "why is this failing?",
+      "expect": "invokes debugging, reads the exact error and goes to the stack trace line before theorizing"
+    },
+    {
+      "prompt": "this used to work",
+      "expect": "invokes debugging and runs git diff against the last working state"
+    },
+    {
+      "prompt": "trace how the data flows through this app",
+      "expect": "invokes debugging, reads each function in the chain and reports the data shape at each step"
+    },
+    {
+      "prompt": "I'm getting cannot read property of undefined",
+      "expect": "invokes debugging, treats undefined and null as different bugs, asks for the stack trace if absent"
+    },
+    {
+      "prompt": "fix this bug",
+      "expect": "invokes debugging, and after fixing writes the test that would have caught it"
+    }
+  ]
+}

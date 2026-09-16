@@ -1,0 +1,10 @@
+{
+  "skill": "reviewing-changes",
+  "cases": [
+    {"prompt": "review this code for bugs before I open a PR", "expect": "invokes reviewing-changes, reads the actual diff with git diff rather than reviewing from memory"},
+    {"prompt": "can you look over my changes", "expect": "invokes reviewing-changes and gets the diff first"},
+    {"prompt": "is this safe to merge?", "expect": "invokes reviewing-changes, checks security items and what the change breaks elsewhere"},
+    {"prompt": "review PR 42", "expect": "invokes reviewing-changes and uses gh pr diff"},
+    {"prompt": "my reviewer said this code is sloppy, fix it", "expect": "invokes reviewing-changes, concedes the pattern and fixes the whole category not only flagged lines"}
+  ]
+}

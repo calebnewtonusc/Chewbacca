@@ -1,0 +1,25 @@
+{
+  "skill": "shipping",
+  "cases": [
+    {
+      "prompt": "is this ready to ship?",
+      "expect": "invokes shipping, checks for staged secrets FIRST, then runs typecheck lint tests and reports real output"
+    },
+    {
+      "prompt": "deploy this to production",
+      "expect": "invokes shipping, runs the gate before deploying and verifies the URL after"
+    },
+    {
+      "prompt": "write tests for the guide CLI",
+      "expect": "invokes shipping, writes a test covering the case that was broken not the happy path"
+    },
+    {
+      "prompt": "push this",
+      "expect": "invokes shipping, checks no .env is staged and writes a prose commit message"
+    },
+    {
+      "prompt": "run the quality gate",
+      "expect": "invokes shipping and reports skipped steps explicitly rather than claiming a pass"
+    }
+  ]
+}

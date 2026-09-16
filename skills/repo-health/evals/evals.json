@@ -1,0 +1,25 @@
+{
+  "skill": "repo-health",
+  "cases": [
+    {
+      "prompt": "check if any of my dependencies are vulnerable",
+      "expect": "invokes repo-health, runs npm audit and reports which vulnerable paths are actually reachable"
+    },
+    {
+      "prompt": "clean up the dead code in this project",
+      "expect": "invokes repo-health, and confirms an unused export is not a public entry point before deleting"
+    },
+    {
+      "prompt": "is anything out of date here?",
+      "expect": "invokes repo-health and runs npm outdated"
+    },
+    {
+      "prompt": "audit this repo",
+      "expect": "invokes repo-health, groups findings by cost not by tool"
+    },
+    {
+      "prompt": "my env vars have drifted",
+      "expect": "invokes repo-health, compares .env.example to .env and never prints a value"
+    }
+  ]
+}
