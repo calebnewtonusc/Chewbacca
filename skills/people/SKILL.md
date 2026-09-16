@@ -99,7 +99,8 @@ record for each card, so connections with no card stay out; the only write is a
 company onto a card and a note. It also learns nicknames, and keeps whatever the
 user typed into a contact name ("Reid Superman IYA") as how they know them.
 
-`people linkedin locate` fills in where people live and what they have done,
+`people linkedin locate` needs a Clay API key in `~/.chewbacca/clay-key`, one
+line, no quotes. It fills in where people live and what they have done,
 using a search that costs nothing rather than an enrichment that is billed per
 record. The export already carries each connection's profile URL, so the
 result is matched on that URL exactly instead of guessed at. It is resumable:

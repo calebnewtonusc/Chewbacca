@@ -3191,6 +3191,20 @@ async function cmdDistill(argv) {
   // skip everyone it did not get to.
   if (!flags.limit && newest) syncState("distill_watermark", newest);
   say(`${c.grn("distilled")} ${wrote} facts from ${work.length} people${failed ? c.dim(`  (${failed} failed)`) : ""}`);
+
+  // FINISH THE JOB. A distilled fact that never reaches a dimension is a
+  // display string, and the score it should have moved stays at zero. Nobody
+  // installing this would know to run two more commands afterwards, and the
+  // symptom of not running them is a well-documented person reading as cold.
+  if (wrote) {
+    try {
+      cmdBridgeFacts([]);
+      cmdScore();
+    } catch (e) {
+      say(c.yel(`  facts written, but scoring them failed: ${e.message}`));
+      say(c.dim(`  run: people bridge-facts && people score`));
+    }
+  }
 }
 
 function cmdCheck(argv = []) {
@@ -5232,7 +5246,9 @@ function nextStep(d) {
     return {
       why: `${linked} people from LinkedIn, ${located} with a location.`,
       run: "people linkedin locate",
-      then: "fills in where they live and what they have done. It costs nothing.",
+      then:
+        "fills in where they live and what they have done. Needs a Clay API key at " +
+        "~/.chewbacca/clay-key, and costs no credits: it searches, it does not enrich.",
     };
   if (facts < people * 0.1)
     return {
@@ -6649,6 +6665,16 @@ function cmdTexts(argv) {
     recomputeScores();
 
     say(`${c.grn("synced")} ${added} new messages${c.dim(`  (${days}d window)`)}`);
+    // Every handle in those messages is an address somebody demonstrably sent
+    // from, and identities is what phone-keyed joins run on. Recording them is
+    // part of the sync, not a second command to remember.
+    if (added) {
+      try {
+        cmdIdentities(["backfill", "--quiet"]);
+      } catch {
+        /* a failed backfill must not fail the sync */
+      }
+    }
     if (relinked) say(c.dim(`  ${relinked} older messages linked to people you have since added`));
     if (recredited) say(c.dim(`  ${recredited} messages re-credited to the person who actually sent them`));
     if (logged.changes) say(c.dim(`  ${logged.changes} people had their last-contact updated`));
