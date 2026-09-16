@@ -5255,6 +5255,106 @@ function sayNextStep(d, { force = false } = {}) {
   return true;
 }
 
+// Distilled facts are evidence, and the scorer could not see them.
+//
+// `people distill` writes what it learns into quick_facts. Scoring reads
+// observations. Nothing joined the two, so the best-documented people in the
+// store scored 0.00 across all six dimensions and printed "nothing recorded in
+// any dimension yet" directly underneath four paragraphs about them. Cole Gawin
+// has a career, how he thinks and who he is on file, and ranked as cold.
+//
+// The fact keys already name their dimension; they just never said so in a
+// column. This maps them and writes one observation per fact, marked
+// `inferred` because a distilled fact is read out of a conversation rather than
+// stated to the user directly.
+const FACT_DIMENSION = {
+  faith: "spiritual",
+  family: "social",
+  friends: "social",
+  who_they_are: "social",
+  how_we_met: "social",
+  health: "physical",
+  fitness: "physical",
+  food: "physical",
+  music: "emotional",
+  interests: "emotional",
+  cares_about: "emotional",
+  ask_about: "emotional",
+  works_on: "intellectual",
+  career: "intellectual",
+  school: "intellectual",
+  how_they_think: "intellectual",
+  advice_they_gave: "intellectual",
+  history: "intellectual",
+  money: "financial",
+  financial: "financial",
+  sports: "physical",
+  birthday: "social",
+  can_introduce: "social",
+  how_to_help: "social",
+  how_to_work_with_them: "intellectual",
+};
+
+// THE DISTILLER INVENTS GENDERED KEYS. `who_he_is`, `who_she_is`,
+// `advice_he_gave`, `how_he_thinks`, `how_to_work_with_him` are the same facts
+// as their neutral forms with a pronoun baked into the column name, and 194 of
+// them fell through the mapping unscored for that reason alone. Normalising the
+// key is also the right thing regardless: a schema should not carry somebody's
+// pronoun in a field name.
+function normalizeFactKey(k) {
+  return String(k || "")
+    .toLowerCase()
+    .replace(/_(he|she|him|her|his|hers|they|them|their)_/g, "_they_")
+    .replace(/_(he|she|him|her|his|hers)$/g, "_them")
+    .replace(/^(who|how_to_work_with|advice|how)_(he|she)_/, "$1_they_")
+    .replace(/who_(he|she)_is/, "who_they_are")
+    .replace(/advice_(he|she)_gave/, "advice_they_gave")
+    .replace(/how_(he|she)_thinks/, "how_they_think")
+    .replace(/how_to_work_with_(him|her)/, "how_to_work_with_them");
+}
+
+function cmdBridgeFacts(argv) {
+  const { flags } = parseArgs(argv);
+  const apply = !flags["dry-run"];
+  const d = db();
+  const dims = new Map(
+    d.prepare(`SELECT id, code FROM dimensions`).all().map((r) => [r.code, r.id]),
+  );
+  const rows = d
+    .prepare(
+      `SELECT q.person_id, q.key, q.value FROM quick_facts q
+        WHERE q.key NOT IN ('first_move')
+          AND NOT EXISTS (
+            SELECT 1 FROM observations o
+             WHERE o.person_id = q.person_id AND o.deleted_at IS NULL
+               AND o.body = q.value)`,
+    )
+    .all();
+
+  let made = 0, skipped = 0;
+  for (const r of rows) {
+    const dim = FACT_DIMENSION[normalizeFactKey(r.key)] || FACT_DIMENSION[r.key];
+    if (!dim || !dims.has(dim)) { skipped++; continue; }
+    if (apply) {
+      const id = uuid();
+      d.prepare(
+        `INSERT INTO observations (id, person_id, kind, modality, source, body, observed_at)
+         VALUES (?,?,'fact','actual','inferred',?, datetime('now'))`,
+      ).run(id, r.person_id, r.value);
+      d.prepare(
+        `INSERT OR IGNORE INTO observation_dimensions (observation_id, dimension_id, weight)
+         VALUES (?,?,1.0)`,
+      ).run(id, dims.get(dim));
+    }
+    made++;
+  }
+  say();
+  say(`  ${c.b(String(made))} distilled fact(s) ${apply ? "now count" : "would count"} toward a dimension.`);
+  if (skipped) say(c.dim(`  ${skipped} had no dimension mapping and were left alone.`));
+  if (apply) say(c.dim(`  Run: people score`));
+  say();
+}
+
 function cmdStats() {
   const d = db();
   const q = (s) => d.prepare(s).get().n;
@@ -6956,6 +7056,7 @@ const COMMANDS = {
   purge: cmdPurge,
   who: cmdWho,
   infer: cmdInfer,
+  "bridge-facts": cmdBridgeFacts,
   resolve: cmdResolve,
   linkedin: cmdLinkedin,
   li: cmdLinkedin,
