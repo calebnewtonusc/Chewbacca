@@ -1,6 +1,6 @@
 ---
 name: people
-description: Remember everything about the people in the user's life, and notice who is slipping. Use when they mention a person by name, tell you something about someone, ask who they know at a company or in a field, ask who to reconnect with, mention a birthday or a job change, come back from a meeting or a call, or ask what you know about someone. Also use before drafting any message to a named person, so the draft is grounded in what is actually true about them.
+description: Remember everything about the people in the user's life, answer questions about their network, and notice who is slipping. Use when they mention a person by name, tell you something about someone, ask who they know at a company or in a field, ask who to reconnect with, mention a birthday or a job change, come back from a meeting or a call, or ask what you know about someone. Also use before drafting any message to a named person, so the draft is grounded in what is actually true about them. Also use for when did I last talk to someone, how long has it been since I spoke to them, what did we talk about last time, catch me up on this person before I see them, and who have I not replied to. ALWAYS use for any question shaped like "who do I know who ...", including who do I know in a city, at a company, in an industry, who has raised money, who is a founder or an investor, who went to my school, who could introduce me to someone, who did I meet through a person, who from a place has been funded, and who that I know has moved into a more senior role. Also use when they want to import or sync a LinkedIn export, match LinkedIn connections to their contacts, find where their connections live or work, or spot who changed jobs.
 requires: [people]
 ---
 
@@ -58,6 +58,74 @@ people dashboard                  # who you texted, ranked and categorised
 `people help` has the rest. Add `--json` nowhere: this CLI prints for humans,
 and you should read its output the same way.
 
+## "Who do I know who ..."
+
+The question a relationship store exists to answer. **Never answer it from
+memory or from the conversation.** Run `people who` with the user's sentence,
+close to verbatim, and report what comes back.
+
+```bash
+people who "who do I know in hardware in San Francisco"
+people who "founders I know who have raised recently"
+people who "people I know at YC companies"
+people who "investors I know in New York"
+people who "who from my high school has been funded"
+```
+
+It reads the sentence and pulls facets out of it: a place, an industry, an
+employer, whether somebody founded a company or invests in them. It needs no
+flags and no prefix, because a person asking this question types a sentence.
+
+**It says what it could not do.** When the sentence names a city and the people
+it found have no location recorded, it prints that rather than quietly dropping
+the filter. Report that line too. A list that looks right because half the
+question was skipped is the worst possible answer here, and the user has no way
+to see it happened.
+
+### Where the data comes from
+
+Two imports make these questions answerable, and both are worth running before
+the first one is asked:
+
+```bash
+people texts sync                 # their own message history
+people linkedin sync              # a LinkedIn export in ~/Downloads
+people linkedin locate            # where those connections live, and their roles
+```
+
+`people linkedin sync` matches a LinkedIn export against the contacts app. **It
+never creates a contact.** It walks the address book looking for a LinkedIn
+record for each card, so connections with no card stay out; the only write is a
+company onto a card and a note. It also learns nicknames, and keeps whatever the
+user typed into a contact name ("Reid Superman IYA") as how they know them.
+
+`people linkedin locate` fills in where people live and what they have done,
+using a search that costs nothing rather than an enrichment that is billed per
+record. The export already carries each connection's profile URL, so the
+result is matched on that URL exactly instead of guessed at. It is resumable:
+run it again and it skips everyone already done.
+
+`people linkedin changes` finds job changes for free by comparing two exports.
+For anyone already connected, a fresh export is the cheapest job-change feed
+there is, and no paid lookup is needed.
+
+### Inferred answers are marked, never blended
+
+`people infer` concludes things nobody typed in, from rules over the message
+history and the stored columns. Everything it writes is `source='inferred'` and
+carries the rule, the evidence and a confidence in its body.
+
+When an inferred fact is part of an answer, **say so in the same breath**. "Two
+of these are inferred from how often they mention the school, not stated." A
+guess that reaches the user as a statement is the failure this whole skill is
+built to avoid, and it is worse here than a missing answer.
+
+Rules are data. `people infer --list` shows them; the user's own live in
+`~/.chewbacca/people/rules.json` and run identically to the built-ins. A rule
+can match phrases in messages, columns on the person, or both, and can carry
+`against` terms that disqualify it. Adding a new kind of inference is a JSON
+entry, not a code change.
+
 ## The dashboard
 
 `people dashboard` serves a page at `http://localhost:7373` that answers one
@@ -101,22 +169,22 @@ Then answer what they actually asked. One line at the end is enough: "noted".
 
 Things that should always produce a write:
 
-| They say                              | You run                                                   |
-| ------------------------------------- | --------------------------------------------------------- |
-| Anything factual about a named person | `people note`                                             |
-| They talked to someone                | `people log`                                              |
-| Someone changed jobs                  | `people update <who> --company X --role Y`                |
-| They met someone new                  | `people add "Name" --met "where"`                         |
-| A group of people belongs together    | `people circle create` then `people circle add`           |
-| They want to hear from someone more   | `people update <who> --cadence 30`                        |
-| An ex, a service number, a shortcode  | `people mute <who> --because "..."` (keeps the history)   |
-| A contact saved under a nickname      | `people update <who> --name "Real Name"`                  |
-| **They promised somebody something**  | `people task add <who> "..." --due DATE`                  |
+| They say                                | You run                                                 |
+| --------------------------------------- | ------------------------------------------------------- |
+| Anything factual about a named person   | `people note`                                           |
+| They talked to someone                  | `people log`                                            |
+| Someone changed jobs                    | `people update <who> --company X --role Y`              |
+| They met someone new                    | `people add "Name" --met "where"`                       |
+| A group of people belongs together      | `people circle create` then `people circle add`         |
+| They want to hear from someone more     | `people update <who> --cadence 30`                      |
+| An ex, a service number, a shortcode    | `people mute <who> --because "..."` (keeps the history) |
+| A contact saved under a nickname        | `people update <who> --name "Real Name"`                |
+| **They promised somebody something**    | `people task add <who> "..." --due DATE`                |
 | A recurring date that is not a birthday | `people date add <who> "label" --on MM-DD`              |
-| Money or an object changed hands      | `people loan <who> --lent "..."` or `--borrowed`          |
-| Two people are related                | `people rel <a> <kind> <b>`                               |
-| Something is coming up for someone    | `people check-on <who> --in 14d --because "..."`          |
-| A durable one-liner about a person    | `people fact <who> <key> "value"`                         |
+| Money or an object changed hands        | `people loan <who> --lent "..."` or `--borrowed`        |
+| Two people are related                  | `people rel <a> <kind> <b>`                             |
+| Something is coming up for someone      | `people check-on <who> --in 14d --because "..."`        |
+| A durable one-liner about a person      | `people fact <who> <key> "value"`                       |
 
 The promise is the one that gets missed. Observations hold what is true and
 interactions hold what happened, and neither has anywhere for "I said I'd send
