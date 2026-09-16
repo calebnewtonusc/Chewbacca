@@ -5355,6 +5355,100 @@ function cmdBridgeFacts(argv) {
   say();
 }
 
+// Every handle somebody actually messaged from is a confirmed identity.
+//
+// `identities` is what every phone-keyed and email-keyed join runs on, and it
+// covered a third of the store. Meanwhile 1,895 distinct handles in `messages`
+// already resolved to a person: those are not guesses, they are addresses the
+// person demonstrably sent from. The same is true of the phone and email
+// columns on `people`, which were never mirrored into the table built to hold
+// exactly that.
+//
+// Consequence of the gap: a LinkedIn row and a contact row for the same human
+// could not be joined on a number, so enrichment landed on one of them and the
+// other kept the phone. That is the split-record shape behind a chunk of the
+// duplicate backlog.
+//
+// The primary key is (kind, value), so a handle can only belong to one person.
+// Conflicts are ignored rather than reassigned: if two people genuinely share a
+// number, guessing which one owns it is worse than leaving it alone.
+function cmdIdentities(argv) {
+  const sub = ["backfill", "list"].includes(argv[0]) ? argv.shift() : "list";
+  const { flags } = parseArgs(argv);
+  const d = db();
+
+  if (sub === "list") {
+    const r = d
+      .prepare(
+        `SELECT (SELECT count(*) FROM identities) rows,
+                (SELECT count(DISTINCT person_id) FROM identities) people,
+                (SELECT count(*) FROM people WHERE deleted_at IS NULL) total`,
+      )
+      .get();
+    say();
+    say(`  ${c.b(String(r.rows))} identities across ${r.people} of ${r.total} people.`);
+    say(c.dim(`  people identities backfill   to recover them from messages and contact fields`));
+    say();
+    return;
+  }
+
+  const apply = !flags["dry-run"];
+  const norm = (v) => String(v || "").trim();
+  const kindOf = (v) => (v.includes("@") ? "email" : /^\+?[0-9()\-.\s]{7,}$/.test(v) ? "phone" : null);
+
+  const candidates = [];
+  for (const r of d
+    .prepare(
+      `SELECT id, phone, email FROM people
+        WHERE deleted_at IS NULL AND ((phone IS NOT NULL AND phone<>'') OR (email IS NOT NULL AND email<>''))`,
+    )
+    .all()) {
+    for (const v of [r.phone, r.email]) {
+      const val = norm(v);
+      const k = val && kindOf(val);
+      if (k) candidates.push([r.id, k, val]);
+    }
+  }
+  for (const r of d
+    .prepare(
+      `SELECT DISTINCT person_id, handle FROM messages
+        WHERE person_id IS NOT NULL AND handle IS NOT NULL AND handle<>''
+          AND handle NOT LIKE 'chat%'`,
+    )
+    .all()) {
+    const val = norm(r.handle);
+    const k = val && kindOf(val);
+    if (k) candidates.push([r.person_id, k, val]);
+  }
+
+  let added = 0, already = 0;
+  if (apply) d.exec("BEGIN");
+  const ins = d.prepare(
+    `INSERT OR IGNORE INTO identities (person_id, kind, value) VALUES (?,?,?)`,
+  );
+  for (const [pid, kind, value] of candidates) {
+    if (!apply) { added++; continue; }
+    const res = ins.run(pid, kind, value);
+    if (res.changes) added++; else already++;
+  }
+  if (apply) d.exec("COMMIT");
+
+  say();
+  say(
+    apply
+      ? `  ${c.grn(String(added))} identities recovered, ${already} already known.`
+      : c.dim(`  ${added} candidate identities found (--dry-run)`),
+  );
+  const cov = d
+    .prepare(
+      `SELECT (SELECT count(DISTINCT person_id) FROM identities) p,
+              (SELECT count(*) FROM people WHERE deleted_at IS NULL) t`,
+    )
+    .get();
+  say(c.dim(`  ${cov.p} of ${cov.t} people now have at least one.`));
+  say();
+}
+
 function cmdStats() {
   const d = db();
   const q = (s) => d.prepare(s).get().n;
@@ -7056,6 +7150,7 @@ const COMMANDS = {
   purge: cmdPurge,
   who: cmdWho,
   infer: cmdInfer,
+  identities: cmdIdentities,
   "bridge-facts": cmdBridgeFacts,
   resolve: cmdResolve,
   linkedin: cmdLinkedin,
