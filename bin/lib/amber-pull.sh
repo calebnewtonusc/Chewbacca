@@ -52,5 +52,10 @@ for repo in $(gh repo list "$ORG" --limit 50 --json name -q '.[].name' 2>/dev/nu
 done
 
 [ "$found" = 0 ] && printf '\n  nothing new\n'
-date -u +%Y-%m-%dT%H:%M:%SZ > "$STATE"
+# ONLY A BARE RUN MOVES THE BOOKMARK. `amber-pull 14` is a question about a
+# fixed window, not a statement that you have caught up, and advancing the
+# watermark on it means asking "what happened in the last fortnight" silently
+# throws away the thing the tool exists to remember. Hit while reading two weeks
+# of Karthik's commits: the window was gone by the time I wanted it again.
+[ -z "$DAYS" ] && date -u +%Y-%m-%dT%H:%M:%SZ > "$STATE"
 printf '\n'
