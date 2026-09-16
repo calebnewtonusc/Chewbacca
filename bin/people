@@ -376,6 +376,12 @@ function migrate(d) {
   // imported from elsewhere is offset well past it so one FTS index can cover
   // every channel without the ids colliding.
   ensureColumn(d, "messages", "source", "source TEXT NOT NULL DEFAULT 'imessage'");
+  // WHICH ROOM A MESSAGE WAS SAID IN, when it was a group.
+  //
+  // The sender owns the message and the room is context, not an owner. Keeping
+  // both is what lets "Newton Family" stop being a person with 8,571 messages
+  // and become eight people who talk in the same thread.
+  ensureColumn(d, "messages", "room", "room TEXT");
   seedTemplate(d);
 }
 
@@ -5944,8 +5950,18 @@ function cmdTexts(argv) {
     }
 
     const ins = d.prepare(
-      `INSERT INTO messages (msg_id, person_id, who, handle, from_me, body, sent_at)
-       VALUES (?,?,?,?,?,?,?) ON CONFLICT(msg_id) DO NOTHING`,
+      `INSERT INTO messages (msg_id, person_id, who, handle, from_me, body, sent_at, room)
+       VALUES (?,?,?,?,?,?,?,?)
+       ON CONFLICT(msg_id) DO UPDATE SET
+         -- REPAIR, NOT JUST INSERT. Rows written before the reader learned to
+         -- name the speaker have a group's name where a person belongs, and
+         -- DO NOTHING would leave 54,000 of them wrong forever. Only the
+         -- attribution is rewritten; the body and the timestamp are what
+         -- chat.db said then and still says now.
+         who       = excluded.who,
+         person_id = COALESCE(excluded.person_id, messages.person_id),
+         room      = excluded.room
+       WHERE messages.room IS NULL AND excluded.room IS NOT NULL`,
     );
     const fts = d.prepare("INSERT INTO messages_fts (rowid, body) VALUES (?,?)");
     let added = 0,
@@ -5981,6 +5997,7 @@ function cmdTexts(argv) {
         r.from_me ? 1 : 0,
         body,
         String(r.at).replace("T", " "),
+        r.room || null,
       );
       if (res.changes) {
         fts.run(r.id, body);

@@ -81,12 +81,34 @@ def read(days=7, limit=2000, who=None, unanswered=False, direct=False,
         body = message_text(text, blob)
         if not body and not has_attach:
             continue
+        # WHO SPOKE, NOT WHICH ROOM.
+        #
+        # This used to read `chat_name or ...`, so every message in a named
+        # group was filed under the group. "Newton Family" has eight distinct
+        # senders and 8,571 messages, and all of them arrived as one nameless
+        # blob: unattributable, unreadable by anything that works per person,
+        # and counted as orphaned. chat.db knew the sender the whole time,
+        # because `message.handle_id` is the person who sent it and only the
+        # thread is shared.
+        #
+        # So the sender wins and the room is carried alongside. A message from
+        # a group is still from somebody. Outgoing messages have no handle_id,
+        # which is the one case where the room is the only label available.
         who_key = handle or chat_id or ""
-        name = chat_name or book.get(_norm(who_key)) or who_key or "unknown"
+        sender = book.get(_norm(handle)) if handle else None
+        if from_me:
+            name = chat_name or book.get(_norm(who_key)) or who_key or "unknown"
+        else:
+            name = sender or chat_name or book.get(_norm(who_key)) or who_key or "unknown"
         msgs.append({
             "id": rid,
             "at": datetime.fromtimestamp(date / 1e9 + APPLE_EPOCH).isoformat(timespec="minutes"),
             "with": name,
+            # The room, when there is one. Group membership is a fact about
+            # people that nothing else here records, and it is the difference
+            # between "I do not know this number" and "this is whoever keeps
+            # posting in the family thread".
+            "room": chat_name or None,
             "handle": handle or chat_id,
             "from_me": bool(from_me),
             "text": body or "[attachment]",
