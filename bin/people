@@ -4206,6 +4206,15 @@ const FACETS = [
       /\b(investor|investment|venture|partner)\b/i.test(p.role || ""),
   },
   {
+    key: "private-equity",
+    test: /\b(private equity|\bpe\b|buyout|growth equity)\b/i,
+    label: "private equity",
+    match: (p) =>
+      /\b(private equity|buyout|growth equity|capital partners|capital management)\b/i.test(
+        `${p.company || ""} ${p.role || ""}`,
+      ),
+  },
+  {
     key: "stealth",
     test: /\bstealth\b/i,
     label: "stealth",
@@ -4213,9 +4222,83 @@ const FACETS = [
   },
 ];
 
+// WHAT THIS STORE CANNOT KNOW, AND WHAT IT WOULD COST TO FIND OUT.
+//
+// A network question usually has one clause the local data cannot answer:
+// funding stage, a hometown as opposed to a current city, a fraternity, a
+// degree. Answering the rest and going quiet about that clause is the failure
+// this whole command exists to avoid, so each one is named, with the reason,
+// and with what it would actually take.
+//
+// The costs are deliberately not invented. Clay bills enrichment per record
+// and does not bill search, which is measured rather than assumed: the credit
+// balance did not move across hundreds of searches. The per-record price of an
+// enrichment depends on the provider waterfall it runs, and a failed lookup
+// still spends, so the honest thing to print is the balance, the rate the user
+// can read for themselves, and the size of the job.
+const CLAY_GAPS = [
+  {
+    key: "funding",
+    test: /\b(raised|raising|funded|funding|pre-?seed|seed round|series [a-d])\b/i,
+    have: "which of them work at companies whose name says YC, and every role with its start date",
+    missing: "the actual round, its size, and when it closed",
+    clay: "a funding lookup per company",
+  },
+  {
+    key: "origin",
+    test: /\b(from|grew up|hometown|originally)\s+[A-Z][a-z]+/,
+    have: "where each person lives now",
+    missing: "where they are from, which is a different field and not in a LinkedIn export",
+    clay: "a profile enrichment per person to read their education and early roles",
+  },
+  {
+    key: "fraternity",
+    test: /\b(fraternity|sorority|frat|greek|society|eating club)\b/i,
+    have: "which school they went to, when it is on their profile",
+    missing: "the chapter or society, which LinkedIn keeps in activities and societies",
+    clay: "an education enrichment per person",
+  },
+  {
+    key: "degree",
+    test: /\b(major|degree|studied|graduated|class of|my year|same year)\b/i,
+    have: "the school, from your own export where you overlap",
+    missing: "their degree, field of study and graduation year",
+    clay: "an education enrichment per person",
+  },
+];
+
+function clayAdvice(q, affected) {
+  const hits = CLAY_GAPS.filter((g) => g.test.test(q));
+  if (!hits.length) return;
+  const key = clayKey();
+  say();
+  for (const g of hits) {
+    say(`  ${c.yel(`Partly answered: ${g.key}.`)}`);
+    say(c.dim(`    have    ${g.have}`));
+    say(c.dim(`    missing ${g.missing}`));
+  }
+  say();
+  if (key) {
+    say(c.dim(`  A Clay key is configured. Search is free and already used above.`));
+    say(c.dim(`  Going further needs ${hits.map((g) => g.clay).join(" and ")}, which Clay`));
+    say(c.dim(`  bills per record. ${affected} people would be looked up.`));
+    say(c.dim(`  Failed lookups still spend, so try a handful before all ${affected}.`));
+  } else {
+    say(c.dim(`  To go further, put a Clay API key in ~/.chewbacca/clay-key.`));
+    say(c.dim(`  Search costs nothing. ${hits.map((g) => g.clay).join(" and ")} is billed`));
+    say(c.dim(`  per record, and a failed lookup still spends. ${affected} people is the`));
+    say(c.dim(`  size of the job.`));
+  }
+  say();
+}
+
 // Places this store cannot filter on, because nothing fills `location`. Listed
 // so the gap can be named precisely rather than guessed at.
-const PLACE = /\b(nyc|new york|san francisco|sf|bay area|los angeles|la|chicago|boston|seattle|austin|london|naperville|wisconsin|remote|[A-Z][a-z]+, ?[A-Z]{2})\b/i;
+// Longest first. "new york" listed before "new york city" matches the shorter
+// one and leaves "City" behind as a stray search term, which then filters on
+// the word City. Alternation in JS is first-match, not longest-match, so the
+// order in this list is load-bearing.
+const PLACE = /\b(new york city|san francisco bay area|bay area|san francisco|new york|los angeles|nyc|sf|la\b|chicago|boston|seattle|austin|denver|miami|london|naperville|wisconsin|madison|remote|[A-Z][a-z]+, ?[A-Z]{2})\b/i;
 
 function cmdWho(argv) {
   const { rest, flags } = parseArgs(argv);
@@ -4251,12 +4334,83 @@ function cmdWho(argv) {
   let out = rows;
   for (const f of hits) out = out.filter(f.match);
 
+  // "in the past 24 months" is answerable, because every role Clay returned
+  // carries the month it started and those are stored as a `career` fact. This
+  // does not know what round somebody raised; it knows when they started the
+  // thing, which is the part a date question actually turns on.
+  // "MOVED INTO A HIGHER ROLE" is a comparison between two jobs, and the career
+  // history has both with their dates. Seniority is read off the titles: an
+  // intern is below an analyst is below a manager is below a director is below
+  // a VP is below a chief or a founder. Somebody counts when their newest role
+  // outranks their oldest one.
+  let riseNote = null;
+  if (/\b(higher role|more senior|moved up|promoted|stepped up|senior role)\b/i.test(q)) {
+    const RANK = [
+      [/\b(intern|trainee|apprentice)\b/i, 1],
+      [/\b(assistant|coordinator|analyst|associate)\b/i, 2],
+      [/\b(engineer|designer|manager|lead|specialist)\b/i, 3],
+      [/\b(senior|principal|staff|director)\b/i, 4],
+      [/\b(head of|vp|vice president|partner)\b/i, 5],
+      [/\b(chief|cto|ceo|coo|cfo|founder|owner|president)\b/i, 6],
+    ];
+    const rank = (t) => RANK.reduce((a, [re, n]) => (re.test(t) ? Math.max(a, n) : a), 0);
+    const careers = new Map(
+      d.prepare(`SELECT person_id, value FROM quick_facts WHERE key='career'`).all()
+        .map((r) => [r.person_id, r.value]),
+    );
+    const ids = new Map(
+      d.prepare(`SELECT id, name FROM people WHERE deleted_at IS NULL`).all()
+        .map((r) => [r.name, r.id]),
+    );
+    const checkable = out.filter((p) => careers.has(ids.get(p.name)));
+    if (checkable.length) {
+      out = checkable.filter((p) => {
+        // The fact reads newest first, so the last entry is the earliest job.
+        const parts = (careers.get(ids.get(p.name)) || "").split(";").map((x) => x.trim());
+        if (parts.length < 2) return false;
+        return rank(parts[0]) > rank(parts[parts.length - 1]);
+      });
+      riseNote = `${checkable.length} had two or more dated roles to compare.`;
+    } else {
+      riseNote = `nobody here has enough role history to say whether they moved up.`;
+    }
+  }
+
+  let recencyNote = null;
+  const recency = q.match(/\b(?:past|last)\s+(\d+)\s*(month|year)s?\b/i);
+  if (recency) {
+    const months = Number(recency[1]) * (/year/i.test(recency[2]) ? 12 : 1);
+    const cut = new Date();
+    cut.setMonth(cut.getMonth() - months);
+    const cutStr = `${cut.getFullYear()}-${String(cut.getMonth() + 1).padStart(2, "0")}`;
+    const careers = new Map(
+      d.prepare(`SELECT person_id, value FROM quick_facts WHERE key='career'`).all()
+        .map((r) => [r.person_id, r.value]),
+    );
+    const ids = new Map(
+      d.prepare(`SELECT id, name FROM people WHERE deleted_at IS NULL`).all()
+        .map((r) => [r.name, r.id]),
+    );
+    const withDates = out.filter((p) => careers.has(ids.get(p.name)));
+    if (withDates.length) {
+      out = withDates.filter((p) => {
+        const v = careers.get(ids.get(p.name)) || "";
+        return (v.match(/\((\d{4}-\d{2})/g) || []).some((m) => m.slice(1) >= cutStr);
+      });
+      recencyNote = `${withDates.length} had dated roles to check against the last ${months} months.`;
+    } else {
+      recencyNote = `nobody in this result has dated role history yet, so the time window was not applied.`;
+    }
+  }
+
   // Filter on place when the question names one and the data can answer it.
-  const placeMatch = q.match(PLACE);
+  // "New York City or San Francisco" is two places, and matching only the
+  // first silently answers half the question.
+  const placeAll = q.match(new RegExp(PLACE.source, "gi")) || [];
+  const placeMatch = placeAll.length ? [placeAll.join(" or ")] : null;
   let placeNote = null;
   if (placeMatch) {
-    const key = placeMatch[0].toLowerCase();
-    const terms = PLACE_ALIASES[key] || [key];
+    const terms = [...new Set(placeAll.flatMap((pm) => PLACE_ALIASES[pm.toLowerCase()] || [pm.toLowerCase()]))];
     const withLoc = out.filter((p) => p.location && p.location.trim());
     const inPlace = withLoc.filter((p) =>
       terms.some((t) => p.location.toLowerCase().includes(t)),
@@ -4288,12 +4442,15 @@ function cmdWho(argv) {
     ...(freeText.length ? [`matching "${freeText.join(" ")}"`] : []),
   ];
   if (placeMatch) applied.push(`in ${placeMatch[0]}`);
+  if (recency) applied.push(`started within ${recency[1]} ${recency[2]}s`);
   say(
     c.dim(
       `  ${applied.length ? `filtered on ${applied.join(", ")}` : "no filter matched, showing everyone"}  ${c.b(String(out.length))} found`,
     ),
   );
   if (placeNote) say(c.dim(`  ${placeNote}`));
+  if (recencyNote) say(c.dim(`  ${recencyNote}`));
+  if (riseNote) say(c.dim(`  ${riseNote}`));
   say();
 
   for (const p of out.slice(0, limit)) {
@@ -4304,6 +4461,7 @@ function cmdWho(argv) {
   }
   if (out.length > limit) say(c.dim(`    ... and ${out.length - limit} more`));
   say();
+  clayAdvice(q, out.length || rows.length);
 
 }
 
@@ -4312,6 +4470,8 @@ function cmdWho(argv) {
 // writes whichever it likes, so a literal match on the user's word finds a
 // third of the people it should.
 const PLACE_ALIASES = {
+  "new york city": ["new york"],
+  "san francisco bay area": ["bay area", "san francisco"],
   sf: ["san francisco", "bay area"],
   "san francisco": ["san francisco", "bay area"],
   "bay area": ["bay area", "san francisco"],
