@@ -31,6 +31,13 @@
         "author": "conorbronsdon"
       },
       {
+        "name": "deslop",
+        "url": "https://github.com/31Carlton7/skills",
+        "path": "deslop",
+        "license": "see upstream",
+        "author": "31Carlton7"
+      },
+      {
         "name": "no-ai-slop",
         "url": "https://github.com/petergyang/no-ai-slop",
         "path": "skills/no-ai-slop",
