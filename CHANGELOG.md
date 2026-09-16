@@ -6,12 +6,45 @@ real commit; nothing here is written by hand.
 ## Unreleased
 
 ### Added
+- work out a contact's labels from the address book instead of a list
+- prose-check, a slop detector that knows Caleb's list
+- ask what somebody wants to share before reading any of it
+- people identities, recover the addresses people demonstrably wrote from
+- an empty store says it is empty, and names the next single step
+- answer the whole question, or say which clause went unanswered and why
+- a group message is from a person, not from a room
+- rules can read the columns, not just the message bodies
+- people infer, a rule engine for what nobody typed in
+- ask about a place and get an answer, because the location is there now
+- take the whole profile, and keep the key out of the process list
+- location for nothing, because the URL makes the match exact
+- people resolve, put names to contacts using a list you already own
+- the whole card, and the surname is not always the last word
+- people who, ask the store a question and hear what it cannot answer
+- people linkedin, match an export to Contacts without inventing anyone
 - people dashboard, who you texted ranked and categorised
 - it speaks first
 - Chewie can draw on the screen
 - hud demo
 
 ### Fixed
+- asking amber-pull for a fixed window no longer eats the bookmark
+- the half of the question it could not parse is now searched, not shrugged at
+- the setup I did by hand is now what the tool does by itself
+- the distilled facts were invisible to scoring, so the best-known people read as cold
+- say which half of the question went unanswered, and stop deleting "usc"
+- half the duplicate backlog was unmergeable, and one pair was invisible
+- a blast is one-directional, which is what makes it a blast
+- a mass message is not a conversation, and it hid 701 people from reconnect
+- a full backfill held the database long enough to kill the session hooks
+- the kit shipped with one person's schools compiled into it
+- read the invitations file, and stop losing every contact write silently
+- distill the people who matter first, because the run will be interrupted
+- a rate limit is not an absence, and this reported 270 of them as one
+- matched is not saved, and 124 connections had no row at all
+- the dimension bars say KNOWN, not GOOD
+- stop-check repeated the same warning against unchanged state
+- polish was a no-op, and Chewie paid for the whole kit on every turn
 - stop counting untracked siblings as work
 - subscribe before receiving events
 - a course with no attendance grade is not a gap
@@ -23,6 +56,7 @@ real commit; nothing here is written by hand.
 - the listener died when the display restarted
 
 ### Changed
+- shard the location backfill, seven hours is not a backfill
 - fix a fresh database, and catch the duplicates tags were hiding
 - report a warm-up that succeeded as succeeded
 - classify group chats, and survive a rate limit without losing work
@@ -34,9 +68,13 @@ real commit; nothing here is written by hand.
 - ignore the coverage file swift test leaves behind
 
 ### Documentation
+- teach the skill to synthesise across sources instead of running one filter
+- teach the skill to answer "who do I know who ...", with no command to learn
 - send the root early
 
 ### Other
+- Add docs/ADVISING.md: helping someone reach a goal
+- triggers: say the thing out loud and see whether any skill fires
 - nobody should ever have to type a slash command
 - life-ops was never firing: one unquoted colon in its description
 - guide: keep the attempts, so a topic can be seen slipping
