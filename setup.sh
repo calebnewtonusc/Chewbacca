@@ -1404,7 +1404,8 @@ if command -v claude &>/dev/null; then
   for m in \
     Egonex-AI/Understand-Anything \
     anthropics/claude-plugins-official \
-    blader/humanizer; do
+    blader/humanizer \
+    clay-run/agent-plugins; do
     claude plugin marketplace add "$m" </dev/null &>/dev/null || true
   done
   log "Marketplaces registered"
@@ -1413,6 +1414,7 @@ if command -v claude &>/dev/null; then
   for p in \
     bigquery-data-analytics@claude-plugins-official \
     claude-md-management@claude-plugins-official \
+    clay@clay-plugins \
     context7@claude-plugins-official \
     expo@claude-plugins-official \
     feature-dev@claude-plugins-official \
