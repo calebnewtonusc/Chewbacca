@@ -41,6 +41,7 @@ be discovered.
 @~/.claude/rules/context-discipline.md
 @~/.claude/rules/do-it-yourself.md
 @~/.claude/rules/untrusted-content.md
+@~/.claude/rules/research-the-craft.md
 
 The twelve stack-specific standards (components, api, database, deployment,
 design, performance, state, accessibility, scroll-effects, testing, ux-laws,
