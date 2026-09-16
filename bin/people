@@ -744,8 +744,22 @@ function recomputeScores() {
   const countFor = d.prepare(
     "SELECT count(*) AS n FROM observations WHERE person_id = ? AND deleted_at IS NULL",
   );
+  // A BROADCAST IS NOT A CONVERSATION, and it reached the scorer through
+  // interactions rather than messages. One day holds 758 interaction rows
+  // across 750 people, and it became the last contact for 701 of them, so all
+  // of them read as recently spoken to and fell out of the reconnect list on
+  // the strength of a message sent to everybody and meant for nobody.
+  //
+  // A day where one person logs outbound contact with more than thirty others
+  // is a blast. Inbound is untouched: if they replied, that is real.
+  d.exec(`CREATE TEMP TABLE IF NOT EXISTS broadcast_days AS
+          SELECT date(happened_at) AS d FROM interactions
+           GROUP BY date(happened_at)
+          HAVING count(DISTINCT person_id) > 30`);
   const lastInt = d.prepare(
-    "SELECT max(happened_at) AS t FROM interactions WHERE person_id = ?",
+    `SELECT max(happened_at) AS t FROM interactions
+      WHERE person_id = ?
+        AND date(happened_at) NOT IN (SELECT d FROM broadcast_days)`,
   );
 
   const upDim = d.prepare(
@@ -864,13 +878,36 @@ function historyCtx() {
     // in touch in 2023" and every warmth curve would read as a single step from
     // 0 to 1. The messages table has every timestamp, so ask both and take the
     // later. Falls back cleanly for anyone who has only hand-logged contact.
+    // Materialised once per process. A day where one person messages more
+    // than thirty others is a blast, not thirty conversations.
+    broadcastDays: (() => {
+      d.exec(`CREATE TEMP TABLE IF NOT EXISTS broadcast_days AS
+              SELECT date(sent_at) AS d FROM messages
+               WHERE from_me = 1
+               GROUP BY date(sent_at)
+              HAVING count(DISTINCT person_id) > 30`);
+      return true;
+    })(),
     intFor: d.prepare(
       `SELECT max(t) AS t FROM (
          SELECT max(happened_at) AS t FROM interactions
           WHERE person_id = ?1 AND happened_at <= ?2
          UNION ALL
+         -- A BROADCAST IS NOT A CONVERSATION.
+         --
+         -- One day in this archive holds 1,226 outbound messages to 965
+         -- different people and became the "last contact" for 701 of them.
+         -- Each of those reads as recently spoken to and drops out of the
+         -- reconnect list for months, on the strength of a message sent to
+         -- everybody and meant for nobody.
+         --
+         -- The broadcast days are computed once into broadcast_days rather
+         -- than re-derived per person: as a correlated subquery this rescan
+         -- took longer than ten minutes for three thousand people.
          SELECT max(sent_at) AS t FROM messages
           WHERE person_id = ?1 AND sent_at <= ?2
+            AND NOT (from_me = 1
+                     AND date(sent_at) IN (SELECT d FROM broadcast_days))
        )`,
     ),
     cntFor: d.prepare(
