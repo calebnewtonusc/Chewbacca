@@ -6,6 +6,7 @@ real commit; nothing here is written by hand.
 ## Unreleased
 
 ### Added
+- land the four process skills that had been sitting untracked
 - retire observations that were one broadcast copied onto everybody
 - tell a student club apart from an employer
 - demo, which reads the product's code instead of guessing at its UI
