@@ -82,7 +82,7 @@ def trend(rec):
     if len(attempts) < 2:
         return ""
     def ratio(a):
-        return a.get("correct", 0) / max(a.get("total", 0) or 1, 1)
+        return a.get("correct", 0) / (a.get("total", 0) or 1)
     first, last = ratio(attempts[0]), ratio(attempts[-1])
     n = len(attempts)
     if last > first:
