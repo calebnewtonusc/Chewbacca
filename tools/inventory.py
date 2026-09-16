@@ -257,25 +257,33 @@ CLI_TOOLS = {
         "install": "brew install --cask cap, then cap desktop install-cli",
         "probe": ("bin", "cap"),
         "description": "Screen recording with spring-physics zoom that follows your clicks, scriptable with --json on every command",
-        # DELIBERATELY NO mcp_serve, even though `cap mcp serve` exists. The
-        # `cap agents install` step below already merges the server into
-        # ~/.claude.json, and the generator's mcp_serve path would then run
-        # `claude mcp add cap` against the same file. One registration, through
-        # the vendor's own supported command.
+        # NO MCP AT ALL, and the reason is worth stating because installing it
+        # looks obviously right. `cap mcp serve` exposes 76 tools and every one
+        # of them is a cloud operation: 24 organization, 19 caps library, 11
+        # developer, 5 space, 3 folder, 3 account, plus billing, analytics and
+        # notifications. Counted off the tool definitions in apps/cli/src/mcp.rs.
+        #
+        # ZERO of them record, export, screenshot, or list capture targets. The
+        # MCP server is the remote control for cap.so, the hosted product. It is
+        # not an interface to the recorder, so it cannot help with the only
+        # reason this kit installs Cap, and it refuses to boot without a
+        # cap.so login. Registering it buys a guaranteed `Failed to connect` in
+        # every session in exchange for nothing.
         #
         # The cask alone is not enough: it drops Cap.app in /Applications and
         # leaves the CLI buried at Contents/MacOS/cap-cli, so nothing is on PATH
         # and the MCP entry it registers would point at a command that does not
         # resolve. The shim and the agent install are the other two thirds.
         #
-        # RECORDING NEEDS NO ACCOUNT. `cap targets`, `cap record`, `cap export`
-        # and `cap doctor` all work on a fresh install: verified enumerating 1
-        # screen, 2 windows, 4 cameras and 3 mics with nobody signed in.
-        # `cap mcp serve` is a different surface, the cloud library, and exits
-        # AUTH_REQUIRED until `cap auth login` runs in a browser. So a fresh
-        # install shows `cap: Failed to connect` in `claude mcp list` while the
-        # part this kit installs Cap for works fine. That is expected, not a
-        # broken install, and it is one browser login away from resolving.
+        # RECORDING NEEDS NO ACCOUNT, EVER. `cap targets`, `cap record`,
+        # `cap export`, `cap recordings list` and `cap doctor` all work signed
+        # out: verified enumerating 1 screen, 2 windows, 4 cameras and 3 mics
+        # with no credential on the machine. The AGPL recorder is the whole
+        # product for this kit's purposes.
+        #
+        # The login exists for cap.so, the hosted half of an open-core product.
+        # Since nothing above touches it, --component skill is the right install
+        # and there is no account step in this kit's path at all.
         "shell": [
             'if [ "$(uname -s)" != "Darwin" ]; then',
             "  :",
@@ -298,13 +306,12 @@ CLI_TOOLS = {
             "    else",
             '      warn "could not install the cap shim"',
             "    fi",
-            "    # Cap ships its own Claude skill, a cap-demo skill, and its MCP",
-            "    # registration. --yes is safe here because --dry-run showed the",
-            "    # plan is creates plus one additive merge; it authorizes local",
-            "    # setup only, never an account, upload or billing action.",
+            "    # skill, not all: `all` would also register the cloud-only MCP server",
+            "    # described above. This installs Cap's own routing skill plus the",
+            "    # cap-demo skill, both of which drive the local CLI.",
             "    if [ -d \"$HOME/.claude/skills/cap\" ]; then",
             '      log "Cap Claude integration already installed"',
-            '    elif "$CAP_CLI" agents install --target claude --component all --yes &>/dev/null; then',
+            '    elif "$CAP_CLI" agents install --target claude --component skill --yes &>/dev/null; then',
             '      log "Cap skills and MCP registered for Claude"',
             "    else",
             '      warn "could not install the Cap Claude integration"',
