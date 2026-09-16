@@ -223,6 +223,10 @@ if group "tools"; then
   check  "AGENTS.md exports for other agents" python3 "$ROOT/tools/agents_md.py" "$TMP"
   check  "the export leaks no @imports" bash -c "! grep -q '^@' '$TMP/AGENTS.md'"
   check  "slop check holds the line" python3 "$ROOT/bin/slop-check" "$ROOT/docs" "$ROOT/skills" --max 60
+  check  "code-slop scores its own tests" python3 "$ROOT/tests/test_code_slop.py"
+  # The house style here is deliberately high-comment, so the one thing that
+  # would make this tool useless is firing on its own codebase.
+  check  "code-slop is quiet on this codebase" bash -c "python3 '$ROOT/bin/code-slop' '$ROOT/bin/people' '$ROOT/bin/slop-check' '$ROOT/bin/code-slop' $ROOT/bin/lib/*.js --max 0"
 fi
 
 # ── installer ─────────────────────────────────────────────────────────────────

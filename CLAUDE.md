@@ -87,13 +87,32 @@ Do not restate them here. They load on their own.
 Before shipping any output (UI, code, copy, documentation), run the deterministic
 check first, then use the human checklist on whatever it surfaces:
 
-Two scanners, because they catch different things and one alone is not enough.
+Three scanners, because they read different things and one alone is not enough.
 
 ```bash
 ai-scan docs/              # vocabulary tells: delve, testament to, ever-evolving
-slop-check docs/ --issues  # structural tells, with line numbers
+slop-check docs/ --issues  # structural tells in prose, with line numbers
 slop-check draft.md --max 20   # exit 1, for a CI gate
+code-slop --issues         # AI-authorship tells in the DIFF, not the prose
 ```
+
+**`ai-scan` and `slop-check` have never read a line of code.** Both score a
+README. Code has its own tells and they are different ones: a comment narrating
+the line below it, a hand-rolled `uuid`, a section banner in a 40-line file, a
+comment arguing that the diff is correct. A reviewer who finds one stops reading
+the code and starts hunting for more, which is the real cost. Slop is a trust
+problem before it is a style problem.
+
+`code-slop` is the deterministic half and runs on the diff for free. The
+judgement calls live in the **`deslop` skill**, which is Carlton Aikins' work
+(github.com/31Carlton7/skills, MIT) and carries the five passes: comments,
+hand-rolled stdlib, cohesion and necessity, tests, tooling parity.
+
+**Comment density is reported and never scored.** This repo comments heavily on
+purpose, because `review-discipline.md` requires a constant to carry the
+incident that set it. Carlton's skill says the same thing from the other side:
+for undocumented-protocol code the comments ARE the spec, and each one is judged
+by whether it states a constraint the code cannot show, never by count.
 
 `ai-scan` wraps the avoid-ai-writing detector and reads word choice. It scores
 clean on a paragraph that opens with a bolded fragment for drama, reveals its
@@ -458,7 +477,7 @@ line reading "X is public and its token leaked" tells you nothing when someone s
 ## Deliverables ship as repos, never as artifacts
 
 **Never publish a Claude Artifact.** When a deliverable would previously have been
-one — a report, a plan, a reference doc, a dashboard — **make it a git repo and
+one (a report, a plan, a reference doc, a dashboard), **make it a git repo and
 push it to GitHub instead.**
 
 An artifact is a dead end. It cannot be cloned, versioned, diffed, forked, PR'd,
