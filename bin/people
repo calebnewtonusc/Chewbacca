@@ -6023,8 +6023,20 @@ function cmdTexts(argv) {
       return pid;
     };
 
-    // One transaction. Without it SQLite commits and fsyncs per row, which
-    // turns a backfill from seconds into half an hour.
+    // Batched transactions, not one enormous one.
+    //
+    // Committing per row fsyncs half a million times and turns a backfill into
+    // half an hour. Wrapping the whole backfill in a single transaction fixes
+    // that and creates a worse problem: one writer holding the database for
+    // minutes, which starved the SessionStart hooks until they were killed at
+    // their timeout. Five of those failures are in this machine's log, all
+    // during a full re-sync, and they read as a broken kit rather than as a
+    // busy one.
+    //
+    // A commit every few thousand rows keeps the fsync count negligible and
+    // gives readers a gap to run in.
+    const TX_ROWS = 5000;
+    let txCount = 0;
     d.exec("BEGIN");
     try {
     for (const r of rows) {
@@ -6048,6 +6060,10 @@ function cmdTexts(argv) {
         if (!pid) unlinked.set(r.with, (unlinked.get(r.with) || 0) + 1);
       }
       if (r.id > maxId) maxId = r.id;
+      if (++txCount % TX_ROWS === 0) {
+        d.exec("COMMIT");
+        d.exec("BEGIN");
+      }
     }
       d.exec("COMMIT");
     } catch (e) {
