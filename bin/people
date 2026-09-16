@@ -752,14 +752,32 @@ function recomputeScores() {
   //
   // A day where one person logs outbound contact with more than thirty others
   // is a blast. Inbound is untouched: if they replied, that is real.
+  // A BLAST IS ONE-DIRECTIONAL. THAT IS WHAT MAKES IT A BLAST.
+  //
+  // The first version of this dropped every outbound message on any day he
+  // messaged more than thirty people. Ninety-five days qualified, including
+  // Christmas 2024, Thanksgiving 2024, and ordinary weeks this month, and 881
+  // people lost their real contact date or had it pushed back a month. A busy
+  // social day is not a broadcast, and the difference is not the count.
+  //
+  // The difference is whether anybody answered. A blast goes out and comes
+  // back empty; a heavy day of real conversation has replies in it. So the day
+  // is only discounted FOR A PERSON WHO DID NOT REPLY THAT DAY. One threshold
+  // cannot tell Christmas from a mailing list, and this does not need to.
   d.exec(`CREATE TEMP TABLE IF NOT EXISTS broadcast_days AS
-          SELECT date(happened_at) AS d FROM interactions
-           GROUP BY date(happened_at)
+          SELECT date(sent_at) AS d FROM messages
+           WHERE from_me = 1
+           GROUP BY date(sent_at)
           HAVING count(DISTINCT person_id) > 30`);
+  d.exec(`CREATE TEMP TABLE IF NOT EXISTS replied_on AS
+          SELECT DISTINCT person_id, date(sent_at) AS d FROM messages
+           WHERE from_me = 0 AND person_id IS NOT NULL`);
   const lastInt = d.prepare(
     `SELECT max(happened_at) AS t FROM interactions
-      WHERE person_id = ?
-        AND date(happened_at) NOT IN (SELECT d FROM broadcast_days)`,
+      WHERE person_id = ?1
+        AND (date(happened_at) NOT IN (SELECT d FROM broadcast_days)
+             OR EXISTS (SELECT 1 FROM replied_on r
+                         WHERE r.person_id = ?1 AND r.d = date(happened_at)))`,
   );
 
   const upDim = d.prepare(
@@ -881,6 +899,9 @@ function historyCtx() {
     // Materialised once per process. A day where one person messages more
     // than thirty others is a blast, not thirty conversations.
     broadcastDays: (() => {
+      d.exec(`CREATE TEMP TABLE IF NOT EXISTS replied_on AS
+              SELECT DISTINCT person_id, date(sent_at) AS d FROM messages
+               WHERE from_me = 0 AND person_id IS NOT NULL`);
       d.exec(`CREATE TEMP TABLE IF NOT EXISTS broadcast_days AS
               SELECT date(sent_at) AS d FROM messages
                WHERE from_me = 1
@@ -907,7 +928,10 @@ function historyCtx() {
          SELECT max(sent_at) AS t FROM messages
           WHERE person_id = ?1 AND sent_at <= ?2
             AND NOT (from_me = 1
-                     AND date(sent_at) IN (SELECT d FROM broadcast_days))
+                     AND date(sent_at) IN (SELECT d FROM broadcast_days)
+                     AND NOT EXISTS (SELECT 1 FROM replied_on r
+                                      WHERE r.person_id = ?1
+                                        AND r.d = date(messages.sent_at)))
        )`,
     ),
     cntFor: d.prepare(
