@@ -623,7 +623,14 @@ _installed_scanners=""
 # passed both while carrying six kickers, three not-X-but-Y constructions and
 # two announced turns, because neither knows what a kicker is. prose-check
 # encodes voice.md and the fifteen 180DC corrections. Python, so no node needed.
-for _tool in ai-scan skill-scan prose-check; do
+#
+# code-slop is the fourth, and the only one that reads CODE. The other three all
+# score a README: vocabulary, structure, and the house list, every one of them
+# over prose. Code has its own AI-authorship tells, a comment narrating the line
+# below it or a section banner in a 40-line file, and nothing here looked for
+# them until 2026-09-16. It pairs with the `deslop` skill, which holds the
+# judgement calls.
+for _tool in ai-scan skill-scan prose-check code-slop; do
   if [ -f "$SCRIPT_DIR/bin/$_tool" ]; then
     link_tool "$_tool"
     _installed_scanners="$_installed_scanners $_tool"
