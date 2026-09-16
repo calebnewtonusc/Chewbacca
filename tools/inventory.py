@@ -267,6 +267,15 @@ CLI_TOOLS = {
         # leaves the CLI buried at Contents/MacOS/cap-cli, so nothing is on PATH
         # and the MCP entry it registers would point at a command that does not
         # resolve. The shim and the agent install are the other two thirds.
+        #
+        # RECORDING NEEDS NO ACCOUNT. `cap targets`, `cap record`, `cap export`
+        # and `cap doctor` all work on a fresh install: verified enumerating 1
+        # screen, 2 windows, 4 cameras and 3 mics with nobody signed in.
+        # `cap mcp serve` is a different surface, the cloud library, and exits
+        # AUTH_REQUIRED until `cap auth login` runs in a browser. So a fresh
+        # install shows `cap: Failed to connect` in `claude mcp list` while the
+        # part this kit installs Cap for works fine. That is expected, not a
+        # broken install, and it is one browser login away from resolving.
         "shell": [
             'if [ "$(uname -s)" != "Darwin" ]; then',
             "  :",
