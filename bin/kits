@@ -57,9 +57,14 @@ fi
 
 if [ -z "$FOUND" ]; then
   [ "$MODE" = "--context" ] && exit 0
-  echo "No kits found."
-  echo "Build one from https://github.com/calebnewtonusc/kit-template, or load the kit-builder skill."
-  exit 0
+  # --register is the whole answer to "the scan cannot see my kit", so it has to
+  # work on a machine where the scan found nothing. That is the first kit
+  # anybody builds, and this used to print "No kits found" and exit 0 at them.
+  if [ "$MODE" != "--register" ]; then
+    echo "No kits found."
+    echo "Build one from https://github.com/calebnewtonusc/kit-template, or load the kit-builder skill."
+    exit 0
+  fi
 fi
 
 field() { grep -m1 "^$2:" "$1" 2>/dev/null | sed "s/^$2: *//"; }
@@ -70,6 +75,24 @@ case "$MODE" in
     target="${2:-$PWD}"
     if [ ! -f "$target/.kit" ]; then
       echo "No .kit marker in $target. A kit needs one to be findable."
+      exit 1
+    fi
+    # Registration is the moment a kit enters the world, and it is the only
+    # write this tool does, so it is the one place a gate can sit. On success
+    # craft-gate prints the rules, which is the point: a kit is a tutorial
+    # somebody follows under a deadline, and the named failure of that genre is
+    # explaining instead of walking them through.
+    #
+    # FAILS CLOSED. No craft-gate on PATH and none beside this script means
+    # nothing here knows what a good kit reads like, so it refuses. A gate that
+    # waves things through when it cannot check is worse than no gate.
+    if command -v craft-gate >/dev/null 2>&1; then
+      craft-gate onboarding-kit || exit 1
+    elif [ -x "$(dirname "$0")/craft-gate" ]; then
+      "$(dirname "$0")/craft-gate" onboarding-kit || exit 1
+    else
+      echo "kits: craft-gate not found, refusing to register a kit nothing has" >&2
+      echo "      studied the craft for. Install it with ./setup.sh" >&2
       exit 1
     fi
     mkdir -p "$(dirname "$REGISTRY")"
