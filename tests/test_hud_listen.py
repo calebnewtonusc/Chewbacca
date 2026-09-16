@@ -22,9 +22,17 @@ import time
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
+import pytest
+
 BIN = Path(__file__).resolve().parent.parent / "bin" / "hud-listen"
 
 failures: list[str] = []
+
+
+@pytest.fixture
+def m():
+    """Load the hud-listen script as a module for unit tests."""
+    return load()
 
 
 def check(name: str, condition: bool, detail: str = "") -> None:
