@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""Caleb's patterns, not generic AI-isms.
+
+ai-scan gave DRAFT-1.md a clean bill while it carried six kickers, three
+not-X-but-Y constructions, two announced turns and two dramatic fragments.
+ai-scan detects delve/tapestry/robust. It does not know what Caleb hates.
+This does. Source of truth: ~/second-brain/core/voice.md, the fifteen
+corrections from the 180DC night.
+
+  ./slopcheck.py <file>...      exit 1 if anything fires
+"""
+import re, sys, pathlib
+
+# (label, regex, why)
+RULES = [
+    ("announced-turn", r"(?i)\b(here'?s what|what i (?:had|got) (?:wrong|backwards)|that (?:is|'s) when i (?:understood|realized)|this is the part where|here'?s the thing)\b",
+     "Announcing the turn instead of turning. Delete it, let the next sentence work."),
+    ("not-x-but-y", r"(?i)((?:it|that|the (?:point|question|difference|problem|answer))'?s? (?:is )?not\b[^.\n]{0,60}\bit'?s\b)|(\bnot the other way around\b)|(\bisn'?t (?:about )?[a-z ]{1,30}, it'?s\b)",
+     "The 'it's not X, it's Y' shape. State Y."),
+    ("metadiscourse", r"(?i)\b(which is the whole point|that matters more than it sounds|the key point is|as you can see|what i'?m trying to say|somehow better than)\b",
+     "Telling the reader how to read it. Cut the aside."),
+    ("summary-ending", r"(?i)^\s*(in conclusion|ultimately|overall|at the end of the day|all in all)\b",
+     "Summary-recap ending."),
+    ("throat-clearing", r"(?i)^\s*(let me be clear|to be honest|to be fair|the reality is|it'?s worth noting)\b",
+     "Throat-clearing. Open on the point."),
+    ("faux-insight", r"(?i)\b(what nobody tells you|the part everyone misses|most people get this wrong|nobody talks about)\b",
+     "Faux-insight setup. Make the claim stand alone."),
+    ("banned-word", r"(?i)\b(delve|foster|leverage|utilize|facilitate|empower|streamline|robust|seamless|cutting-edge|game changer|paradigm shift|transformative|elevate|harness|meticulous|intricate|realm|tapestry|ever-evolving)\b",
+     "Banned word."),
+    ("em-dash", r"—", "Em dash. Use a colon, period, or comma."),
+    ("ing-clause", r", (?:highlighting|underscoring|showcasing|demonstrating|reflecting|emphasizing|showing) (?:the|his|her|their|its|a|an)\b",
+     "Superficial -ing clause."),
+    ("importance-puffery", r"(?i)\b(a testament to|marks a pivotal|underscores the|speaks volumes)\b",
+     "Importance puffery."),
+]
+
+# Fragments under N words on their own sentence, stacked back to back.
+def dramatic_fragments(text):
+    hits = []
+    for para in text.split("\n\n"):
+        flat = " ".join(para.split())
+        sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+", flat) if s.strip()]
+        run = 0
+        for s in sents:
+            if len(s.split()) <= 5 and not s.startswith(('"', "'", "#", "-", ">")):
+                run += 1
+                if run >= 2:
+                    hits.append(s)
+            else:
+                run = 0
+    return hits
+
+def kickers(text):
+    """A paragraph's last sentence that is short, starts with a conjunction or
+    'I', and contains no concrete noun from the paragraph. Heuristic and noisy
+    on purpose: it is a prompt to reread, not a verdict."""
+    out = []
+    for para in text.split("\n\n"):
+        flat = " ".join(para.split())
+        if flat.startswith(("#", ">", "-", "|")) or len(flat.split()) < 30:
+            continue
+        sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+", flat) if s.strip()]
+        if not sents:
+            continue
+        last = sents[-1]
+        w = last.split()
+        if 3 <= len(w) <= 12 and re.match(r"(?i)^(and|but|so|because|that|it|this|i'?m|i |there)\b", last):
+            if not re.search(r"\d|\"", last):
+                out.append(last)
+    return out
+
+def main(paths):
+    bad = 0
+    for p in paths:
+        text = pathlib.Path(p).read_text()
+        # Never lint the disclosure paragraph; it is required boilerplate.
+        text = text.split("## Note on AI use")[0]
+        # Skip any MLA/name header above the first markdown title.
+        m = re.search(r"^# ", text, re.M)
+        if m:
+            text = text[m.start():]
+        found = []
+        for label, rx, why in RULES:
+            for m in re.finditer(rx, text, re.M):
+                line = text[:m.start()].count("\n") + 1
+                found.append((line, label, m.group(0).strip()[:60], why))
+        for f in dramatic_fragments(text):
+            found.append((0, "dramatic-fragment", f[:60], "Stacked short sentences for rhythm."))
+        for k in kickers(text):
+            found.append((0, "possible-kicker", k[:60], "Paragraph ends on a manufactured line. Should end on a plain fact."))
+        if found:
+            bad = 1
+            print(f"\n{p}: {len(found)} flagged")
+            for line, label, snip, why in sorted(found):
+                loc = f"L{line}" if line else "  "
+                print(f"  {loc:>5}  {label:<18} {snip!r}")
+                print(f"         -> {why}")
+        else:
+            print(f"{p}: clean")
+    return bad
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        sys.exit(__doc__)
+    sys.exit(main(sys.argv[1:]))
