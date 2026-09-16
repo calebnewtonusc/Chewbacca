@@ -26,16 +26,31 @@ const TAGS = [
   { key: "IYA", label: "IYA", group: "school", match: /\bIYA\b/i },
 
   { key: "A2F", label: "A2F", group: "faith", match: /\bA2F\b/i },
-  { key: "CHALLENGE", label: "Christian Challenge", group: "faith", match: /\bChallenge\b/i },
+  {
+    key: "CHALLENGE",
+    label: "Christian Challenge",
+    group: "faith",
+    match: /\bChallenge\b/i,
+  },
   { key: "AGO", label: "AGO", group: "faith", match: /\bAGO\b/i },
   { key: "BUAI", label: "BUAI", group: "faith", match: /\bBUAI\b/i },
   { key: "OASIS", label: "Oasis", group: "faith", match: /\bOasis\b/i },
-  { key: "CATHOLIC", label: "Catholic", group: "faith", match: /\bCatholic\b/i },
+  {
+    key: "CATHOLIC",
+    label: "Catholic",
+    group: "faith",
+    match: /\bCatholic\b/i,
+  },
   { key: "ACTS", label: "ACTS", group: "faith", match: /\bACTS\b/ },
   // "Christian" is a first name as often as it is a label. Only a later token
   // counts, so "Lucas Brandt IYA" stays a person and "Gabriel Hunt
   // Bro USC" picks up the tag.
-  { key: "CHRISTIAN", label: "Christian", group: "faith", match: /\S+\s+.*\bChristian\b/i },
+  {
+    key: "CHRISTIAN",
+    label: "Christian",
+    group: "faith",
+    match: /\S+\s+.*\bChristian\b/i,
+  },
 
   { key: "KTP", label: "KTP", group: "club", match: /\bKTP\b/i },
   { key: "SEP", label: "SEP", group: "club", match: /\bSEP\b/i },
@@ -46,7 +61,12 @@ const TAGS = [
   // only a token after the first one counts as the label.
   { key: "MAIA", label: "MAIA", group: "club", match: /\S+\s+.*\bMAIA\b/i },
   { key: "FLAVORS", label: "Flavors", group: "club", match: /\bFlavou?rs\b/i },
-  { key: "TROYCAMP", label: "Troy Camp", group: "club", match: /\bTroy ?camp\b/i },
+  {
+    key: "TROYCAMP",
+    label: "Troy Camp",
+    group: "club",
+    match: /\bTroy ?camp\b/i,
+  },
   { key: "LAVA", label: "LAVA", group: "club", match: /\bLAVA\b/i },
   { key: "SHIFT", label: "Shift", group: "club", match: /\bShift\b/i },
 
@@ -59,53 +79,79 @@ const TAGS = [
   { key: "WRIT", label: "WRIT", group: "class", match: /\bWRIT\b/i },
   { key: "COGSCI", label: "CogSci", group: "class", match: /\bCogsci\b/i },
 
-  { key: "BASEBALL", label: "Baseball", group: "sport", match: /\bBaseball\b/i },
+  {
+    key: "BASEBALL",
+    label: "Baseball",
+    group: "sport",
+    match: /\bBaseball\b/i,
+  },
 
-  { key: "MARSHALL", label: "Marshall", group: "school", match: /\bMarshall\b/i },
+  {
+    key: "MARSHALL",
+    label: "Marshall",
+    group: "school",
+    match: /\bMarshall\b/i,
+  },
   { key: "VITERBI", label: "Viterbi", group: "school", match: /\bViterbi\b/i },
   { key: "SCA", label: "SCA", group: "school", match: /\bSCA\b/ },
   { key: "USC", label: "USC", group: "school", match: /\bUSC\b/i },
 ];
 
-// Tokens that are a label rather than part of somebody's name, stripped from
-// the display name so the badges carry the meaning and the name stays a name.
+// THE LABEL LISTS ARE GONE. They used to live here: forty-odd HARD tokens
+// ("Nemmy", "Troy ?camp", "Flavou?rs") plus a SOFT list of the ones that are
+// also somebody's given name, because "Maia IYA" stripped to an empty string
+// and "Lucas Brandt IYA" lost his first name.
 //
-// HARD is safe to remove anywhere. SOFT is the list that is also somebody's
-// given name: "Maia IYA" and "Lucas Brandt IYA" are both real people whose
-// names were being eaten, so a soft label only counts after the first token.
-const HARD = [
-  "USC", "IYA", "A2F", "AGO", "BUAI", "KTP", "SEP", "BTG", "RISE", "LAVA",
-  "SCA", "BISC", "GESM", "ACAD", "WRIT", "MPGU", "BME", "Cogsci", "Nemmy",
-  "Avenues", "Flavou?rs", "Troy ?camp", "Marshall", "Viterbi", "Leavey",
-  "Baseball", "Oasis", "Catholic", "ACTS", "Challenge", "Shift",
-  "Bro", "Bros", "Dude", "Prez", "Club", "Goat", "Cracked", "Jacked", "Frat",
-  "Reality", "180", "Consulting",
-];
-const SOFT = ["Christian", "Maia", "Faith", "Grace", "Hope", "Man"];
+// Both lists were Caleb's own vocabulary, typed out by hand, shipping inside a
+// kit that other people install and where they match nothing at all. A label
+// had to be predicted before it could be handled.
+//
+// name-split.js works it out from the book instead: a token on thirty different
+// people is a label, the same token on three is a family. Pointed at Caleb's
+// 3,351 contacts it rediscovers the entire hand list and finds AINA, FCF,
+// Arcadia, CV and TC, which the hand list never had. See bin/lib/name-split.js.
+const { refineCorpus, splitName } = require("./name-split.js");
 
-const HARD_RE = new RegExp("\\b(" + HARD.join("|") + ")\\b", "gi");
-const SOFT_RE = new RegExp("\\b(" + SOFT.join("|") + ")\\b", "gi");
-
-function tagsFor(name) {
+/**
+ * The curated TAGS above are now a STYLING overlay, not the source of truth.
+ * They carry the group, the colour and the spelled-out label ("Christian
+ * Challenge" for "Challenge"), which is knowledge about what the tag MEANS and
+ * cannot be derived. What tags a person HAS comes from the split.
+ *
+ * Anything the splitter finds that no curated entry covers still shows, under
+ * the "other" group, which is what makes this dashboard work on somebody else's
+ * address book instead of erroring into an empty page.
+ */
+function tagsFor(name, split = null) {
   const hits = [];
-  for (const t of TAGS) if (t.match.test(name)) hits.push(t);
+  const seen = new Set();
+  for (const t of TAGS) {
+    if (t.match.test(name)) {
+      hits.push(t);
+      seen.add(t.label.toLowerCase());
+    }
+  }
+  for (const raw of split?.tags ?? []) {
+    const k = raw.toLowerCase();
+    if (seen.has(k)) continue;
+    // Curated keys are matched against the raw token too, so "BTG" found by the
+    // splitter does not show twice when TAGS already styles it.
+    if (TAGS.some((t) => t.key.toLowerCase() === k)) continue;
+    seen.add(k);
+    hits.push({ key: raw.toUpperCase(), label: raw, group: "other" });
+  }
   return hits;
 }
 
-function displayName(name) {
-  const parts = String(name).trim().split(/\s+/);
-  const first = parts[0] || "";
-  const rest = parts.slice(1).join(" ");
-  const cleaned = (first + " " + rest.replace(HARD_RE, " ").replace(SOFT_RE, " "))
-    .replace(/\s+/g, " ")
-    .replace(/^[\s,\-]+|[\s,\-]+$/g, "")
-    .trim();
-  // The first token is kept even when it is a label, so an entry saved purely
-  // as a label ("USC Christian Challenge") survives as itself rather than
-  // becoming the single word "USC".
-  const firstIsLabel = new RegExp("^(" + HARD.join("|") + ")$", "i").test(first);
-  if (firstIsLabel || cleaned.length < 2) return name;
-  return cleaned;
+/**
+ * The name with the annotation taken off. `corpus` comes from the whole book,
+ * because one card in isolation cannot tell a label from a surname.
+ *
+ * Without a corpus this degrades to position and shape rather than throwing,
+ * which keeps the old single-argument callers working.
+ */
+function displayName(name, corpus = null) {
+  return splitName(String(name), corpus).name || String(name);
 }
 
 // ---------------------------------------------------------------- data
@@ -129,9 +175,23 @@ function collect(d, opts = {}) {
       WHERE person_id = ? ORDER BY sent_at DESC, msg_id DESC LIMIT 1`,
   );
 
+  // THE CORPUS IS BUILT OVER THE WHOLE BOOK, not over `rows`.
+  //
+  // `rows` is only people who have exchanged messages, which is a third of the
+  // contacts here. Frequency evidence read off a third of the book undercounts
+  // every label, and a label that falls under the threshold silently goes back
+  // to being somebody's surname. Two passes over 3,351 names costs about 30ms,
+  // once per request.
+  const corpus = refineCorpus(
+    d
+      .prepare(`SELECT name, nickname FROM people WHERE deleted_at IS NULL`)
+      .all(),
+  );
+
   const out = [];
   for (const r of rows) {
-    const tags = tagsFor(r.name);
+    const split = splitName(r.name, corpus);
+    const tags = tagsFor(r.name, split);
     // The scope is the question he asked: USC or IYA. Everyone else is a real
     // person but not this list.
     if (!tags.some((t) => t.key === "USC" || t.key === "IYA")) continue;
@@ -139,7 +199,7 @@ function collect(d, opts = {}) {
     const primary = tags.find((t) => t.key !== "USC") || tags[0];
     out.push({
       id: r.id,
-      name: displayName(r.name),
+      name: split.name || r.name,
       raw: r.name,
       phone: r.phone || null,
       tags: tags.map((t) => ({ label: t.label, group: t.group, key: t.key })),
@@ -392,7 +452,10 @@ function serve({ db, port, host, onReady }) {
         res.end(
           JSON.stringify({
             people,
-            syncedAt: new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+            syncedAt: new Date().toLocaleTimeString([], {
+              hour: "numeric",
+              minute: "2-digit",
+            }),
           }),
         );
       };
