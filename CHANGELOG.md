@@ -6,6 +6,8 @@ real commit; nothing here is written by hand.
 ## Unreleased
 
 ### Added
+- gate the other producers on having studied the craft
+- claude-tab, so Chewbacca can hold a conversation with another Claude
 - craft-gate, so the demo rules fire instead of sitting in a file
 - land the four process skills that had been sitting untracked
 - retire observations that were one broadcast copied onto everybody
@@ -35,6 +37,7 @@ real commit; nothing here is written by hand.
 - hud demo
 
 ### Fixed
+- kits --register was unreachable on a machine with no kits
 - stop two test scripts from aborting the whole pytest session
 - one definition of last contact, and show who is waiting on whom
 - do not register Cap's MCP server, all 76 of its tools are cloud-only

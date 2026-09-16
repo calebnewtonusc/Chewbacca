@@ -14,6 +14,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import sys
 import tempfile
 import urllib.request
@@ -33,9 +34,26 @@ def check(name: str, ok: bool, detail: str = "") -> None:
         failures.append(name)
 
 
+def _seed_craft(guide_dir: str) -> None:
+    """Point CRAFT_DIR at a temp store holding the study-guide craft notes.
+
+    cmd_new runs craft-gate before it writes anything, and the gate refuses on a
+    craft nobody has studied. Without this the unit tests exercise the refusal
+    path instead of the thing they are testing. Seeding here rather than
+    stubbing the gate keeps the tests honest: the real gate still runs.
+    """
+    store = Path(guide_dir).parent / "craft"
+    store.mkdir(parents=True, exist_ok=True)
+    src = BIN.parent.parent / "crafts" / "study-guide.md"
+    if src.is_file():
+        shutil.copy2(src, store / "study-guide.md")
+    os.environ["CRAFT_DIR"] = str(store)
+
+
 def load(guide_dir: str):
     """Import bin/guide as a module, pointing GUIDE_DIR at a temp dir."""
     os.environ["GUIDE_DIR"] = guide_dir
+    _seed_craft(guide_dir)
     spec = importlib.util.spec_from_file_location(
         "guide_mod", BIN, loader=SourceFileLoader("guide_mod", str(BIN))
     )
