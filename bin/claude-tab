@@ -1,0 +1,266 @@
+#!/usr/bin/env python3
+"""claude-tab: drive a Claude Code tab in VS Code, and know when it is finished.
+
+Chewbacca can already record a window and click things. What it could not do was
+hold a conversation with another Claude, because there was no way to tell when
+that Claude had stopped working. Every attempt used a fixed `sleep`, and the one
+recording made this way ended while the other session was still thinking, so the
+demo had no payoff in frame.
+
+    claude-tab window            the VS Code window this will drive
+    claude-tab new               open a fresh Claude tab, verified
+    claude-tab status            idle | busy | absent
+    claude-tab wait              block until idle
+    claude-tab send "<prompt>"   type it and press return, do not wait
+    claude-tab ask "<prompt>"    send, wait for idle, then return
+
+`ask` is the one that matters: it is a full turn, so a caller can drive a real
+back-and-forth instead of guessing at durations.
+
+WHAT IS DISCOVERABLE AND WHAT IS NOT. The message input is exposed to the
+accessibility tree with `description: "Message input"`, so it is found by
+description and clicked by element id, never by coordinates. The Claude toolbar
+icon is NOT exposed, because it renders inside the Electron webview, so opening
+a tab is the one action that needs a derived coordinate. That click is verified
+rather than trusted.
+"""
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+import time
+
+APP = "Code"
+
+# The input's placeholder IS the run state, and it is the only honest signal
+# this UI exposes. Observed across every capture on 2026-09-16: while a turn is
+# in flight the box reads "Queue another message…", and the moment it finishes
+# it returns to "Esc to focus or unfocus Claude".
+BUSY = "Queue another message"
+IDLE = "Esc to focus or unfocus"
+
+# The Claude icon's offset inside the window, measured on a 1123x880 editor at
+# (388,43): the icon sat at screen (1357,96), so 154px in from the right edge
+# and 53px down from the top. The toolbar is anchored to the top-right, so an
+# offset from that corner survives a resize in a way an absolute point does not.
+ICON_FROM_RIGHT = 154
+ICON_FROM_TOP = 53
+
+
+def peekaboo(*args, timeout=60):
+    return subprocess.run(
+        ["peekaboo", *args], capture_output=True, text=True, timeout=timeout
+    )
+
+
+def window():
+    """The real editor window, as (id, x, y, w, h).
+
+    VS Code also publishes 1512x37 menu-bar strips with the same owner, so the
+    largest-area window is the editor. Ids come back as STRINGS from some tools
+    and ints from others; this normalises to str, because comparing the two
+    silently reported a live window as gone, twice, and the second time the
+    clicks that followed landed on the Dock and launched applications.
+    """
+    r = peekaboo("list", "windows", "--app", APP, "--json")
+    try:
+        data = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        sys.exit("claude-tab: could not read the window list. Is VS Code running?")
+
+    def find(o):
+        if isinstance(o, dict):
+            if isinstance(o.get("windows"), list):
+                return o["windows"]
+            for v in o.values():
+                got = find(v)
+                if got:
+                    return got
+        return None
+
+    wins = find(data) or []
+    best = None
+    for w in wins:
+        b = w.get("bounds")
+        if not b:
+            continue
+        (x, y), (ww, hh) = b
+        if best is None or ww * hh > best[3] * best[4]:
+            best = (str(w.get("window_id") or w.get("id")), x, y, ww, hh)
+    if not best:
+        sys.exit("claude-tab: no VS Code window found.")
+    return best
+
+
+def tree(win_id):
+    r = peekaboo("see", "--app", APP, "--window-id", str(win_id), "--json", timeout=90)
+    return r.stdout
+
+
+def input_field(win_id):
+    """(element_id, placeholder) for the Claude message box, or (None, None).
+
+    Only the FRONTMOST tab's field is published, which is the constraint worth
+    knowing: this reports the state of whichever Claude tab is on top, not of a
+    tab hidden behind it.
+    """
+    s = tree(win_id)
+    for m in re.finditer(r"\{[^{}]*\}", s):
+        blob = m.group(0)
+        if '"Message input"' not in blob:
+            continue
+        eid = re.search(r'"id"\s*:\s*"([^"]+)"', blob)
+        lab = re.search(r'"label"\s*:\s*"([^"]*)"', blob)
+        if eid:
+            return eid.group(1), (lab.group(1) if lab else "")
+    return None, None
+
+
+def classify(present, label):
+    """Pure so it can be tested without a running VS Code."""
+    if not present:
+        return "absent"
+    if BUSY in label:
+        return "busy"
+    if IDLE in label:
+        return "idle"
+    # A field carrying neither placeholder holds text somebody typed, which
+    # means a turn has not been sent yet. Treat that as idle rather than
+    # guessing, so `ask` does not block forever on a half-written prompt.
+    return "idle"
+
+
+def status(win_id):
+    eid, label = input_field(win_id)
+    return classify(bool(eid), label or "")
+
+
+def wait(win_id, timeout, quiet=False):
+    """Block until idle. Returns True when it settled, False on timeout.
+
+    A turn that has not started yet reads idle, so this waits for busy first
+    when it sees idle immediately, with a short grace window. Without that,
+    `ask` returns the instant it sends, before Claude has picked the work up.
+    """
+    deadline = time.time() + timeout
+    grace = time.time() + 6
+    seen_busy = False
+    while time.time() < deadline:
+        st = status(win_id)
+        if st == "busy":
+            seen_busy = True
+        elif st == "idle" and (seen_busy or time.time() > grace):
+            if not quiet:
+                print("  idle")
+            return True
+        elif st == "absent":
+            sys.exit("claude-tab: no Claude tab is frontmost.")
+        time.sleep(2)
+    if not quiet:
+        print(f"  still busy after {timeout}s", file=sys.stderr)
+    return False
+
+
+def focus():
+    subprocess.run(
+        ["osascript", "-e", 'tell application "Visual Studio Code" to activate'],
+        capture_output=True,
+    )
+    time.sleep(1.2)
+
+
+def cmd_new(args):
+    wid, x, y, w, h = window()
+    before = input_field(wid)[1]
+    focus()
+    peekaboo(
+        "click",
+        "--coords",
+        f"{x + w - ICON_FROM_RIGHT},{y + ICON_FROM_TOP}",
+        "--app",
+        APP,
+    )
+    time.sleep(3)
+    # VERIFY, do not trust. A fresh tab's box is idle and empty; if the click
+    # missed, the previous tab is still frontmost and still reads the same.
+    eid, label = input_field(wid)
+    if not eid:
+        sys.exit("claude-tab: clicked, but no Claude input appeared. Check the icon offset.")
+    if IDLE not in label and label == before:
+        sys.exit("claude-tab: the tab did not change. Check the icon offset.")
+    print(f"  new Claude tab open (window {wid})")
+    return 0
+
+
+def cmd_send(args):
+    wid = window()[0]
+    # REFUSE TO TYPE INTO A TAB THAT IS MID-TURN, and this guard is not
+    # politeness. The session driving this tool is itself a Claude tab in the
+    # same window, and it is BUSY by definition for as long as it is running. So
+    # without this, a `send` issued before `new` succeeded types the prompt into
+    # the caller's own input box. A busy tab also queues rather than starts,
+    # which is not what a caller waiting on a turn wants either.
+    st = status(wid)
+    if st == "busy" and not args.force:
+        sys.exit(
+            "claude-tab: the frontmost Claude tab is mid-turn.\n"
+            "  Open a fresh one first (claude-tab new), or pass --force to queue."
+        )
+    focus()
+    eid, _ = input_field(wid)
+    if not eid:
+        sys.exit("claude-tab: no Claude input found. Open a tab first: claude-tab new")
+    peekaboo("click", "--on", eid, "--app", APP)
+    time.sleep(0.8)
+    peekaboo("type", args.prompt, "--app", APP, timeout=120)
+    time.sleep(1.0)
+    peekaboo("hotkey", "--keys", "return", "--app", APP)
+    print(f"  sent: {args.prompt[:60]}")
+    return 0
+
+
+def cmd_ask(args):
+    cmd_send(args)
+    ok = wait(window()[0], args.timeout)
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="claude-tab")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("window")
+    sub.add_parser("new")
+    sub.add_parser("status")
+    w = sub.add_parser("wait")
+    w.add_argument("--timeout", type=int, default=300)
+    s = sub.add_parser("send")
+    s.add_argument("prompt")
+    s.add_argument("--force", action="store_true", help="send even if mid-turn")
+    a = sub.add_parser("ask")
+    a.add_argument("prompt")
+    a.add_argument("--force", action="store_true", help="send even if mid-turn")
+    a.add_argument("--timeout", type=int, default=300)
+    args = ap.parse_args()
+
+    if args.cmd == "window":
+        wid, x, y, ww, hh = window()
+        print(f"  window {wid}  at ({x},{y})  {ww}x{hh}")
+        return 0
+    if args.cmd == "new":
+        return cmd_new(args)
+    if args.cmd == "status":
+        print(f"  {status(window()[0])}")
+        return 0
+    if args.cmd == "wait":
+        return 0 if wait(window()[0], args.timeout) else 1
+    if args.cmd == "send":
+        return cmd_send(args)
+    if args.cmd == "ask":
+        return cmd_ask(args)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

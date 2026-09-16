@@ -275,6 +275,8 @@ if group "tools"; then
     bash -c "CRAFT_DIR='$TMP/craft-all' python3 '$ROOT/mac/lib/brief.py' --json 2>/dev/null | python3 -c 'import json,sys; json.load(sys.stdin)'"
   check  "brief sends the rules to stderr in --json mode" \
     bash -c "CRAFT_DIR='$TMP/craft-all' python3 '$ROOT/mac/lib/brief.py' --json 2>&1 >/dev/null | grep -q 'One page'"
+
+  check  "claude-tab classifies run state and guards its own tab" python3 "$ROOT/tests/test_claude_tab.py"
   # The house style here is deliberately high-comment, so the one thing that
   # would make this tool useless is firing on its own codebase.
   check  "code-slop is quiet on this codebase" bash -c "python3 '$ROOT/bin/code-slop' '$ROOT/bin/people' '$ROOT/bin/slop-check' '$ROOT/bin/code-slop' $ROOT/bin/lib/*.js --max 0"

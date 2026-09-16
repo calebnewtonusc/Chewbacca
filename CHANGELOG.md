@@ -6,6 +6,7 @@ real commit; nothing here is written by hand.
 ## Unreleased
 
 ### Added
+- gate the other producers on having studied the craft
 - craft-gate, so the demo rules fire instead of sitting in a file
 - land the four process skills that had been sitting untracked
 - retire observations that were one broadcast copied onto everybody

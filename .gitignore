@@ -26,3 +26,8 @@ plynn/build/
 # anywhere sensible. Zero bytes and untracked, so it shows up in git status
 # after every test run and looks like work.
 *.profraw
+
+# Parallel-tab worktrees. CLAUDE.md requires a worktree per concurrent agent,
+# and the Stop hook auto-commits, so leaving this untracked means a second
+# session's entire checkout can get swept into a commit here.
+.worktrees/
