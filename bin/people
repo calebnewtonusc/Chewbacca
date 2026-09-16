@@ -1833,6 +1833,22 @@ function cmdShow(argv) {
     );
   }
 
+  // WHERE the last message was, not just when. `circles` lists every room they
+  // are in, which does not tell you the one they just wrote in, and that is the
+  // thing you need before replying to somebody.
+  const lastRoom = d
+    .prepare(
+      `SELECT room, sent_at FROM messages WHERE person_id = ?
+        ORDER BY sent_at DESC LIMIT 1`,
+    )
+    .get(p.id);
+  if (lastRoom)
+    say(
+      c.dim(
+        `  last spoke ${lastRoom.room ? `in ${c.b(lastRoom.room)}` : "one to one"}, ${String(lastRoom.sent_at).slice(0, 16)}`,
+      ),
+    );
+
   const qf = d.prepare("SELECT key, value FROM quick_facts WHERE person_id=? ORDER BY key").all(p.id);
   if (qf.length) {
     say("");
