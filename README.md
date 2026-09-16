@@ -224,6 +224,7 @@ with a cost ceiling.
 | [docs/MACOS-TOOLS.md](docs/MACOS-TOOLS.md)         | Screen, apps, permissions, failure modes     |
 | [docs/SCHOOL.md](docs/SCHOOL.md)                   | The coursework ledger and its AI policy gate |
 | [docs/METHODOLOGY.md](docs/METHODOLOGY.md)         | Why it is built this way                     |
+| [docs/ADVISING.md](docs/ADVISING.md)               | Helping someone reach a goal, not write code |
 | [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) | Adding a skill or a tool                     |
 | [docs/](docs/README.md)                            | Index of everything below                    |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | When something is broken, by symptom         |
