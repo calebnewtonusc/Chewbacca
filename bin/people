@@ -3679,6 +3679,14 @@ function cmdLinkedin(argv) {
   } else if (writes.length) {
     say(c.dim(`  ${writes.length} cards would gain or update a company (--dry-run)`));
   }
+  const invites = ingestInvitations(d, files, apply);
+  if (invites)
+    say(
+      apply
+        ? `  ${c.grn(String(invites))} now record who sent the connection request first.`
+        : c.dim(`  ${invites} would record who reached out first (--dry-run)`),
+    );
+
   if (notes.length && apply) {
     const n = writeContactNotes(notes);
     say(`  ${c.grn(String(n))} notes written, with the LinkedIn link and what you know.`);
@@ -3715,23 +3723,50 @@ function cmdLinkedin(argv) {
 // `mac contacts edit` addresses a card by the same "<UUID>:ABPerson" id the
 // database stores, which is what makes this a direct write rather than the
 // scan-every-contact loop that made the first attempt take minutes.
+// Organization and job title, through the same scripted interface the notes go
+// through.
+//
+// This used to shell out to `mac contacts edit` once per card. That worked
+// until it didn't: it started returning CoreData 134092 and exiting zero, so
+// every write failed while the run reported success, and the summary printed
+// "0 cards updated" directly above "33 of those had an older employer". A
+// count that disagrees with the sentence under it is the only reason this was
+// noticed at all.
+//
+// One osascript call for the whole batch, addressed by the same id the notes
+// use, and it sets the job title too, which the CLI never could.
 function writeContactOrgs(writes) {
-  let n = 0;
-  for (const w of writes) {
-    if (!w.uid || !w.org) continue;
+  const rows = writes.filter((w) => w.uid && (w.org || w.title));
+  if (!rows.length) return 0;
+  const script = `
+function run(argv) {
+  var rows = JSON.parse(argv[0]);
+  var app = Application("Contacts");
+  var n = 0;
+  for (var i = 0; i < rows.length; i++) {
     try {
-      execFileSync("mac", ["contacts", "edit", w.uid, "--org", w.org, "--quiet"], {
-        encoding: "utf8",
-        timeout: 15000,
-        stdio: "ignore",
-      });
+      var p = app.people.byId(rows[i].uid);
+      if (rows[i].org) p.organization = rows[i].org;
+      if (rows[i].title) p.jobTitle = rows[i].title;
       n++;
-    } catch {
-      // One card that will not take a write is not a reason to abandon the
-      // other sixty. The count reported is what actually landed.
-    }
+    } catch (e) {}
   }
-  return n;
+  app.save();
+  return String(n);
+}`;
+  const f = `${require("node:os").tmpdir()}/chewbacca-orgs-${process.pid}.js`;
+  fs.writeFileSync(f, script);
+  try {
+    const out = execFileSync("osascript", ["-l", "JavaScript", f, JSON.stringify(rows)], {
+      encoding: "utf8",
+      timeout: 180000,
+    });
+    return Number(String(out).trim()) || 0;
+  } catch {
+    return 0;
+  } finally {
+    try { fs.unlinkSync(f); } catch {}
+  }
 }
 
 // A job change, found for free by comparing two exports that were already on
@@ -3929,6 +3964,57 @@ function linkedinLocate(flags) {
     );
   if (total > rows.length) say(c.dim(`  ${total - rows.length} still to go. Re-run to continue; finished people are skipped.`));
   say();
+}
+
+// WHO REACHED OUT FIRST.
+//
+// Invitations.csv sits in every LinkedIn export and nothing was reading it. It
+// carries a Direction per connection, so it answers a question no other source
+// here can: did this person seek him out, or did he seek them. 450 of these
+// people wrote first, and that is a different relationship from the 1,589 he
+// pursued. It costs nothing, it is already on the disk, and it never changes
+// once written, which makes it the cheapest durable fact in the export.
+function ingestInvitations(d, files, apply) {
+  let written = 0;
+  const seen = new Set();
+  for (const conns of files) {
+    const dir = conns.replace(/Connections\.csv$/, "Invitations.csv");
+    if (!fs.existsSync(dir)) continue;
+    let rows = [];
+    try {
+      rows = parseCsvRows(fs.readFileSync(dir, "utf8").replace(/^﻿/, ""));
+    } catch {
+      continue;
+    }
+    const head = rows.findIndex((r) => r.includes("Direction"));
+    if (head < 0) continue;
+    const cols = rows[head];
+    const idx = (n) => cols.indexOf(n);
+    for (const r of rows.slice(head + 1)) {
+      const direction = r[idx("Direction")];
+      if (!direction) continue;
+      // The other party's name is whichever end is not him.
+      const who = direction === "OUTGOING" ? r[idx("To")] : r[idx("From")];
+      const when = r[idx("Sent At")] || "";
+      if (!who || seen.has(who)) continue;
+      seen.add(who);
+      const p = d
+        .prepare(`SELECT id FROM people WHERE lower(name)=lower(?) AND deleted_at IS NULL`)
+        .get(who.trim());
+      if (!p) continue;
+      const value =
+        direction === "INCOMING"
+          ? `they sent the connection request${when ? ` (${when})` : ""}`
+          : `he sent the connection request${when ? ` (${when})` : ""}`;
+      if (apply)
+        d.prepare(
+          `INSERT INTO quick_facts (person_id, key, value) VALUES (?, 'first_move', ?)
+           ON CONFLICT(person_id, key) DO UPDATE SET value=excluded.value`,
+        ).run(p.id, value);
+      written++;
+    }
+  }
+  return written;
 }
 
 function linkedinChanges(changes, flags) {
