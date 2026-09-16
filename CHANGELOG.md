@@ -6,6 +6,8 @@ real commit; nothing here is written by hand.
 ## Unreleased
 
 ### Added
+- retire observations that were one broadcast copied onto everybody
+- tell a student club apart from an employer
 - demo, which reads the product's code instead of guessing at its UI
 - bake Cap in, the screen recorder whose zoom follows your clicks
 - code-slop, because every scanner here has only ever read prose
@@ -31,6 +33,8 @@ real commit; nothing here is written by hand.
 - hud demo
 
 ### Fixed
+- stop two test scripts from aborting the whole pytest session
+- one definition of last contact, and show who is waiting on whom
 - do not register Cap's MCP server, all 76 of its tools are cloud-only
 - show where somebody last spoke, not only when
 - setup.sh installs code-slop, so the one scanner that reads code is on PATH
