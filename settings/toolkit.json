@@ -4,6 +4,7 @@
     "vendored": [
       "agent-setup",
       "coursework",
+      "demo",
       "graph-engineering",
       "kit-builder",
       "life-context",
