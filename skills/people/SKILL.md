@@ -99,6 +99,18 @@ record for each card, so connections with no card stay out; the only write is a
 company onto a card and a note. It also learns nicknames, and keeps whatever the
 user typed into a contact name ("Owen Marsh IYA") as how they know them.
 
+**Asked to enrich somebody, check for the key before saying anything about
+cost.** `cat ~/.chewbacca/clay-key` is the whole check, and if it is there the
+answer is not "that costs credits", it is `people linkedin locate`. Never make
+the user tell you a key exists that is sitting on their own disk, and never
+open with a caveat about billing you have not verified applies.
+
+The reason the cheap path exists: **Clay bills enrichment, not search.**
+Resolving a phone number to a profile is billed per record. Searching by name
+is free, and it returns location and dated work history in the same response.
+The export already holds each connection's profile URL, so the right person
+falls out of a string match instead of a paid disambiguation.
+
 `people linkedin locate` needs a Clay API key in `~/.chewbacca/clay-key`, one
 line, no quotes. It fills in where people live and what they have done,
 using a search that costs nothing rather than an enrichment that is billed per
