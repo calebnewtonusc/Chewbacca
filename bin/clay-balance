@@ -1,0 +1,13 @@
+#!/bin/bash
+# Clay credit balance, read with the key this kit already stores.
+#
+# `clay credits balance` from Clay's own CLI answers auth_required unless you
+# have run `clay login`, which sent an agent looking for a browser OAuth flow it
+# could not complete and made it report the balance as unavailable. The key at
+# ~/.chewbacca/clay-key is a different and sufficient credential, and it is the
+# one every other Clay call in this kit uses.
+set -euo pipefail
+KEY_FILE="$HOME/.chewbacca/clay-key"
+[ -f "$KEY_FILE" ] || { echo "No Clay key at $KEY_FILE" >&2; exit 1; }
+printf 'header = "clay-api-key: %s"\n' "$(cat "$KEY_FILE")" \
+  | exec curl -s -K - --url "https://api.clay.com/public/v0/credits/balance"

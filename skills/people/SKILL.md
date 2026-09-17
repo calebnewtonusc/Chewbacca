@@ -99,11 +99,26 @@ record for each card, so connections with no card stay out; the only write is a
 company onto a card and a note. It also learns nicknames, and keeps whatever the
 user typed into a contact name ("Owen Marsh IYA") as how they know them.
 
-**Asked to enrich somebody, check for the key before saying anything about
-cost.** `cat ~/.chewbacca/clay-key` is the whole check, and if it is there the
-answer is not "that costs credits", it is `people linkedin locate`. Never make
-the user tell you a key exists that is sitting on their own disk, and never
-open with a caveat about billing you have not verified applies.
+**Asked where a connection lives or what they have done, the whole answer is
+one command:**
+
+```
+people linkedin locate --who "Ethan Zhou"
+```
+
+It prints where they live and their dated work history, and it costs nothing.
+Do not go looking for the LinkedIn export on disk, do not open Contacts, and do
+not start a filesystem sweep. The export is already imported and that command is
+the free path.
+
+**Check the key before saying anything about cost.** `cat ~/.chewbacca/clay-key`
+is the whole check, and if it is there the answer is not "that costs credits".
+Never make the user tell you a key exists that is sitting on their own disk.
+
+**Read the balance with `clay-balance`, never `clay credits balance`.** Clay's
+own CLI answers `auth_required` until somebody completes a browser login, which
+an agent cannot do, and reporting the balance as unavailable on that basis is
+wrong: `clay-balance` reads the stored key and returns the number.
 
 The reason the cheap path exists: **Clay bills enrichment, not search.**
 Resolving a phone number to a profile is billed per record. Searching by name
