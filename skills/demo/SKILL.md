@@ -298,15 +298,30 @@ Claude" the moment it finishes. The field is exposed to the accessibility tree
 with `description: "Message input"`, so it is found by description and clicked by
 element id rather than by coordinate.
 
-**The one coordinate.** The Claude toolbar icon renders inside the Electron
-webview and is not exposed, so opening a tab is a derived click: 154px in from
-the window's right edge, 53px down. `claude-tab new` verifies a tab actually
-appeared instead of trusting it.
+**Opening a tab is a keybinding, not a click.** It used to be a derived click at
+a measured offset from the window's top-right corner. That broke the first time
+the VS Code toolbar gained an icon: every button shifted left, the click landed
+on a neighbour, and `new` reported "the tab did not change". `claude-tab new`
+now presses `ctrl+alt+cmd+n`, bound to `claude-vscode.editor.open` (the command
+the icon itself runs), and writes that binding into VS Code's
+`keybindings.json` if it is missing. It still verifies a tab appeared instead of
+trusting it.
 
 **Two constraints worth knowing before planning a shot:**
 
 - **Only the frontmost tab's state is published.** `status` reports whichever
   Claude tab is on top, never one hidden behind it. Drive one at a time.
+- **FILM A SEPARATE WINDOW, NOT A SIBLING TAB.** Caleb's rule, 2026-09-16:
+  "When making a video interacting with chewbacca, ALWAYS operate with it in a
+  different tab." A sibling tab is not enough on its own, because VS Code raises
+  whichever tab is producing output: every tool call the *recording* session
+  makes pulls focus off the tab being filmed and onto itself. Open the demo in
+  its own window with `ctrl+alt+cmd+w` (`claude-vscode.window.open`) and record
+  that window id. Then the camera and the performance cannot steal focus from
+  each other.
+- **`window()` picks the largest window, which is the wrong one once a second
+  window exists.** With a demo window open, pass the id explicitly rather than
+  letting it guess.
 - **`send` refuses a tab that is mid-turn.** The session running the tool is
   itself a Claude tab in the same window and is busy for as long as it runs, so
   without that guard a `send` issued before `new` succeeded types the prompt
