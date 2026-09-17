@@ -107,6 +107,34 @@ if should_format; then
 fi
 
 # ── Sync context repos ────────────────────────────────────────────────────────
+#
+# The commit stays in the foreground: it is local, it is milliseconds, and the
+# order it lands in matters. The push does not. Nobody reads its result, the
+# exit code was already being discarded, and it is this hook's entire slow tail:
+# 167ms median against 14.2s at worst, with every one of those seconds blocking
+# the tool call that triggered the write.
+#
+# Serialized with a lock so two writes a second apart do not race to the remote.
+# A push that cannot get the lock is dropped rather than queued, which is safe
+# because `git push origin HEAD` sends every local commit: the next push carries
+# whatever a dropped one would have.
+push_async() {
+  local repo="$1" lock="$repo/.git/chewbacca-push.lock"
+  # trap - EXIT because the subshell inherits the hook's exit trap and would
+  # otherwise log a second, wildly wrong duration for the hook after it ended.
+  ( trap - EXIT
+    if [ -d "$lock" ]; then
+      holder="$(cat "$lock/pid" 2>/dev/null)"
+      [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null && exit 0
+      rm -rf "$lock" 2>/dev/null   # its holder died mid-push
+    fi
+    mkdir "$lock" 2>/dev/null || exit 0
+    echo $$ > "$lock/pid" 2>/dev/null
+    git -C "$repo" push -q origin HEAD 2>/dev/null
+    rm -rf "$lock" 2>/dev/null ) >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+}
+
 sync_repo() {
   local repo="$1" file="$2" rel
   [ -n "$repo" ] || return 0
@@ -118,7 +146,7 @@ sync_repo() {
   git add -- "$rel" 2>/dev/null || return 0
   git diff --cached --quiet && return 0
   git commit -q -m "chore: update $rel" 2>/dev/null || return 0
-  git push -q origin HEAD 2>/dev/null || true
+  push_async "$repo"
 }
 
 sync_repo "$PERSONAL_CONTEXT_DIR" "$f"
