@@ -834,12 +834,39 @@ if [ ! -f "$HOME/.claude/hooks/lib.sh" ]; then
 elif [ ! -f "$HOOK_LOG" ]; then
   warn "no hook runs logged yet. It fills as you use the kit"
 else
-  HOOK_RUNS=$(wc -l < "$HOOK_LOG" | tr -d ' ')
-  HOOK_FAILS=$(grep -cv '|ok|' "$HOOK_LOG" 2>/dev/null) || HOOK_FAILS=0
-  if [ "$HOOK_FAILS" -eq 0 ]; then
-    ok "$HOOK_RUNS hook runs logged, none failed"
+  # JUDGE THE LAST 24 HOURS, NOT THE WHOLE LOG.
+  #
+  # Both checks below used to read every row in hooks.log, which holds weeks of
+  # runs. So a hook that broke once, got fixed, and has been green ever since
+  # still reported as a major failure for weeks, and a hook made fast today
+  # still carried its old slow rows in its p95. A check that stays red after
+  # the thing it checks has been fixed is worse than no check: it teaches you
+  # to skim past the whole report.
+  #
+  # 24 hours is the window because this kit runs dozens of sessions a day, so a
+  # day holds hundreds of samples per hook, comfortably over the minimum below.
+  # Older failures have not been thrown away, they are in `chewbacca log errors`.
+  HOOK_WINDOW_LOG="$(mktemp)"
+  HOOK_SINCE="$(date -v-1d '+%Y-%m-%d %H:%M:%S' 2>/dev/null ||
+                date -d '1 day ago' '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo '')"
+  if [ -n "$HOOK_SINCE" ]; then
+    awk -F'|' -v s="$HOOK_SINCE" '$1 >= s' "$HOOK_LOG" > "$HOOK_WINDOW_LOG" 2>/dev/null
   else
-    bad "$HOOK_FAILS of $HOOK_RUNS hook runs failed" "chewbacca log errors" major
+    cp "$HOOK_LOG" "$HOOK_WINDOW_LOG" 2>/dev/null
+  fi
+
+  HOOK_RUNS=$(wc -l < "$HOOK_WINDOW_LOG" | tr -d ' ')
+  HOOK_FAILS=$(grep -cv '|ok|' "$HOOK_WINDOW_LOG" 2>/dev/null) || HOOK_FAILS=0
+  HOOK_FAILS_EVER=$(grep -cv '|ok|' "$HOOK_LOG" 2>/dev/null) || HOOK_FAILS_EVER=0
+  HOOK_FAILS_OLD=$((HOOK_FAILS_EVER - HOOK_FAILS))
+  if [ "$HOOK_RUNS" -eq 0 ]; then
+    warn "no hook runs in the last 24h. It fills as you use the kit"
+  elif [ "$HOOK_FAILS" -eq 0 ] && [ "$HOOK_FAILS_OLD" -gt 0 ]; then
+    ok "$HOOK_RUNS hook runs in the last 24h, none failed ($HOOK_FAILS_OLD older failure(s) still in the log)"
+  elif [ "$HOOK_FAILS" -eq 0 ]; then
+    ok "$HOOK_RUNS hook runs in the last 24h, none failed"
+  else
+    bad "$HOOK_FAILS of $HOOK_RUNS hook runs failed in the last 24h" "chewbacca log errors" major
   fi
   # Judge a hook on its TYPICAL run, not its worst one.
   #
@@ -875,7 +902,7 @@ else
         if (v[idx] > worst_p95) { worst_p95 = v[idx]; worst_name = h }
       }
       print worst_p95 "|" worst_name "|" maxv "|" maxn
-    }' "$HOOK_LOG")
+    }' "$HOOK_WINDOW_LOG")
   SLOW_MS="$(echo "$SLOW" | cut -d'|' -f1)"
   SLOW_NAME="$(echo "$SLOW" | cut -d'|' -f2)"
   MAX_MS="$(echo "$SLOW" | cut -d'|' -f3)"
@@ -886,6 +913,7 @@ else
   else
     ok "hooks are quick (worst p95 ${SLOW_MS:-0}ms, $SLOW_NAME; one-off max ${MAX_MS:-0}ms, $MAX_NAME)"
   fi
+  rm -f "$HOOK_WINDOW_LOG"
 fi
 
 for h in "$HOME/.claude/hooks"/*.sh; do

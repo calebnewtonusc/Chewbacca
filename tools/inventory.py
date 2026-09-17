@@ -454,6 +454,13 @@ def read_frontmatter(path):
             # Matching only the bare "|" and ">" let Cap's `description: >-`
             # through as a literal value, so the marker was published into
             # docs/REFERENCE.md ahead of the text it was supposed to introduce.
+            # A quoted scalar is still a scalar. YAML requires quotes around a
+            # value containing ": ", so deslop's description had to be quoted to
+            # parse at all, and the parser then published the opening quote into
+            # docs/REFERENCE.md as if it were part of the sentence.
+            if len(val) > 1 and val[0] == val[-1] and val[0] in "\"'":
+                if val[0] not in val[1:-1]:
+                    val = val[1:-1]
             out[key] = "" if re.fullmatch(r"[|>][+-]?\d?", val) else val
         elif key and line.startswith(" "):
             out[key] = (out[key] + " " + line.strip()).strip()

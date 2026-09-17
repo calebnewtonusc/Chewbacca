@@ -6,7 +6,6 @@ real commit; nothing here is written by hand.
 ## Unreleased
 
 ### Added
-- gate the other producers on having studied the craft
 - claude-tab, so Chewbacca can hold a conversation with another Claude
 - craft-gate, so the demo rules fire instead of sitting in a file
 - land the four process skills that had been sitting untracked
@@ -37,7 +36,7 @@ real commit; nothing here is written by hand.
 - hud demo
 
 ### Fixed
-- kits --register was unreachable on a machine with no kits
+- open a Claude tab with a keybinding instead of a toolbar click
 - stop two test scripts from aborting the whole pytest session
 - one definition of last contact, and show who is waiting on whom
 - do not register Cap's MCP server, all 76 of its tools are cloud-only
@@ -93,6 +92,7 @@ real commit; nothing here is written by hand.
 - send the root early
 
 ### Other
+- Gate the other producers on having studied the craft (#1)
 - test: cover guide trends and trigger cases, and make hud-listen pytest-runnable
 - Add docs/ADVISING.md: helping someone reach a goal
 - triggers: say the thing out loud and see whether any skill fires
