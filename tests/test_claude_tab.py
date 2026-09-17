@@ -14,6 +14,16 @@ import pathlib
 import sys
 from importlib.machinery import SourceFileLoader
 
+# NO BYTECODE CACHE FOR THIS IMPORT.
+#
+# SourceFileLoader writes bin/__pycache__/claude-tab*.pyc, and it decides the
+# cache is still valid from the source's mtime and size. A mutation test that
+# flips one character and restores the file inside the same second changes
+# neither, so the stale bytecode is served and the test silently grades the
+# mutant instead of the real tool. That happened on 2026-09-16 and read as the
+# fix not working.
+sys.dont_write_bytecode = True
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # An explicit loader, because bin/claude-tab has no .py extension and
 # spec_from_file_location returns None for a suffix it does not recognise.
@@ -72,10 +82,24 @@ check(
 )
 
 
-# ── the offsets carry their measurement ─────────────────────────────────────
+# ── opening a tab is a keybinding ───────────────────────────────────────────
+#
+# These replaced two checks on ICON_FROM_RIGHT and ICON_FROM_TOP, which kept
+# asserting on an offset the keybinding fix had already deleted. The test blew
+# up on import for hours afterwards, so nothing was guarding `new` on the very
+# afternoon `new` was rewritten. A test that fails for a stale reason guards
+# nothing.
 
-check("the icon offset is anchored to the right edge", ct.ICON_FROM_RIGHT > 0)
-check("the icon offset is anchored below the top", ct.ICON_FROM_TOP > 0)
+check("the new-tab keys name a real chord", len(ct.NEW_TAB_KEYS.split(",")) > 1)
+check(
+    "the binding points at the command the toolbar icon runs",
+    ct.NEW_TAB_BINDING["command"] == "claude-vscode.editor.open",
+)
+check(
+    "the binding's key matches the chord that gets pressed",
+    ct.NEW_TAB_BINDING["key"] == ct.NEW_TAB_KEYS.replace(",", "+"),
+    "press one chord and install another and `new` silently never fires",
+)
 check("busy and idle markers are distinct", ct.BUSY != ct.IDLE)
 check(
     "neither marker is a substring of the other",
@@ -92,7 +116,42 @@ check(
 src = (ROOT / "bin" / "claude-tab").read_text()
 check("send refuses a mid-turn tab", 'st == "busy" and not args.force' in src)
 check("the refusal is escapable on purpose", "--force" in src)
-check("new verifies rather than trusting the click", "VERIFY, do not trust" in src)
+check("new verifies rather than trusting the keypress", "VERIFY, do not trust" in src)
+
+
+# ── a missing Screen Recording grant is an error, not a hang ────────────────
+#
+# On 2026-09-16 the grant went away and `new` sat in subprocess.run for ninety
+# seconds, then printed a traceback whose top frame was `communicate`. Peekaboo
+# blocks in mach_msg waiting on a consent reply that never arrives, so its own
+# --timeout-seconds never fires and the caller has to hold the clock.
+
+check("peekaboo calls are bounded by the caller", "subprocess.TimeoutExpired" in src)
+check(
+    "the timeout is short enough to be a message and not a wait",
+    0 < ct.peekaboo.__kwdefaults__["timeout"] <= 30,
+)
+check(
+    "the permission error is recognised by peekaboo's own code",
+    "PERMISSION_ERROR_SCREEN_RECORDING" in src,
+)
+check(
+    "the fix names the pane to open, not just the problem",
+    "Privacy & Security > Screen Recording" in ct.SCREEN_RECORDING_FIX,
+)
+check(
+    "the fix says how to confirm it worked",
+    "peekaboo list windows" in ct.SCREEN_RECORDING_FIX,
+)
+check(
+    "no caller re-raises the 90s wait that caused this",
+    "timeout=90" not in src,
+)
+check("new installs the binding it depends on", "ensure_binding()" in src)
+check(
+    "an unreadable keybindings.json is left alone, not overwritten",
+    "return  # somebody hand-edited it" in src,
+)
 
 if __name__ == "__main__":
     print(f"\n{PASSED} passed, {FAILED} failed.")
