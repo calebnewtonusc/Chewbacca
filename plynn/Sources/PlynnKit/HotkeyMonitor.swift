@@ -103,7 +103,7 @@ public final class HotkeyMonitor {
         if let tap {
             CGEvent.tapEnable(tap: tap, enable: true)
             if CGEvent.tapIsEnabled(tap: tap) {
-                NSLog("plynn: hotkey tap was disabled — re-enabled")
+                NSLog("plynn: hotkey tap was disabled, re-enabled")
                 resyncTriggerState()
                 return
             }
@@ -111,13 +111,13 @@ public final class HotkeyMonitor {
 
         uninstall()
         if install() {
-            NSLog("plynn: hotkey tap was dead — rebuilt")
+            NSLog("plynn: hotkey tap was dead, rebuilt")
             resyncTriggerState()
         } else {
             // tapCreate only returns nil when Accessibility is revoked, so
             // retrying on the next tick is right: the grant can come back
             // without a relaunch.
-            NSLog("plynn: hotkey tap rebuild failed — Accessibility permission?")
+            NSLog("plynn: hotkey tap rebuild failed, Accessibility permission?")
         }
     }
 
