@@ -4038,16 +4038,37 @@ function linkedinLocate(flags) {
   // several writers appending short transactions.
   const of = Math.max(1, Number(flags.of || 1));
   const shard = Math.max(0, Number(flags.shard || 0)) % of;
-  const rows = d
-    .prepare(
-      `SELECT id, name, linkedin FROM people
-        WHERE deleted_at IS NULL AND linkedin IS NOT NULL AND linkedin<>''
-          AND (location IS NULL OR location='')
-        ORDER BY id`,
-    )
-    .all()
-    .filter((_, i) => i % of === shard)
-    .slice(0, limit);
+  // ONE NAMED PERSON IS THE COMMON ASK, and without this the only way to look
+  // somebody up was to run the whole backlog and hope they came out in the
+  // first --limit rows. An agent handed "find out where Nathan Wang lives"
+  // could not express that, so it went off inventing its own search instead of
+  // using the free path that already existed. --who also ignores the
+  // location-is-empty filter, because asking for a specific person is asking to
+  // look them up again.
+  const who = flags.who ? String(flags.who).trim() : "";
+  const rows = who
+    ? d
+        .prepare(
+          `SELECT id, name, linkedin FROM people
+            WHERE deleted_at IS NULL AND linkedin IS NOT NULL AND linkedin<>''
+              AND name LIKE ? COLLATE NOCASE
+            ORDER BY id`,
+        )
+        .all(`%${who}%`)
+        .slice(0, Math.max(1, limit))
+    : d
+        .prepare(
+          `SELECT id, name, linkedin FROM people
+            WHERE deleted_at IS NULL AND linkedin IS NOT NULL AND linkedin<>''
+              AND (location IS NULL OR location='')
+            ORDER BY id`,
+        )
+        .all()
+        .filter((_, i) => i % of === shard)
+        .slice(0, limit);
+
+  if (who && !rows.length)
+    die(`Nobody called "${who}" has a LinkedIn URL on file, so there is nothing free to match on.`);
 
   const total = d
     .prepare(`SELECT COUNT(*) n FROM people WHERE deleted_at IS NULL AND linkedin IS NOT NULL AND linkedin<>'' AND (location IS NULL OR location='')`)
