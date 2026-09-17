@@ -27,6 +27,7 @@ rather than trusted.
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -41,12 +42,52 @@ APP = "Code"
 BUSY = "Queue another message"
 IDLE = "Esc to focus or unfocus"
 
-# The Claude icon's offset inside the window, measured on a 1123x880 editor at
-# (388,43): the icon sat at screen (1357,96), so 154px in from the right edge
-# and 53px down from the top. The toolbar is anchored to the top-right, so an
-# offset from that corner survives a resize in a way an absolute point does not.
-ICON_FROM_RIGHT = 154
-ICON_FROM_TOP = 53
+# OPENING A TAB IS A KEYBINDING, NOT A CLICK.
+#
+# This used to click the Claude icon at a measured offset from the window's
+# top-right corner. That broke the first time the toolbar gained an icon: every
+# button shifted left, the click landed on a neighbour, and `new` reported "the
+# tab did not change". An offset into somebody else's toolbar is a guess about
+# a layout nobody promised to keep.
+#
+# `claude-vscode.editor.open` ("Claude Code: Open in New Tab") is the command
+# the icon itself runs. Bound to a key, it is immune to toolbar reshuffles,
+# window size, and theme. The binding lives in VS Code's keybindings.json:
+#
+#   {"key": "ctrl+alt+cmd+n", "command": "claude-vscode.editor.open"}
+#
+# `claude-tab new` writes it if it is missing.
+NEW_TAB_KEYS = "ctrl,alt,cmd,n"
+KEYBINDINGS = os.path.expanduser(
+    "~/Library/Application Support/Code/User/keybindings.json"
+)
+NEW_TAB_BINDING = {"key": "ctrl+alt+cmd+n", "command": "claude-vscode.editor.open"}
+
+
+def ensure_binding():
+    """Write the new-tab keybinding if it is not already there.
+
+    A tool that depends on a keybinding and does not install it is a tool that
+    works on exactly one machine. Existing bindings are preserved, JSONC line
+    comments are tolerated on read, and an unreadable file is left alone rather
+    than overwritten.
+    """
+    try:
+        raw = open(KEYBINDINGS).read() if os.path.exists(KEYBINDINGS) else "[]"
+        kb = json.loads(re.sub(r"^\s*//.*$", "", raw, flags=re.M) or "[]")
+        if not isinstance(kb, list):
+            return
+    except Exception:
+        return  # somebody hand-edited it into something we should not touch
+    if any(k.get("command") == NEW_TAB_BINDING["command"] for k in kb):
+        return
+    kb.append(NEW_TAB_BINDING)
+    try:
+        os.makedirs(os.path.dirname(KEYBINDINGS), exist_ok=True)
+        open(KEYBINDINGS, "w").write(json.dumps(kb, indent=4) + "\n")
+        print(f"  bound {NEW_TAB_BINDING['key']} -> {NEW_TAB_BINDING['command']}")
+    except Exception:
+        pass
 
 
 def peekaboo(*args, timeout=60):
@@ -172,24 +213,22 @@ def focus():
 
 
 def cmd_new(args):
-    wid, x, y, w, h = window()
+    wid = window()[0]
     before = input_field(wid)[1]
+    ensure_binding()
     focus()
-    peekaboo(
-        "click",
-        "--coords",
-        f"{x + w - ICON_FROM_RIGHT},{y + ICON_FROM_TOP}",
-        "--app",
-        APP,
-    )
+    peekaboo("hotkey", "--keys", NEW_TAB_KEYS)
     time.sleep(3)
-    # VERIFY, do not trust. A fresh tab's box is idle and empty; if the click
-    # missed, the previous tab is still frontmost and still reads the same.
+    # VERIFY, do not trust. A fresh tab's box is idle and empty; if the key did
+    # not fire, the previous tab is still frontmost and still reads the same.
     eid, label = input_field(wid)
     if not eid:
-        sys.exit("claude-tab: clicked, but no Claude input appeared. Check the icon offset.")
+        sys.exit("claude-tab: no Claude input appeared. Is the Claude Code extension running?")
     if IDLE not in label and label == before:
-        sys.exit("claude-tab: the tab did not change. Check the icon offset.")
+        sys.exit(
+            "claude-tab: the tab did not change. Check that ctrl+alt+cmd+n is bound to\n"
+            "  claude-vscode.editor.open in VS Code's keybindings.json."
+        )
     print(f"  new Claude tab open (window {wid})")
     return 0
 
