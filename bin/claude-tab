@@ -90,10 +90,33 @@ def ensure_binding():
         pass
 
 
-def peekaboo(*args, timeout=60):
-    return subprocess.run(
-        ["peekaboo", *args], capture_output=True, text=True, timeout=timeout
-    )
+# Peekaboo needs Screen Recording, and every one of its failure modes used to
+# surface here as a Python traceback after a ninety-second hang. On 2026-09-16
+# the grant went away and `claude-tab new` spent 90s in subprocess.run before
+# printing a stack trace whose top frame was `communicate`, which says nothing
+# about the actual problem. Worse, peekaboo's own --timeout-seconds does not
+# fire in this state: it blocks in mach_msg waiting on a consent reply that
+# never comes, so the caller has to be the one holding the clock.
+SCREEN_RECORDING_FIX = (
+    "claude-tab: peekaboo cannot read the screen.\n"
+    "  Grant Screen Recording to Visual Studio Code:\n"
+    "    System Settings > Privacy & Security > Screen Recording > Visual Studio Code\n"
+    "  then quit and reopen VS Code. Check it with: peekaboo list windows --app Code"
+)
+
+
+def peekaboo(*args, timeout=25):
+    """Run peekaboo, and turn its two opaque failures into one clear sentence."""
+    try:
+        r = subprocess.run(
+            ["peekaboo", *args], capture_output=True, text=True, timeout=timeout
+        )
+    except subprocess.TimeoutExpired:
+        # A hang here is the permission prompt, near enough always.
+        sys.exit(f"{SCREEN_RECORDING_FIX}\n  (peekaboo {args[0]} hung for {timeout}s)")
+    if "PERMISSION_ERROR_SCREEN_RECORDING" in r.stdout or "declined TCC" in r.stdout:
+        sys.exit(SCREEN_RECORDING_FIX)
+    return r
 
 
 def window():
@@ -136,7 +159,7 @@ def window():
 
 
 def tree(win_id):
-    r = peekaboo("see", "--app", APP, "--window-id", str(win_id), "--json", timeout=90)
+    r = peekaboo("see", "--app", APP, "--window-id", str(win_id), "--json")
     return r.stdout
 
 
