@@ -14,11 +14,27 @@ type hook_init >/dev/null 2>&1 && hook_init coursework-context.sh 5
 set -uo pipefail
 
 command -v coursework >/dev/null 2>&1 || exit 0
+
+# Cached, with one writer, for the same reason session-context.sh is: this hook
+# had no cache at all, so every session start paid for the ledger read, and five
+# starting at once contended until the 5s watchdog killed them. Five tabs opened
+# in one second on 2026-09-15 and five of these died. See hook_cache_ready in
+# lib.sh. The ledger invalidates the cache itself, so editing a syllabus shows up
+# in the next session rather than whenever the TTL happens to run out.
+CACHE="$HOME/.chewbacca/cache/coursework-context.json"
+TTL="${CHEWBACCA_CONTEXT_TTL:-900}"
+
+hook_cache_ready "$CACHE" "$TTL" "$HOME/coursework/courses"
+case $? in
+  0) type hook_emit >/dev/null 2>&1 && hook_emit < "$CACHE" || cat "$CACHE"; exit 0 ;;
+  2) exit 0 ;;
+esac
+
 COURSEWORK_JSON="$(coursework due --days 10 --json 2>/dev/null || true)"
 [ -n "$COURSEWORK_JSON" ] || exit 0
 export COURSEWORK_JSON
 
-python3 <<'PY'
+python3 <<'PY' > "$CACHE.tmp"
 import json, os
 
 raw = os.environ.get("COURSEWORK_JSON", "")
@@ -48,5 +64,10 @@ print(json.dumps({
     }
 }))
 PY
+
+# An empty result is a valid answer worth caching: it means nothing was due, and
+# recomputing that costs the same ledger read.
+mv "$CACHE.tmp" "$CACHE" 2>/dev/null || rm -f "$CACHE.tmp"
+[ -s "$CACHE" ] && { type hook_emit >/dev/null 2>&1 && hook_emit < "$CACHE" || cat "$CACHE"; }
 
 exit 0
