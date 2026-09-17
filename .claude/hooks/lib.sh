@@ -54,6 +54,7 @@ _hook_log() {
 _hook_finish() {
   local rc="${1:-0}"
   [ -n "${_HOOK_WATCHDOG:-}" ] && kill -9 "$_HOOK_WATCHDOG" 2>/dev/null
+  type hook_cache_release >/dev/null 2>&1 && hook_cache_release
   if [ "$rc" -eq 0 ]; then _hook_log ok "${_HOOK_DETAIL:-}"; else _hook_log "exit$rc" "${_HOOK_DETAIL:-}"; fi
 }
 
@@ -74,4 +75,103 @@ hook_emit() {
   else
     printf '%s' "$text"
   fi
+}
+
+# A cache with exactly one writer.
+#
+# On 2026-09-15 at 19:20 five tabs opened in the same second, and eight
+# SessionStart hooks were killed by their own watchdogs. Nothing was slow: both
+# hooks run in about 0.13s alone. They all missed a cold cache at once and all
+# did the identical computation, and the contention is what blew the 5s and 8s
+# budgets. Those five tabs started with none of the user's context, which is the
+# failure this exists to prevent.
+#
+#   hook_cache_ready <cache> <ttl_seconds> [source_dir ...]
+#     0  serve the file: it is fresh, or it is stale and somebody else is
+#        already refreshing it
+#     1  this process holds the lock and must recompute
+#     2  nothing to serve and somebody else is refreshing; exit quietly
+#
+# The lock is a directory because mkdir is the only atomic create-or-fail
+# primitive portable shell has. It carries its holder's pid, so a lock orphaned
+# by the watchdog's kill -9 is reclaimed by the next session instead of wedging
+# every session after it.
+_hook_cache_fresh() {
+  local cache="$1" ttl="$2"; shift 2
+  [ "${CHEWBACCA_NO_CACHE:-0}" = "1" ] && return 1
+  [ -f "$cache" ] || return 1
+  local mt age d
+  mt=$(stat -f %m "$cache" 2>/dev/null || stat -c %Y "$cache" 2>/dev/null || echo 0)
+  age=$(( $(date +%s) - mt ))
+  [ "$age" -lt "$ttl" ] || return 1
+  # A context file edited since the cache was written takes effect in the next
+  # session rather than whenever the TTL happens to run out.
+  for d in "$@"; do
+    [ -d "$d" ] || continue
+    [ -n "$(find "$d" -newer "$cache" -type f -print -quit 2>/dev/null)" ] && return 1
+  done
+  return 0
+}
+
+hook_cache_ready() {
+  local cache="$1" ttl="${2:-900}"; shift 2
+  _HOOK_CACHE_LOCK="$cache.lock"
+  mkdir -p "$(dirname "$cache")" 2>/dev/null || true
+
+  if _hook_cache_fresh "$cache" "$ttl" "$@"; then
+    hook_note "cache hit"
+    return 0
+  fi
+
+  if [ -d "$_HOOK_CACHE_LOCK" ]; then
+    local holder; holder="$(cat "$_HOOK_CACHE_LOCK/pid" 2>/dev/null)"
+    if [ -z "$holder" ] || ! kill -0 "$holder" 2>/dev/null; then
+      rm -rf "$_HOOK_CACHE_LOCK" 2>/dev/null || true
+    fi
+  fi
+
+  if mkdir "$_HOOK_CACHE_LOCK" 2>/dev/null; then
+    echo $$ > "$_HOOK_CACHE_LOCK/pid" 2>/dev/null || true
+    _HOOK_CACHE_HELD=1
+    return 1
+  fi
+
+  # Another session is computing the identical answer.
+  #
+  # A stale copy is served at once: it is close enough, and waiting on somebody
+  # else to finish is exactly the contention this is here to remove.
+  if [ -f "$cache" ]; then
+    hook_note "stale, another session is refreshing"
+    return 0
+  fi
+
+  # No copy at all, which is the genuinely cold start: the first tab of the day,
+  # or five opened at once after the cache expired. Exiting here would hand the
+  # winner its context and leave every other tab blind, so wait the winner out.
+  # The winner takes about a second; this caps at a third of the tightest hook
+  # watchdog (5s), so the wait can never be what kills the hook.
+  local waited=0 cap="${CHEWBACCA_CACHE_WAIT_MS:-3000}"
+  while [ "$waited" -lt "$cap" ]; do
+    sleep 0.1
+    waited=$((waited + 100))
+    if [ -s "$cache" ]; then
+      hook_note "waited ${waited}ms for another session to build it"
+      return 0
+    fi
+    # The winner died without writing. Its lock is gone, so take the work over
+    # rather than waiting out the full cap for a file nobody is writing.
+    if [ ! -d "$_HOOK_CACHE_LOCK" ] && mkdir "$_HOOK_CACHE_LOCK" 2>/dev/null; then
+      echo $$ > "$_HOOK_CACHE_LOCK/pid" 2>/dev/null || true
+      _HOOK_CACHE_HELD=1
+      hook_note "took over after ${waited}ms"
+      return 1
+    fi
+  done
+  hook_note "gave up after ${cap}ms"
+  return 2
+}
+
+hook_cache_release() {
+  [ "${_HOOK_CACHE_HELD:-0}" = "1" ] && rm -rf "${_HOOK_CACHE_LOCK:-/nonexistent}" 2>/dev/null
+  _HOOK_CACHE_HELD=0
 }

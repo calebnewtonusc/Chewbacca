@@ -31,45 +31,30 @@ export PERSONAL_CONTEXT_DIR="${PERSONAL_CONTEXT_DIR:-}"
 export CONTEXT_OWNER="${CONTEXT_OWNER:-}"
 export TODOIST_API_TOKEN="${TODOIST_API_TOKEN:-}"
 
+# Cache, with one writer. Building this costs a Todoist round trip and two
+# subprocesses, measured at 4.5 seconds on a cold start. Two sessions opened a
+# minute apart do not need two round trips, and five opened in the same second
+# must not all do the work: that is what killed eight of these hooks on
+# 2026-09-15. hook_cache_ready hands exactly one process the job. See lib.sh.
+CACHE="$HOME/.chewbacca/cache/session-context.json"
+TTL="${CHEWBACCA_CONTEXT_TTL:-900}"
+
+hook_cache_ready "$CACHE" "$TTL" "${PERSONAL_CONTEXT_DIR:-}/core" "$HOME/coursework/courses"
+case $? in
+  0) type hook_emit >/dev/null 2>&1 && hook_emit < "$CACHE" || cat "$CACHE" ;;
+  2) exit 0 ;;
+  *)
+
 # The coursework ledger, if there is one. Deadlines are the context most worth
 # having before the first question, and asking for them costs a round trip.
-# Silent when the CLI is missing or the ledger is empty.
+# Silent when the CLI is missing or the ledger is empty. Inside the miss branch
+# on purpose: a cache hit used to pay for this and then throw it away.
 COURSEWORK_JSON=""
 if command -v coursework >/dev/null 2>&1; then
   COURSEWORK_JSON="$(coursework due --days 7 --json 2>/dev/null || true)"
 fi
 export COURSEWORK_JSON
 
-# Cache. Building this costs a Todoist round trip and two subprocesses, and
-# measured at 4.5 seconds on every single session start. Two sessions opened a
-# minute apart do not need two round trips, so the result is reused until it
-# goes stale or a source file changes underneath it.
-CACHE_DIR="$HOME/.chewbacca/cache"
-CACHE="$CACHE_DIR/session-context.json"
-TTL="${CHEWBACCA_CONTEXT_TTL:-900}"
-mkdir -p "$CACHE_DIR" 2>/dev/null || true
-
-cache_fresh() {
-  [ -f "$CACHE" ] || return 1
-  [ "${CHEWBACCA_NO_CACHE:-0}" = "1" ] && return 1
-  local age now mt
-  now=$(date +%s)
-  mt=$(stat -f %m "$CACHE" 2>/dev/null || stat -c %Y "$CACHE" 2>/dev/null || echo 0)
-  age=$((now - mt))
-  [ "$age" -lt "$TTL" ] || return 1
-  # Any source newer than the cache invalidates it, so editing a context file
-  # takes effect in the next session rather than fifteen minutes later.
-  for d in "${PERSONAL_CONTEXT_DIR:-}/core" "$HOME/coursework/courses"; do
-    [ -d "$d" ] || continue
-    [ -n "$(find "$d" -newer "$CACHE" -type f -print -quit 2>/dev/null)" ] && return 1
-  done
-  return 0
-}
-
-if cache_fresh; then
-  type hook_emit >/dev/null 2>&1 && hook_emit < "$CACHE" || cat "$CACHE"
-  type hook_note >/dev/null 2>&1 && hook_note "cache hit"
-else
 # Values reach python through the environment, never by string interpolation.
 # A token containing a quote or a backslash would otherwise break the script.
 python3 <<'PY' > "$CACHE.tmp"
@@ -241,7 +226,8 @@ PY
 # was nothing to say, and recomputing that costs the same round trip.
 mv "$CACHE.tmp" "$CACHE" 2>/dev/null || rm -f "$CACHE.tmp"
 [ -s "$CACHE" ] && { type hook_emit >/dev/null 2>&1 && hook_emit < "$CACHE" || cat "$CACHE"; }
-fi
+    ;;
+esac
 
 # Pull new iMessages into the local people store, in the background.
 #
