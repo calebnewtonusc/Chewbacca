@@ -26,43 +26,55 @@ public actor TranscriptFormatter {
         ) = { ([], []) }
     ) {
         self.personalization = personalization
+        #if canImport(FoundationModels)
         if #available(macOS 26, *) {
             appleFMBox = AppleFMFormatter()
         } else {
             appleFMBox = nil
         }
+        #else
+        appleFMBox = nil
+        #endif
     }
 
     // MARK: - Apple Intelligence, behind availability
 
     private var appleFMReady: Bool {
+        #if canImport(FoundationModels)
         if #available(macOS 26, *), let fm = appleFMBox as? AppleFMFormatter {
             return fm.ready
         }
+        #endif
         return false
     }
 
     private func appleFMComplete(_ prompt: String) async -> String? {
+        #if canImport(FoundationModels)
         if #available(macOS 26, *), let fm = appleFMBox as? AppleFMFormatter {
             return await fm.complete(prompt)
         }
+        #endif
         return nil
     }
 
     private func appleFMFormat(
         _ text: String, tone: Tone, technical: Bool, preferredSpellings: [String]
     ) async -> String {
+        #if canImport(FoundationModels)
         if #available(macOS 26, *), let fm = appleFMBox as? AppleFMFormatter {
             return await fm.format(
                 text, tone: tone, technical: technical, preferredSpellings: preferredSpellings)
         }
+        #endif
         return text
     }
 
     private func appleFMWarm() async {
+        #if canImport(FoundationModels)
         if #available(macOS 26, *), let fm = appleFMBox as? AppleFMFormatter {
             await fm.warm()
         }
+        #endif
     }
 
     /// Which polish engine is live, for status display. Nil = rules only.
@@ -76,9 +88,11 @@ public actor TranscriptFormatter {
 
     /// Why Apple's model isn't in use (nil when it is).
     public var appleFMStatus: String? {
+        #if canImport(FoundationModels)
         if #available(macOS 26, *), let fm = appleFMBox as? AppleFMFormatter {
             return fm.ready ? nil : fm.availabilityDescription
         }
+        #endif
         return "Apple Intelligence needs macOS 26 — polishing with the local model"
     }
 

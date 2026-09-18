@@ -1,4 +1,12 @@
 import Foundation
+
+// FoundationModels ships in the macOS 26 SDK and nowhere else. `@available`
+// is a RUNTIME gate and does not help here: the import is resolved at compile
+// time, so on a machine with the macOS 15 SDK this file failed the whole
+// PlynnKit build with "no such module", after compiling 766 of 770 other
+// files. Every use of the type below is already correctly guarded, so the
+// only thing missing was the compile-time half of the same condition.
+#if canImport(FoundationModels)
 import FoundationModels
 
 /// AI polish on Apple's on-device Foundation Model (Apple Intelligence).
@@ -54,3 +62,4 @@ public actor AppleFMFormatter {
             removeRepeatedTrailingList: true)
     }
 }
+#endif

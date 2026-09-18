@@ -1,3 +1,9 @@
+// SpeechAnalyzer and SpeechTranscriber are macOS 26 types in a module
+// (Speech) that exists on every macOS, so importing Speech succeeds and then
+// seventeen references fail. The whole engine compiles out below the 26 SDK
+// and `EngineManager` substitutes `UnavailableSpeechEngine`, which is what it
+// already did at runtime.
+#if canImport(FoundationModels)
 import AVFoundation
 import Speech
 
@@ -119,3 +125,4 @@ public actor AppleSpeechEngine: DictationEngine {
         partialCallback?(finalText + text)
     }
 }
+#endif
