@@ -5904,7 +5904,7 @@ function cmdStats() {
 // tool is worthless if you have to remember to open it, so the questions it
 // answers are "who is slipping" and "what is coming up", not "what do I know".
 
-const FIELDS = ["name", "phone", "email", "company", "role", "location", "birthday", "handle", "how_we_met"];
+const FIELDS = ["name", "phone", "email", "company", "role", "location", "birthday", "handle", "how_we_met", "linkedin"];
 
 function cmdUpdate(argv) {
   const { flags, rest } = parseArgs(argv);
@@ -7576,8 +7576,23 @@ function cmdMerge(argv) {
     }
     // A blank field on the survivor takes the other's value. A field with
     // something in it is never overwritten: merging must not lose a fact.
-    const fill = ["handle", "phone", "email", "company", "role", "location",
-                  "how_we_met", "birthday", "cadence_days", "source", "external_id"];
+    // EVERY COLUMN, NOT A LIST SOMEBODY HAS TO REMEMBER TO EXTEND.
+    //
+    // This was a hand-written list and `linkedin` was never on it, so merging
+    // the LinkedIn row for a person into their contact row threw the profile
+    // URL away. The URL is the only thing that makes the free Clay lookup
+    // exact, so the merge quietly cost the survivor their work history, and
+    // there are 162 pairs outstanding to do it to. `li_connected_on` would
+    // have been the second column to go missing the day after it was added.
+    //
+    // Reading the schema means a new column is carried by default. Only the
+    // four that identify the row or timestamp it are held back.
+    const never = new Set(["id", "name", "created_at", "updated_at", "deleted_at"]);
+    const fill = d
+      .prepare(`PRAGMA table_info(people)`)
+      .all()
+      .map((r) => r.name)
+      .filter((n) => !never.has(n));
     const sets = [], vals = [];
     for (const f of fill) {
       if ((keep[f] === null || keep[f] === "" || keep[f] === undefined) && drop[f]) {
