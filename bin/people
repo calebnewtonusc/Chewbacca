@@ -5195,15 +5195,25 @@ function clayCandidates(fullName, limit = 5) {
   };
   try {
     const made = post("https://api.clay.com/public/v0/search/query-mode", {
-      query: `select from people where full_name = ${JSON.stringify(fullName)}`,
+      // `matched_experiences` returns the experiences that MATCHED the query,
+      // not the person's whole record. A bare full_name filter therefore comes
+      // back with current roles only, and every past job is silently absent.
+      // Adding an experience predicate that every row satisfies widens the
+      // match to the entire dated history, current and past, in the same free
+      // call. Verified 2026-09-18: bare name returned 3 experiences for a
+      // profile that has 9.
+      query:
+        `select from people where full_name = ${JSON.stringify(fullName)}` +
+        ` and experiences.any(start_date >= "1900-01")`,
     });
     if (!made || !made.search_id) return [];
     const ran = post(
       `https://api.clay.com/public/v0/search/query-mode/${made.search_id}/run`,
       { limit },
     );
-    // Take everything the search returns, not just a city. `matched_experiences`
-    // is a dated career history: company, title, where, and when. That is what
+    // Take everything the search returns, not just a city. With the experience
+    // predicate above, `matched_experiences` is the full dated career history:
+    // company, title, where, and when, past roles included. That is what
     // answers "moved into a higher role" and "raised in the last 24 months",
     // and it arrives in the same free response as the location.
     return (ran.data || []).map((r) => {
