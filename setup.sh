@@ -911,6 +911,15 @@ h["SessionStart"] = [{"hooks": [{
 }]}]
 
 h["Stop"] = [{"hooks": [{
+    # Finished work sitting on the machine because nobody asked the right
+    # question. This pushes commits to the user's OWN origin only, never to an
+    # upstream fork, never auto-committing, and only from directories listed in
+    # AUTOPUSH_DIRS. Off by default: the variable is empty until someone sets it.
+    "type": "command",
+    "command": hooks_dir + "/auto-push.sh",
+    "timeout": 30,
+    "statusMessage": "Pushing finished work...",
+}]}, {"hooks": [{
     "type": "command",
     "command": hooks_dir + "/stop-check.sh",
     "statusMessage": "Checking for unpushed work...",
