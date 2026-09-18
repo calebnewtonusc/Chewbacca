@@ -35,6 +35,7 @@ STATE="$HOME/.chewbacca"
 # name|one-line help. Help output, shell completion, and the unknown-command
 # error all read this, so they cannot disagree with each other.
 COMMANDS=(
+  "open|the whole kit on one screen"
   "doctor|check the install and say what is broken"
   "status|what is installed, what is on, what is stale"
   "version|version installed here and in the repo"
@@ -88,6 +89,12 @@ repo_version() { cat "$ROOT/VERSION" 2>/dev/null || echo "unknown"; }
 installed_version() { cat "$STATE/version" 2>/dev/null || echo "unrecorded"; }
 
 case "${1:-}" in
+open)
+  shift
+  # A dashboard nobody can find is a file. This is the one verb that is worth
+  # typing, so it gets the shortest name in the table.
+  CHEWBACCA_ROOT="$ROOT" exec node "$ROOT/bin/lib/chewbacca-hud.js" "$@"
+  ;;
 doctor)
   shift
   run doctor.sh "$@"
