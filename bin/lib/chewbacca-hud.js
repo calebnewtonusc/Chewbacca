@@ -59,7 +59,7 @@ const q1 = (db, sql, ...a) => q(db, sql, ...a)[0] || {};
 // cadence somebody is and uses score only to break ties. Somebody 410 days
 // past a 330 day cadence outranks somebody 12 days past, which is the thing
 // the eye is actually asking.
-function overdue(db, limit = 8) {
+function overdue(db, limit = 20) {
   const rows = q(
     db,
     `SELECT p.name, p.company, p.cadence_days, s.base_score, s.last_interaction_at
@@ -89,7 +89,13 @@ function overdue(db, limit = 8) {
   out.sort(
     (a, b) => b.over / b.cadence - a.over / a.cadence || b.score - a.score,
   );
-  return out.slice(0, limit);
+  // The total travels with the page, because the panel can only show a screen
+  // of them and "14 overdue" printed above a list of 14 was the length of the
+  // slice rather than the size of the problem. On this machine the two differ
+  // by two orders of magnitude.
+  const shown = out.slice(0, limit);
+  shown.total = out.length;
+  return shown;
 }
 
 function pulse(db, days = 21) {
@@ -218,6 +224,7 @@ function snapshot() {
     people: 0,
     messages: 0,
     overdue: [],
+    overdueTotal: 0,
     pulse: [],
     recent: [],
     range: null,
@@ -227,12 +234,14 @@ function snapshot() {
       q1(db, "SELECT count(*) AS n FROM people WHERE deleted_at IS NULL").n ||
       0;
     base.messages = q1(db, "SELECT count(*) AS n FROM messages").n || 0;
-    base.overdue = overdue(db);
+    const od = overdue(db);
+    base.overdue = od;
+    base.overdueTotal = od.total;
     base.pulse = pulse(db);
     base.recent = q(
       db,
       `SELECT p.name, max(m.sent_at) AS t FROM messages m JOIN people p ON p.id = m.person_id
-        WHERE m.room IS NULL GROUP BY p.id ORDER BY t DESC LIMIT 6`,
+        WHERE m.room IS NULL GROUP BY p.id ORDER BY t DESC LIMIT 12`,
     );
     const r = q1(
       db,
@@ -251,194 +260,407 @@ function snapshot() {
   };
 }
 
+// The screen answers ONE question: who is slipping away from you. Everything
+// else on it is periphery, sized and coloured like periphery.
+//
+// The look is aimed at instruments rather than at science fiction, and those
+// are different targets. Movie interfaces are designed to be looked at: scan
+// lines, hexagons, glowing borders, numbers that tick because motion reads as
+// advanced. They photograph well and are stupid after ten seconds. Real
+// instruments (a flight display, a mixing desk, a terminal) are dense, almost
+// monochrome, and every moving thing moves because a value changed.
+//
+// So the rules this file follows, and the reasons:
+//
+//   One accent. Amber appears on the single most urgent row and nowhere else.
+//   The previous version put it on 25 chart bars, six headline numbers and
+//   four badges at once, which is the same as having no accent at all.
+//
+//   Numerals are monospaced and tabular. This is the cheapest and strongest
+//   signal that a surface is an instrument, and it stops columns of figures
+//   shifting by a pixel every time a digit changes.
+//
+//   Nothing loops. The clock ticks because time passes, the transmit dot
+//   lights while a fetch is actually in flight, and a number animates only
+//   when it differs from the number already on screen.
+//
+//   No scroll. It is a panel you glance at, not a page you read.
 const PAGE = `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Chewbacca</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%23f0b429' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23f0b429'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#08080a; --panel:rgba(255,255,255,.035); --line:rgba(255,255,255,.08);
-  --ink:#fafafa; --mute:#71717a; --dim:#a1a1aa;
-  --accent:#f0b429; --accent-dim:rgba(240,180,41,.14); --bad:#f87171;
+  --void:#050506;
+  --panel:rgba(255,255,255,.022);
+  --panel-lit:rgba(255,255,255,.04);
+  --hair:rgba(255,255,255,.07);
+  --hair-lit:rgba(255,255,255,.14);
+  --ice:#eceef2;
+  --steel:#7e8791;
+  --faint:#464d55;
+  --ghost:#2a2f35;
+  --amber:#f0b429;
+  --amber-dim:rgba(240,180,41,.5);
+  --amber-ghost:rgba(240,180,41,.09);
+  --sans:"Inter",-apple-system,BlinkMacSystemFont,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,monospace;
+  --ease:cubic-bezier(.16,.84,.28,1);
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{
-  background:var(--bg); color:var(--ink);
-  font-family:Inter,ui-sans-serif,system-ui,sans-serif; -webkit-font-smoothing:antialiased;
-  overflow-x:hidden;
+  background:var(--void);
+  color:var(--ice);
+  font-family:var(--sans);
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
 }
-/* Three stacked radials plus a hairline grid. A flat panel on flat black reads
-   as a terminal; the grid is what makes it read as an instrument. */
+/* Three offset washes and a masked grid. The grid is what stops the black
+   from reading as "unstyled background" at a glance, and the mask keeps it
+   from tiling visibly into the corners. */
 body::before{
-  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  content:"";position:fixed;inset:0;pointer-events:none;
   background:
-    radial-gradient(900px 600px at 15% -10%, rgba(240,180,41,.10), transparent 60%),
-    radial-gradient(700px 500px at 100% 0%, rgba(99,102,241,.10), transparent 55%),
-    radial-gradient(1000px 700px at 50% 120%, rgba(240,180,41,.05), transparent 60%);
+    radial-gradient(900px 520px at 14% -6%, rgba(240,180,41,.07), transparent 62%),
+    radial-gradient(760px 480px at 92% 4%, rgba(90,130,200,.055), transparent 60%),
+    radial-gradient(1100px 700px at 50% 108%, rgba(240,180,41,.035), transparent 66%);
 }
 body::after{
-  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.35;
-  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
-  background-size:64px 64px;
-  mask-image:radial-gradient(circle at 50% 30%,#000 0%,transparent 75%);
+  content:"";position:fixed;inset:0;pointer-events:none;opacity:.5;
+  background-image:
+    linear-gradient(var(--hair) 1px,transparent 1px),
+    linear-gradient(90deg,var(--hair) 1px,transparent 1px);
+  background-size:68px 68px;
+  -webkit-mask-image:radial-gradient(ellipse 78% 62% at 50% 40%,#000 25%,transparent 100%);
+  mask-image:radial-gradient(ellipse 78% 62% at 50% 40%,#000 25%,transparent 100%);
 }
-.wrap{position:relative;z-index:1;max-width:1400px;margin:0 auto;padding:28px 16px 64px}
-header{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:34px}
+
+.shell{
+  position:relative;z-index:1;height:100%;
+  display:grid;grid-template-rows:auto 1fr auto;
+  gap:16px;padding:18px 26px 14px;
+  max-width:1680px;margin:0 auto;
+}
+
+/* ------------------------------------------------------------- top rail */
+.rail{display:flex;align-items:center;gap:18px}
 .mark{
-  font-size:clamp(28px,4.2vw,46px);font-weight:900;letter-spacing:-.04em;
-  background:linear-gradient(105deg,#fff 0%,#fff 40%,var(--accent) 100%);
+  font-size:15px;font-weight:800;letter-spacing:.34em;
+  background:linear-gradient(92deg,var(--ice) 34%,var(--amber));
   -webkit-background-clip:text;background-clip:text;color:transparent;
 }
-.host{font-size:12px;color:var(--mute);letter-spacing:.14em;text-transform:uppercase}
-.clock{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:600;color:var(--dim);font-size:14px}
-.dot{display:inline-block;width:7px;height:7px;border-radius:99px;background:var(--accent);
-  box-shadow:0 0 12px var(--accent);margin-right:8px;animation:beat 2.4s ease-in-out infinite}
-@keyframes beat{0%,100%{opacity:1}50%{opacity:.35}}
+.rail .sep{flex:1;height:1px;background:linear-gradient(90deg,var(--hair),transparent)}
+.chip{
+  font-family:var(--mono);font-size:10px;letter-spacing:.16em;
+  color:var(--faint);text-transform:uppercase;display:flex;align-items:center;gap:7px;
+}
+/* Lights while a fetch is in flight and goes dark when it lands. It is the
+   only thing on screen that moves without a value changing, and it is
+   reporting a real event rather than decorating one. */
+.tx{width:5px;height:5px;border-radius:50%;background:var(--ghost);transition:all .3s var(--ease)}
+.tx.on{background:var(--amber);box-shadow:0 0 10px var(--amber-dim)}
+.clock{font-family:var(--mono);font-size:12px;font-weight:300;color:var(--steel);font-variant-numeric:tabular-nums}
 
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:26px}
-.stat{padding:18px 20px;border:1px solid var(--line);border-radius:18px;background:var(--panel);
-  backdrop-filter:blur(14px);transition:border-color .2s,transform .2s}
-.stat:hover{border-color:rgba(240,180,41,.35);transform:translateY(-2px)}
-.stat .n{font-size:clamp(26px,3.4vw,40px);font-weight:800;letter-spacing:-.035em;
-  font-variant-numeric:tabular-nums;line-height:1.05;
-  background:linear-gradient(180deg,#fff,#a1a1aa);-webkit-background-clip:text;background-clip:text;color:transparent}
-.stat .n.hot{background:linear-gradient(180deg,var(--accent),#b45309);-webkit-background-clip:text;background-clip:text;color:transparent}
-.stat .k{margin-top:7px;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--mute)}
+/* --------------------------------------------------------------- body */
+.body{display:grid;grid-template-columns:minmax(0,1.32fr) minmax(0,1fr);gap:16px;min-height:0}
+.col{display:grid;gap:16px;min-height:0;min-width:0}
+.col.right{grid-template-rows:auto auto minmax(0,1fr)}
 
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px;align-items:start}
-.card{border:1px solid var(--line);border-radius:20px;background:var(--panel);backdrop-filter:blur(14px);
-  padding:20px 22px;transition:border-color .2s}
-.card:hover{border-color:rgba(255,255,255,.16)}
-.card h2{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--mute);
-  font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
-.card h2 .pill{margin-left:auto;font-size:10px;letter-spacing:.06em;text-transform:none;
-  color:var(--accent);background:var(--accent-dim);border:1px solid rgba(240,180,41,.24);
-  padding:2px 9px;border-radius:99px}
-.wide{grid-column:1/-1}
+.panel{
+  position:relative;border:1px solid var(--hair);border-radius:14px;
+  background:var(--panel);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);
+  padding:15px 17px;min-height:0;display:flex;flex-direction:column;
+  transition:border-color .35s var(--ease);
+}
+.panel:hover{border-color:var(--hair-lit)}
+/* A one-pixel specular line along the top edge. Cheap, and it is most of
+   what makes a flat panel read as a surface with a light above it. */
+.panel::before{
+  content:"";position:absolute;left:14px;right:14px;top:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.16),transparent);
+}
+.phead{display:flex;align-items:baseline;gap:10px;margin-bottom:12px;flex:none}
+.ptitle{font-family:var(--mono);font-size:9.5px;font-weight:500;letter-spacing:.26em;color:var(--steel);text-transform:uppercase}
+.pnote{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;color:var(--faint);margin-left:auto;font-variant-numeric:tabular-nums}
+.pbody{flex:1;min-height:0;overflow:hidden}
 
-.row{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05)}
-.row:last-child{border-bottom:0}
-.row .nm{font-weight:500;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.row .sub{font-size:11.5px;color:var(--mute);margin-left:auto;white-space:nowrap;font-variant-numeric:tabular-nums}
-.meter{height:4px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden;width:76px;flex:none}
-.meter i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--accent),#ef4444)}
+/* ------------------------------------------------------------ slipping */
+/* The elapsed time is the subject and the name is the caption, which is the
+   inverse of every contact list. The name alone tells you nothing you do not
+   already know; the number is the whole point. */
+.slip{display:grid;grid-template-columns:auto 1fr;gap:3px 15px;align-items:center}
+.srow{display:contents}
+.selapsed{
+  font-family:var(--mono);font-size:19px;font-weight:300;color:var(--steel);
+  text-align:right;font-variant-numeric:tabular-nums;letter-spacing:-.01em;
+  transition:color .4s var(--ease);
+}
+.sbody{
+  padding:6px 0;border-bottom:1px solid rgba(255,255,255,.035);min-width:0;
+  display:flex;align-items:center;gap:14px;
+}
+.srow:last-child .sbody{border-bottom:none}
+.sname{font-size:13px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:color .4s var(--ease);flex:1;min-width:0}
+/* THERE IS NO PROGRESS METER ON THESE ROWS, and it is not an omission.
+   Two versions had one, showing how far past their own cadence somebody is.
+   It was cut because on this machine, and on any install where nobody has
+   hand-set a cadence, every person falls back to the same 330-day default.
+   The ratios across the visible twenty then ran 4.21 to 4.09, which draws as
+   twenty identical dashes. Rescaling it against the worst row on screen did
+   not help: uniform data does not become varied by changing the axis.
+   A gauge that always reads the same is decoration wearing the clothes of
+   information, and the elapsed figure already carries the magnitude. If
+   cadences ever become real per-person values, this is worth revisiting. */
+.srow.worst .selapsed{color:var(--amber)}
+.srow.worst .sname{color:var(--ice)}
+.srow.cold .selapsed{color:var(--ice)}
+.srow.cold .sname{color:var(--steel)}
 
-.spark{display:flex;align-items:flex-end;gap:3px;height:76px;margin-top:4px}
-.spark i{flex:1;border-radius:3px 3px 0 0;background:linear-gradient(180deg,var(--accent),rgba(240,180,41,.18));
-  min-height:2px;transition:opacity .2s}
-.spark i:hover{opacity:.6}
-.axis{display:flex;justify-content:space-between;margin-top:8px;font-size:10.5px;color:var(--mute)}
+/* --------------------------------------------------------------- pulse */
+.pulse{display:flex;align-items:flex-end;gap:3px;height:60px}
+.pbar{
+  flex:1;background:var(--ghost);border-radius:1.5px;min-height:2px;
+  transition:height .8s var(--ease),background .4s var(--ease);
+}
+.pbar.today{background:var(--amber)}
+.paxis{display:flex;justify-content:space-between;margin-top:8px;font-family:var(--mono);font-size:9px;color:var(--faint);letter-spacing:.08em}
 
-.dl{display:flex;align-items:center;gap:14px;padding:11px 0;border-bottom:1px solid rgba(255,255,255,.05)}
-.dl:last-child{border-bottom:0}
-.dl .when{font-variant-numeric:tabular-nums;font-weight:700;font-size:15px;min-width:62px}
-.dl .when.soon{color:var(--bad)}
-.dl .what{font-size:13px;color:var(--dim);line-height:1.35}
-.dl .what b{color:var(--ink);font-weight:600;display:block;font-size:13.5px}
-.dl .date{margin-left:auto;font-size:11px;color:var(--mute);white-space:nowrap}
+/* ------------------------------------------------------------ deadline */
+.dl{display:flex;flex-direction:column;gap:0;height:100%;overflow:hidden}
+.drow{display:flex;align-items:baseline;gap:12px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.035)}
+.drow:last-child{border-bottom:none}
+.din{font-family:var(--mono);font-size:13px;font-weight:400;color:var(--steel);min-width:46px;font-variant-numeric:tabular-nums}
+.drow.near .din{color:var(--amber)}
+.dwhat{font-size:12px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.dwho{font-size:12px;color:var(--steel);flex:none}
 
-.chips{display:flex;flex-wrap:wrap;gap:7px}
-.chip{font-size:11.5px;color:var(--dim);border:1px solid var(--line);background:rgba(255,255,255,.03);
-  padding:5px 11px;border-radius:99px}
-.chip.on{color:var(--accent);border-color:rgba(240,180,41,.3);background:var(--accent-dim)}
-.empty{font-size:13px;color:var(--mute);padding:8px 0}
-footer{margin-top:30px;font-size:11px;color:var(--mute);text-align:center;letter-spacing:.05em}
+/* ---------------------------------------------------------- last spoken */
+.seen{display:flex;flex-direction:column;overflow:hidden}
+.srow2{display:flex;align-items:baseline;gap:12px;padding:5.5px 0;border-bottom:1px solid rgba(255,255,255,.03)}
+.srow2:last-child{border-bottom:none}
+.s2name{font-size:12.5px;color:var(--steel);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.s2when{font-family:var(--mono);font-size:10.5px;color:var(--faint);font-variant-numeric:tabular-nums;flex:none}
 
-.boot{animation:rise .55s cubic-bezier(.2,.7,.3,1) backwards}
-@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
-@media (max-width:640px){.wrap{padding:20px 16px 48px}.clock{width:100%;margin:6px 0 0}}
+/* ----------------------------------------------------------- bottom rail */
+.counts{display:flex;align-items:center;gap:0;flex:none}
+.count{display:flex;align-items:baseline;gap:7px;padding:0 20px;border-right:1px solid var(--hair)}
+.count:first-child{padding-left:0}
+.count:last-child{border-right:none}
+.cn{font-family:var(--mono);font-size:15px;font-weight:400;color:var(--ice);font-variant-numeric:tabular-nums}
+.ck{font-family:var(--mono);font-size:9px;letter-spacing:.2em;color:var(--faint);text-transform:uppercase}
+.counts .sep{flex:1}
+.stamp{font-family:var(--mono);font-size:9px;letter-spacing:.14em;color:var(--ghost);text-transform:uppercase}
+
+.empty{font-size:12px;color:var(--faint);padding:6px 0}
+
+/* Staggered entrance, once, on the first paint only. A list that re-animates
+   every thirty seconds is a list nobody can read. */
+@keyframes rise{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+.in{animation:rise .5s var(--ease) both}
+
+@media (max-width:1100px){
+  body{overflow:auto}
+  .body{grid-template-columns:1fr}
+  .shell{height:auto;min-height:100%}
+}
+/* A grid item's default min-width is auto, which is its INTRINSIC width, so
+   the counts rail (four fixed-padding cells that refuse to wrap) was quietly
+   setting the floor for the entire page: 541px of horizontal scroll at 375,
+   with every panel dragged out to match. The rail wraps here and the tracks
+   are allowed to be narrower than their contents. */
+@media (max-width:640px){
+  .shell{padding:14px 16px 12px;gap:12px}
+  .shell > *, .body > *, .col > *{min-width:0}
+  .rail{flex-wrap:wrap;gap:10px}
+  .rail .sep{display:none}
+  .clock{margin-left:auto}
+  .counts{flex-wrap:wrap;gap:8px 0}
+  .count{padding:0 14px}
+  .count:first-child{padding-left:0}
+  .counts .sep{display:none}
+  .stamp{width:100%;padding-top:6px}
+  .selapsed{font-size:16px}
+  .dwho{display:none}
+}
 </style></head><body>
-<div class="wrap">
-  <header class="boot">
+<div class="shell">
+  <header class="rail">
     <div class="mark">CHEWBACCA</div>
-    <div class="host"><span class="dot"></span><span id="host">local</span></div>
+    <div class="chip"><span class="tx" id="tx"></span><span id="host">local</span></div>
+    <div class="sep"></div>
     <div class="clock" id="clock"></div>
   </header>
-  <div class="stats" id="stats"></div>
-  <div class="grid" id="grid"></div>
-  <footer>loopback only &middot; <span id="stamp"></span></footer>
+
+  <div class="body">
+    <div class="col">
+      <section class="panel" style="flex:1">
+        <div class="phead"><span class="ptitle">Slipping</span><span class="pnote" id="slipnote"></span></div>
+        <div class="pbody"><div class="slip" id="slip"></div></div>
+      </section>
+    </div>
+    <div class="col right">
+      <section class="panel">
+        <div class="phead"><span class="ptitle">Pulse</span><span class="pnote" id="pulsenote"></span></div>
+        <div class="pulse" id="pulse"></div>
+        <div class="paxis"><span id="paxisa"></span><span id="paxisb"></span></div>
+      </section>
+      <section class="panel">
+        <div class="phead"><span class="ptitle">Ahead</span><span class="pnote" id="dlnote"></span></div>
+        <div class="pbody"><div class="dl" id="dl"></div></div>
+      </section>
+      <section class="panel">
+        <div class="phead"><span class="ptitle">Last spoken to</span><span class="pnote" id="seennote"></span></div>
+        <div class="pbody"><div class="seen" id="seen"></div></div>
+      </section>
+    </div>
+  </div>
+
+  <footer class="counts" id="counts"></footer>
 </div>
 <script>
 const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const num = n => Number(n || 0).toLocaleString();
+const $ = id => document.getElementById(id);
 
 function tick(){
-  document.getElementById("clock").textContent =
-    new Date().toLocaleTimeString([], {hour:"numeric", minute:"2-digit", second:"2-digit"});
+  $("clock").textContent = new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit", hour12:false});
 }
 setInterval(tick, 1000); tick();
 
-function stat(n, k, hot){
-  return '<div class="stat boot"><div class="n' + (hot ? " hot" : "") + '">' + esc(n) + '</div><div class="k">' + esc(k) + '</div></div>';
+// 1720 is a number nobody feels. "4y 8m" is the same fact in the unit a
+// person actually thinks in, and that conversion is most of the difference
+// between a readout and a sentence.
+function since(days){
+  if (days == null) return "never";
+  if (days < 60) return days + "d";
+  var months = Math.round(days / 30.44);
+  if (months < 24) return months + "mo";
+  var years = Math.floor(days / 365.25);
+  var rem = Math.round((days - years * 365.25) / 30.44);
+  return rem ? years + "y " + rem + "m" : years + "y";
 }
 
+// A wall-clock stamp is precise and unreadable at a glance. These rows are
+// scanned, not studied, so they get the distance instead of the coordinate.
+function ago(ts){
+  if (!ts) return "";
+  var then = new Date(String(ts).replace(" ", "T")).getTime();
+  if (!then) return "";
+  var mins = Math.max(0, Math.round((Date.now() - then) / 60000));
+  if (mins < 60) return mins + "m";
+  if (mins < 60 * 24) return Math.round(mins / 60) + "h";
+  return Math.round(mins / 1440) + "d";
+}
+
+// Counts up only when the value on screen is not already the value being
+// set. Re-running the animation every poll turns a steady number into a
+// flicker and makes the whole surface feel unreliable.
+function settle(el, value){
+  var prev = Number(el.dataset.v || 0);
+  if (prev === value) return;
+  el.dataset.v = value;
+  var from = prev, delta = value - from, t0 = performance.now(), ms = 620;
+  function step(now){
+    var k = Math.min(1, (now - t0) / ms);
+    var eased = 1 - Math.pow(1 - k, 3);
+    el.textContent = num(Math.round(from + delta * eased));
+    if (k < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+var first = true;
+
 function render(d){
-  document.getElementById("host").textContent = d.host;
-  document.getElementById("stamp").textContent =
-    "refreshed " + new Date(d.at).toLocaleTimeString([], {hour:"numeric", minute:"2-digit"});
+  $("host").textContent = d.host || "local";
 
-  document.getElementById("stats").innerHTML =
-    stat(num(d.messages), "messages") +
-    stat(num(d.people), "people") +
-    stat(d.overdue.length, "slipping", d.overdue.length > 0) +
-    stat(d.kits.length, "kits") +
-    stat(d.repo.skills, "skills") +
-    stat(d.repo.version, "version");
+  // ------------------------------------------------------------ slipping
+  var slip = $("slip");
+  var rows = d.overdue || [];
+  var total = d.overdueTotal || rows.length;
+  $("slipnote").textContent = total
+    ? (total > rows.length ? rows.length + " of " + num(total) : total + " overdue")
+    : "";
+  if (!rows.length) {
+    slip.innerHTML = '<div class="empty">Nobody is overdue.</div>';
+  } else {
+    slip.innerHTML = rows.map(function(r, i){
+      var cls = i === 0 ? "worst" : (r.days >= 365 ? "cold" : "");
+      var delay = first ? ' style="animation-delay:' + (i * 42) + 'ms"' : '';
+      return '<div class="srow ' + cls + (first ? ' in' : '') + '"' + delay + '>' +
+        '<div class="selapsed">' + esc(since(r.days)) + '</div>' +
+        '<div class="sbody"><div class="sname">' + esc(r.name) + '</div></div>' +
+      '</div>';
+    }).join("");
+  }
 
-  const cards = [];
+  // --------------------------------------------------------------- pulse
+  var p = d.pulse || [];
+  var peak = Math.max(1, Math.max.apply(null, p.map(function(x){ return x.n; })));
+  $("pulse").innerHTML = p.map(function(x, i){
+    var h = Math.max(2, Math.round((x.n / peak) * 60));
+    var last = i === p.length - 1;
+    return '<div class="pbar' + (last ? " today" : "") + '" style="height:' + h + 'px" title="' + esc(x.day) + ': ' + x.n + '"></div>';
+  }).join("");
+  // Labelled with the window it actually plots. The old version printed the
+  // full history span here while charting the last 21 days, so the panel
+  // disagreed with itself and the chart was the honest half.
+  $("pulsenote").textContent = peak + " peak";
+  $("paxisa").textContent = p.length ? p[0].day.slice(5) : "";
+  $("paxisb").textContent = "today";
 
-  const peak = Math.max(1, ...d.pulse.map(p => p.n));
-  cards.push('<div class="card wide boot"><h2>Signal' +
-    (d.range ? '<span class="pill">' + esc(d.range) + '</span>' : '') + '</h2>' +
-    '<div class="spark">' + d.pulse.map(p =>
-      '<i style="height:' + Math.max(2, Math.round(p.n / peak * 100)) + '%" title="' +
-      esc(p.day) + ': ' + p.n + '"></i>').join("") + '</div>' +
-    '<div class="axis"><span>' + esc(d.pulse[0] ? d.pulse[0].day : "") +
-    '</span><span>' + num(peak) + ' peak</span><span>today</span></div></div>');
+  // ------------------------------------------------------------ deadlines
+  var dl = d.deadlines || [];
+  $("dlnote").textContent = dl.length ? dl.length + " tracked" : "";
+  $("dl").innerHTML = dl.length ? dl.slice(0, 6).map(function(x){
+    return '<div class="drow' + (x.days != null && x.days <= 30 ? " near" : "") + '">' +
+      '<div class="din">' + (x.days == null ? "—" : esc(x.days) + "d") + '</div>' +
+      '<div class="dwhat">' + esc(x.what || "") + '</div>' +
+      '<div class="dwho">' + esc(x.org || "") + '</div></div>';
+  }).join("") : '<div class="empty">Nothing dated.</div>';
 
-  cards.push('<div class="card boot"><h2>Slipping' +
-    (d.overdue.length ? '<span class="pill">' + d.overdue.length + '</span>' : '') + '</h2>' +
-    (d.overdue.length ? d.overdue.map(p => {
-      const ratio = Math.min(1, p.over / Math.max(1, p.cadence * 2));
-      return '<div class="row"><span class="nm">' + esc(p.name) + '</span>' +
-        '<span class="meter"><i style="width:' + Math.round(ratio * 100) + '%"></i></span>' +
-        '<span class="sub">' + p.days + 'd</span></div>';
-    }).join("") : '<div class="empty">Nobody is past their cadence.</div>') + '</div>');
+  // ----------------------------------------------------------- last seen
+  var seen = d.recent || [];
+  $("seennote").textContent = seen.length ? seen.length + " threads" : "";
+  $("seen").innerHTML = seen.length
+    ? seen.map(function(r){
+        return '<div class="srow2"><div class="s2name">' + esc(r.name) + '</div>' +
+               '<div class="s2when">' + esc(ago(r.t)) + '</div></div>';
+      }).join("")
+    : '<div class="empty">No conversations on file.</div>';
 
-  cards.push('<div class="card boot"><h2>Ahead of you' +
-    (d.deadlines.length ? '<span class="pill">next ' + d.deadlines.length + '</span>' : '') + '</h2>' +
-    (d.deadlines.length ? d.deadlines.map(x =>
-      '<div class="dl"><span class="when' + (x.days <= 30 ? " soon" : "") + '">' + x.days + 'd</span>' +
-      '<span class="what"><b>' + esc(x.org) + '</b>' + esc(x.what) + '</span>' +
-      '<span class="date">' + esc(x.date) + '</span></div>').join("")
-      : '<div class="empty">No dated rows in any kit.</div>') + '</div>');
+  // --------------------------------------------------------------- counts
+  var counts = $("counts");
+  if (!counts.dataset.built) {
+    counts.dataset.built = "1";
+    var spec = [["messages","Messages"],["people","People"],["skills","Skills"],["kitcount","Kits"]];
+    counts.innerHTML = spec.map(function(s){
+      return '<div class="count"><span class="cn" id="c-' + s[0] + '">0</span><span class="ck">' + s[1] + '</span></div>';
+    }).join("") + '<div class="sep"></div><div class="stamp" id="stamp"></div>';
+  }
+  settle($("c-messages"), d.messages || 0);
+  settle($("c-people"), d.people || 0);
+  settle($("c-skills"), (d.repo && d.repo.skills) || 0);
+  settle($("c-kitcount"), (d.kits || []).length);
+  $("stamp").textContent = "loopback · " + new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",hour12:false});
 
-  cards.push('<div class="card boot"><h2>Last spoken to</h2>' +
-    (d.recent.length ? d.recent.map(r =>
-      '<div class="row"><span class="nm">' + esc(r.name) + '</span>' +
-      '<span class="sub">' + esc(String(r.t).slice(0, 10)) + '</span></div>').join("")
-      : '<div class="empty">No message history synced.</div>') + '</div>');
-
-  cards.push('<div class="card boot"><h2>The kit<span class="pill">' + esc(d.repo.branch) + '</span></h2>' +
-    '<div class="chips">' +
-    '<span class="chip' + (d.repo.dirty ? " on" : "") + '">' + d.repo.dirty + ' uncommitted</span>' +
-    '<span class="chip' + (d.repo.ahead ? " on" : "") + '">' + d.repo.ahead + ' unpushed</span>' +
-    d.kits.map(k => '<span class="chip">' + esc(k) + '</span>').join("") +
-    '</div></div>');
-
-  document.getElementById("grid").innerHTML = cards.join("");
+  first = false;
 }
 
 async function load(){
+  var tx = $("tx");
+  tx.classList.add("on");
   try {
     render(await (await fetch("/api/state")).json());
   } catch (e) {
-    document.getElementById("grid").innerHTML =
-      '<div class="card"><h2>Offline</h2><div class="empty">' + esc(e.message) + '</div></div>';
+    $("slip").innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+  } finally {
+    setTimeout(function(){ tx.classList.remove("on"); }, 260);
   }
 }
 load();
