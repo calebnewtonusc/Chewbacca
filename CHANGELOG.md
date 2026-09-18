@@ -74,6 +74,7 @@ real commit; nothing here is written by hand.
 - the listener died when the display restarted
 
 ### Changed
+- resolve who somebody is before saying anything about them
 - drop em dashes from the new tap log lines
 - revive the hotkey tap when the system kills it
 - check for the Clay key before talking about cost
