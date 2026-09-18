@@ -62,11 +62,17 @@ private struct GlassContainer<Content: View>: View {
     init(@ViewBuilder content: () -> Content) { self.content = content() }
 
     var body: some View {
+        // Same compile-time gate as CapsuleGlass below: GlassEffectContainer
+        // is a macOS 26 SwiftUI type and does not resolve against the 15 SDK.
+        #if canImport(FoundationModels)
         if #available(macOS 26, *) {
             GlassEffectContainer { content }
         } else {
             content
         }
+        #else
+        content
+        #endif
     }
 }
 
@@ -77,6 +83,13 @@ private struct CapsuleGlass: ViewModifier {
     let radius: CGFloat
 
     func body(content: Content) -> some View {
+        // Liquid Glass is macOS 26 SwiftUI. `#available` gates it at runtime
+        // but the symbols still have to resolve at compile time, and against
+        // the macOS 15 SDK `.glassEffect` and `.glassEffectID` do not exist at
+        // all: five errors, all of them "cannot infer contextual base". The
+        // material fallback below was already written and already correct; it
+        // just needed the compile-time half of the same condition.
+        #if canImport(FoundationModels)
         if #available(macOS 26, *) {
             content
                 .glassEffect(
@@ -88,6 +101,11 @@ private struct CapsuleGlass: ViewModifier {
                 .ultraThinMaterial,
                 in: RoundedRectangle(cornerRadius: radius, style: .continuous))
         }
+        #else
+        content.background(
+            .ultraThinMaterial,
+            in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+        #endif
     }
 }
 
