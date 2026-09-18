@@ -44,6 +44,51 @@
         "people"
       ],
       "expect_behavior": "search the store, not memory"
+    },
+    {
+      "prompt": "Text Tyler everything I know about him",
+      "expect_tools": [
+        "people"
+      ],
+      "expect_behavior": "run people brief, resolve WHICH Tyler out of the fourteen in the store before writing anything",
+      "reject": [
+        "picking a Tyler and writing",
+        "blending facts from more than one Tyler"
+      ],
+      "why": "a text once went to Tyler Larsen carrying Tyler Law's words"
+    },
+    {
+      "prompt": "Draft a message to Tyler Larsen",
+      "expect_tools": [
+        "people"
+      ],
+      "expect_behavior": "if people brief exits non-zero on a split identity, stop and merge or --force; do not read a different row instead",
+      "reject": [
+        "working around the refusal by reading the markdown export",
+        "falling back to message history by first name"
+      ]
+    },
+    {
+      "prompt": "What does Tyler Larsen do for work?",
+      "expect_tools": [
+        "people"
+      ],
+      "expect_behavior": "answer from the stored career field, or fetch it free via Clay matched on his LinkedIn URL",
+      "reject": [
+        "guessing an employer",
+        "saying the lookup costs credits without checking ~/.chewbacca/clay-key"
+      ],
+      "why": "ten Tyler Larsens come back from a name search and only the URL separates them"
+    },
+    {
+      "prompt": "Tell me about Tyler Law",
+      "expect_tools": [
+        "people"
+      ],
+      "expect_behavior": "Colin's friend, SGV Christian Club, UCI; never Trojan Tech Solutions",
+      "reject": [
+        "any TTS or Blue Modern Advisory fact, which belong to Tyler Larsen"
+      ]
     }
   ]
 }

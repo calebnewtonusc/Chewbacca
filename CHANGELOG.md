@@ -36,6 +36,10 @@ real commit; nothing here is written by hand.
 - hud demo
 
 ### Fixed
+- doctor judges the last 24 hours, not the whole log
+- claude-tab says what is wrong instead of hanging 90s and dumping a traceback
+- stop every write to second-brain blocking on a git push
+- one writer per session-start cache, so opening tabs at once cannot blind them
 - open a Claude tab with a keybinding instead of a toolbar click
 - stop two test scripts from aborting the whole pytest session
 - one definition of last contact, and show who is waiting on whom
@@ -70,6 +74,9 @@ real commit; nothing here is written by hand.
 - the listener died when the display restarted
 
 ### Changed
+- drop em dashes from the new tap log lines
+- revive the hotkey tap when the system kills it
+- check for the Clay key before talking about cost
 - ignore .worktrees, which CLAUDE.md requires and the Stop hook would commit
 - register the deslop skill in the generated inventory
 - shard the location backfill, seven hours is not a backfill
@@ -92,6 +99,9 @@ real commit; nothing here is written by hand.
 - send the root early
 
 ### Other
+- tools: export every people-db record to one CSV
+- tools: export the whole people db to one wide CSV and XLSX
+- locate one named person, and read the balance with the stored key
 - Gate the other producers on having studied the craft (#1)
 - test: cover guide trends and trigger cases, and make hud-listen pytest-runnable
 - Add docs/ADVISING.md: helping someone reach a goal
