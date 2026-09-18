@@ -38,6 +38,7 @@
       "Bash(dirname:*)"
     ],
     "_comment_deny": "setup.sh sets defaultMode to bypassPermissions, so nothing prompts. These are the operations that stay blocked anyway: the ones with no undo, the ones that turn off a macOS protection, the reads that pull a secret into context where it can be echoed back or logged, and piping a download straight into a shell. deny beats allow. This is a string match, not a sandbox: see docs/THREAT-MODEL.md for what it does not cover.",
+    "_comment_hooks": "Hook logic lives in ~/.claude/hooks/*.sh, not in escaped one-liners here. Both install.sh and setup.sh put them there. Editing a shell script beats editing a JSON string with seven levels of backslash escaping.",
     "deny": [
       "Bash(rm -rf /)",
       "Bash(rm -rf /*)",
@@ -68,7 +69,7 @@
       "Bash(diskutil eraseDisk:*)",
       "Bash(diskutil eraseVolume:*)",
       "Bash(chmod -R 777 /)",
-      "Bash(chown -R:* /)",
+      "Bash(chown -R * /)",
       "Bash(git push --force-with-lease:*)",
       "Bash(git filter-branch:*)",
       "Bash(git update-ref -d:*)",
@@ -82,9 +83,10 @@
       "Bash(csrutil disable)",
       "Bash(spctl --master-disable)",
       "Bash(tccutil reset All)",
-      "Bash(curl:* | bash)",
-      "Bash(curl:* | sh)",
-      "Bash(wget:* | bash)",
+      "Bash(curl* | bash)",
+      "Bash(curl* | sh)",
+      "Bash(wget* | bash)",
+      "Bash(wget* | sh)",
       "Bash(history)",
       "Bash(cat ~/.zsh_history)",
       "Bash(cat ~/.bash_history)",
@@ -101,7 +103,6 @@
   },
   "alwaysThinkingEnabled": true,
   "hooks": {
-    "_comment": "Hook logic lives in ~/.claude/hooks/*.sh, not in escaped one-liners here. Both install.sh and setup.sh put them there. Editing a shell script beats editing a JSON string with seven levels of backslash escaping.",
     "SessionStart": [
       {
         "hooks": [

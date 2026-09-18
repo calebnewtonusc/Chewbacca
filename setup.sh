@@ -311,7 +311,7 @@ MISSING=0
 # GitHub CLI from someone who does not have a GitHub account is the same
 # blocker as requiring the account, one layer down.
 REQUIRED="git:git python3:python3 jq:jq"
-[ "$NO_GITHUB" -eq 0 ] && REQUIRED="gh:GitHub CLI $REQUIRED"
+[ "$NO_GITHUB" -eq 0 ] && REQUIRED="gh:GitHub-CLI $REQUIRED"
 for pair in $REQUIRED; do
   cmd="${pair%%:*}"
   command -v "$cmd" &>/dev/null || { err "missing: ${pair##*:} ($cmd)"; MISSING=1; }
