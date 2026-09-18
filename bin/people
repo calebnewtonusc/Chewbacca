@@ -350,6 +350,10 @@ function migrate(d) {
   ensureColumn(d, "people", "muted_at", "muted_at TEXT");
   ensureColumn(d, "people", "muted_reason", "muted_reason TEXT");
   ensureColumn(d, "people", "linkedin", "linkedin TEXT");
+  // The date LinkedIn stamped on the connection. Its own column because
+  // how_we_met gets overwritten the moment a contact card matches ("USC"),
+  // and this is the only field in an export that the member cannot edit.
+  ensureColumn(d, "people", "li_connected_on", "li_connected_on TEXT");
   // Per-person, not one global watermark. A run that dies halfway through a
   // rate limit used to throw away everything it had already paid for.
   ensureColumn(d, "people", "distilled_at", "distilled_at TEXT");
@@ -619,12 +623,30 @@ function daysBetween(a, b) {
 function findPerson(needle, { required = true } = {}) {
   if (!needle) return null;
   const d = db();
+  // AN EXACT NAME IS NOT AN IDENTITY. This used to be `.get()`, so when two
+  // live rows were both called "Tobias Lund" SQLite handed back whichever it
+  // reached first and said nothing. Half of what was known about the man sat
+  // on the row that lost, and a message got written off the half that won.
+  // The LIKE branch below had refused ambiguity since day one; the exact
+  // branch skipped the check because an exact match felt like certainty.
   const exact = d
     .prepare(
-      "SELECT * FROM people WHERE deleted_at IS NULL AND (id = ? OR handle = ? OR lower(name) = lower(?))",
+      "SELECT * FROM people WHERE deleted_at IS NULL AND (id = ? OR handle = ? OR lower(name) = lower(?)) ORDER BY id",
     )
-    .get(needle, needle, needle);
-  if (exact) return exact;
+    .all(needle, needle, needle);
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1)
+    die(
+      `"${needle}" is the name of ${exact.length} separate rows:\n` +
+        exact
+          .map(
+            (p) =>
+              `  ${p.id}  ${[p.role, p.company, p.location].filter(Boolean).join(" · ") || c.dim("(nothing on file)")}`,
+          )
+          .join("\n") +
+        "\nPass an id. If they are the same person: people merge <keep-id> <drop-id>",
+      2,
+    );
   const like = d
     .prepare(
       "SELECT * FROM people WHERE deleted_at IS NULL AND lower(name) LIKE lower(?) ORDER BY name LIMIT 5",
@@ -640,6 +662,62 @@ function findPerson(needle, { required = true } = {}) {
   }
   if (required) die(`No one matches "${needle}". Add them: people add "${needle}"`);
   return null;
+}
+
+// THE SAME HUMAN UNDER TWO NAMES.
+//
+// A contact saved as "Tobias Lund USC" and a LinkedIn row called "Tobias
+// Larsen" are one person, and nothing in this store knew that. `show` resolved
+// one of them, printed it in full, and never mentioned that the texts, the
+// cats, the club and the career history were split across two rows. The half
+// you got looked complete because there was no marker for the half you did not.
+//
+// The test is token containment, not string similarity: every token of the
+// shorter name appears in the longer one, and at least two tokens are shared.
+// That catches the decorated-contact-name pattern this address book is full of
+// ("Sagar Tiwari GOAT", "Owen Marsh IYA") without matching two strangers who
+// happen to share a first name. A shared phone, email or LinkedIn URL counts on
+// its own, because those identify rather than describe.
+const nameTokens = (n) =>
+  String(n || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+function possibleTwins(p) {
+  const d = db();
+  const mine = nameTokens(p.name);
+  const idKeys = ["phone", "email", "linkedin"];
+  const others = d
+    .prepare(`SELECT * FROM people WHERE deleted_at IS NULL AND id <> ? ORDER BY name`)
+    .all(p.id);
+  const norm = (u) => String(u || "").trim().toLowerCase().replace(/\/+$/, "").replace(/^https?:\/\/(www\.)?/, "");
+  return others.filter((o) => {
+    for (const k of idKeys) {
+      if (p[k] && o[k] && norm(p[k]) === norm(o[k])) return true;
+    }
+    const theirs = nameTokens(o.name);
+    const shared = mine.filter((t) => theirs.includes(t));
+    if (shared.length < 2) return false;
+    const short = mine.length <= theirs.length ? mine : theirs;
+    const long = short === mine ? theirs : mine;
+    return short.every((t) => long.includes(t));
+  });
+}
+
+// Everybody else who answers to the same first name. Not the same person, and
+// that is exactly the point: this is the list you must not blend into the one
+// you are writing to. Tobias Lane is Colin's friend; Tobias Lund runs TTS.
+function sameFirstName(p) {
+  const d = db();
+  const first = nameTokens(p.name)[0];
+  if (!first) return [];
+  const twins = new Set(possibleTwins(p).map((x) => x.id));
+  return d
+    .prepare(`SELECT * FROM people WHERE deleted_at IS NULL AND id <> ? ORDER BY name`)
+    .all(p.id)
+    .filter((o) => nameTokens(o.name)[0] === first && !twins.has(o.id));
 }
 
 function findCircle(needle, { required = true } = {}) {
@@ -1799,6 +1877,17 @@ function cmdShow(argv) {
   const d = db();
 
   say("");
+  // Printed before the record, not after it, because the record reads as
+  // complete on its own and there is no other sign that half of it is missing.
+  const twins = possibleTwins(p);
+  if (twins.length) {
+    say(c.yel(`  ⚠  ${twins.length === 1 ? "Another row looks like" : `${twins.length} other rows look like`} this same person.`));
+    say(c.yel(`     What you are about to read is only part of what is on file.`));
+    for (const t of twins)
+      say(c.dim(`     ${t.id}  ${t.name}${t.phone ? `  ${t.phone}` : ""}${t.company ? `  ${t.company}` : ""}`));
+    say(c.dim(`     people merge ${p.id} <drop-id>   to make them one`));
+    say("");
+  }
   say(c.b(p.name) + (p.handle ? c.dim(` @${p.handle}`) : ""));
   const bits = [p.role, p.company, p.location].filter(Boolean).join(" · ");
   if (bits) say(c.dim(bits));
@@ -3567,6 +3656,7 @@ function allExports() {
 function mergeExports(files) {
   const byUrl = new Map();
   const changes = [];
+  let seq = 0;
   for (const f of files) {
     for (const r of readLinkedInCsv(f)) {
       const url = (r.URL || "").trim().replace(/\/+$/, "");
@@ -3583,10 +3673,54 @@ function mergeExports(files) {
       }
       // The newer file wins field by field, so a blank in September does not
       // erase a company June knew about.
-      byUrl.set(key, prev ? { ...prev, ...Object.fromEntries(Object.entries(r).filter(([, v]) => v)) } : r);
+      const merged = prev ? { ...prev, ...Object.fromEntries(Object.entries(r).filter(([, v]) => v)) } : { ...r };
+      merged._seq = seq;
+      byUrl.set(key, merged);
+    }
+    seq++;
+  }
+
+  // ONE PERSON, ONE ENTRY, EVEN WHEN THEY RENAMED THEIR PROFILE.
+  //
+  // Keying on URL alone splits a member who edits their vanity URL into two
+  // connections, because the old file and the new file disagree about a field
+  // the member controls. Tobias Lund did exactly that between June and
+  // September and became two people, one holding his internship and one
+  // holding his job.
+  //
+  // "Connected On" is the one field here that nobody can edit: LinkedIn stamps
+  // it when the connection is accepted and it is identical in every export
+  // forever. Name plus that date collapses the pair, and the entry from the
+  // newest file wins so the current URL and the current employer survive. Two
+  // strangers of the same name who connected on the same day would collide, so
+  // that case is left split rather than guessed at.
+  const byConn = new Map();
+  for (const r of byUrl.values()) {
+    const on = (r["Connected On"] || "").trim();
+    const nm = `${r["First Name"]} ${r["Last Name"]}`.replace(/\s+/g, " ").trim().toLowerCase();
+    if (!on || !nm) continue;
+    const k = `${nm}|${on.toLowerCase()}`;
+    const prev = byConn.get(k);
+    byConn.set(k, prev === null ? null : prev && prev.length ? [...prev, r] : [r]);
+  }
+  const dropped = new Set();
+  for (const group of byConn.values()) {
+    if (!group || group.length < 2) continue;
+    const urls = new Set(group.map((g) => (g.URL || "").trim().replace(/\/+$/, "")));
+    if (urls.size < 2) continue;
+    const newest = group.reduce((a, b) => (b._seq >= a._seq ? b : a));
+    for (const g of group) {
+      if (g === newest) continue;
+      dropped.add(g);
+      // The older entry still knows where they used to work. Keep that, drop
+      // the stale URL.
+      for (const [k2, v] of Object.entries(g)) if (v && !newest[k2]) newest[k2] = v;
     }
   }
-  return { conns: [...byUrl.values()], changes };
+
+  const out = [...byUrl.values()].filter((r) => !dropped.has(r));
+  for (const r of out) delete r._seq;
+  return { conns: out, changes };
 }
 
 // Tiered matching. `exact` and `nickname` are written; `unsure` is printed and
@@ -3704,27 +3838,67 @@ function cmdLinkedin(argv) {
   // existed nowhere in the store: no row, unsearchable, and invisible to every
   // later question. Matching is what happens after the people exist.
   //
-  // Keyed on the profile URL, which is the only stable identifier here. A name
-  // is not: two Danny Kims are two rows, and one person who changes their
-  // display name must not become a second.
-  let imported = 0, refreshed = 0;
+  // Keyed on the profile URL, because a name is not an identifier: two Daniel
+  // Kims are two rows, and one person who changes their display name must not
+  // become a second.
+  //
+  // THE URL IS NOT STABLE EITHER, which this used to assume. A vanity URL is a
+  // field the member edits, and Tobias Lund edited his between the June and
+  // September exports. The URL key missed, a second row was inserted, and one
+  // man existed twice: the old row holding the internship and the new one
+  // holding the job. A brief written off either half was half wrong.
+  //
+  // The connection date is the thing that genuinely never changes. LinkedIn
+  // stamps it once and no member can edit it, so name plus connection date
+  // catches a URL change that the URL alone cannot. It is only consulted when
+  // the URL misses, and only when exactly one row matches, because two people
+  // of the same name connecting on the same day is a reason to insert rather
+  // than to guess.
+  let imported = 0, refreshed = 0, reurled = 0;
   const haveUrl = new Map();
   for (const r of d
     .prepare(`SELECT id, linkedin, company, role FROM people WHERE linkedin IS NOT NULL AND linkedin<>'' AND deleted_at IS NULL`)
     .all())
     haveUrl.set(String(r.linkedin).trim().replace(/\/+$/, ""), r);
 
+  const connKey = (name, on) => `${String(name).trim().toLowerCase()}|${String(on).trim().toLowerCase()}`;
+  const haveConn = new Map();
+  for (const r of d
+    .prepare(`SELECT id, name, company, role, linkedin, li_connected_on, how_we_met FROM people
+               WHERE deleted_at IS NULL
+                 AND (li_connected_on IS NOT NULL OR how_we_met LIKE 'connected on LinkedIn %')`)
+    .all()) {
+    // The column when it is there; rows written before it existed still carry
+    // the date inside how_we_met, and backfilling from that costs one parse.
+    const on = r.li_connected_on || String(r.how_we_met || "").replace(/^connected on LinkedIn /i, "");
+    if (!on) continue;
+    const k = connKey(r.name, on);
+    // A collision means the key cannot identify anybody. Poison it rather than
+    // letting the second row win.
+    haveConn.set(k, haveConn.has(k) ? null : r);
+  }
+
   for (const li of conns) {
     const url = (li.URL || "").trim().replace(/\/+$/, "");
     if (!url) continue;
     const name = `${li["First Name"]} ${li["Last Name"]}`.replace(/\s+/g, " ").trim();
     if (!name) continue;
-    const existing = haveUrl.get(url);
+    let existing = haveUrl.get(url);
+    if (!existing && li["Connected On"]) {
+      const moved = haveConn.get(connKey(name, li["Connected On"]));
+      if (moved && moved.linkedin && moved.linkedin.replace(/\/+$/, "") !== url) {
+        if (apply)
+          d.prepare(`UPDATE people SET linkedin=?, updated_at=datetime('now') WHERE id=?`).run(url, moved.id);
+        haveUrl.set(url, moved);
+        existing = moved;
+        reurled++;
+      }
+    }
     if (!existing) {
       if (apply)
         d.prepare(
-          `INSERT INTO people (id, name, company, role, linkedin, source, how_we_met)
-           VALUES (?,?,?,?,?,'linkedin',?)`,
+          `INSERT INTO people (id, name, company, role, linkedin, source, how_we_met, li_connected_on)
+           VALUES (?,?,?,?,?,'linkedin',?,?)`,
         ).run(
           uuid(),
           name,
@@ -3732,9 +3906,17 @@ function cmdLinkedin(argv) {
           li.Position || null,
           url,
           li["Connected On"] ? `connected on LinkedIn ${li["Connected On"]}` : null,
+          li["Connected On"] || null,
         );
       imported++;
-    } else if (li.Company && existing.company !== li.Company) {
+    } else if (existing && li["Connected On"] && !existing.li_connected_on) {
+      // Backfill, so the next URL change is catchable even for rows that were
+      // imported before this column existed.
+      if (apply)
+        d.prepare(`UPDATE people SET li_connected_on=? WHERE id=? AND (li_connected_on IS NULL OR li_connected_on='')`)
+          .run(li["Connected On"], existing.id);
+    }
+    if (existing && li.Company && existing.company !== li.Company) {
       // The merged export is newer than whatever is on the row.
       if (apply)
         d.prepare(`UPDATE people SET company=?, role=COALESCE(?,role), updated_at=datetime('now') WHERE id=?`)
@@ -3797,6 +3979,12 @@ function cmdLinkedin(argv) {
   line("matched by nickname", m.nickname.length, "both names now stored");
   line("uncertain", m.unsure.length, "not written, listed below");
   line("first name only", m.firstOnly.length, "needs Clay: phone -> LinkedIn");
+  if (reurled)
+    say(
+      c.dim(
+        `  ${reurled} changed their LinkedIn URL since the last export and were followed, not duplicated.`,
+      ),
+    );
   line("not on LinkedIn", m.absent.length, "people linkedin audit");
   say();
 
@@ -4051,10 +4239,10 @@ function linkedinLocate(flags) {
         .prepare(
           `SELECT id, name, linkedin FROM people
             WHERE deleted_at IS NULL AND linkedin IS NOT NULL AND linkedin<>''
-              AND name LIKE ? COLLATE NOCASE
+              AND (id = ? OR name LIKE ? COLLATE NOCASE)
             ORDER BY id`,
         )
-        .all(`%${who}%`)
+        .all(who, `%${who}%`)
         .slice(0, Math.max(1, limit))
     : d
         .prepare(
@@ -4069,6 +4257,19 @@ function linkedinLocate(flags) {
 
   if (who && !rows.length)
     die(`Nobody called "${who}" has a LinkedIn URL on file, so there is nothing free to match on.`);
+  // ONE NAME, ONE PERSON. `--who "Tobias Lund"` used to LIKE-match every row
+  // whose name contained it and look all of them up in one run, printing the
+  // results as a list with no indication they were different humans. Ten Tobias
+  // Larsens come back from Clay and only the URL separates them, so a caller
+  // who asked about one and got three has no way to tell which career belongs
+  // to the person they are about to write to.
+  if (who && rows.length > 1)
+    die(
+      `"${who}" matches ${rows.length} rows with a LinkedIn URL:\n` +
+        rows.map((r) => `  ${r.id}  ${r.name}  ${r.linkedin}`).join("\n") +
+        "\nLook one up by id, or merge them first if they are the same person.",
+      2,
+    );
 
   const total = d
     .prepare(`SELECT COUNT(*) n FROM people WHERE deleted_at IS NULL AND linkedin IS NOT NULL AND linkedin<>'' AND (location IS NULL OR location='')`)
@@ -6989,6 +7190,7 @@ const HELP = `${c.b("people")} ${c.dim("- everything you know about the people i
   ${c.b("people note")} maggie "thinking about moving to SF" --modality planned
   ${c.b("people log")} maggie --channel call "caught up about the move"
   ${c.b("people show")} maggie
+  ${c.b("people brief")} maggie                  ${c.dim("before you write to them: refuses if the identity is split")}
   ${c.b("people list")} [--by score]
   ${c.b("people me")} "starting the neuro sequence" --dim intellectual
 
@@ -7019,6 +7221,7 @@ const HELP = `${c.b("people")} ${c.dim("- everything you know about the people i
   ${c.b("people linkedin clay")} [--limit 5]     rows to enrich, in Clay's shape
   ${c.b("people linkedin changes")}              job changes, free, from your own exports
   ${c.b("people linkedin locate")}               where people live, free, via Clay search
+  ${c.b("people linkedin locate --who <id>")}    one person, by row id when the name is shared
 
   ${c.b("people dedupe")}                        likely duplicate records
   ${c.b("people merge <keep> <absorb>")}         fold one record into another
@@ -7182,6 +7385,155 @@ function cmdDedupe(argv) {
     say(c.dim("--merge is deliberate: merging is not reversible, so do them one"));
     say(c.dim("at a time with people merge <keep> <drop>."));
   }
+}
+
+// ---------------------------------------------------------------- brief
+//
+// THE COMMAND TO RUN BEFORE WRITING TO SOMEBODY.
+//
+// Written after a text went out to Tobias Lund containing facts about Tobias
+// Law, and containing no work history at all even though the free Clay lookup
+// that returns it had been sitting in this same binary for a week. Three
+// things went wrong and `show` could not have caught any of them:
+//
+//   1. Three live rows were called "Tobias Lund". `show` picked one.
+//   2. Fourteen people in this address book are called Tobias. Nothing said so.
+//   3. Nobody ran `linkedin locate`, so the career field was empty and the
+//      message was assembled out of whatever else was lying around.
+//
+// So this refuses rather than reports. An identity that is not resolved is not
+// a warning to skim past, it is a reason to stop, because the output of this
+// command becomes a message to a real person who will read it.
+function cmdBrief(argv) {
+  const { rest, flags } = parseArgs(argv);
+  const who = rest.join(" ");
+  if (!who) die('Who are you writing to? people brief "Tobias Lund"');
+  const p = findPerson(who);
+  const d = db();
+
+  // REFUSE, DO NOT WARN. A split identity is the failure this command exists
+  // for: every fact on the losing row is invisible and nothing in the output
+  // would have looked wrong.
+  const twins = possibleTwins(p);
+  if (twins.length && !flags.force) {
+    die(
+      `"${p.name}" is split across ${twins.length + 1} rows, so no brief here is complete.\n\n` +
+        `  ${p.id}  ${p.name}${p.phone ? `  ${p.phone}` : ""}${p.company ? `  ${p.company}` : ""}\n` +
+        twins
+          .map((t) => `  ${t.id}  ${t.name}${t.phone ? `  ${t.phone}` : ""}${t.company ? `  ${t.company}` : ""}`)
+          .join("\n") +
+        `\n\nSame person:      people merge ${p.id} ${twins[0].id}\n` +
+        `Different people: people brief ${p.id} --force`,
+      2,
+    );
+  }
+
+  say("");
+  say(c.b(p.name) + (p.handle ? c.dim(` @${p.handle}`) : ""));
+  const bits = [p.role, p.company, p.location].filter(Boolean).join(" · ");
+  if (bits) say(c.dim(bits));
+  const contact = [p.phone, p.email].filter(Boolean).join("  ");
+  if (contact) say(c.dim(contact));
+  if (p.linkedin) say(c.dim(p.linkedin));
+
+  // THE LIST YOU MUST NOT BLEND IN. Fourteen Tobiases is not an edge case in a
+  // real address book, it is the normal state of one, and the only reason the
+  // wrong Tobias's facts reached a message is that nothing ever said the other
+  // thirteen existed.
+  const others = sameFirstName(p);
+  if (others.length) {
+    say("");
+    say(c.yel(`  do not confuse with  ${c.dim(`${others.length} other people named ${nameTokens(p.name)[0]}`)}`));
+    for (const o of others.slice(0, 12))
+      say(c.dim(`    ${o.name}${o.company ? ` · ${o.company}` : ""}${o.role && !o.company ? ` · ${o.role}` : ""}`));
+    if (others.length > 12) say(c.dim(`    and ${others.length - 12} more`));
+  }
+
+  // WORK HISTORY, FETCHED IF MISSING. The free path: Clay bills enrichment and
+  // not search, and the export already holds this person's profile URL, so the
+  // right row falls out of a URL match instead of a paid disambiguation. Ten
+  // Tobias Lunds come back from that search and only the URL tells them apart,
+  // which is why a name match here would be worse than no answer.
+  let career = (d.prepare(`SELECT value FROM quick_facts WHERE person_id=? AND key='career'`).get(p.id) || {}).value || "";
+  let careerNote = "on file";
+  if (!career && p.linkedin && clayKey() && !flags["no-fetch"]) {
+    try {
+      const norm = (u) => String(u || "").trim().toLowerCase().replace(/\/+$/, "").replace(/^https?:\/\/(www\.)?/, "");
+      const hit = clayCandidates(p.name, 10).find((x) => norm(x.linkedin) === norm(p.linkedin));
+      if (hit && hit.experiences.length) {
+        career = hit.experiences
+          .slice(0, 8)
+          .map((e) => `${e.title || "?"} at ${e.company || "?"}${e.from ? ` (${e.from}${e.to ? ` to ${e.to}` : " to now"})` : ""}`)
+          .join("; ");
+        d.prepare(
+          `INSERT INTO quick_facts (person_id, key, value) VALUES (?, 'career', ?)
+           ON CONFLICT(person_id, key) DO UPDATE SET value=excluded.value`,
+        ).run(p.id, career.slice(0, 1200));
+        if (hit.location)
+          d.prepare(`UPDATE people SET location=COALESCE(NULLIF(location,''), ?) WHERE id=?`).run(hit.location, p.id);
+        careerNote = "fetched just now from Clay, matched on the LinkedIn URL";
+      } else if (hit) {
+        careerNote = "Clay knows the profile but lists no roles";
+      } else {
+        careerNote = "no Clay row matched that LinkedIn URL";
+      }
+    } catch (e) {
+      careerNote = `Clay lookup failed (${e.message}); nothing was written`;
+    }
+  }
+  say("");
+  if (career) {
+    say(c.cyn("  work history  ") + c.dim(`(${careerNote})`));
+    for (const job of career.split("; ")) say(`    ${job}`);
+  } else if (!p.linkedin) {
+    say(c.yel("  work history   unknown, and no LinkedIn URL on file to look it up with."));
+    say(c.dim("                 Do not guess at where they work. Ask, or leave it out."));
+  } else if (!clayKey()) {
+    say(c.yel("  work history   unknown. A Clay key at ~/.chewbacca/clay-key makes this free."));
+  } else {
+    say(c.yel(`  work history   unknown: ${careerNote}.`));
+    say(c.dim("                 Do not guess at where they work."));
+  }
+
+  const qf = d
+    .prepare(`SELECT key, value FROM quick_facts WHERE person_id=? AND key<>'career' ORDER BY key`)
+    .all(p.id);
+  if (qf.length) {
+    say("");
+    for (const f of qf) say(`  ${c.cyn(f.key.padEnd(14))} ${String(f.value).split("\n").join("\n" + " ".repeat(17))}`);
+  }
+
+  const owed = d
+    .prepare(`SELECT title, due_at FROM tasks WHERE person_id=? AND done_at IS NULL`)
+    .all(p.id);
+  if (owed.length) {
+    say("\n" + c.cyn("  you owe them"));
+    for (const t of owed) say(`    ${t.title}${t.due_at ? c.dim("  " + dueLabel(t.due_at)) : ""}`);
+  }
+
+  // Every fact carries where it came from, so the message can too. "He said in
+  // March" and "his LinkedIn says" are not the same claim and must not leave
+  // here looking like one.
+  const obs = d
+    .prepare(
+      `SELECT * FROM observations WHERE person_id = ? AND deleted_at IS NULL
+        ORDER BY observed_at DESC LIMIT 25`,
+    )
+    .all(p.id);
+  say("\n" + c.cyn("  what you actually know") + c.dim("  (source in brackets; never state an inferred line as fact)"));
+  if (!obs.length) say(c.dim("    nothing recorded. Anything you write must come from this conversation."));
+  for (const o of obs) say("    " + renderObs(o));
+
+  const planned = obs.filter((o) => o.modality !== "actual");
+  if (planned.length) {
+    say("");
+    say(c.yel(`  ${planned.length} of those are ${[...new Set(planned.map((o) => o.modality))].join("/")}, not things that happened.`));
+    say(c.dim("  Congratulating someone on a plan is the fastest way to prove you were guessing."));
+  }
+
+  say("");
+  say(c.dim(`  still blank: people ask ${p.handle || p.name}`));
+  say("");
 }
 
 function cmdMerge(argv) {
@@ -7485,6 +7837,7 @@ const COMMANDS = {
   dedupe: cmdDedupe,
   orgs: cmdOrgs,
   "prune-broadcasts": cmdPruneBroadcasts,
+  brief: cmdBrief,
   merge: cmdMerge,
   note: cmdNote,
   me: cmdMe,

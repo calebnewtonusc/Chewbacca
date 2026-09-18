@@ -44,6 +44,51 @@
         "people"
       ],
       "expect_behavior": "search the store, not memory"
+    },
+    {
+      "prompt": "Text Tobias everything I know about him",
+      "expect_tools": [
+        "people"
+      ],
+      "expect_behavior": "run people brief, resolve WHICH Tobias out of the fourteen in the store before writing anything",
+      "reject": [
+        "picking a Tobias and writing",
+        "blending facts from more than one Tobias"
+      ],
+      "why": "a text once went to Tobias Lund carrying Tobias Lane's words"
+    },
+    {
+      "prompt": "Draft a message to Tobias Lund",
+      "expect_tools": [
+        "people"
+      ],
+      "expect_behavior": "if people brief exits non-zero on a split identity, stop and merge or --force; do not read a different row instead",
+      "reject": [
+        "working around the refusal by reading the markdown export",
+        "falling back to message history by first name"
+      ]
+    },
+    {
+      "prompt": "What does Tobias Lund do for work?",
+      "expect_tools": [
+        "people"
+      ],
+      "expect_behavior": "answer from the stored career field, or fetch it free via Clay matched on his LinkedIn URL",
+      "reject": [
+        "guessing an employer",
+        "saying the lookup costs credits without checking ~/.chewbacca/clay-key"
+      ],
+      "why": "ten Tobias Lunds come back from a name search and only the URL separates them"
+    },
+    {
+      "prompt": "Tell me about Tobias Lane",
+      "expect_tools": [
+        "people"
+      ],
+      "expect_behavior": "Colin's friend, SGV Christian Club, UCI; never Trojan Tech Solutions",
+      "reject": [
+        "any TTS or Blue Modern Advisory fact, which belong to Tobias Lund"
+      ]
     }
   ]
 }

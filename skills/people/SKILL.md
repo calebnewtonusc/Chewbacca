@@ -19,6 +19,72 @@ authors, Karthik Devarakonda and Sagar Tiwari. Amber is a multi-tenant Cloud SQL
 service; this is one SQLite file on a laptop. The ideas carried over; the
 tenancy did not.
 
+## Identity comes before facts
+
+The worst thing this skill can do is attach a true fact to the wrong person,
+and it is easier than it sounds. This address book holds fourteen people named
+Tobias. Two of them are called Tobias Lund and two are called Tobias Lane, and one
+of the Tobias Lunds was also stored twice because he edited his LinkedIn vanity
+URL between two exports.
+
+A message once went out to Tobias Lund, who runs Trojan Tech Solutions with
+Caleb, carrying things Tobias Lane had said. Tobias Lane is Colin's friend from a
+high school Christian club. Nothing in the output looked wrong, because a
+half-record reads exactly like a whole one.
+
+**So resolve the person before you read anything about them.**
+
+```bash
+people brief "Tobias Lund"       # the gate: run this before you write a word
+```
+
+`brief` refuses rather than reports. If more than one row could be that human
+it exits non-zero, prints the ids, and gives you the merge command. Treat that
+refusal as the answer, not as an obstacle: it means you do not yet know enough
+to write to this person, and guessing here reaches them.
+
+It also prints **everyone else who shares their first name**, which is the list
+you must not blend in. And it fills in work history on the spot if the row is
+missing it.
+
+`people show` warns about the same split but still prints. Use `show` to read;
+use `brief` when the output becomes a message.
+
+When it refuses, do one of two things and never a third:
+
+```bash
+people merge <keep-id> <drop-id>        # same human, one record now
+people brief <id> --force               # genuinely different people
+```
+
+Never work around it by reading a different row, by pulling facts out of the
+markdown export, or by going back to the message history by first name. Those
+are the three routes that produced the bad text.
+
+## Work history is free, so there is no excuse for guessing
+
+Caleb has a Clay key at `~/.chewbacca/clay-key` and Clay bills enrichment, not
+search. Searching by name costs nothing and returns location plus dated work
+history in the same response.
+
+Searching "Tobias Lund" returns ten of them: Scale AI in San Francisco, TJX in
+Temecula, Jones Day in Houston. **Only the LinkedIn URL tells them apart**, and
+the export already holds each connection's URL, so the match is exact rather
+than guessed.
+
+```bash
+people brief "Tobias Lund"                   # fetches it automatically if missing
+people linkedin locate --who <row-id>         # one person, by id
+people linkedin locate                        # the whole backlog, resumable
+```
+
+Pass a **row id** to `--who` when the name is shared. It refuses a name that
+matches several rows rather than looking all of them up and printing the
+results as one list.
+
+If the lookup comes back empty, say the work history is unknown. Do not
+reconstruct it from a company name someone mentioned in a text two months ago.
+
 ## The two failure modes
 
 Inventing a fact about a person is worse here than almost anywhere else,
@@ -326,7 +392,8 @@ when membership changes or the circle is deleted.
 
 ## Before coffee, a call, or a message
 
-Run `people show <who>` first. It now carries the whole picture in one screen:
+Run `people brief <who>` first, which resolves the identity and refuses if it
+cannot. Then `people show <who>` for the full record. It now carries the whole picture in one screen:
 quick facts, who they are related to, their dates, what you owe them, anything
 of theirs you still have, and the reason for the next check-in.
 
@@ -459,6 +526,11 @@ Three things this does not do, which you should say plainly rather than fake:
 ## Never
 
 - Never invent a fact about a person, or infer one confidently from a name
+- **Never write to somebody without resolving them first.** One first name is
+  not one person, and an exact full name is not one person either
+- **Never route around a `brief` refusal.** Merge the rows or pass `--force`
+- **Never state where somebody works from memory** when `people brief` or
+  `people linkedin locate` would return it for free
 - Never record a hedge as `actual`
 - Never overwrite a company or role without `people update`, which keeps the history
 - Never `people import --mac` unprompted: it reads their entire address book
