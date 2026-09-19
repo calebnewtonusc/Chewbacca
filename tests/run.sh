@@ -319,6 +319,11 @@ if group "installer"; then
   exits  "an unknown profile exits 2" 2 bash "$ROOT/setup.sh" --dry-run --profile nonsense --name CI
   check  "no read calls in the installer" bash -c "! grep -nE '^[[:space:]]*read (-[a-z]+ )*' '$ROOT/setup.sh'"
 
+  # This check lived only in CI, so a header inserted in the wrong place passed
+  # 206 local tests and failed after the push. A rule worth enforcing is worth
+  # enforcing where the work happens.
+  check  "every section is guarded by --only" python3 "$ROOT/tests/check_sections.py" "$ROOT/setup.sh"
+
   # Everything below was found by watching two people install this on their own
   # machines on 2026-09-19. Each one is a thing they hit, not a thing imagined.
 
