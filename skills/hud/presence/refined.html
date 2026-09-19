@@ -114,7 +114,7 @@
       class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 text-xs text-zinc-500 pointer-events-none"
       style="font-family: &quot;JetBrains Mono&quot;, monospace"
     >
-      1-3 switch &nbsp;&middot;&nbsp; space trigger &nbsp;&middot;&nbsp; x pop &nbsp;&middot;&nbsp; h panel
+      space trigger &nbsp;&middot;&nbsp; x pop &nbsp;&middot;&nbsp; h panel
     </div>
 
     <script>
@@ -197,133 +197,12 @@ float spring(float x, float freq, float damp){
 
       const MODELS = [
         {
-          name: "Aperture",
-          note: "a ring fractures into eight blades and locks",
-          gain: 45.0,
-          src: `
-// One blade sector of a rotating iris. Each blade carries its own stagger, so
-// the eight never arrive together and the ring reads as a mechanism with parts
-// rather than as a polygon being scaled.
-float iris(vec2 p, float r, float rot, float fan, float seedOff, out float bladeId){
-  float a = atan(p.y, p.x) + rot;
-  float seg = 6.2831853/8.0;
-  float idx = floor((a + 3.14159265)/seg);
-  bladeId = idx;
-  float stagger = hash11(idx*1.7 + seedOff);
-  float rr = r + fan*(0.06 + stagger*0.16);
-  float aa = mod(a + 3.14159265, seg) - seg*0.5;
-  return cos(aa)*length(p) - rr;
-}
-
-void main(){
-  vec2 p = (vUV*u_res - 0.5*u_res)/u_res.y;
-  float t = u_act;
-
-  // s1 snap in, s2 contract and fracture, s3 lock, then idle.
-  float s1 = stage(t, 0.00, 0.09);
-  float s2 = stage(t, 0.07, 0.46);
-  float s3 = stage(t, 0.42, 0.85);
-  float fan  = (1.0-expoOut(s2))*1.0 + (1.0-s3)*0.25*sin(s3*9.0);
-  float pull = mix(1.02, 0.62, expoOut(s2));
-
-  float v = 0.0, hot = 0.0;
-  for(int i=0;i<3;i++){
-    float fi = float(i);
-    // Counter-rotation. Two rings turning the same way read as one object.
-    float dir = (mod(fi,2.0) < 0.5) ? 1.0 : -1.0;
-    float rot = u_time*0.035*dir*(1.0+fi*0.4) + fi*0.5
-              + (1.0-expoOut(s3))*dir*0.9;
-    float r = pull + fi*0.115 + sin(u_time*0.22 + fi*1.9)*0.006;
-    float id;
-    float d = iris(p, r, rot, fan*(1.0-fi*0.25), fi*13.0, id);
-    float core = hairline(d, 1.6);
-    float halo = exp(-abs(d)*46.0);
-    float w = (1.0 - fi*0.26)*s1;
-    v   += (core*2.2 + halo*0.10)*w;
-    hot += core*w;
-
-    // Lens-barrel graduations on the outer ring only: density that costs no
-    // contrast, which is how an instrument gets busy without getting loud.
-    if(i == 2){
-      float a = atan(p.y, p.x) + rot;
-      float ticks = abs(fract(a*(96.0/6.2831853)) - 0.5);
-      float onRing = exp(-abs(d)*160.0);
-      v += smoothstep(0.42, 0.5, ticks)*onRing*0.5*s1;
-    }
-  }
-  // The lock: one bright frame as the blades seat.
-  float lock = exp(-pow((t-0.46)/0.05, 2.0));
-  v += lock*hot*0.45 + lock*0.012;
-
-  vec3 c = mix(AMBER, vec3(1.0), clamp(v*0.5, 0.0, 1.0));
-  o = vec4(c*v*u_gain, 1.0);
-}`,
-        },
-        {
-          name: "Interference",
-          note: "one line splits and drives the beat to the edges",
-          gain: 12.0,
-          src: `
-void main(){
-  vec2 uv = vUV;
-  float t = u_act;
-  float asp = u_res.x/u_res.y;
-
-  float s1 = stage(t, 0.00, 0.07);
-  float s2 = stage(t, 0.06, 0.52);
-  float s3 = stage(t, 0.40, 1.05);
-
-  // The two fronts leave the centre line and drive outward on expo-out, so
-  // they are almost at the edge before the eye has found them.
-  float travel = expoOut(s2);
-  float y = abs(uv.y - 0.5);
-  float frontY = travel*0.5;
-
-  float v = 0.0;
-  // Leading edge, split into colour: a real fast-moving bright edge smears
-  // across wavelengths, so the fringe belongs to the optics not the palette.
-  vec3 fr = vec3(0.0);
-  for(int k=0;k<3;k++){
-    float off = (float(k)-1.0)*0.0022*(1.0-s3);
-    float d = abs(y - (frontY + off));
-    fr[k] = exp(-d*260.0)*s1*(1.0-s3*0.55);
-  }
-  float lead = (fr.r+fr.g+fr.b)/3.0;
-
-  // Wake: bands materialise behind the front rather than everywhere at once.
-  float passed = smoothstep(frontY, frontY-0.06, y);
-  float s_a = sin(uv.y*u_res.y*0.0850 - u_time*1.15);
-  float s_b = sin(uv.y*u_res.y*0.0905 + u_time*0.95);
-  float beat = pow(abs(s_a*s_b), 7.0);
-
-  float edge = min(min(uv.x, 1.0-uv.x), min(uv.y, 1.0-uv.y));
-  float band = exp(-edge*17.0);
-  v += beat*passed*band*1.5*s3;
-  v += lead*2.2;
-
-  // Fine vertical graduation along the two long edges, low contrast.
-  float ticks = abs(fract(uv.x*asp*70.0) - 0.5);
-  v += smoothstep(0.40, 0.5, ticks)*exp(-edge*30.0)*0.32*s3;
-
-  // A single wide flash as the fronts touch the edges.
-  v += exp(-pow((t-0.52)/0.06, 2.0))*band*0.25;
-
-  vec3 c = mix(AMBER, vec3(1.0), clamp(v*0.45, 0.0, 1.0));
-  c = mix(c, vec3(1.0), lead*0.8);
-  o = vec4(c*v*u_gain, 1.0);
-}`,
-        },
-        {
           name: "Chromatic",
           note: "a split hairline drives the rim out, then the rim becomes a film",
           gain: 0.65,
           src: `
-// How much of the film's colour reaches the glow. Swept against the rim band
-// weighted by its own light, not along a line: at 1.0 the median saturation of
-// the lit frame is 0.52 and the frame is an oil slick. 0.38 puts the median at
-// 0.02 to 0.10 over the breath, which is a cast you notice only once you have
-// been looking at it.
-#define CHROMA 0.38
+// Overall level of the film. Swept, see the commit.
+#define SKIN 1.1
 
 float rimAt(float e, float k, float warp){ return exp(-max(e + warp, 0.0)*k); }
 
@@ -418,80 +297,82 @@ void main(){
   c += exp(-pow((t-0.52)/0.055, 2.0))*rimAt(e, 11.0, 0.0)*0.55;
 
   // --- what it does while nothing is happening -----------------------------
-  // Thickness varies along the perimeter as a handful of broad bands that
-  // rotate around the frame and slowly change shape underneath the rotation.
-  // Sampling on a circle makes the field exactly periodic in arc length, so
-  // there is no seam at the corner where s wraps back to zero.
-  //
-  // Everything here is deliberately low spatial frequency. Static is
-  // uncorrelated between neighbouring pixels; a film is smooth over hundreds
-  // of them and moves by drifting rather than by twinkling in place.
-  float ang = perim(vec2(uv.x*W, uv.y), W)/(2.0*(W + 1.0))*6.2831853;
-  vec2 q = vec2(cos(ang + u_time*0.030), sin(ang + u_time*0.030))*2.2;
-  float bands = (noise(q + vec2(0.0, u_time*0.016))
-              + 0.42*noise(q*2.1 + vec2(u_time*0.021, 0.0)))/1.42;
+  // At rest the rim stops being a glow with a tint on it and becomes the film
+  // itself. That swap is the whole point: a lit band with a colour multiplied
+  // over it is paint, and paint is opaque however faint you make it.
 
-  // Depth into the rim stands in for viewing angle, but only just. Driving a
-  // whole order across the band depth put concentric green and magenta rings
-  // around the frame, which is a decal, not a film. A film's colour travels
-  // along the surface. Across the thickness of a glow it barely moves.
-  float grazing = clamp(e*7.0, 0.0, 1.0);
+  // Domain warped noise. The field is sampled at coordinates that are
+  // themselves displaced by another sample of it, twice. Plain noise gives
+  // soft round blobs. This gives drawn out filaments and folded sheets,
+  // because on a real film the thickness is not sitting still: it is being
+  // carried around by convection in the liquid, and the streaks are the flow.
+  vec2 p = uv*vec2(W, 1.0)*2.6;
+  float dt = u_time*0.035;
+  vec2 w1 = vec2(fbm(p + vec2(0.0, dt)), fbm(p + vec2(5.2, 1.3) - dt*0.7));
+  vec2 w2 = vec2(fbm(p + 3.4*w1 + vec2(1.7, 9.2) + dt*0.5),
+                 fbm(p + 3.4*w1 + vec2(8.3, 2.8)));
+  float flow = fbm(p + 3.2*w2);
 
   // The sheen tilts toward the pointer. Iridescence is the one colour that is
   // a function of where you are looking from, and on a flat panel the only
   // thing standing in for a viewing angle is the cursor. Reads as -9999 with
   // no mouse on screen, which falls off to nothing on its own.
-  float glance = exp(-length(gl_FragCoord.xy - u_cursor)/260.0);
+  float glance = exp(-length(gl_FragCoord.xy - u_cursor)/300.0);
 
-  // 1248 to 1350 nm, and the window is the whole decision.
-  //
-  // Below about 700 the film is in its low orders, where the hue runs red to
-  // blue to green to orange inside a hundred nanometres at full saturation.
-  // That is the oil slick on a puddle and it looks like a decal.
-  //
-  // 1285 is a crossing: rose on one side, cyan on the other, and a nearly
-  // colourless point between them. Centred there, the whole swing is rose to
-  // white to cyan and back. A wider one walked the hue right around the wheel
-  // through orange and green in nine seconds, which is a mood ring.
-  //
-  // Almost none of the swing is spatial. A full order along the perimeter put
-  // a cyan third and a rose third on opposite sides of the screen: a striped
-  // bangle, not a sheen. The frame holds one hue at a time. What moves it is
-  // the breath and the pointer, not the position on the edge.
-  float nm = 1285.0 + 24.0*breath + 5.0*(bands*2.0 - 1.0)
-           + 4.0*grazing + 14.0*glance;
+  // Across the band the line of sight rolls from straight through the film at
+  // the inner boundary to fully edge on at the border. That is the geometry of
+  // standing inside a bubble and looking at its silhouette, and it is why the
+  // glow belongs at the edge of the screen in the first place.
+  float u = clamp(e/0.21, 0.0, 1.0);
 
-  // Hard stop before the green. Past about 1312 the cyan side slides from 178
-  // degrees down toward 160, and a faint green over a white glow reads as a
-  // dirty panel rather than as a colour. The breath and the pointer can both
-  // push that way, so clamping the thickness is what stops them having to be
-  // budgeted against each other: either one alone can reach the limit and
-  // neither can go past it.
+  // Refract it and use the real path length. cos of the refracted angle only
+  // falls to 0.66 at full grazing, so the orders compress into the silhouette
+  // rather than multiplying without limit. That compression is the thin bright
+  // band of crowded colour on the outside of every bubble.
+  float cosI = u;
+  float sinT = sqrt(max(1.0 - cosI*cosI, 0.0))/1.33;
+  float cosT = sqrt(max(1.0 - sinT*sinT, 0.0));
+
   // Gravity drains the film downward, so it is thinnest at the top. On a real
   // bubble this is the cue that says the surface is liquid rather than glass.
-  // One gradient across the whole frame, which is not a band.
-  nm -= (uv.y - 0.5)*18.0;
-
-  nm = clamp(nm, 1252.0, 1300.0);
+  float nm = (300.0 + 620.0*flow - (uv.y - 0.5)*130.0
+           + 40.0*breath + 90.0*glance)*cosT;
 
   // Two-beam reflectance, not the bare integral. film() is the AC part alone
   // and decays to zero as the film thickens, so normalising it by its own
   // luminance hands back a fully saturated colour from what ought to be an
-  // almost colourless thick film. Measured that way the whole rim came back at
-  // 0.78 saturation, uniform: an RGB keyboard rather than a bubble. Adding the
-  // DC term first is what makes the high orders wash out to pearl. The minus
-  // sign is the half-wave shift at the front face, which is also why a real
-  // film goes black just before it pops.
-  vec3 iri = max(0.5*(vec3(1.0) - film(2.0*1.33*nm)), vec3(0.0));
-  float il = dot(iri, vec3(0.2126, 0.7152, 0.0722));
-  // Normalised to unit luminance, so the iridescence lives entirely in chroma.
-  // A film that modulates brightness reads as flicker, not as material.
-  iri = il > 0.02 ? iri/il : vec3(1.0);
+  // almost colourless thick film. Adding the DC term first is what makes the
+  // high orders wash out to pearl. The minus sign is the half-wave shift at
+  // the front face, which is also why a film goes black just before it pops.
+  vec3 refl = max(0.5*(vec3(1.0) - film(2.0*1.33*nm)), vec3(0.0));
+
+  // Fresnel, and this is the term that decides opaque or not. Looking straight
+  // through a soap film you see four percent of it. At the silhouette almost
+  // all of it comes back. So the body of the band is very nearly clear and
+  // only the outer strip carries the colour, which is the whole difference
+  // between a bubble and a painted border.
+  float fres = 0.04 + 0.96*pow(1.0 - cosI, 4.0);
+
+  // The film's colour with its brightness divided out, for the places that
+  // want the hue without the level: the silhouette line and the rim of a pop.
+  vec3 sheen = normalize(refl + vec3(0.0015));
+
+  // Nothing past the band. Inside a real bubble the film is everywhere, and it
+  // is genuinely beautiful across the whole view, but a HUD that marbles the
+  // middle of the screen is standing in front of the work. So the reflectance
+  // is faded out where the line of sight is no longer anywhere near edge on.
+  float env = 1.0 - smoothstep(0.55, 1.0, u);
+
+  vec3 skin = refl*fres*env*SKIN;
+
+  // The last sliver of a silhouette is a bright near white line, because there
+  // the two surfaces of the film are being seen almost exactly superimposed.
+  skin += exp(-e*320.0)*0.55*mix(vec3(1.0), sheen, 0.5);
 
   // Held back until the activation has landed. During the move the colour
   // belongs to the motion, and two colour stories at once is mud.
   float alive = smoothstep(0.25, 1.0, settle);
-  c *= mix(vec3(1.0), iri, alive*CHROMA);
+  c = mix(c, skin, alive);
 
   // --- the pop --------------------------------------------------------------
   // Nothing below is eased. A rupturing film does not decelerate: the hole
@@ -530,7 +411,7 @@ void main(){
     // rim of the hole. That is why the edge of a bursting bubble is brighter
     // than the film was, and why fading one out looks nothing like one.
     float ring = exp(-pow((r - edge)/0.014, 2.0))*(0.35 + R*1.1)*(1.0 - tear*0.5);
-    c += ring*mix(vec3(1.0), iri, 0.55);
+    c += ring*mix(vec3(1.0), sheen, 0.55);
 
     // Drops thrown out of the indentations, flying a little ahead of the rim
     // that threw them.
@@ -664,6 +545,11 @@ void main(){
             throw new Error(gl.getProgramInfoLog(p));
           return p;
         } catch (e) {
+          // Console too, and the whole log. Pushing only the first line into a
+          // panel nobody is looking at turns a one line compile error into a
+          // black screen with no explanation, which is exactly how an
+          // undeclared identifier survived three rounds of probing.
+          console.error("shader " + label + "\n" + e.message);
           errs.push(label + ": " + String(e.message).split("\n")[0]);
           return null;
         }
