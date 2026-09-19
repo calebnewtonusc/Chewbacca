@@ -1479,12 +1479,16 @@ log "Skills installed to ~/.claude/skills/"
 
 fi
 
-# ── Plugins and MCP ───────────────────────────────────────────────────────────
 # Split out from the skills above on 2026-09-19. Skills are plain markdown and
 # work on any machine any agent runs on, but they lived inside this section, so
 # the portable profile, which is the only non-macOS path, installed 57 commands
 # and 14 rules and zero skills. The largest single piece of the kit was missing
 # from every Windows and Linux install.
+#
+# The comment goes above the header, not below it: a section header has to be
+# immediately followed by `if should_run` or the guard closes early and the
+# section runs on every invocation, including --only.
+# ── Plugins and MCP ───────────────────────────────────────────────────────────
 if should_run plugins; then
 # BEGIN GENERATED: extensions
 # Upstream skills are cloned rather than vendored, so each stays updatable and
