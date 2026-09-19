@@ -1946,12 +1946,14 @@ section "Verifying the install"
 if [ -x "$SCRIPT_DIR/doctor.sh" ]; then
   if "$SCRIPT_DIR/doctor.sh"; then
     log "All checks passed"
-  elif [ "$FAST" -eq 1 ]; then
-    # A fast install left whole sections out on purpose, so doctor is supposed
-    # to find them missing. Ending a successful install on "some checks failed"
-    # tells the person their new tool is broken when it is doing what they
-    # asked, which is the single worst sentence to end an install on.
-    log "Checks for the sections --fast skipped did not pass, which is expected."
+  elif [ "$FAST" -eq 1 ] || [ "$ONLY_PORTABLE" -eq 1 ] || [ -n "$SKIP_SECTIONS" ]; then
+    # An install that left whole sections out on purpose is supposed to fail
+    # the checks for those sections. Ending a successful install on "some
+    # checks failed" tells the person their new tool is broken when it is
+    # doing exactly what they asked, which is the single worst sentence to end
+    # an install on. Portable skips nearly everything by design and hit this
+    # too.
+    log "Checks for the sections this install skipped did not pass, as expected."
     log "  Install the rest with: chewbacca setup"
   else
     warn "Some checks failed. Fix them, then re-run: ./doctor.sh"
