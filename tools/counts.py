@@ -37,6 +37,7 @@ def counts():
         "commands": len(list((REPO / ".claude/commands").glob("*.md"))),
         "rules": len(re.findall(r"^@~/\.claude/rules/", claude_md(), re.M)),
         "rules_on_demand": len(list((REPO / ".claude/rules").glob("*.md")))
+                           + int((REPO / "instructions/agent-neutral.md").is_file())
                            - len(re.findall(r"^@~/\.claude/rules/", claude_md(), re.M)),
         "hooks": len(list((REPO / ".claude/hooks").glob("*.sh"))),
         "subagents": len(list((REPO / ".claude/agents").glob("*.md"))),

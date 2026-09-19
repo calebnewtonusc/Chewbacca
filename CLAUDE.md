@@ -553,3 +553,5 @@ rebuilt.
 floor measured from the weaker of those two, zero failures or it does not ship. Then
 answer the four questions in `STANDARD.md` that no script can check. A kit that passes
 every check and fails those is worse than one that does the reverse.
+
+@~/.claude/rules/agent-neutral.md

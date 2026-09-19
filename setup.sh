@@ -128,7 +128,7 @@ Behaviors, both off unless asked for:
 Re-running:
   --only <section>             Run one section. Safe to repeat.
                                prereq repos settings editor desktop mcp rules
-                               plugins tools mac plynn verify
+                               plugins tools agents mac plynn verify
   --dry-run                    Print what would run and exit.
   -h, --help                   This text.
 USAGE
@@ -167,7 +167,7 @@ while [ $# -gt 0 ]; do
       # portable is the neutral half: standards, skills, commands, subagents.
       # No Homebrew, no Mac tools, no MCP, no permissions, no repos. It is the
       # only profile that works on a machine this kit does not otherwise run on,
-      # and the only one that touches nothing outside ~/.claude.
+      # and configures both agent homes without installing Mac tools.
       if [ "$PROFILE" = portable ]; then NO_GITHUB=1; ONLY_PORTABLE=1; fi
       shift 2 ;;
     --no-github) NO_GITHUB=1; shift ;;
@@ -245,7 +245,7 @@ case "$WORKSPACE_DIR" in /*) ;; *) WORKSPACE_DIR="$PWD/$WORKSPACE_DIR" ;; esac
 # A dry run must not touch the disk. This mkdir ran before the dry-run branch,
 # so `--dry-run --repo-dir /somewhere` created /somewhere and then printed that
 # it would not do anything.
-if [ "$DRY_RUN" -eq 0 ]; then
+if [ "$DRY_RUN" -eq 0 ] && [ "$ONLY" != agents ]; then
   mkdir -p "$WORKSPACE_DIR"
   WORKSPACE_DIR="$(cd "$WORKSPACE_DIR" && pwd)"
 fi
@@ -253,14 +253,14 @@ fi
 # --only runs one section. Everything here is written to be safe to repeat, so
 # a run that died halfway, or a tool that arrived after the first run, is one
 # flag away rather than a hand-copied block from this file.
-SECTIONS="prereq repos settings editor desktop mcp rules plugins tools plynn verify"
+SECTIONS="prereq repos settings editor desktop mcp rules plugins tools agents plynn verify"
 if [ -n "$ONLY" ]; then
   case " $SECTIONS " in
     *" $ONLY "*) ;;
     *) err "unknown section: $ONLY"; err "one of: $SECTIONS"; exit 2 ;;
   esac
 fi
-PORTABLE_SECTIONS=" settings rules manifest verify "
+PORTABLE_SECTIONS=" settings rules agents manifest verify "
 should_run() {
   case " $SKIP_SECTIONS " in
     *" $1 "*) SKIPPED+=("$1 (--skip)"); return 1 ;;
@@ -278,9 +278,46 @@ should_run() {
   return 0
 }
 
+initialize_personal_context() {
+  # Modern second brains already own their layout. Flat templates are additive.
+  [ -d "$PC_DIR/core" ] && return 0
+  mkdir -p "$PC_DIR/memory"
+  local context_file
+  for context_file in YOU NOW PEOPLE VOICE SYSTEM STACK SCHOOL; do
+    if [ ! -e "$PC_DIR/$context_file.md" ]; then
+      cp "$SCRIPT_DIR/second-brain/context/$context_file.md" "$PC_DIR/$context_file.md"
+      if [ "$context_file" = YOU ] && [ -n "$USER_NAME" ]; then
+        sedi "s/YOUR_NAME/$USER_NAME/g" "$PC_DIR/YOU.md"
+        sedi "s/YOUR_GITHUB_USERNAME/${GITHUB_USER:-}/g" "$PC_DIR/YOU.md"
+      fi
+    fi
+  done
+  if [ ! -e "$PC_DIR/memory/MEMORY.md" ]; then
+    printf '# Memory index\n\nAdd links to shared personal memory here as it is recorded.\n' > "$PC_DIR/memory/MEMORY.md"
+  fi
+}
+
+install_agent_instructions() {
+  mkdir -p "$HOME/.claude/rules"
+  cp "$SCRIPT_DIR/instructions/agent-neutral.md" "$HOME/.claude/rules/agent-neutral.md"
+  python3 "$SCRIPT_DIR/tools/agents_md.py"
+  initialize_personal_context
+  python3 "$SCRIPT_DIR/tools/codex_context.py" install --brain-dir "$PC_DIR" --both
+  python3 "$SCRIPT_DIR/tools/codex_hooks.py" install
+  if ! command -v jq >/dev/null 2>&1; then
+    warn "jq is missing: context loading works, but shared file and reply checks require jq"
+  fi
+  if command -v codex >/dev/null 2>&1; then
+    log "Codex installed (optional secondary agent); AGENTS.md ready"
+  else
+    log "Codex absent (optional); Claude Code remains primary"
+  fi
+}
+
+
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "Would run: ${ONLY:-all sections}${SKIP_SECTIONS:+, skipping$SKIP_SECTIONS}"
-  echo "  profile:         $PROFILE$([ "$ONLY_PORTABLE" -eq 1 ] && echo "  (~/.claude only, no Mac tools)")"
+  echo "  profile:         $PROFILE$([ "$ONLY_PORTABLE" -eq 1 ] && echo "  (Claude and Codex configuration, no Mac tools)")"
   echo "  github:          $([ "$NO_GITHUB" -eq 1 ] && echo "skipped, brain stays local" || echo "two repos created and pushed")"
   echo "  name:            ${USER_NAME:-<unset>}"
   echo "  repo dir:        $WORKSPACE_DIR"
@@ -289,6 +326,19 @@ if [ "$DRY_RUN" -eq 1 ]; then
   for pair in "anthropic:$ANTHROPIC_KEY" "github:$GITHUB_PAT" "todoist:$TODOIST_TOKEN"; do
     [ -n "${pair#*:}" ] && echo "  credential:      ${pair%%:*} (would be written to settings.json)"
   done
+  exit 0
+fi
+
+if [ -n "${CHEWBACCA_BRAIN_DIR:-}" ]; then
+  PC_DIR="$(python3 "$SCRIPT_DIR/tools/codex_context.py" path)"
+elif [ -n "$USER_NAME" ]; then
+  PC_DIR="$WORKSPACE_DIR/$PERSONAL_REPO"
+else
+  PC_DIR="$(python3 "$SCRIPT_DIR/tools/codex_context.py" path)"
+fi
+
+if [ "$ONLY" = agents ]; then
+  install_agent_instructions
   exit 0
 fi
 
@@ -392,25 +442,13 @@ log "Repos: $WORKSPACE_DIR"
 if should_run repos && [ -n "${USER_NAME:-}" ]; then
 section "Creating $PERSONAL_REPO (private personal brain)"
 
-PC_DIR="$WORKSPACE_DIR/$PERSONAL_REPO"
 export D1_PC_DIR="$PC_DIR"
-mkdir -p "$PC_DIR"
-
-cp "$SCRIPT_DIR/second-brain/context/YOU.md"    "$PC_DIR/YOU.md"
-cp "$SCRIPT_DIR/second-brain/context/NOW.md"    "$PC_DIR/NOW.md"
-cp "$SCRIPT_DIR/second-brain/context/PEOPLE.md" "$PC_DIR/PEOPLE.md"
-cp "$SCRIPT_DIR/second-brain/context/SYSTEM.md" "$PC_DIR/SYSTEM.md"
-cp "$SCRIPT_DIR/second-brain/context/STACK.md"  "$PC_DIR/STACK.md"
-cp "$SCRIPT_DIR/second-brain/context/SCHOOL.md" "$PC_DIR/SCHOOL.md"
-
-# Pre-fill the name placeholder
-sedi "s/YOUR_NAME/$USER_NAME/g" "$PC_DIR/YOU.md"
-sedi "s/YOUR_GITHUB_USERNAME/$GITHUB_USER/g" "$PC_DIR/YOU.md"
+initialize_personal_context
 
 log "Templates copied to $PC_DIR"
 
 echo ""
-echo "  Claude reads YOU.md at the start of every session."
+echo "  Claude and Codex read the same personal context at session start."
 echo ""
 # This used to launch $EDITOR, falling back to nano and then vi, and block until
 # the file was closed. On a Mac with no EDITOR set that is vi, and someone who
@@ -460,7 +498,7 @@ Thumbs.db
 *.log
 GITIGNORE
 
-git add -- .gitignore YOU.md NOW.md PEOPLE.md SYSTEM.md STACK.md SCHOOL.md
+git add -- .gitignore YOU.md NOW.md PEOPLE.md VOICE.md SYSTEM.md STACK.md SCHOOL.md memory/MEMORY.md
 # A commit needs an identity. On the no-GitHub path we may not have one, and
 # asking for an email to make a local commit nobody will ever read is exactly
 # the kind of question this profile exists to delete.
@@ -1281,6 +1319,7 @@ mkdir -p "$GLOBAL_CLAUDE/commands" "$GLOBAL_CLAUDE/rules"
 
 cp "$SCRIPT_DIR/.claude/commands/"*.md "$GLOBAL_CLAUDE/commands/" 2>/dev/null || true
 cp "$SCRIPT_DIR/.claude/rules/"*.md    "$GLOBAL_CLAUDE/rules/"    2>/dev/null || true
+cp "$SCRIPT_DIR/instructions/agent-neutral.md" "$GLOBAL_CLAUDE/rules/agent-neutral.md"
 mkdir -p "$GLOBAL_CLAUDE/agents"
 cp "$SCRIPT_DIR/.claude/agents/"*.md   "$GLOBAL_CLAUDE/agents/"   2>/dev/null || true
 
@@ -1295,7 +1334,7 @@ cp "$SCRIPT_DIR/.claude/output-styles/"*.md "$GLOBAL_CLAUDE/output-styles/" 2>/d
 # about someone's calendar. That is the right file for people who write code
 # and the wrong file for everyone else.
 case "$PROFILE" in
-  personal|student) STANDARDS="$SCRIPT_DIR/CLAUDE-PERSONAL.md" ;;
+  personal|student) STANDARDS="$SCRIPT_DIR/docs/CLAUDE-PERSONAL.md" ;;
   *)                STANDARDS="$SCRIPT_DIR/CLAUDE.md" ;;
 esac
 # Merge, do not clobber. Anyone who already had a CLAUDE.md lost it here, with
@@ -1337,6 +1376,11 @@ installed_count "$SCRIPT_DIR/.claude/commands" "$GLOBAL_CLAUDE/commands" "Comman
 installed_count "$SCRIPT_DIR/.claude/rules"    "$GLOBAL_CLAUDE/rules"    "Rules"
 installed_count "$SCRIPT_DIR/.claude/agents"   "$GLOBAL_CLAUDE/agents"   "Subagents"
 log "CLAUDE.md installed to ~/.claude/CLAUDE.md ($(basename "$STANDARDS"))"
+fi
+
+# ── Shared agent context ─────────────────────────────────────────────────────
+if should_run agents; then
+install_agent_instructions
 fi
 
 # ── Skills and plugins ────────────────────────────────────────────────────────

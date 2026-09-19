@@ -188,6 +188,7 @@ if group "doctor"; then
   # The mutant: with every rule present the same check must go quiet, or it is
   # reporting the weather rather than the install.
   cp "$ROOT/.claude/rules/"*.md "$D/.claude/rules/"
+  cp "$ROOT/instructions/agent-neutral.md" "$D/.claude/rules/agent-neutral.md"
   expect "and passes once they are all there" "always-on imports resolve" \
     bash -c "HOME='$D' bash '$ROOT/doctor.sh' 2>&1"
 
@@ -205,7 +206,7 @@ if group "tools"; then
   check  "context cost --json is valid" bash -c "python3 '$ROOT/tools/context_cost.py' --json | python3 -m json.tool"
   # Not --check: every commit made after the last regeneration invalidates it,
   # so a --check here would fail on the commit that adds a test.
-  check  "changelog generates" python3 "$ROOT/tools/changelog.py"
+  check  "changelog generates" env PYTHONPATH="$ROOT/tools" python3 -c 'import changelog; assert changelog.build().startswith("# Changelog")'
   if [ -f "$HOME/second-brain/memory/MEMORY.md" ]; then
     check "memory compact dry run is safe" python3 "$ROOT/tools/memory_compact.py" --dry-run
   else
@@ -294,7 +295,7 @@ if group "installer"; then
   expect "uninstall --dry-run says so" "Dry run" bash "$ROOT/uninstall.sh" --dry-run
   exits  "uninstall rejects an unknown flag" 2 bash "$ROOT/uninstall.sh" --nonsense
   expect "--skip is repeatable" "skipping plynn mac" bash "$ROOT/setup.sh" --dry-run --skip plynn --skip mac --name CI
-  expect "portable profile installs no Mac tools" "~/.claude only" bash "$ROOT/setup.sh" --dry-run --profile portable --name CI
+  expect "portable profile installs no Mac tools" "Claude and Codex configuration, no Mac tools" bash "$ROOT/setup.sh" --dry-run --profile portable --name CI
   exits  "an unknown profile exits 2" 2 bash "$ROOT/setup.sh" --dry-run --profile nonsense --name CI
   check  "no read calls in the installer" bash -c "! grep -nE '^[[:space:]]*read (-[a-z]+ )*' '$ROOT/setup.sh'"
 fi
@@ -443,6 +444,12 @@ for c in cs:
     assert c.get('expect_any') is not None or c.get('expect_tool') is not None, c
 \""
   exits  "an unknown check exits 2" 2 bash "$ROOT/bin/live-check" no-such-check
+fi
+
+if group "Codex setup"; then
+  check "shared agent instructions are current" python3 "$ROOT/tools/agents_md.py" --check
+  check "Codex personal context startup" python3 "$ROOT/tests/test_codex_context.py"
+  check "Codex native lifecycle hooks" python3 "$ROOT/tests/test_codex_hooks.py"
 fi
 
 # ── verdict ───────────────────────────────────────────────────────────────────
