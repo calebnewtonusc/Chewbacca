@@ -446,10 +446,22 @@ for c in cs:
   exits  "an unknown check exits 2" 2 bash "$ROOT/bin/live-check" no-such-check
 fi
 
-if group "Codex setup"; then
+# Browser/backend tests replace transports with fixtures; no model quota is used.
+if group "reasoning backends"; then
   check "shared agent instructions are current" python3 "$ROOT/tools/agents_md.py" --check
+  check "ChatGPT turn boundaries" python3 "$ROOT/tests/test_chatgpt_tab.py"
+  check "gateway protocol and execution" python3 "$ROOT/tests/test_chatgpt_gateway.py"
+  check "provider selection and ownership" python3 "$ROOT/tests/test_mac_use_providers.py"
+  check "Codex shared instructions and optional health" python3 "$ROOT/tests/test_codex.py"
   check "Codex personal context startup" python3 "$ROOT/tests/test_codex_context.py"
   check "Codex native lifecycle hooks" python3 "$ROOT/tests/test_codex_hooks.py"
+  _model_python="${MACOS_USE_HOME:-$HOME/Projects/macOS-use}/.venv/bin/python"
+  [ -x "$_model_python" ] || _model_python=python3
+  if "$_model_python" -c 'import langchain_core, pydantic' >/dev/null 2>&1; then
+    check "structured JSON validation and repair" "$_model_python" "$ROOT/tests/test_mac_use_structured.py"
+  else
+    skip "structured JSON validation and repair" "LangChain/Pydantic runtime absent"
+  fi
 fi
 
 # ── verdict ───────────────────────────────────────────────────────────────────

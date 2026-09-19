@@ -297,6 +297,14 @@ initialize_personal_context() {
   fi
 }
 
+install_backend_launchers() {
+  local backend_tool
+  for backend_tool in chatgpt-tab chatgpt-gateway mac-use chrome-js; do
+    link_tool "$backend_tool"
+  done
+  log "Chewbacca backend launchers refreshed in ~/.local/bin"
+}
+
 install_agent_instructions() {
   mkdir -p "$HOME/.claude/rules"
   cp "$SCRIPT_DIR/instructions/agent-neutral.md" "$HOME/.claude/rules/agent-neutral.md"
@@ -338,6 +346,7 @@ else
 fi
 
 if [ "$ONLY" = agents ]; then
+  if [ "$ONLY_PORTABLE" -eq 0 ]; then install_backend_launchers; fi
   install_agent_instructions
   exit 0
 fi
@@ -1380,6 +1389,7 @@ fi
 
 # ── Shared agent context ─────────────────────────────────────────────────────
 if should_run agents; then
+if [ "$ONLY_PORTABLE" -eq 0 ]; then install_backend_launchers; fi
 install_agent_instructions
 fi
 
@@ -1715,11 +1725,11 @@ else
   [ -d "$MU_DIR/.git" ] || git clone -q --depth 1 \
     https://github.com/browser-use/macOS-use.git "$MU_DIR" 2>/dev/null || true
   if [ -d "$MU_DIR" ]; then
-    cp "$SCRIPT_DIR/bin/mac_use_cli.py" "$MU_DIR/mac_use_cli.py"
-    cp "$SCRIPT_DIR/bin/mac_use_claude.py" "$MU_DIR/mac_use_claude.py"
-    mkdir -p "$HOME/.local/bin"
-    cp "$SCRIPT_DIR/bin/mac-use" "$HOME/.local/bin/mac-use"
-    chmod +x "$HOME/.local/bin/mac-use"
+    # macOS-use supplies the upstream runtime and its .venv, nothing else.
+    # The provider shims are Chewbacca's and stay in this repo; bin/mac-use
+    # resolves them from CHEWBACCA_ROOT. Copying them into the upstream
+    # checkout leaves stale duplicates that shadow the real ones.
+    link_tool mac-use
     if (cd "$MU_DIR" && uv venv --python 3.11 &>/dev/null \
         && uv pip install --python .venv/bin/python --editable . &>/dev/null); then
       log "mac-use installed"

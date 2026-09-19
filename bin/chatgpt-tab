@@ -1,0 +1,299 @@
+#!/usr/bin/env python3
+"""Drive a signed-in ChatGPT Chrome tab through public DOM controls.
+
+send saves a turn baseline in the page; wait returns that new completed reply.
+ask combines them under a local lock. No cookies, private APIs or credentials.
+"""
+import argparse
+import contextlib
+import fcntl
+import json
+import os
+import pathlib
+import re
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+
+HERE = pathlib.Path(__file__).resolve().parent
+CHROME_JS = HERE / "chrome-js"
+POLL_SECONDS = 0.75
+# The previous implementation accepted pauses of six seconds as completion.
+# Stability is now additional to a per-message completion control, never enough alone.
+STABLE_SECONDS = 3.0
+JS_TIMEOUT = 20
+
+
+class BridgeError(RuntimeError):
+    pass
+
+
+def conversation_url(value):
+    if not re.fullmatch(r"https://chatgpt\.com/(?:[A-Za-z0-9_./-]*)", value):
+        raise BridgeError("conversation must be an https://chatgpt.com/ URL without query or fragment")
+    return value.rstrip("/") if value != "https://chatgpt.com/" else value
+
+
+def run_js(source, timeout=JS_TIMEOUT, conversation=None, activate=False):
+    """Bound the entire Chrome subprocess tree, not just its shell wrapper."""
+    match = conversation_url(conversation) if conversation else "https://chatgpt.com/"
+    guard = "location.origin !== 'https://chatgpt.com'"
+    if conversation:
+        guard += " || (location.origin + location.pathname).replace(/\\/$/, '') !== " + json.dumps(match.rstrip("/"))
+    source = "(() => { if (" + guard + ") return 'WRONG_CONVERSATION'; return (" + source + "); })()"
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".js", encoding="utf-8") as script:
+        script.write(source)
+        script.flush()
+        try:
+            proc = subprocess.Popen(
+                [str(CHROME_JS), "--match", match, "--file", script.name]
+                + (["--activate"] if activate else []),
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                start_new_session=True,
+            )
+        except OSError as exc:
+            raise BridgeError(f"Chrome bridge unavailable: {exc}") from exc
+        try:
+            out, err = proc.communicate(timeout=max(0.01, timeout))
+        except (subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.communicate()
+            if isinstance(exc, KeyboardInterrupt):
+                raise
+            raise BridgeError(f"Chrome JavaScript timed out after {timeout:g}s; submission was not retried") from exc
+    if proc.returncode:
+        raise BridgeError((err or out).strip() or "chrome-js failed")
+    out = out.strip()
+    if out.startswith("NO_TAB_MATCHING"):
+        raise BridgeError("no ChatGPT tab reachable. Open chatgpt.com in Chrome and sign in")
+    if out == "WRONG_CONVERSATION":
+        raise BridgeError("ChatGPT conversation changed; refusing to use another conversation")
+    return out
+
+
+# Completion controls are scoped to the latest assistant turn, not an older reply.
+# Selectors are centralized here; missing controls fail closed instead of returning
+# a plausible-looking partial answer when the web app changes.
+DOM = r'''
+const visible = e => !!(e && (e.offsetWidth || e.offsetHeight || e.getClientRects().length));
+const composer = document.querySelector('#prompt-textarea, [contenteditable="true"][data-testid="prompt-textarea"], textarea[placeholder*="Message"]');
+const messages = [...document.querySelectorAll('[data-message-author-role="assistant"]')];
+const last = messages.at(-1);
+const turn = last && (last.closest('article, [data-testid^="conversation-turn-"]') || last.parentElement);
+const label = e => [e.getAttribute('aria-label'), e.getAttribute('data-testid'), e.getAttribute('title')].filter(Boolean).join(' ');
+const busy = [...document.querySelectorAll('button')].some(e => visible(e) && /stop generating|stop streaming|stop response|stop-button/i.test(label(e)));
+const streaming = !!(turn && (turn.matches('[data-is-streaming="true"]') || turn.querySelector('[data-is-streaming="true"], .result-streaming')));
+const complete = !!(turn && [...turn.querySelectorAll('button')].some(e => /copy-turn-action-button|copy response|copy message/i.test(label(e))));
+const url = location.origin + location.pathname;
+const generating = busy || streaming || !!(last && !complete);
+const draft = composer ? (composer.innerText || composer.value || '').trim() : '';
+const state = !composer ? 'absent' : generating ? 'busy' : 'idle';
+const snap = {
+  count: messages.length,
+  message_id: last ? last.getAttribute('data-message-id') : null,
+  text: last ? (last.innerText || last.textContent || '').trim() : '',
+  composer: !!composer, busy: generating, complete: complete && !generating,
+  state, healthy: state === 'idle' && !draft, conversation_url: url, url, draft,
+  detail: draft ? 'ChatGPT composer contains an unsent draft' : state === 'busy' ? 'latest ChatGPT response is not complete' : ''
+};
+'''
+
+
+def snapshot(timeout=JS_TIMEOUT, conversation=None):
+    deadline = time.monotonic() + timeout
+    for attempt in range(2):
+        try:
+            raw = run_js("(() => {" + DOM + "return JSON.stringify(snap); })()",
+                         max(0.01, (deadline - time.monotonic()) / (2 - attempt)), conversation)
+            break
+        except BridgeError as exc:
+            # Only reads may retry. A timed-out mutation may already have sent.
+            if attempt or "timed out" not in str(exc) or time.monotonic() >= deadline:
+                raise
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict) or not isinstance(data.get("count"), int) or "composer" not in data:
+            raise ValueError("invalid snapshot")
+        return data
+    except (ValueError, TypeError) as exc:
+        raise BridgeError("Chrome returned no usable ChatGPT DOM snapshot; check Allow JavaScript from Apple Events") from exc
+
+
+def send(prompt, timeout=JS_TIMEOUT, conversation=None):
+    if not prompt.strip():
+        raise BridgeError("prompt is empty")
+    deadline = time.monotonic() + timeout
+    # Mutation is a single submission attempt. Retrying an ambiguous timeout could
+    # send the same prompt twice and confuse every subsequent response boundary.
+    source = "(() => {" + DOM + r'''
+if (!composer) return 'NO_COMPOSER';
+if (snap.busy) return 'BUSY';
+if (window.__chewbaccaSubmit === 'queued') return 'BUSY';
+if (snap.draft) return 'DRAFT';
+window.__chewbaccaTurn = snap;
+composer.focus();
+const text = PROMPT;
+if (composer.tagName === 'TEXTAREA') {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+    setter.call(composer, text);
+} else {
+    document.execCommand('insertText', false, text);
+}
+composer.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'insertText', data:text}));
+window.__chewbaccaSubmit = 'queued';
+setTimeout(() => {
+    const button = [...document.querySelectorAll('button')].find(e => visible(e) && !e.disabled && /send-button|send message|send prompt/i.test(label(e)));
+    if (button) { button.click(); window.__chewbaccaSubmit = 'sent'; }
+    else { window.__chewbaccaSubmit = 'failed'; }
+}, 350);
+return 'queued';
+})()'''.replace("PROMPT", json.dumps(prompt))
+    # Hidden Chrome tabs were observed freezing rendered output after three
+    # characters. Foreground only the selected tab when starting a new turn.
+    raw = run_js(source, timeout, conversation, activate=True)
+    errors = {
+        "NO_COMPOSER": "no ChatGPT composer found; sign in to chatgpt.com in Chrome",
+        "BUSY": "ChatGPT is already generating; wait before sending another prompt",
+        "DRAFT": "ChatGPT composer contains an unsent draft; clear or send it first",
+    }
+    if raw != "queued":
+        raise BridgeError(errors.get(raw, "ChatGPT submission failed"))
+    while time.monotonic() < deadline:
+        state = run_js("window.__chewbaccaSubmit || 'unknown'",
+                       max(0.01, deadline - time.monotonic()), conversation)
+        if state == "sent":
+            return
+        if state != "queued":
+            raise BridgeError("ChatGPT Send control unavailable; prompt remains in composer")
+        time.sleep(min(0.1, max(0, deadline - time.monotonic())))
+    raise BridgeError("submission acknowledgement timed out; do not resend blindly")
+
+
+def read_pending(timeout, conversation):
+    raw = run_js("JSON.stringify({before:window.__chewbaccaTurn, submission:window.__chewbaccaSubmit})", timeout, conversation)
+    try:
+        result = json.loads(raw)
+    except ValueError as exc:
+        raise BridgeError("cannot read pending ChatGPT turn") from exc
+    if result.get("submission") == "failed":
+        raise BridgeError("ChatGPT Send control unavailable; prompt remains in composer")
+    if not result.get("before"):
+        raise BridgeError("no pending turn; use send before wait, or use ask")
+    return result["before"]
+
+
+def is_new_message(before, current):
+    return current["count"] > before["count"] or bool(
+        current.get("message_id") and before.get("message_id")
+        and current["message_id"] != before["message_id"]
+    )
+
+
+def wait_for_response(before, timeout=300, conversation=None, read=None, clock=time.monotonic, sleep=time.sleep):
+    read = read or snapshot
+    deadline = clock() + timeout
+    previous = None
+    stable_since = None
+    saw_new = False
+    while clock() < deadline:
+        current = read(timeout=min(JS_TIMEOUT, max(0.01, deadline - clock())), conversation=conversation)
+        if not current["composer"]:
+            raise BridgeError("ChatGPT composer disappeared; session may need sign-in")
+        # A fresh chat gets its /c/id URL after submission. Once assigned, pin it.
+        current_url = current.get("conversation_url")
+        if conversation and current_url and current_url.rstrip("/") != conversation.rstrip("/"):
+            raise BridgeError("ChatGPT conversation changed during the turn")
+        if current_url and "/c/" in current_url:
+            conversation = current_url
+        new = is_new_message(before, current)
+        saw_new |= new
+        fingerprint = (current.get("message_id"), current["count"], current["text"])
+        if new and current["text"] and current.get("complete") and not current.get("busy"):
+            if fingerprint != previous:
+                previous, stable_since = fingerprint, clock()
+            elif stable_since is not None and clock() - stable_since >= STABLE_SECONDS:
+                return current["text"]
+        else:
+            previous, stable_since = None, None
+        sleep(min(POLL_SECONDS, max(0, deadline - clock())))
+    detail = "new assistant message did not complete" if saw_new else "no new assistant message appeared"
+    raise BridgeError(f"{detail} within {timeout:g}s; partial output was not returned")
+
+
+@contextlib.contextmanager
+def turn_lock():
+    # One caller at a time across CLI invocations. Page baseline survives send/wait.
+    path = pathlib.Path(tempfile.gettempdir()) / f"chewbacca-chatgpt-{os.getuid()}.lock"
+    fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise BridgeError("another ChatGPT bridge turn is running") from exc
+        yield
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__, prog="chatgpt-tab")
+    sub = parser.add_subparsers(dest="command", required=True)
+    for command in ("status", "send", "wait", "last", "ask"):
+        p = sub.add_parser(command)
+        p.add_argument("--conversation", help="pin an existing https://chatgpt.com/c/... conversation")
+        p.add_argument("--timeout", type=float, default=300 if command in ("wait", "ask") else JS_TIMEOUT)
+        if command == "status":
+            p.add_argument("--json", action="store_true")
+        if command in ("send", "ask"):
+            p.add_argument("prompt", nargs="?")
+            p.add_argument("--stdin", action="store_true", help="read prompt from stdin")
+    args = parser.parse_args(argv)
+    if args.timeout <= 0:
+        parser.error("--timeout must be positive")
+    try:
+        if args.command == "status":
+            try:
+                state = snapshot(args.timeout, args.conversation)
+                state.pop("text", None)
+                state.pop("draft", None)
+            except BridgeError as exc:
+                state = {"state":"absent", "healthy":False, "detail":str(exc), "composer":False}
+            print(json.dumps(state) if args.json else state["state"])
+            if not state["healthy"] and state.get("detail"):
+                print("chatgpt-tab: " + state["detail"], file=sys.stderr)
+            return 0 if state["healthy"] else 1
+        if args.command == "last":
+            print(snapshot(args.timeout, args.conversation)["text"])
+            return 0
+        with turn_lock():
+            started = time.monotonic()
+            if args.command in ("send", "ask"):
+                if args.stdin and args.prompt is not None:
+                    parser.error("use either prompt or --stdin")
+                prompt = sys.stdin.read() if args.stdin else args.prompt
+                if prompt is None:
+                    parser.error("provide a prompt or --stdin")
+                before = snapshot(min(JS_TIMEOUT, args.timeout), args.conversation)
+                pinned = args.conversation or (before["conversation_url"] if "/c/" in before["conversation_url"] else None)
+                send(prompt, min(JS_TIMEOUT, args.timeout), pinned)
+                if args.command == "send":
+                    print("sent")
+                    return 0
+            else:
+                before = read_pending(min(JS_TIMEOUT, args.timeout), args.conversation)
+                pinned = args.conversation or (before.get("conversation_url") if "/c/" in before.get("conversation_url", "") else None)
+            remaining = args.timeout - (time.monotonic() - started)
+            if remaining <= 0:
+                raise BridgeError("turn timed out during submission; do not resend blindly")
+            print(wait_for_response(before, remaining, pinned))
+            return 0
+    except BridgeError as exc:
+        print("chatgpt-tab: " + str(exc), file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("chatgpt-tab: interrupted; the browser may still be generating", file=sys.stderr)
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main())

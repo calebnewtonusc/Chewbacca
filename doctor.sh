@@ -418,6 +418,21 @@ else
   warn "kit-route.sh not installed, so prompts will not route into a kit"
 fi
 
+section "Reasoning backends (no model calls)"
+BACKEND_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+while IFS='|' read -r backend state detail; do
+  case "$state" in
+    healthy|installed) ok "$backend: $state, $detail" ;;
+    missing) if [ "$backend" = codex ]; then ok "codex: missing (optional secondary agent)"; else warn "$backend: missing, $detail"; fi ;;
+    *) warn "$backend: $state, $detail" ;;
+  esac
+done < <(python3 "$BACKEND_ROOT/tools/backend_health.py" --probe-browser --lines)
+if python3 "$BACKEND_ROOT/tools/agents_md.py" --check >/dev/null 2>&1; then
+  ok "Codex AGENTS.md is current and within its instruction budget"
+else
+  warn "Codex AGENTS.md is stale; run python3 tools/agents_md.py"
+fi
+
 section "macOS tools"
 
 if [ "$(uname)" != "Darwin" ]; then
@@ -444,7 +459,7 @@ else
     warn "summarize missing (brew install steipete/tap/summarize)"
 
   if command -v mac-use >/dev/null 2>&1; then
-    if [ -x "$HOME/Projects/macOS-use/.venv/bin/python" ]; then
+    if [ -x "${MACOS_USE_HOME:-$HOME/Projects/macOS-use}/.venv/bin/python" ]; then
       ok "mac-use present"
     else
       bad "mac-use on PATH but its venv is missing, every run will exit 1" \

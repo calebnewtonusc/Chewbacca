@@ -23,6 +23,7 @@
 set -euo pipefail
 
 MATCH=""; JSFILE=""; OPEN_URL=""; PROFILE=""; MODE="js"; CLICK_TEXT=""; INLINE=""
+ACTIVATE=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -35,12 +36,13 @@ while [ $# -gt 0 ]; do
     --text)    MODE="text"; shift ;;
     --list)    MODE="list"; shift ;;
     --check)   MODE="check"; shift ;;
+    --activate) ACTIVATE=true; shift ;;
     -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "chrome-js: unknown argument $1" >&2; exit 2 ;;
   esac
 done
 
-TMP_JS="$(mktemp /tmp/chrome-js.XXXXXX.js)"
+TMP_JS="$(mktemp "${TMPDIR:-/tmp}/chrome-js.XXXXXX")"
 trap 'rm -f "$TMP_JS"' EXIT
 
 # ── The password floor ────────────────────────────────────────────────────────
@@ -185,8 +187,14 @@ RESULT="$(osascript <<AS 2>&1 || true
 set js to (read POSIX file "$TMP_JS" as «class utf8»)
 tell application "Google Chrome"
   repeat with w in windows
-    repeat with t in tabs of w
+    repeat with tabIndex from 1 to count of tabs of w
+      set t to tab tabIndex of w
       if (URL of t) contains "$MATCH" then
+        if $ACTIVATE then
+          set active tab index of w to tabIndex
+          set index of w to 1
+          activate
+        end if
         return execute t javascript js
       end if
     end repeat

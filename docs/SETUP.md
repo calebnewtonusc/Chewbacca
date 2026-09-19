@@ -135,3 +135,52 @@ Steps...
 ```
 
 Invoke it with `/command-name` in Claude Code.
+
+## Optional Codex and browser backends
+
+Claude Code stays the primary agent after setup. Codex is optional: an existing
+installation is detected, and absence does not fail setup or doctor. From this
+repository, `codex` discovers generated `AGENTS.md`. Setup refreshes that export
+from `instructions/agent-neutral.md` and installs the same source for Claude.
+It also installs the native [Codex hook adapter](CODEX-HOOKS.md). Review and trust
+its five definitions in Codex before they run; unrelated hooks are preserved.
+
+Setup links `mac-use`, `chatgpt-tab`, and `chatgpt-gateway` into `~/.local/bin`
+on repeated runs. macOS-use owns only the upstream runtime and venv, selected by
+`MACOS_USE_HOME` or `~/Projects/macOS-use`. Existing runtime installations do not
+prevent launcher updates. See [macOS app control](MACOS-APP-CONTROL.md) for Chrome
+permissions, provider selection, and the browser security boundary.
+
+For just the secondary-agent instructions and browser launchers, use
+`bash setup.sh --only backends`. This focused section installs the four local
+launchers (`chatgpt-tab`, `chatgpt-gateway`, `mac-use`, `chrome-js`) and shared
+instructions without installing dependencies or changing the upstream runtime.
+`--only tools` also refreshes these launchers when the runtime already exists.
+
+### Shared Claude and Codex personal context
+
+Every setup profile configures both agents, even if Codex is installed later.
+Claude remains primary. Install and sign in to each agent separately; setup does
+not copy credentials, permissions, or Claude settings into Codex. The native
+adapter translates the supported shared checks into Codex lifecycle events.
+
+Fresh setup creates `~/dev/<name>-context` (or the selected `--repo-dir`) with
+`YOU.md`, `NOW.md`, `PEOPLE.md`, `VOICE.md`, and `memory/MEMORY.md`. Both agents
+receive startup instructions to read those same live files. Fill in the templates
+with either agent; unfilled placeholders are not treated as personal facts.
+Rerunning setup preserves existing notes and adds only missing templates.
+
+The startup blocks preserve existing global instructions, including symlinks.
+Codex respects `CODEX_HOME` and an active `AGENTS.override.md`; Claude uses
+`~/.claude/CLAUDE.md`. Both flat context folders and existing second brains with
+`core/identity.md`, `core/now.md`, `core/people.md`, and `core/voice.md` are supported.
+Private facts stay in the shared folder, outside the public AGENTS export.
+
+For an existing installation, run `bash setup.sh --only backends`. It discovers
+the registered context folder or existing Claude imports/hook configuration,
+falling back to `~/second-brain`. To select a folder explicitly, use
+`CHEWBACCA_BRAIN_DIR="/path/to/private context" bash setup.sh --only backends`.
+The portable profile configures both agents and local context without Mac tools.
+The read-only `python3 tools/codex_context.py status` reports source availability
+without printing personal facts. Start new agent sessions after setup, or run the
+reader manually in an existing session.

@@ -43,11 +43,14 @@ STATE_SIZE="$(du -sh "$STATE" 2>/dev/null | cut -f1 || echo 0)"
 PEOPLE=0
 [ -f "$STATE/people/people.db" ] && PEOPLE="$(sqlite3 "$STATE/people/people.db" 'select count(*) from people' 2>/dev/null || echo unknown)"
 
+BACKENDS="$(python3 "$ROOT/tools/backend_health.py")"
+
 if [ "$JSON" -eq 1 ]; then
   printf '{"version_repo":"%s","version_installed":"%s","profile":"%s","permission_mode":"%s",' \
     "$VERSION_REPO" "$VERSION_INST" "$PROFILE" "$MODE"
   printf '"skills":%s,"commands":%s,"rules":%s,"hooks":%s,"subagents":%s,' \
     "$SKILLS" "$CMDS" "$RULES" "$HOOKS" "$AGENTS"
+  printf '"backends":%s,' "$BACKENDS"
   printf '"people":"%s","state_size":"%s","doctor_age_days":%s,"doctor":"%s"}\n' \
     "$PEOPLE" "$STATE_SIZE" "$DOCTOR_AGE" "$DOCTOR_RESULT"
   exit 0
@@ -65,6 +68,10 @@ printf '  %-22s %s\n' "slash commands" "$CMDS"
 printf '  %-22s %s\n' "always-on rules" "$RULES"
 printf '  %-22s %s\n' "hooks" "$HOOKS"
 printf '  %-22s %s\n' "subagents" "$AGENTS"
+echo
+echo -e "${BLD}Reasoning backends${NC}"
+printf '%s' "$BACKENDS" | python3 -c 'import json,sys; [print("  %-22s %s" % (k,v["state"])) for k,v in json.load(sys.stdin).items()]'
+echo "  Claude Code is primary; Codex is optional; ChatGPT Web is a browser backend."
 echo
 echo -e "${BLD}Your data${NC}"
 printf '  %-22s %s\n' "people" "$PEOPLE"

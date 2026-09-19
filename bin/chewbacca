@@ -69,7 +69,8 @@ usage() {
     printf '  chewbacca %-12s %s\n' "$name" "$help"
   done
   echo
-  echo "Nothing here is required day to day. You talk to Claude; it loads what it needs."
+  echo "Claude Code is primary. Launch codex in the repo for the optional fallback agent."
+  echo "ChatGPT Web: mac-use --provider chatgpt-web, or chatgpt-gateway --help."
 }
 
 run() {
