@@ -1,5 +1,22 @@
 # Setup Guide
 
+## Shared context for Claude and Codex
+
+All setup profiles configure the shared personal-context reader and five native
+Codex hooks. Codex is optional; install and sign in to it separately. No model
+choice, account credentials, or private context is copied into the repository.
+
+For an existing Chewbacca installation, run `bash setup.sh --only agents` from
+the checkout. This discovers your existing context folder and preserves its
+contents. Use `CHEWBACCA_BRAIN_DIR=/path/to/brain` to select another folder.
+Fresh setups create additive templates, including voice and a memory index.
+
+Review and trust the five Chewbacca definitions in Codex's `/hooks` browser.
+Until trusted, the global startup instructions still load your context through
+the reader. New tasks and compacted sessions load it automatically once trusted.
+The feature does not install Codex, change macOS permissions or publish notes.
+See [event mappings and requirements](CODEX-HOOKS.md).
+
 ## Prerequisites
 
 - [Claude Code](https://claude.ai/code) installed

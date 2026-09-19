@@ -24,7 +24,7 @@ PATTERNS = ("*.sh", "bin/*", "bin/lib/*", "tools/*.py", ".claude/hooks/*.sh")
 
 
 def files():
-    tracked = set(subprocess.run(["git", "-C", str(REPO), "ls-files"],
+    tracked = set(subprocess.run(["git", "-C", str(REPO), "ls-files", "--cached", "--others", "--exclude-standard"],
                                  capture_output=True, text=True).stdout.split())
     out = []
     for pat in PATTERNS:

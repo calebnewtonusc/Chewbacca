@@ -1,8 +1,3 @@
-# AGENTS.md
-
-Generated from `instructions/agent-neutral.md`. Edit that shared source, then run
-`python3 tools/agents_md.py`. Claude Code remains the primary agent.
-
 ## Chewbacca and the coding agents
 
 Chewbacca is a command-line toolkit, coding standards, skills, and private context
