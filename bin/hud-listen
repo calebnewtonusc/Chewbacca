@@ -329,40 +329,116 @@ class Listener:
                     "with a single line that is only the word: none\n"
                 )
             self.log("->", said)
-            result = subprocess.run(
-                self.command(),
-                input=prompt,
-                capture_output=True,
-                text=True,
-                timeout=180,
-            )
+            argv = self.command()
+            if Path(argv[0]).name == "claude":
+                ok, out = self.run_streamed(argv, prompt)
+            else:
+                result = subprocess.run(
+                    argv, input=prompt, capture_output=True, text=True, timeout=180
+                )
+                ok, out = result.returncode == 0, result.stdout
             # An agent with tools draws for itself and answers in prose, so
             # stray lines here are the exception rather than the payload.
             # Only after a request has actually run, or a first attempt that
             # failed would leave the listener resuming a session that was never
             # opened, and every request after it would fail the same way.
-            if result.returncode == 0:
+            if ok:
                 self.started = True
-            for line in draw_lines(result.stdout):
+            for line in draw_lines(out):
                 self.send(line)
-            self.send("p attentive")
-            spoken = result.stdout.strip()
+            spoken = out.strip()
             if spoken:
                 self.log("said:", spoken[:300])
+            # Say how it went, and then stop saying it. A field that holds
+            # `done` forever is a field that stops meaning finished, and one
+            # that drops straight back to `attentive` never showed the person
+            # that their errand worked at all.
+            self.settle("done" if ok else "failed", 5.0 if ok else 10.0)
         except subprocess.TimeoutExpired:
-            self.send("p failed")
+            self.settle("failed", 10.0)
         except Exception as err:  # noqa: BLE001
             self.log("failed:", err)
-            self.send("p failed")
+            self.settle("failed", 10.0)
         finally:
             self.busy = False
+
+    def settle(self, state: str, hold: float) -> None:
+        """Show an outcome, hold it, then go back to waiting."""
+        self.send(f"p {state}")
+        time.sleep(hold)
+        self.send("p attentive")
+
+    def run_streamed(self, argv: list[str], prompt: str) -> tuple[bool, str]:
+        """Run Claude Code and drive the field off what it is actually doing.
+
+        The field has two working states and they mean different things:
+        `thinking` is white and means a request is in flight, `acting` is green
+        and means something is being done to this machine. Only the stream
+        knows which one is true right now. Run with `--output-format
+        stream-json` and the first `tool_use` event is the moment it stops
+        being deliberation and starts being action, which is exactly the moment
+        a person watching the edge of their screen wants to know about.
+
+        Falls back to whatever text arrived if the stream never produced a
+        result event, because a missing final event is not a reason to throw
+        away an answer the model already gave.
+        """
+        proc = subprocess.Popen(
+            argv + ["--output-format", "stream-json", "--verbose"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        # A watchdog rather than a read timeout, because the read loop is
+        # what is blocked. 240s: a request that chains four CLI calls and then
+        # draws runs to about a minute, and killing a working answer at 180
+        # left the person with a red edge and no panel.
+        killer = threading.Timer(240.0, proc.kill)
+        killer.start()
+        acting = False
+        text = ""
+        ok = False
+        try:
+            proc.stdin.write(prompt)
+            proc.stdin.close()
+            for raw in proc.stdout:
+                try:
+                    event = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                kind = event.get("type")
+                if kind == "assistant" and not acting:
+                    blocks = event.get("message", {}).get("content", [])
+                    if any(b.get("type") == "tool_use" for b in blocks):
+                        acting = True
+                        self.send("p acting")
+                        self.log("acting")
+                elif kind == "result":
+                    ok = not event.get("is_error", False)
+                    text = event.get("result", "") or ""
+        finally:
+            killer.cancel()
+            proc.wait()
+        if proc.returncode != 0:
+            ok = False
+        return ok, text
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--model-cmd",
-        default=os.environ.get("BOB_MODEL_CMD", "claude -p"),
+        # `--strict-mcp-config` loads no MCP servers, which is worth about
+        # four times the work on a request like this and also stops the agent
+        # wandering off to a remote service for something one local CLI knows.
+        # The first measured round trip without it was 190 seconds, most of it
+        # before the model had read anything. Sonnet rather than Haiku for the
+        # same reason ChewieRouter gives: these requests chain several CLI
+        # calls and that is where Haiku gets lost.
+        default=os.environ.get(
+            "BOB_MODEL_CMD", "claude -p --strict-mcp-config --model sonnet"
+        ),
         help="any command that reads a prompt on stdin and writes the answer to stdout",
     )
     parser.add_argument("--verbose", action="store_true")
