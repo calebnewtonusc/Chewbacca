@@ -297,6 +297,16 @@ initialize_personal_context() {
   fi
 }
 
+link_tool() {
+  local name="$1" src="$SCRIPT_DIR/bin/$1" dst="$HOME/.local/bin/$1"
+  [ -f "$src" ] || return 1
+  mkdir -p "$HOME/.local/bin"
+  # -n so that when dst is already a symlink to a DIRECTORY we replace it rather
+  # than writing inside it; -f to replace an existing copy from an older setup.
+  ln -sfn "$src" "$dst"
+  chmod +x "$src"
+}
+
 install_backend_launchers() {
   local backend_tool
   for backend_tool in chatgpt-tab chatgpt-gateway mac-use chrome-js; do
@@ -651,15 +661,7 @@ log "Hooks installed to ~/.claude/hooks/"
 #
 # A symlink makes the repo the only copy, so pulling the repo IS updating the
 # tool. `tests/live/people.sh` asserts the link, so this cannot quietly regress.
-link_tool() {
-  local name="$1" src="$SCRIPT_DIR/bin/$1" dst="$HOME/.local/bin/$1"
-  [ -f "$src" ] || return 1
-  mkdir -p "$HOME/.local/bin"
-  # -n so that when dst is already a symlink to a DIRECTORY we replace it rather
-  # than writing inside it; -f to replace an existing copy from an older setup.
-  ln -sfn "$src" "$dst"
-  chmod +x "$src"
-}
+# link_tool is defined above, before its first caller in the agents section.
 
 # Both scanners score something with no model in the loop, so a cheap
 # deterministic check can run before anything spends tokens. ai-scan reads prose
