@@ -65,6 +65,8 @@ public final class VoiceListener {
     /// morning and again after lunch is two requests, not a repeat.
     private var lastFiredAt = Date.distantPast
     private var silenceTimer: Timer?
+    /// Backstop for a final transcript that never arrives after a key release.
+    private var finalTimeout: Timer?
 
     public init() {}
 
@@ -132,11 +134,41 @@ public final class VoiceListener {
         authorize { ok in if ok { self.start() } }
     }
 
-    /// Held key came up.
+    /// Held key came up. Close the microphone, then wait for the transcript.
+    ///
+    /// The two halves have to happen in that order and they are not the same
+    /// event. Releasing the key ends the person's turn, so the microphone shuts
+    /// immediately and the level drops: nothing is captured after the key is
+    /// up, which is the promise the mode makes. But the recogniser has not
+    /// produced its final transcript yet, and `stop()` cancels the task, which
+    /// throws it away. Calling both here is why releasing the key used to lose
+    /// the whole utterance once the silence timer stopped firing for it.
     public func endPush() {
         guard mode == .pushToTalk else { return }
-        finishUtterance()
-        stop()
+        silenceTimer?.invalidate()
+        silenceTimer = nil
+        closeMicrophone()
+        request?.endAudio()
+
+        // And a floor under it. If the final result never lands, the task stays
+        // non-nil, `start()` returns early on its `task == nil` guard, and every
+        // later press is silently dead with the mode still reading as on.
+        finalTimeout?.invalidate()
+        finalTimeout = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { _ in
+            Task { @MainActor in
+                guard self.task != nil else { return }
+                self.onSignal?(.failed("Did not catch that"))
+                self.stop()
+            }
+        }
+    }
+
+    /// Shut the microphone without touching the recognition task.
+    private func closeMicrophone() {
+        guard engine.isRunning else { return }
+        engine.stop()
+        engine.inputNode.removeTap(onBus: 0)
+        onSignal?(.level(0))
     }
 
     // MARK: Engine
@@ -213,6 +245,8 @@ public final class VoiceListener {
     private func stop(quiet: Bool = false) {
         silenceTimer?.invalidate()
         silenceTimer = nil
+        finalTimeout?.invalidate()
+        finalTimeout = nil
         task?.cancel()
         task = nil
         request?.endAudio()
@@ -243,7 +277,19 @@ public final class VoiceListener {
         }
     }
 
+    /// End the turn on a pause. Wake mode only, and that restriction is the
+    /// whole point of push to talk.
+    ///
+    /// A silence timer is a guess about whether somebody has finished talking,
+    /// and 1.1s is shorter than an ordinary pause for thought. While the key
+    /// was held, pausing mid-sentence fired the half-sentence as a request and
+    /// the rest of the sentence became a second one, so holding the key bought
+    /// nothing: it behaved as though it were endpointing anyway.
+    ///
+    /// When the person is holding a key, the key IS the endpoint. There is no
+    /// guess to make, so this does not run and `endPush` closes the turn.
     private func armSilence(_ text: String) {
+        guard mode == .wake else { return }
         silenceTimer?.invalidate()
         silenceTimer = Timer.scheduledTimer(withTimeInterval: 1.1, repeats: false) { _ in
             Task { @MainActor in self.fire(text) }
