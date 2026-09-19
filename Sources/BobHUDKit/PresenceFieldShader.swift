@@ -267,16 +267,25 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     // is liquid you are meant to see through, and on a screen that is dim. The
     // pool does not thin out toward the glass, so the ground fills in solid
     // toward the screen edge and the only boundary in view is the inner one.
-    const float3 CLEAR = float3(0.14, 0.20, 0.30);
-    const float3 POOL = float3(0.05, 0.15, 0.60);
-    // Two blues: a deep one on a filament's shoulders and a near white one
+    // Steel, not liquid colour. Every one of these is within a few percent of
+    // neutral with a slight cool cast, because that is what metal is: the hue
+    // carries almost nothing and the whole read comes from how fast it goes
+    // from dark body to hot specular. Saturate any of these and it stops being
+    // steel and becomes tinted plastic, which is the failure this palette
+    // replaced.
+    const float3 CLEAR = float3(0.13, 0.14, 0.155);
+    const float3 POOL = float3(0.16, 0.175, 0.20);
+    // Two greys: a mid one on a filament's shoulders and a near white one
     // along its spine, where the liquid is thinnest and should read as clear.
-    const float3 BLUE_DEEP = float3(0.10, 0.30, 1.12);
-    const float3 BLUE_PALE = float3(0.70, 0.88, 1.15);
-    const float3 YEL = float3(1.25, 0.95, 0.24);
-    const float3 ORG = float3(1.20, 0.27, 0.02);
+    const float3 BLUE_DEEP = float3(0.26, 0.28, 0.32);
+    const float3 BLUE_PALE = float3(0.84, 0.87, 0.92);
+    // The specular. Near white and barely warm, which is what a polished
+    // surface returns; the falloff beside it stays cool so the highlight reads
+    // as a reflection rather than as a colour the object has.
+    const float3 YEL = float3(1.00, 0.99, 0.96);
+    const float3 ORG = float3(0.50, 0.54, 0.60);
 
-    float3 blueC = mix(BLUE_DEEP, BLUE_PALE, smoothstep(0.15, 0.46, d));
+    float3 blueC = mix(BLUE_DEEP, BLUE_PALE, smoothstep(0.26, 0.46, d));
     float3 ground = mix(CLEAR, POOL, smoothstep(0.22, 0.90, v));
 
     // The rim is a quarter of the period, not a third. At a third it stops
@@ -287,22 +296,31 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     float3 col = mix(ground, mix(ORG, YEL, smoothstep(-0.05, 0.03, d)), toRim);
     col = mix(col, blueC, toBlue);
 
-    // The rim is the only part hotter than the liquid carrying it.
-    col *= (1.0 + 0.85 * exp(-pow((d + 0.01) / 0.070, 2.0))) * shimmer;
+    // The rim is the only part hotter than the liquid carrying it. Was 0.85,
+    // which on a coloured palette read as heat and on a neutral one reads as
+    // blowout: with no hue to carry the rim, all the extra gain does is clip
+    // the highlight to white and take the screen with it.
+    col *= (1.0 + 0.40 * exp(-pow((d + 0.01) / 0.070, 2.0))) * shimmer;
 
     // Failure is the one state allowed to be red, and it is the one state where
     // a person has to notice without being told. The blue goes out of the
     // palette entirely rather than being tinted: a red filament on a blue
     // ground is a third colour, and three colours is decoration.
     if (anger > 0.001) {
-        float3 red = float3(dot(col, float3(0.42, 0.34, 0.24))) * float3(1.35, 0.30, 0.22);
+        float3 red = float3(dot(col, float3(0.42, 0.34, 0.24))) * float3(1.10, 0.40, 0.33);
         col = mix(col, red, anger);
     }
 
     // A touch hotter at the free surface and flat everywhere else. Driven off
     // the grazing angle it is a three hundred point ramp from bright to
     // nothing, and a ramp is a vignette however it was derived.
-    float fres = 0.74 + 0.36 * exp(-v * 7.0);
+    //
+    // The split between the two terms is what decides whether this reads as
+    // metal or as fog. At 0.62 flat and 0.55 at the surface the body carried
+    // more light than the surface did, and a screenshot on a grey checker came
+    // back as an even haze with no highlight anywhere on the straight runs.
+    // Steel is the other way round: a dark body and a narrow hot surface.
+    float fres = 0.34 + 1.05 * exp(-v * 9.0);
 
     // The pool ends at its surface, over about a seventh of its own depth, and
     // is at full strength everywhere behind that.
@@ -317,7 +335,7 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     // the same termination the body uses: without that gate it is the one term
     // with no idea where the liquid ends, and at a tenth of its peak across the
     // whole screen it reads as a haze over everything.
-    c += env * exp(-pow((v - 0.11) / 0.085, 2.0)) * 0.055 * mix(float3(1.0), sheen, 0.92) * born *
+    c += env * exp(-pow((v - 0.085) / 0.055, 2.0)) * 0.11 * mix(float3(1.0), sheen, 0.92) * born *
          lit;
 
     // --- going away ------------------------------------------------------
@@ -372,7 +390,7 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     // Reinhard, folded in. The browser version tonemapped in a separate pass
     // over a half-float target; there is one pass here and no target, so it
     // happens on the way out.
-    c = max(c * 1.9, 0.0);
+    c = max(c * 1.30, 0.0);
     c = c / (1.0 + c);
 
     // Alpha is coverage, and coverage is how much liquid is at this point.
@@ -383,7 +401,7 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     // SwiftUI wants premultiplied, and `c` is already the colour this adds over
     // what is behind it, so the premultiplied form is `c` itself with the
     // coverage in alpha.
-    float a = clamp(max(max(c.r, c.g), c.b) * 1.35, 0.0, 1.0) * U.alpha;
+    float a = clamp(max(max(c.r, c.g), c.b) * 1.05, 0.0, 1.0) * U.alpha;
     return half4(half3(min(c, float3(a))), half(a));
 }
 """##
