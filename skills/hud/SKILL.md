@@ -364,29 +364,43 @@ so an evening of tuning was spent on a state that does not exist.
 From the ambient and calm-technology literature, and confirmed by looking at the
 seven tiles side by side:
 
-1. **Colour.** The strongest channel by a distance, and preattentive: `failed`
-   is the only state you identify instantly, and the only one with its own hue.
+1. **Colour.** The strongest channel by a distance, and preattentive. It is
+   spent on exactly three readings and no more: white while it is idle,
+   listening or waiting on you, green while it is doing something to your
+   machine, red when something failed.
 2. **Motion rate.** Works, but only while you are actually watching. A glance
-   catches one frame, and in one frame `attentive`, `hearing`, `acting` and
-   `attention` are the same picture.
-3. **Thickness.** The weakest, and the one currently asked to do the most.
-   `attention` is documented as "the thickest, because this is the one that has
-   to be noticed" while sitting 14% above `acting` on a channel nobody can
-   measure by eye.
+   catches one frame, and in one frame `attentive`, `hearing` and `attention`
+   are the same picture. `acting` is the exception, because it breathes on its
+   own clock and nothing else does.
+3. **Thickness.** The weakest, and for a long time the one asked to do the
+   most. `attention` is documented as "the thickest, because this is the one
+   that has to be noticed" while sitting 35% above `acting`, and 35% on a
+   channel nobody can measure by eye is not what makes those two different.
+   The hue is.
 
 So: **spend colour on the states that must be noticed, and do not ask thickness
 to carry a distinction on its own.** Two states with the same fps, thickness
 within 15%, and no hue difference are one state with two names, and `states.html`
 prints that pair in red rather than leaving you to notice it.
 
-The steel palette spends that budget deliberately: every constant in the shader
-now sits within a few percent of neutral, so `failed` is the only state using
-channel 1 at all and the other six are separated on rate and thickness alone.
-That is the correct trade for a layer that lives over somebody's work, and it is
-also why the `acting` and `attention` pair is now the one real collision in the
-table: 14% apart on thickness, 18% on rate, identical fps, no hue between them.
-Anything that closes that gap has to move a number in `Presence.field`, not a
-colour in the shader, because there is no colour left to spend.
+The steel palette is what makes that affordable. Every constant in the shader
+sits within a few percent of neutral, so the palette itself carries no meaning
+at all and the whole colour budget is free for the state to spend. A tint is
+one `SIMD4` in `Presence.field`: rgb the body is multiplied by, and how much of
+it to take. Steel takes none, `acting` takes 0.60 of a green that breathes
+between a quarter and six tenths of that, `done` takes 0.75 of a darker one and
+holds still, `failed` takes all of a red.
+
+Two rules hold that together and both are load-bearing:
+
+**The hue goes on the body and never on the hot specular.** A highlight that
+takes the object's own colour is the single thing that makes a surface read as
+plastic. The shader keeps the blown core neutral and tints everything below it,
+which is what a coloured light on steel does.
+
+**Green means something is happening to the machine, not that something is
+being considered.** `thinking` is white. Nothing has been done yet, and a
+person who cannot tell those apart cannot tell when it is safe to walk away.
 
 ### Judge it at the edge of your eye, not in a tab
 
@@ -408,8 +422,21 @@ theirs.
 silently by the renderer, so the panel will just be missing that piece and
 nothing will tell you.
 
-**Set the ring.** `p thinking` when you start something slow and `p dormant`
-when you are done. It is the only signal the user has that you are alive.
+**Set the ring.** It is the only signal the user has that you are alive, and
+it costs one line:
+
+| Line | When | What they see |
+| ---- | ---- | ------------- |
+| `p thinking` | you took a request and are working out what to do | white, thin, moving fast |
+| `p acting` | you are running something on their machine | green, breathing |
+| `p done` | it worked | darker green, still |
+| `p failed` | it did not | red |
+| `p attention` | you are blocked on them | white, thick, two pulses |
+| `p dormant` | nothing in flight | nothing at all |
+
+Send `p acting` before the thing that takes time, not after. A state that
+arrives once the work is finished is a state nobody ever saw, and the colour
+takes about a second to come up on purpose.
 
 **Get the screen size before placing a mark.** `hud screen`. Coordinates are
 points, and a Retina screenshot reports twice that. This is the single easiest

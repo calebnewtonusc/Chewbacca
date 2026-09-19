@@ -138,17 +138,17 @@
               u_translucency: 0,
               u_sheet: 0.55,
               u_alpha: 1,
-              u_gain: 1.05,
-              u_expose: 1.3,
+              u_gain: 1.75,
+              u_expose: 2.6,
               u_rimA: -0.13,
               u_rimB: -0.05,
               u_blueA: 0.03,
               u_blueB: 0.11,
-              u_glow: 0.4,
-              u_glowW: 0.07,
-              u_fresA: 0.34,
+              u_glow: 0.95,
+              u_glowW: 0.045,
+              u_fresA: 0.22,
               u_fresB: 1.05,
-              u_lip: 0.11,
+              u_lip: 0.3,
             };
 
             const look = { ...SCALARS };
@@ -234,11 +234,19 @@
                 gl.uniform2f(at("u_size"), w, h);
                 gl.uniform2f(at("u_popAt"), 0.5, 0.5);
                 gl.uniform1f(at("u_time"), t);
-                gl.uniform1f(at("u_act"), t - born);
+                // A still state gets one frame, and at one frame old the
+                // arrival animation has not started: `done` came out as an
+                // empty tile because its single frame was drawn at act=0. The
+                // overlay never sees that, because a still state is always
+                // arrived at from a live one. Six seconds is past the wobble.
+                gl.uniform1f(at("u_act"), state.animating ? t - born : 6);
                 gl.uniform1f(at("u_closing"), -1);
                 gl.uniform1f(at("u_rest"), state.rest);
                 gl.uniform1f(at("u_drift"), state.drift);
-                gl.uniform1f(at("u_anger"), state.anger);
+                gl.uniform1f(at("u_pulse"), state.pulse);
+                // rgb is what the body is multiplied by and a is how much of it
+                // to take, so a tint of amount 0 is the steel palette untouched.
+                gl.uniform4f(at("u_tint"), ...state.tint);
 
                 // The two pulsing states spend their first two beats at 0.55, and
                 // that beat is most of what makes them readable. Held forever here
@@ -281,7 +289,9 @@
                   <dl class="mt-3 grid grid-cols-3 gap-2 font-mono text-[10px] text-zinc-500">
                     <div><dt class="text-zinc-600">rest</dt><dd class="text-zinc-300">${s.rest.toFixed(3)}</dd></div>
                     <div><dt class="text-zinc-600">drift</dt><dd class="text-zinc-300">${s.drift.toFixed(2)}</dd></div>
-                    <div><dt class="text-zinc-600">anger</dt><dd class="text-zinc-300">${s.anger.toFixed(2)}</dd></div>
+                    <div><dt class="text-zinc-600">colour</dt><dd class="text-zinc-300">${
+                      s.tint[3] ? s.tintName : "steel"
+                    }${s.pulse ? ` ${s.pulse}Hz` : ""}</dd></div>
                   </dl>
                   <p class="mt-3 text-xs leading-relaxed text-zinc-500">${
                     s.note || "No note in the Swift."
@@ -364,12 +374,22 @@
                   const b = STATES[j];
                   const dRest = rel(a.rest, b.rest);
                   const dDrift = rel(a.drift, b.drift);
-                  const dAnger = Math.abs(a.anger - b.anger);
+                  // Distance between the two tints as the shader applies them:
+                  // the multiplier scaled by its own amount, so steel is the
+                  // origin and a pair of steel states scores 0 whatever their
+                  // nominal rgb says. Euclidean and not perceptual, which is
+                  // generous to the design in the same direction NEAR is.
+                  const hue = (x) => x.tint.slice(0, 3).map((c) => c * x.tint[3]);
+                  const [ha, hb] = [hue(a), hue(b)];
+                  const dHue = Math.hypot(ha[0] - hb[0], ha[1] - hb[1], ha[2] - hb[2]);
+                  const dPulse = Math.abs(a.pulse - b.pulse) > 0.05;
                   const dFps = a.animating === b.animating && a.fps === b.fps;
                   // Colour is the strongest channel there is, so a pair separated by
-                  // anger is separated, full stop, whatever the geometry does.
-                  const collides = dAnger < 0.5 && dRest < NEAR && dDrift < NEAR;
-                  rows.push({ a, b, dRest, dDrift, dAnger, dFps, collides });
+                  // hue is separated, full stop, whatever the geometry does. So is a
+                  // pair where one breathes and the other does not.
+                  const collides =
+                    dHue < 0.35 && !dPulse && dRest < NEAR && dDrift < NEAR;
+                  rows.push({ a, b, dRest, dDrift, dHue, dPulse, dFps, collides });
                 }
               }
               rows.sort((x, y) => x.dRest + x.dDrift - (y.dRest + y.dDrift));
@@ -388,7 +408,8 @@
                   <span class="font-mono text-[10px] text-zinc-500">
                     thickness ${(r.dRest * 100).toFixed(0)}%
                     &nbsp; drift ${(r.dDrift * 100).toFixed(0)}%
-                    &nbsp; colour ${r.dAnger.toFixed(2)}
+                    &nbsp; colour ${r.dHue.toFixed(2)}
+                    ${r.dPulse ? "&nbsp; one pulses" : ""}
                     ${r.dFps ? "&nbsp; same rate" : ""}
                   </span>`;
                 host.append(el);
