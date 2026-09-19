@@ -39,7 +39,7 @@ PALETTE = [
 # it is dark. `u_translucency` mixes that toward coverage taken off the band
 # itself, which is a sheet of tinted glass that dims what is behind it. They
 # are different looks and the slider is the argument for having both.
-TAIL_FROM = """    float a = clamp(max(max(c.r, c.g), c.b) * 1.35, 0.0, 1.0) * U.alpha;
+TAIL_FROM = """    float a = clamp(max(max(c.r, c.g), c.b) * 1.05, 0.0, 1.0) * U.alpha;
     return half4(half3(min(c, float3(a))), half(a));"""
 
 TAIL_TO = """    float lum = max(max(c.r, c.g), c.b);
@@ -107,13 +107,13 @@ def to_glsl(metal: str) -> str:
     swaps = [
         ("smoothstep(-0.13, -0.05, d)", "smoothstep(u_rimA, u_rimB, d)"),
         ("smoothstep(0.03, 0.11, d)", "smoothstep(u_blueA, u_blueB, d)"),
-        ("(1.0 + 0.85 * exp(-pow((d + 0.01) / 0.070, 2.0)))",
+        ("(1.0 + 0.40 * exp(-pow((d + 0.01) / 0.070, 2.0)))",
          "(1.0 + u_glow * exp(-pow((d + 0.01) / u_glowW, 2.0)))"),
-        ("float fres = 0.74 + 0.36 * exp(-v * 7.0);",
-         "float fres = u_fresA + u_fresB * exp(-v * 7.0);"),
-        ("* 0.055 * mix(vec3(1.0), sheen, 0.92)",
+        ("float fres = 0.34 + 1.05 * exp(-v * 9.0);",
+         "float fres = u_fresA + u_fresB * exp(-v * 9.0);"),
+        ("* 0.11 * mix(vec3(1.0), sheen, 0.92)",
          "* u_lip * mix(vec3(1.0), sheen, 0.92)"),
-        ("c = max(c * 1.9, 0.0);", "c = max(c * u_expose, 0.0);"),
+        ("c = max(c * 1.30, 0.0);", "c = max(c * u_expose, 0.0);"),
     ]
     for a, b in swaps:
         if a not in src:
