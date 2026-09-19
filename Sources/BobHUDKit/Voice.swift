@@ -158,7 +158,13 @@ public final class VoiceListener {
 
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+        // `@Sendable`, for the same reason as the two closures in `authorize`,
+        // and it matters most here: this one runs on the realtime audio thread,
+        // once per 1024-frame buffer. Inheriting this class's main-actor
+        // isolation meant the runtime checked the executor on every buffer and
+        // trapped on the first, roughly 23ms after the microphone opened.
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) {
+            @Sendable [weak self] buffer, _ in
             request.append(buffer)
             guard let level = Self.level(of: buffer) else { return }
             Task { @MainActor in self?.onSignal?(.level(level)) }
@@ -173,16 +179,24 @@ public final class VoiceListener {
         }
         onSignal?(.listening(true))
 
-        task = recognizer.recognitionTask(with: request) { [weak self] result, error in
+        task = recognizer.recognitionTask(with: request) {
+            @Sendable [weak self] result, error in
+            // Read what is needed here, on the callback's own thread, and send
+            // only the two values across. `SFSpeechRecognitionResult` is not
+            // Sendable, so handing the object itself to the main actor is a
+            // data race the compiler refuses, and reaching back into it from
+            // the other side would be one it cannot see.
+            let failed = error != nil
+            let text = result?.bestTranscription.formattedString
+            let isFinal = result?.isFinal ?? false
             Task { @MainActor in
                 guard let self else { return }
-                if error != nil {
+                if failed {
                     self.restartIfWaking()
                     return
                 }
-                guard let result else { return }
-                let text = result.bestTranscription.formattedString
-                if result.isFinal {
+                guard let text else { return }
+                if isFinal {
                     self.fire(text)
                     self.restartIfWaking()
                 } else {
