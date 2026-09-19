@@ -13,6 +13,7 @@ uniforms.
 Defaults to the checkout at ~/dev/bob-the-builder.
 """
 
+import json
 import pathlib
 import re
 import sys
@@ -138,6 +139,54 @@ uniform float u_gain, u_sheet, u_translucency;
 """
 
 
+# The state table lives next to the shader, in PresenceField.swift, and the
+# gallery is worthless if it drifts from it: the whole point of looking at
+# seven tiles is that those seven are the ones that ship.
+STATE_SOURCE = "PresenceField.swift"
+
+# `case .thinking:` then, after any number of comment lines, the `.init(...)`.
+STATE_RE = re.compile(
+    r"case \.(\w+):\s*\n((?:\s*//.*\n)*)\s*return \.init\("
+    r"rest: ([\d.]+), drift: ([\d.]+), anger: ([\d.]+), "
+    r"fps: (\d+), animating: (true|false)\)",
+    re.M,
+)
+
+
+def states_from_swift(path: pathlib.Path) -> list[dict]:
+    """Every row of `Presence.field`, with the comment that justifies it."""
+    text = path.read_text()
+    # Only the `var field:` switch. `Presence` has other switches over the same
+    # cases elsewhere in the package and matching those would double every row.
+    body = text.split("var field: PresenceFieldStyle {", 1)
+    if len(body) < 2:
+        raise SystemExit(f"no `var field:` switch in {path.name}")
+
+    rows = []
+    for m in STATE_RE.finditer(body[1]):
+        note = " ".join(
+            line.strip().lstrip("/").strip() for line in m.group(2).splitlines()
+        ).strip()
+        rows.append(
+            {
+                "name": m.group(1),
+                "note": note,
+                "rest": float(m.group(3)),
+                "drift": float(m.group(4)),
+                "anger": float(m.group(5)),
+                "fps": int(m.group(6)),
+                "animating": m.group(7) == "true",
+                # `PresenceField.frame` drops these two to 0.55 for the first
+                # two beats. The gallery has to show that or `attention` looks
+                # like a state that just sits there.
+                "pulses": m.group(1) in ("attention", "failed"),
+            }
+        )
+    if not rows:
+        raise SystemExit(f"found no states in {path.name}: the table has moved")
+    return rows
+
+
 def main() -> None:
     source = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_SOURCE
     if not source.exists():
@@ -148,6 +197,17 @@ def main() -> None:
     out = HERE / "tuner.html"
     out.write_text(page.replace("/*__SHADER__*/", glsl))
     print(f"wrote {out} ({len(glsl)} chars of GLSL from {source.name})")
+
+    states_path = source.parent / STATE_SOURCE
+    if not states_path.exists():
+        raise SystemExit(f"no state table at {states_path}")
+    states = states_from_swift(states_path)
+    gallery = (HERE / "states.template.html").read_text()
+    gallery = gallery.replace("/*__SHADER__*/", glsl)
+    gallery = gallery.replace("/*__STATES__*/", json.dumps(states, indent=2))
+    out = HERE / "states.html"
+    out.write_text(gallery)
+    print(f"wrote {out} ({len(states)} states from {states_path.name})")
 
 
 if __name__ == "__main__":

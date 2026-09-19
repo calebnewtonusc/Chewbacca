@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Presence states</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        font-family: Inter, sans-serif;
+      }
+      body {
+        margin: 0;
+      }
+      input[type="range"] {
+        accent-color: #6366f1;
+      }
+      /* The tile is a miniature screen: the shader draws on the edges of
+         whatever viewport it gets, so a small canvas is a small display and
+         not a crop of a big one. */
+      .tile canvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body class="antialiased bg-zinc-950 text-zinc-100">
+    <div class="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+      <header class="flex flex-wrap items-end justify-between gap-6">
+        <div>
+          <h1 class="text-3xl font-semibold tracking-tight">Presence states</h1>
+          <p class="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
+            All seven states of the field, running the shader the overlay runs,
+            with the numbers read out of
+            <code class="text-zinc-300">Presence.field</code> at build time. The
+            question this page exists to answer is not whether any one of them
+            looks good. It is whether you can tell which one is up without
+            looking straight at it.
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2" id="controls"></div>
+      </header>
+
+      <!-- The peripheral test. These states live at the edge of a screen
+           somebody is not looking at, so judging them from a hard stare at a
+           bright tile is judging the wrong thing. -->
+      <section
+        class="mt-8 rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-md"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 class="text-sm font-semibold tracking-tight">
+              Peripheral vision
+            </h2>
+            <p class="mt-1 text-xs leading-relaxed text-zinc-400">
+              A blur standing in for acuity outside the fovea. It is a proxy and
+              not a simulation: the honest test is to open this, look at your
+              other monitor, and say out loud which tile just changed.
+            </p>
+          </div>
+          <div class="flex items-center gap-3">
+            <input
+              id="blur"
+              type="range"
+              min="0"
+              max="14"
+              step="1"
+              value="0"
+              class="w-48"
+            />
+            <span id="blurv" class="w-16 font-mono text-xs text-zinc-500"
+              >off</span
+            >
+          </div>
+        </div>
+      </section>
+
+      <div
+        id="grid"
+        class="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
+      ></div>
+
+      <!-- The analysis. A gallery alone lets you admire seven tiles without
+           noticing that four of them are the same tile. -->
+      <section class="mt-12">
+        <h2 class="text-xl font-semibold tracking-tight">
+          Which pairs collide
+        </h2>
+        <p class="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
+          Every pair of states, by how far apart their two visible channels sit.
+          A pair that is close on both is a pair you will not tell apart at the
+          edge of your eye, whatever either one looks like on its own.
+        </p>
+        <div id="pairs" class="mt-5 grid gap-2"></div>
+      </section>
+    </div>
+
+    <script id="fs" type="x-shader/x-fragment">
+      /*__SHADER__*/
+    </script>
+
+    <script>
+            // Generated from Presence.field in PresenceField.swift. Not hand-copied:
+            // the old hand-copied table in tuner.template.html had `hearing` at 0.38
+            // against the Swift's 0.200, which is the whole argument for this being
+            // generated.
+            const STATES = /*__STATES__*/;
+
+            const BACKDROPS = {
+              Desktop:
+                "radial-gradient(ellipse at 30% 20%, #1e1b4b 0%, #0a0a0b 60%), #0a0a0b",
+              Document: "#f4f4f5",
+              Photo:
+                "radial-gradient(circle at 20% 30%, #b45309 0%, transparent 45%)," +
+                "radial-gradient(circle at 75% 65%, #0f766e 0%, transparent 50%)," +
+                "radial-gradient(circle at 55% 10%, #7e22ce 0%, transparent 40%), #1c1917",
+              Checker:
+                "repeating-conic-gradient(#3f3f46 0% 25%, #71717a 0% 50%) 0 0 / 56px 56px",
+            };
+
+            // The look comes from the tuner, through the same localStorage key, so an
+            // evening spent on the palette shows up here instead of being invisible.
+            const COLORS = [
+              ["u_clear", [0.14, 0.2, 0.3]],
+              ["u_pool", [0.05, 0.15, 0.6]],
+              ["u_blueDeep", [0.1, 0.3, 1.12]],
+              ["u_bluePale", [0.7, 0.88, 1.15]],
+              ["u_yel", [1.25, 0.95, 0.24]],
+              ["u_org", [1.2, 0.27, 0.02]],
+            ];
+            const SCALARS = {
+              u_translucency: 0,
+              u_sheet: 0.55,
+              u_alpha: 1,
+              u_gain: 1.35,
+              u_expose: 1.9,
+              u_rimA: -0.13,
+              u_rimB: -0.05,
+              u_blueA: 0.03,
+              u_blueB: 0.11,
+              u_glow: 0.85,
+              u_glowW: 0.07,
+              u_fresA: 0.74,
+              u_fresB: 0.36,
+              u_lip: 0.055,
+            };
+
+            const look = { ...SCALARS };
+            for (const [k, v] of COLORS) look[k] = v.slice();
+            try {
+              const saved = JSON.parse(localStorage.getItem("presence-tuner"));
+              if (saved) {
+                for (const k of Object.keys(look)) {
+                  if (saved[k] !== undefined) look[k] = saved[k];
+                }
+              }
+            } catch (e) {
+              /* nothing tuned yet, or saved by an older shape of the tuner */
+            }
+
+            const VS = `#version 300 es
+      void main() {
+        vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+        gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+      }`;
+            const FS = document.getElementById("fs").textContent.trim();
+
+            /** One tile: its own context, its own clock, paced at its own state's fps. */
+            function mount(host, state) {
+              const canvas = document.createElement("canvas");
+              host.append(canvas);
+              const gl = canvas.getContext("webgl2", {
+                alpha: true,
+                antialias: false,
+              });
+              if (!gl) {
+                host.innerHTML =
+                  '<div class="grid h-full place-items-center text-xs text-zinc-500">no webgl2</div>';
+                return;
+              }
+
+              const compile = (type, src) => {
+                const s = gl.createShader(type);
+                gl.shaderSource(s, src);
+                gl.compileShader(s);
+                if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+                  console.error(gl.getShaderInfoLog(s));
+                  throw new Error(gl.getShaderInfoLog(s));
+                }
+                return s;
+              };
+              const program = gl.createProgram();
+              gl.attachShader(program, compile(gl.VERTEX_SHADER, VS));
+              gl.attachShader(program, compile(gl.FRAGMENT_SHADER, FS));
+              gl.linkProgram(program);
+              if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                throw new Error(gl.getProgramInfoLog(program));
+              }
+              gl.useProgram(program);
+
+              const loc = {};
+              const at = (n) => (loc[n] ??= gl.getUniformLocation(program, n));
+              const born = performance.now() / 1000;
+              let last = 0;
+
+              function frame(ms) {
+                requestAnimationFrame(frame);
+                const t = ms / 1000;
+
+                // A still state gets one frame and then stops, exactly as the
+                // overlay does. Seven canvases spinning at 60 for a state the real
+                // thing draws once would misrepresent the design and cook a laptop.
+                const period = state.animating ? 1 / state.fps : Infinity;
+                if (last && t - last < period) return;
+                if (!state.animating && last) return;
+                last = t;
+
+                const dpr = Math.min(window.devicePixelRatio || 1, 2);
+                const w = Math.round(host.clientWidth * dpr);
+                const h = Math.round(host.clientHeight * dpr);
+                if (!w || !h) return;
+                if (canvas.width !== w || canvas.height !== h) {
+                  canvas.width = w;
+                  canvas.height = h;
+                  gl.viewport(0, 0, w, h);
+                }
+
+                gl.uniform2f(at("u_size"), w, h);
+                gl.uniform2f(at("u_popAt"), 0.5, 0.5);
+                gl.uniform1f(at("u_time"), t);
+                gl.uniform1f(at("u_act"), t - born);
+                gl.uniform1f(at("u_closing"), -1);
+                gl.uniform1f(at("u_rest"), state.rest);
+                gl.uniform1f(at("u_drift"), state.drift);
+                gl.uniform1f(at("u_anger"), state.anger);
+
+                // The two pulsing states spend their first two beats at 0.55, and
+                // that beat is most of what makes them readable. Held forever here
+                // rather than twice, because the tile is a reference and not a
+                // performance you have to catch the start of.
+                const beat = state.pulses
+                  ? 0.55 + 0.45 * (0.5 + 0.5 * Math.cos((t * Math.PI * 2) / 0.9))
+                  : 1;
+                gl.uniform1f(at("u_alpha"), look.u_alpha * beat);
+
+                for (const [k] of COLORS) gl.uniform3fv(at(k), look[k]);
+                for (const k of Object.keys(SCALARS)) {
+                  if (k === "u_alpha") continue;
+                  gl.uniform1f(at(k), look[k]);
+                }
+
+                gl.clearColor(0, 0, 0, 0);
+                gl.clear(gl.COLOR_BUFFER_BIT);
+                gl.drawArrays(gl.TRIANGLES, 0, 3);
+              }
+              requestAnimationFrame(frame);
+            }
+
+            const grid = document.getElementById("grid");
+            function build() {
+              grid.replaceChildren();
+              for (const s of STATES) {
+                const card = document.createElement("div");
+                card.className =
+                  "rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow-xl " +
+                  "transition-all duration-200 hover:border-zinc-700";
+                card.innerHTML = `
+                  <div class="flex items-baseline justify-between">
+                    <h3 class="text-sm font-semibold tracking-tight">${s.name}</h3>
+                    <span class="font-mono text-[10px] text-zinc-500">${
+                      s.animating ? s.fps + "fps" : "static"
+                    }</span>
+                  </div>
+                  <div class="tile screen relative mt-3 aspect-[16/10] overflow-hidden rounded-xl"></div>
+                  <dl class="mt-3 grid grid-cols-3 gap-2 font-mono text-[10px] text-zinc-500">
+                    <div><dt class="text-zinc-600">rest</dt><dd class="text-zinc-300">${s.rest.toFixed(3)}</dd></div>
+                    <div><dt class="text-zinc-600">drift</dt><dd class="text-zinc-300">${s.drift.toFixed(2)}</dd></div>
+                    <div><dt class="text-zinc-600">anger</dt><dd class="text-zinc-300">${s.anger.toFixed(2)}</dd></div>
+                  </dl>
+                  <p class="mt-3 text-xs leading-relaxed text-zinc-500">${
+                    s.note || "No note in the Swift."
+                  }</p>`;
+                grid.append(card);
+                mount(card.querySelector(".tile"), s);
+              }
+              applyBackdrop();
+              applyBlur();
+            }
+
+            // --- controls ---------------------------------------------------------
+            let backdrop = "Desktop";
+            const chip = (label, on, click) => {
+              const b = document.createElement("button");
+              b.textContent = label;
+              b.className =
+                "cursor-pointer rounded-lg px-2.5 py-1 text-xs font-medium transition-all " +
+                "duration-200 border " +
+                (on
+                  ? "border-indigo-500/40 bg-indigo-500/15 text-indigo-300"
+                  : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200");
+              b.onclick = click;
+              return b;
+            };
+
+            const applyBackdrop = () => {
+              for (const el of document.querySelectorAll(".screen")) {
+                el.style.background = BACKDROPS[backdrop];
+              }
+            };
+
+            function drawControls() {
+              const host = document.getElementById("controls");
+              host.replaceChildren();
+              for (const name of Object.keys(BACKDROPS)) {
+                host.append(
+                  chip(name, name === backdrop, () => {
+                    backdrop = name;
+                    applyBackdrop();
+                    drawControls();
+                  }),
+                );
+              }
+            }
+
+            const blur = document.getElementById("blur");
+            const applyBlur = () => {
+              const px = parseFloat(blur.value);
+              document.getElementById("blurv").textContent = px ? px + "px" : "off";
+              for (const el of document.querySelectorAll(".tile")) {
+                el.style.filter = px ? `blur(${px}px)` : "";
+              }
+            };
+            blur.oninput = applyBlur;
+
+            // --- the pair analysis ------------------------------------------------
+            //
+            // Two states that differ only in a channel you cannot resolve are one
+            // state wearing two names. The threshold below is a judgement call and it
+            // is worth saying so out loud rather than dressing it up: 15% relative
+            // difference, guessed, never measured against a person at a real screen.
+            // Foveal length discrimination is a few percent and peripheral acuity is
+            // far worse than that, so 15% is deliberately generous to the design and
+            // anything it still flags is genuinely too close.
+            const NEAR = 0.15;
+
+            function drawPairs() {
+              const host = document.getElementById("pairs");
+              host.replaceChildren();
+              const rel = (a, b) => {
+                const m = Math.max(Math.abs(a), Math.abs(b));
+                return m < 1e-6 ? 0 : Math.abs(a - b) / m;
+              };
+
+              const rows = [];
+              for (let i = 0; i < STATES.length; i++) {
+                for (let j = i + 1; j < STATES.length; j++) {
+                  const a = STATES[i];
+                  const b = STATES[j];
+                  const dRest = rel(a.rest, b.rest);
+                  const dDrift = rel(a.drift, b.drift);
+                  const dAnger = Math.abs(a.anger - b.anger);
+                  const dFps = a.animating === b.animating && a.fps === b.fps;
+                  // Colour is the strongest channel there is, so a pair separated by
+                  // anger is separated, full stop, whatever the geometry does.
+                  const collides = dAnger < 0.5 && dRest < NEAR && dDrift < NEAR;
+                  rows.push({ a, b, dRest, dDrift, dAnger, dFps, collides });
+                }
+              }
+              rows.sort((x, y) => x.dRest + x.dDrift - (y.dRest + y.dDrift));
+
+              for (const r of rows.slice(0, 10)) {
+                const el = document.createElement("div");
+                el.className =
+                  "flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-xs " +
+                  (r.collides
+                    ? "border-rose-500/30 bg-rose-500/10"
+                    : "border-zinc-800 bg-zinc-900");
+                el.innerHTML = `
+                  <span class="font-medium ${r.collides ? "text-rose-300" : "text-zinc-300"}">
+                    ${r.a.name} vs ${r.b.name}
+                  </span>
+                  <span class="font-mono text-[10px] text-zinc-500">
+                    thickness ${(r.dRest * 100).toFixed(0)}%
+                    &nbsp; drift ${(r.dDrift * 100).toFixed(0)}%
+                    &nbsp; colour ${r.dAnger.toFixed(2)}
+                    ${r.dFps ? "&nbsp; same rate" : ""}
+                  </span>`;
+                host.append(el);
+              }
+            }
+
+            drawControls();
+            build();
+            drawPairs();
+            addEventListener("resize", applyBackdrop);
+    </script>
+  </body>
+</html>
