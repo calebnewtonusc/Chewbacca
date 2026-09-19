@@ -75,15 +75,31 @@ public final class VoiceListener {
     /// A denied microphone is the single most confusing failure this component
     /// can have, because everything else keeps working and the ring simply never
     /// moves. It has to say so.
-    public func authorize(_ done: @escaping (Bool) -> Void) {
-        SFSpeechRecognizer.requestAuthorization { status in
+    /// Ask for the two permissions, in order, and report whether both landed.
+    ///
+    /// Both closures are explicitly `@Sendable`, and that is load-bearing rather
+    /// than tidiness. This class is `@MainActor`, so a closure written inside it
+    /// inherits main-actor isolation; both of these APIs call back on their own
+    /// background queue. The runtime checks the executor on entry, finds the
+    /// wrong one, and traps: `dispatch_assert_queue_fail`, SIGTRAP, the whole
+    /// app gone. It killed the display the first time anybody granted speech
+    /// recognition, which is the worst possible moment for it, because the
+    /// permission is recorded and the crash then looks like the grant did it.
+    /// `@Sendable` opts the closures out of the inherited isolation and the
+    /// `Task { @MainActor }` hops back deliberately.
+    /// `done` is `@MainActor` because both call sites act on the result by
+    /// touching this class, and it is always invoked from inside the hop below.
+    /// Typing it that way is what lets `beginPush` call `start()` directly
+    /// instead of opening a second unchecked path back onto the main actor.
+    public func authorize(_ done: @escaping @MainActor @Sendable (Bool) -> Void) {
+        SFSpeechRecognizer.requestAuthorization { @Sendable status in
             Task { @MainActor in
                 guard status == .authorized else {
                     self.onSignal?(.failed("Speech recognition not permitted"))
                     done(false)
                     return
                 }
-                AVCaptureDevice.requestAccess(for: .audio) { granted in
+                AVCaptureDevice.requestAccess(for: .audio) { @Sendable granted in
                     Task { @MainActor in
                         if !granted { self.onSignal?(.failed("Microphone not permitted")) }
                         done(granted)
