@@ -109,7 +109,8 @@ out vec4 fragColor;
 uniform vec2 u_size;
 uniform vec2 u_popAt;
 uniform float u_time, u_act, u_closing;
-uniform float u_rest, u_drift, u_anger, u_alpha;
+uniform float u_rest, u_drift, u_pulse, u_alpha;
+uniform vec4 u_tint;
 
 uniform vec3 u_clear, u_pool, u_blueDeep, u_bluePale, u_yel, u_org;
 uniform float u_rimA, u_rimB, u_blueA, u_blueB;
@@ -161,8 +162,6 @@ float fbm(vec2 p) {
     return s;
 }
 
-float expoOut(float x) { return x >= 1.0 ? 1.0 : 1.0 - pow(2.0, -10.0 * x); }
-
 float stage(float t, float a, float b) { return clamp((t - a) / (b - a), 0.0, 1.0); }
 
 /// Belcour and Barla's pre-integrated spectral response, verbatim from
@@ -211,11 +210,16 @@ float depthAt(vec2 uvp, float W, float margin) {
 /// this app measures in. `size` is the view. Everything else is state.
 ///
 /// `rest` is how thick the pool sits at rest, `drift` how fast the contour
-/// field travels round the edge, and `anger` mixes the palette toward the one
-/// state that is allowed to be red. Those three are
-/// the entire state vocabulary as far as this shader is concerned, which is
-/// deliberate: PresenceField.swift owns the mapping from the seven named
+/// field travels round the edge, `tint` is the colour the body takes and how
+/// much of it, and `pulse` is how many times a second the whole thing breathes.
+/// Those are the entire state vocabulary as far as this shader is concerned,
+/// which is deliberate: PresenceField.swift owns the mapping from the named
 /// states, so a new state is a row in a table there rather than a branch here.
+///
+/// `tint` is first because it is the only member wider than a `vec2`, and
+/// both Metal and Swift align a four-wide vector to sixteen bytes. Anywhere
+/// else in this list it would need padding that one side would have to know
+/// about and the other would get wrong.
 
 
 void main() {
@@ -225,7 +229,7 @@ void main() {
     vec2 size = u_size;
     float time = u_time, act = u_act, closing = u_closing;
     vec2 popAt = u_popAt;
-    float rest = u_rest, drift = u_drift, anger = u_anger;
+    float rest = u_rest, drift = u_drift, pulse = u_pulse;
     vec2 uv = vec2(fragPos.x / size.x, fragPos.y / size.y);
     float t = act;
     float W = size.x / max(size.y, 1.0);
@@ -235,31 +239,43 @@ void main() {
     // rather than as one object. The phase is modulated so the swing is not
     // symmetric, because a breath is not: it moves through the thin half faster
     // than it rests in the thick.
+    // One oscillator, read twice: once on how much of the state's colour the
+    // body takes and once on how bright the whole thing is. Driving only the
+    // brightness gives a band that blinks, and driving only the hue gives one
+    // that changes colour without ever seeming to move. Together they read as
+    // something running.
+    float wave = 1.0;
+    if (pulse > 0.001) {
+        wave = 0.5 + 0.5 * sin(time * 6.2831853 * pulse);
+    }
+
     float bp = time * 0.72;
     float breath = sin(bp + 0.45 * sin(bp));
 
-    // The whole arrival is one number: how far into the screen the liquid
-    // reaches. It does not stop dead when it gets there. A volume of fluid that
-    // has just been pushed oscillates in its second shape mode, in and out,
-    // with the decay set by viscosity, and it crosses its rest depth three or
-    // four times before it is done. That wobble is the part that reads as
-    // liquid rather than as hardware, and it is why this is a damped cosine
-    // where every other move in the file is an expoOut.
-    float REST = rest;
-    float PEAK = rest * 3.4;
-    float band;
-    if (t < 0.30) {
-        band = PEAK * expoOut(stage(t, 0.0, 0.30));
-    } else {
-        // Multiplicative, so an inward swing divides the depth instead of
-        // subtracting from it and can never reach zero. Written as a
-        // subtraction the first return takes the pool to four percent of the
-        // screen, which reads as the thing blinking out rather than wobbling.
-        float x = t - 0.30;
-        band = REST * pow(PEAK / REST, exp(-6.0 * x) * cos(x * 14.0));
-    }
+    // The whole arrival is one number: how far into the screen the band
+    // reaches.
+    //
+    // It used to overshoot to 3.4x and settle through a damped cosine, on the
+    // argument that a pushed volume of fluid oscillates in its second shape
+    // mode and that the wobble is what reads as liquid rather than as
+    // hardware. That was the right model for liquid and the wrong one for
+    // this: it is not a pool, it is an instrument arriving, and an instrument
+    // that bounces on arrival reads as a spring toy. A straight line to the
+    // resting depth, and then it holds.
+    // How far the silhouette sits off every edge, in the units `depthAt`
+    // returns. It is the value that field takes at the screen edge itself, so
+    // a pool shallower than this draws nothing along the straight runs and
+    // survives only in the corners, where the superellipse dips to 0.09. That
+    // is exactly what the 55% thickness cut did on 2026-09-19: every state
+    // landed under 0.2, the four edges went empty, and the field read as four
+    // smudges in the corners of the screen. So the band is measured from here
+    // rather than from zero, and `rest` is now the visible depth above it.
+    const float MARGIN = 0.200;
 
-    float born = smoothstep(0.0, 0.07, band);
+    float depth = rest * clamp(t / 0.45, 0.0, 1.0);
+
+    float band = MARGIN + depth;
+    float born = smoothstep(0.0, 0.02, depth);
 
     // Domain warped noise. The field is sampled at coordinates that are
     // themselves displaced by another sample of it, twice. Plain noise gives
@@ -277,7 +293,6 @@ void main() {
     // sides and fills the corners instead of stopping short of them. The only
     // boundary in view is the inner one, and that is the one doing the work.
     vec2 q = (uv - 0.5) * vec2(W, 1.0);
-    const float MARGIN = 0.200;
 
     float inward = depthAt(uv, W, MARGIN);
 
@@ -288,10 +303,15 @@ void main() {
     // and detail at sixteen points is what makes it read as torn. The second is
     // plain noise rather than fbm for the same reason: fbm's fourth octave is
     // exactly the detail this is trying not to have.
-    inward += (fbm(q * 2.3 + vec2(time * 0.155, -time * 0.118)) - 0.5) * 0.085 +
-              (vnoise(q * 4.1 + vec2(-time * 0.081, time * 0.136)) - 0.5) * 0.055;
+    // Scaled by the band's own depth. Written as a fixed displacement these
+    // were tuned against a pool 0.268 deep, and against one 0.147 deep the
+    // same numbers are two thirds of the whole band: the boundary stops being
+    // a worked edge and becomes the shape of the noise, which is the blobby
+    // look that reads as plastic.
+    inward += ((fbm(q * 2.3 + vec2(time * 0.155, -time * 0.118)) - 0.5) * 0.24 +
+               (vnoise(q * 4.1 + vec2(-time * 0.081, time * 0.136)) - 0.5) * 0.12) * depth;
 
-    float u0 = clamp(inward / band, 0.0, 1.0);
+    float u0 = clamp((inward - MARGIN) / max(depth, 1e-4), 0.0, 1.0);
 
     // One more on the inner edge alone, drifting mostly vertically while the
     // lobes run sideways, so the boundary is worked from two directions at
@@ -301,7 +321,7 @@ void main() {
     // them, and that concave stretch is what reads as liquid rather than as a
     // bumpy line. Bumps come free from additive noise. A waist needs amplitude
     // at low frequency.
-    inward += (fbm(q * 1.6 + vec2(-time * 0.085, time * 0.50)) - 0.5) * 0.105 *
+    inward += (fbm(q * 1.6 + vec2(-time * 0.085, time * 0.50)) - 0.5) * 0.39 * depth *
               smoothstep(0.30, 1.0, u0);
 
     // Nothing leaves the edge. An earlier pass had blobs neck out of this
@@ -314,15 +334,19 @@ void main() {
     // case where a lobe drags the boundary past a corner.
     float lit = smoothstep(0.0, 0.006, inward);
 
-    // How deep into the pool, measured across the pool rather than across the
-    // whole screen: 1 hard against the glass, 0 at the free surface. `inward`
-    // runs from MARGIN at the screen edge to `band` at the surface, a window
-    // about a tenth as wide as its full range, so anything keyed on
-    // inward/band is working on the last thirteen percent of its own domain
-    // and doing almost nothing.
-    float v = clamp((band - inward) / max(band - MARGIN, 1e-4), 0.0, 1.0);
+    // Where in the pool this pixel is: 0 at the free surface and 1 hard
+    // against the glass. `inward` runs from MARGIN at the screen edge to
+    // `band` at the surface, so this is the only normalisation that spends the
+    // full 0 to 1 on the part of the field that is actually drawn.
+    float u = clamp((inward - MARGIN) / max(depth, 1e-4), 0.0, 1.0);
+    float v = 1.0 - u;
 
-    float cosI = clamp(inward / band, 0.0, 1.0);
+    // Mapped back onto the window the film response was calibrated over
+    // rather than handed the full 0 to 1. Taken literally the refracted angle
+    // now sweeps half again as far as it used to, and the nm comment below
+    // says what is at the ends of that: the only stretch of the cycle with no
+    // dark in it is 265 to 335, and a wider sweep walks straight out of it.
+    float cosI = mix(0.75, 1.0, u);
     float sinT = sqrt(max(1.0 - cosI * cosI, 0.0)) / 1.33;
     float cosT = sqrt(max(1.0 - sinT * sinT, 0.0));
 
@@ -348,7 +372,14 @@ void main() {
     // Weighted toward the flow and away from the depth, because depth alone
     // draws contours parallel to the edge, and concentric rings round a screen
     // are a racetrack.
-    float ctr = (flow * 3.4 + v * 1.0 + 0.16 * breath) * stretch;
+    // How many filaments land inside the band. At 3.4 there are a dozen of
+    // them across a band this width, all the same brightness, and a dozen
+    // parallel lines of equal weight is a topographic map or a slab of
+    // malachite: it is the one thing that stopped this reading as metal even
+    // with a neutral palette and a tight specular. At 1.5 there are two or
+    // three, and `fres` picks one of them out near the free surface, which is
+    // what a lit edge actually looks like.
+    float ctr = (flow * 1.5 + v * 1.0 + 0.16 * breath) * stretch;
     float tri = abs(fract(ctr) - 0.5) * 2.0;
     float d = tri - 0.5;
 
@@ -379,19 +410,41 @@ void main() {
     vec3 col = mix(ground, mix(u_org, u_yel, smoothstep(-0.05, 0.03, d)), toRim);
     col = mix(col, blueC, toBlue);
 
-    // The rim is the only part hotter than the liquid carrying it. Was 0.85,
-    // which on a coloured palette read as heat and on a neutral one reads as
-    // blowout: with no hue to carry the rim, all the extra gain does is clip
-    // the highlight to white and take the screen with it.
+    // The rim is the only part hotter than the liquid carrying it, and how
+    // hot and how wide is the whole difference between metal and moss. At 0.40
+    // over a 0.070 wide falloff it is a soft green glow along a soft edge,
+    // which is what an overgrown surface looks like. Narrow it to 0.045 and
+    // drive it to 0.95 and the same filament becomes a thin bright line with
+    // dark either side, which is what a machined one looks like. The line
+    // stays near white whatever the state's tint is, because the tint block
+    // below protects the specular core.
     col *= (1.0 + u_glow * exp(-pow((d + 0.01) / u_glowW, 2.0))) * shimmer;
 
-    // Failure is the one state allowed to be red, and it is the one state where
-    // a person has to notice without being told. The blue goes out of the
-    // palette entirely rather than being tinted: a red filament on a blue
-    // ground is a third colour, and three colours is decoration.
-    if (anger > 0.001) {
-        vec3 red = vec3(dot(col, vec3(0.42, 0.34, 0.24))) * vec3(1.10, 0.40, 0.33);
-        col = mix(col, red, anger);
+    // Colour is the whole state channel and it is spent on three readings:
+    // white while it is listening or waiting, green while it is doing
+    // something, red when something failed. Steel is what is left when the
+    // amount is zero, and it is most of the time.
+    //
+    // The hue goes on the body and never on the hot part of the specular. A
+    // highlight that takes the object's own colour is the single thing that
+    // makes a surface read as plastic: metal returns the light's colour at the
+    // hot spot and tints only the falloff beside it. `core` is what holds that
+    // line, and without it the green states came back looking like a moulded
+    // toy however neutral the rest of the palette was.
+    if (u_tint.a > 0.001) {
+        // The hue breathes between 55% and 100% of its own amount, so a
+        // pulsing state is a band that keeps its colour and moves through it
+        // rather than one that switches on and off.
+        float amt = u_tint.a * mix(0.45, 1.0, wave);
+        vec3 hue = vec3(dot(col, vec3(0.42, 0.34, 0.24))) * u_tint.rgb;
+        // The window this protects is the hottest specular only. At 0.55 to
+        // 1.05 it covered the filament rims as well, which are most of the
+        // bright pixels in the band, and the measured result was a band whose
+        // green channel led its red by seven levels out of 255: grey with a
+        // rumour of green in it. Tinting those and keeping only the blown
+        // highlight neutral is what a coloured light on steel actually does.
+        float core = smoothstep(0.95, 1.60, max(max(col.r, col.g), col.b));
+        col = mix(mix(col, hue, amt), col, core * 0.85);
     }
 
     // A touch hotter at the free surface and flat everywhere else. Driven off
@@ -418,16 +471,24 @@ void main() {
     // the same termination the body uses: without that gate it is the one term
     // with no idea where the liquid ends, and at a tenth of its peak across the
     // whole screen it reads as a haze over everything.
-    c += env * exp(-pow((v - 0.085) / 0.055, 2.0)) * u_lip * mix(vec3(1.0), sheen, 0.92) * born *
+    // This is the line that makes it read as a machined edge rather than as a
+    // lit slab, so it is much stronger and much narrower than it was: 0.30
+    // over a 0.038 window instead of 0.11 over 0.055. One bright streak
+    // running parallel to the screen edge, with dark on both sides of it.
+    //
+    // And it is mostly white rather than mostly the body's own colour. At 0.92
+    // toward `sheen` the highlight took the state's tint with it, and a green
+    // highlight on a green body is what plastic does. A metal one returns the
+    // light.
+    c += env * exp(-pow((v - 0.220) / 0.050, 2.0)) * u_lip * mix(vec3(1.0), sheen, 0.45) * born *
          lit;
 
     // --- going away ------------------------------------------------------
-    // Nothing here is eased. A rupturing film does not decelerate: the hole
-    // opens at the speed where surface tension balances the film's own inertia,
-    // and high speed footage shows that speed holding from the first frame to
-    // the last. Every other move in this file is an expoOut. This one is a
-    // straight line, and that is most of why it reads as a rupture rather than
-    // as a transition out.
+    // Nothing here is eased either. A rupturing film does not decelerate: the
+    // hole opens at the speed where surface tension balances the film's own
+    // inertia, and high speed footage shows that speed holding from the first
+    // frame to the last. Straight in, straight out, and nothing in this file
+    // eases any more: the last easing function went with the arrival wobble.
     if (closing >= 0.0) {
         float k = closing;
         vec2 dp = (uv - popAt) * vec2(W, 1.0);
@@ -484,6 +545,17 @@ void main() {
     // SwiftUI wants premultiplied, and `c` is already the colour this adds over
     // what is behind it, so the premultiplied form is `c` itself with the
     // coverage in alpha.
+    // `acting` breathes for as long as it is acting. The two-beat pulse in
+    // PresenceField.swift is for a state that pulses and then holds; this is
+    // for one that is genuinely still running, and a thing that is still
+    // running has to keep saying so. Off the shader clock rather than off a
+    // Swift timer, because the timer would have to tick at the frame rate to
+    // drive it and that is a second clock doing the first one's job.
+    c *= mix(0.74, 1.0, wave);
+
+    // Coverage. Was 1.05, which put the film just above the noise floor on a
+    // bright desktop: the band was there and you had to look for it. A layer
+    // nobody can see without hunting is not quiet, it is broken.
     float lum = max(max(c.r, c.g), c.b);
     float filmA = clamp(lum * u_gain, 0.0, 1.0);
     float sheetA = clamp(born * lit * env * u_sheet, 0.0, 1.0);
@@ -500,10 +572,17 @@ void main() {
             const STATES = [
   {
     "name": "dormant",
-    "note": "Nothing. Not a thin band: the assistant is not there.",
-    "rest": 0.058,
+    "note": "Nothing. Not a thin band: the assistant is not there, and a depth of zero is the one value the shader draws no pixels for.",
+    "rest": 0.0,
     "drift": 0.0,
-    "anger": 0.0,
+    "tint": [
+      1.0,
+      1.0,
+      1.0,
+      0.0
+    ],
+    "tintName": "steel",
+    "pulse": 0.0,
     "fps": 1,
     "animating": false,
     "pulses": false
@@ -511,9 +590,16 @@ void main() {
   {
     "name": "attentive",
     "note": "",
-    "rest": 0.147,
+    "rest": 0.049,
     "drift": 0.5,
-    "anger": 0.0,
+    "tint": [
+      1.0,
+      1.0,
+      1.0,
+      0.0
+    ],
+    "tintName": "steel",
+    "pulse": 0.0,
     "fps": 20,
     "animating": true,
     "pulses": false
@@ -521,39 +607,84 @@ void main() {
   {
     "name": "hearing",
     "note": "The one state driven from outside. `rest` here is a floor and the voice adds to it, so 60fps is not decoration: it is the rate the amplitude arrives at.",
-    "rest": 0.11,
+    "rest": 0.022,
     "drift": 0.35,
-    "anger": 0.0,
+    "tint": [
+      1.0,
+      1.0,
+      1.0,
+      0.0
+    ],
+    "tintName": "steel",
+    "pulse": 0.0,
     "fps": 60,
     "animating": true,
     "pulses": false
   },
   {
     "name": "thinking",
-    "note": "Thin and fast. Work reads as travel round the edge rather than as weight on it.",
-    "rest": 0.132,
+    "note": "Thin and fast. Work reads as travel round the edge rather than as weight on it, and it is still white: nothing has been done to the machine yet.",
+    "rest": 0.029,
     "drift": 3.2,
-    "anger": 0.0,
+    "tint": [
+      1.0,
+      1.0,
+      1.0,
+      0.0
+    ],
+    "tintName": "steel",
+    "pulse": 0.0,
     "fps": 30,
     "animating": true,
     "pulses": false
   },
   {
     "name": "acting",
-    "note": "",
-    "rest": 0.157,
+    "note": "Green and breathing, and the only state that breathes on its own clock. Something is being done to the person's machine right now and that is the one thing in this vocabulary worth a colour they cannot miss.",
+    "rest": 0.061,
     "drift": 1.1,
-    "anger": 0.0,
+    "tint": [
+      0.28,
+      1.45,
+      0.55,
+      0.6
+    ],
+    "tintName": "green",
+    "pulse": 0.8,
     "fps": 30,
     "animating": true,
     "pulses": false
   },
   {
+    "name": "done",
+    "note": "Darker green, still, one frame. It is the same hue as `acting` on purpose, because it is the end of that same errand, and it is darker and stops moving because there is nothing left to wait for.",
+    "rest": 0.038,
+    "drift": 0.1,
+    "tint": [
+      0.14,
+      0.62,
+      0.3,
+      0.75
+    ],
+    "tintName": "deepGreen",
+    "pulse": 0.0,
+    "fps": 1,
+    "animating": false,
+    "pulses": false
+  },
+  {
     "name": "attention",
-    "note": "The thickest, because this is the one that has to be noticed.",
-    "rest": 0.182,
+    "note": "The thickest, because this is the one that has to be noticed. It stays white: green and red are spoken for, and a third hue here would make the palette decoration again.",
+    "rest": 0.094,
     "drift": 0.9,
-    "anger": 0.0,
+    "tint": [
+      1.0,
+      1.0,
+      1.0,
+      0.0
+    ],
+    "tintName": "steel",
+    "pulse": 0.0,
     "fps": 30,
     "animating": true,
     "pulses": true
@@ -561,9 +692,16 @@ void main() {
   {
     "name": "failed",
     "note": "",
-    "rest": 0.165,
+    "rest": 0.072,
     "drift": 0.3,
-    "anger": 1.0,
+    "tint": [
+      1.15,
+      0.38,
+      0.3,
+      1.0
+    ],
+    "tintName": "red",
+    "pulse": 0.0,
     "fps": 20,
     "animating": true,
     "pulses": true
@@ -596,17 +734,17 @@ void main() {
               u_translucency: 0,
               u_sheet: 0.55,
               u_alpha: 1,
-              u_gain: 1.05,
-              u_expose: 1.3,
+              u_gain: 1.75,
+              u_expose: 2.6,
               u_rimA: -0.13,
               u_rimB: -0.05,
               u_blueA: 0.03,
               u_blueB: 0.11,
-              u_glow: 0.4,
-              u_glowW: 0.07,
-              u_fresA: 0.34,
+              u_glow: 0.95,
+              u_glowW: 0.045,
+              u_fresA: 0.22,
               u_fresB: 1.05,
-              u_lip: 0.11,
+              u_lip: 0.3,
             };
 
             const look = { ...SCALARS };
@@ -692,11 +830,19 @@ void main() {
                 gl.uniform2f(at("u_size"), w, h);
                 gl.uniform2f(at("u_popAt"), 0.5, 0.5);
                 gl.uniform1f(at("u_time"), t);
-                gl.uniform1f(at("u_act"), t - born);
+                // A still state gets one frame, and at one frame old the
+                // arrival animation has not started: `done` came out as an
+                // empty tile because its single frame was drawn at act=0. The
+                // overlay never sees that, because a still state is always
+                // arrived at from a live one. Six seconds is past the wobble.
+                gl.uniform1f(at("u_act"), state.animating ? t - born : 6);
                 gl.uniform1f(at("u_closing"), -1);
                 gl.uniform1f(at("u_rest"), state.rest);
                 gl.uniform1f(at("u_drift"), state.drift);
-                gl.uniform1f(at("u_anger"), state.anger);
+                gl.uniform1f(at("u_pulse"), state.pulse);
+                // rgb is what the body is multiplied by and a is how much of it
+                // to take, so a tint of amount 0 is the steel palette untouched.
+                gl.uniform4f(at("u_tint"), ...state.tint);
 
                 // The two pulsing states spend their first two beats at 0.55, and
                 // that beat is most of what makes them readable. Held forever here
@@ -739,7 +885,9 @@ void main() {
                   <dl class="mt-3 grid grid-cols-3 gap-2 font-mono text-[10px] text-zinc-500">
                     <div><dt class="text-zinc-600">rest</dt><dd class="text-zinc-300">${s.rest.toFixed(3)}</dd></div>
                     <div><dt class="text-zinc-600">drift</dt><dd class="text-zinc-300">${s.drift.toFixed(2)}</dd></div>
-                    <div><dt class="text-zinc-600">anger</dt><dd class="text-zinc-300">${s.anger.toFixed(2)}</dd></div>
+                    <div><dt class="text-zinc-600">colour</dt><dd class="text-zinc-300">${
+                      s.tint[3] ? s.tintName : "steel"
+                    }${s.pulse ? ` ${s.pulse}Hz` : ""}</dd></div>
                   </dl>
                   <p class="mt-3 text-xs leading-relaxed text-zinc-500">${
                     s.note || "No note in the Swift."
@@ -822,12 +970,22 @@ void main() {
                   const b = STATES[j];
                   const dRest = rel(a.rest, b.rest);
                   const dDrift = rel(a.drift, b.drift);
-                  const dAnger = Math.abs(a.anger - b.anger);
+                  // Distance between the two tints as the shader applies them:
+                  // the multiplier scaled by its own amount, so steel is the
+                  // origin and a pair of steel states scores 0 whatever their
+                  // nominal rgb says. Euclidean and not perceptual, which is
+                  // generous to the design in the same direction NEAR is.
+                  const hue = (x) => x.tint.slice(0, 3).map((c) => c * x.tint[3]);
+                  const [ha, hb] = [hue(a), hue(b)];
+                  const dHue = Math.hypot(ha[0] - hb[0], ha[1] - hb[1], ha[2] - hb[2]);
+                  const dPulse = Math.abs(a.pulse - b.pulse) > 0.05;
                   const dFps = a.animating === b.animating && a.fps === b.fps;
                   // Colour is the strongest channel there is, so a pair separated by
-                  // anger is separated, full stop, whatever the geometry does.
-                  const collides = dAnger < 0.5 && dRest < NEAR && dDrift < NEAR;
-                  rows.push({ a, b, dRest, dDrift, dAnger, dFps, collides });
+                  // hue is separated, full stop, whatever the geometry does. So is a
+                  // pair where one breathes and the other does not.
+                  const collides =
+                    dHue < 0.35 && !dPulse && dRest < NEAR && dDrift < NEAR;
+                  rows.push({ a, b, dRest, dDrift, dHue, dPulse, dFps, collides });
                 }
               }
               rows.sort((x, y) => x.dRest + x.dDrift - (y.dRest + y.dDrift));
@@ -846,7 +1004,8 @@ void main() {
                   <span class="font-mono text-[10px] text-zinc-500">
                     thickness ${(r.dRest * 100).toFixed(0)}%
                     &nbsp; drift ${(r.dDrift * 100).toFixed(0)}%
-                    &nbsp; colour ${r.dAnger.toFixed(2)}
+                    &nbsp; colour ${r.dHue.toFixed(2)}
+                    ${r.dPulse ? "&nbsp; one pulses" : ""}
                     ${r.dFps ? "&nbsp; same rate" : ""}
                   </span>`;
                 host.append(el);
