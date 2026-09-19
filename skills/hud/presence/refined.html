@@ -213,6 +213,31 @@ vec3 film(float opd){
               -0.4985314,  0.0415560,  1.0572252)*xyz;
 }
 
+// How deep into the film a point is, in screen heights, measured from a
+// silhouette that sits a constant distance off every edge of the screen.
+//
+// The level sets of a superelliptic norm are rounded at every depth. A rounded
+// rectangle's are not: that one only curves within its own corner radius of
+// the boundary and goes back to square corners deeper in, which is the same
+// failure as the Chebyshev metric it was meant to replace, just further from
+// the edge. But the norm is taken per axis, so a fixed step in it is a longer
+// step in pixels down the wide side of the screen. Dividing by its own
+// gradient turns it back into a distance. The margin is then a constant offset
+// outward rather than a scale, which is what keeps the frame the same
+// thickness all the way round while still putting the screen corners inside
+// it. The floor on the gradient is only there to stop the estimate running
+// away near the middle of the screen, where the norm has no useful gradient
+// and the answer is just "far".
+float depthAt(vec2 uvp, float W, float margin){
+  vec2 r2 = (uvp - 0.5)*2.0;
+  const float SQ = 7.0;
+  float rad = pow(pow(abs(r2.x), SQ) + pow(abs(r2.y), SQ), 1.0/SQ);
+  float gk  = pow(max(rad, 1e-3), 1.0 - SQ);
+  vec2  g   = vec2(gk*pow(abs(r2.x), SQ - 1.0)*(2.0/W),
+                   gk*pow(abs(r2.y), SQ - 1.0)*2.0);
+  return min((1.0 - rad)/max(length(g), 0.6) + margin, 0.95);
+}
+
 void main(){
   vec2 uv = vUV;
   float t = u_act;
@@ -238,7 +263,7 @@ void main(){
   // is done. That wobble is the part that reads as liquid rather than as
   // hardware, and it is why this is a damped cosine where every other move in
   // this file is an expoOut.
-  float REST = 0.155, PEAK = 2.15;
+  float REST = 0.210, PEAK = 1.02;
   float band;
   if (t < 0.30) {
     band = PEAK*expoOut(stage(t, 0.0, 0.30));
@@ -257,37 +282,39 @@ void main(){
   float born = smoothstep(0.0, 0.07, band);
 
   // --- the shape -----------------------------------------------------------
-  // A superelliptic norm, not the distance to the nearest edge. min() of the
-  // four edge distances is a Chebyshev metric and every contour it draws is a
-  // rectangle with square corners, which is exactly the hard frame that was
-  // sitting around the clear middle. This has a rounded contour at every
-  // level, and the exponent sets how square: 2 is an ellipse, 7 is close to a
-  // rounded rectangle while leaving the middle of the screen usable. The
-  // screen corners fall outside it, which is what rounded means.
-  vec2 r2 = (uv - 0.5)*2.0;
-  float SQ = 7.0;
-  float rad = pow(pow(abs(r2.x), SQ) + pow(abs(r2.y), SQ), 1.0/SQ);
+  // The silhouette is a rounded rectangle sitting off every edge of the
+  // screen, so the film runs off all four sides and fills the corners instead
+  // of stopping short of them. You are inside the bubble: its outline is
+  // behind you, not on the monitor. The only boundary in view is the inner
+  // one, and that is the one doing the work.
+  vec2 q = (uv - 0.5)*vec2(W, 1.0);
+  const float MARGIN = 0.110;
 
-  // The boundary is not a fixed offset from the screen. It creeps and folds on
-  // its own flow, so the frame reads as liquid held in place by surface
-  // tension rather than as a border somebody drew. Low frequency on purpose:
-  // this is the shape moving, not the surface texturing.
-  rad += (fbm(r2*1.7 + vec2( u_time*0.155, -u_time*0.118)) - 0.5)*0.055
-       + (fbm(r2*3.3 + vec2(-u_time*0.081,  u_time*0.136)) - 0.5)*0.026;
+  float inward = depthAt(uv, W, MARGIN);
 
-  // Distance in from the silhouette. The norm is taken per axis, so one unit
-  // of it is half the screen width going sideways and half the height going
-  // up, and on a 16 by 10 panel that alone made the frame twice as thick down
-  // the sides as across the top. Divide by the local scale to get most of that
-  // back. Not all of it: a wide screen has the room and a perfectly even
-  // frame on one looks drawn rather than held.
-  float ax = pow(abs(r2.x), SQ), ay = pow(abs(r2.y), SQ);
-  float sideways = ax/(ax + ay + 1e-6);
-  float scale = mix(1.0, mix(1.0, u_res.x/u_res.y, sideways), 0.75);
-  float inward = (1.0 - rad)*scale;
+  // Two slow lobes move the whole boundary, so it creeps and folds rather than
+  // holding an exact offset from the screen.
+  inward += (fbm(q*3.4 + vec2( u_time*0.155, -u_time*0.118)) - 0.5)*0.060
+          + (fbm(q*6.6 + vec2(-u_time*0.081,  u_time*0.136)) - 0.5)*0.028;
 
-  // Off the silhouette there is no bubble to draw.
-  float lit = smoothstep(0.0, 0.010, inward);
+  float u0 = clamp(inward/band, 0.0, 1.0);
+
+  // A capillary ripple on the inner edge alone, four times faster than the
+  // lobes. Without it the boundary is one shape being slid around, which is
+  // legible as a single rigid outline however much it wanders. With it the
+  // edge itself is working, which is the part that reads as liquid.
+  //
+  // Frequency matters more than amplitude here. At seventeen cycles across the
+  // screen this same term read as torn paper, because fbm's fourth octave was
+  // landing at six pixels and a six pixel wobble on a boundary is not a wave,
+  // it is a serration.
+  inward += (fbm(q*6.5 + vec2(-u_time*0.42, u_time*0.33)) - 0.5)*0.026
+          * smoothstep(0.30, 1.0, u0);
+
+  // Off the silhouette there is no bubble to draw. On screen this is one
+  // everywhere, because the silhouette is off the edge: it is here for the
+  // case where a lobe drags the boundary past a corner.
+  float lit = smoothstep(0.0, 0.006, inward);
 
   // Domain warped noise. The field is sampled at coordinates that are
   // themselves displaced by another sample of it, twice. Plain noise gives
@@ -369,9 +396,91 @@ void main(){
   c += exp(-pow((u - 0.90)/0.052, 2.0))*0.26
      * mix(vec3(1.0), sheen, 0.65)*born*lit;
 
-  // The last sliver of a silhouette is a bright near white line, because there
-  // the two surfaces of the film are being seen almost exactly superimposed.
-  c += exp(-max(inward, 0.0)*150.0)*0.55*mix(vec3(1.0), sheen, 0.5)*born*lit;
+
+  // --- foam on the inner edge ----------------------------------------------
+  // Where the film piles up thick it stops behaving like a sheet and starts
+  // behaving like foam: the boundary beads, a bead closes off, and a small
+  // bubble sits on the edge for a second or two before it goes. The gate is
+  // the thickness field itself, so they cluster where the frame is already
+  // dense rather than arriving at a fixed rate around the perimeter, which is
+  // the difference between foam and a particle emitter.
+  //
+  // They barely travel. A bead that drifts into the middle of the screen is a
+  // floating circle, and a floating circle is UI. These come off the edge and
+  // stay within about a third of their own boundary's thickness of it.
+  float ub = inward/max(band, 1e-3);
+  if (ub > 0.45 && ub < 2.4) {
+    const float CELL = 0.062;
+    vec2 cid = floor(q/CELL);
+    for (int j = -1; j <= 1; j++)
+    for (int i = -1; i <= 1; i++) {
+      vec2  cc = cid + vec2(float(i), float(j));
+      float h0 = hash21(cc), h1 = hash21(cc + 41.7), h2 = hash21(cc + 93.1);
+
+      vec2  anchor = (cc + vec2(0.15 + 0.7*h0, 0.15 + 0.7*h1))*CELL;
+      float ad     = depthAt(anchor/vec2(W, 1.0) + 0.5, W, MARGIN);
+      float onEdge = exp(-pow((ad - band)/0.040, 2.0));
+      if (onEdge < 0.06) continue;
+
+      float cyc = 2.4 + 3.6*h2;
+      float ph  = u_time/cyc + h0*7.0;
+      float k   = fract(ph), gen = floor(ph);
+      // Most cycles produce nothing. A bubble at every cell on every cycle is
+      // a pattern, and a pattern is the one thing foam never is.
+      if (hash21(cc + gen*17.3) < 0.50) continue;
+
+      float hr  = hash21(cc + gen*3.7);
+      float pop = 0.50 + 0.36*hr;
+      if (k > pop + 0.13) continue;
+
+      // Thickness decides where, not how bright. Folding it into the level as
+      // well made every bubble that did fire a faint one, which is the same
+      // as none of them firing.
+      float dens = fbm(anchor*3.4 + vec2(u_time*0.035, 0.0));
+      if (dens < 0.47) continue;
+
+      vec2  dir = normalize(-anchor);
+      // Squared, so most of them are small and a few are not. Evenly sized
+      // beads are the other half of why the first pass read as bullet points.
+      float R   = (0.004 + 0.019*hr*hr)*(0.6 + 0.7*k);
+      vec2  cen = anchor + dir*(0.004 + 0.016*h1)*k;
+      float rr  = length(q - cen);
+      if (rr > R*2.2) continue;
+
+      // Its colour comes from the film it came off, not from its own random
+      // number. Independent hues made a row of them look like a legend rather
+      // than like foam, because nothing in a cluster of real bubbles picks its
+      // colour without reference to its neighbours: they were all the same
+      // liquid a second ago.
+      //
+      // It thins as it ages, sweeping down through the orders, and the last
+      // thing it does before it goes is turn black. That is the half wave
+      // shift at the front face again, and on a real bubble it is the second
+      // of warning you get.
+      float nmb = (250.0 + 620.0*flow)*(1.0 - 0.55*k)*(0.86 + 0.28*hr);
+      vec3  bc  = max(0.5*(vec3(1.0) - film(2.0*1.33*nmb)), vec3(0.0));
+
+      // One film seen from outside instead of from inside, so it is a rim with
+      // a dim disc inside it rather than the reverse. The rim is lit from one
+      // side: a ring of even brightness all the way round is a circle somebody
+      // drew, and that reads as UI no matter what colour it is.
+      vec2  nrm  = (q - cen)/max(rr, 1e-5);
+      float side = 0.30 + 0.70*pow(clamp(dot(nrm, vec2(-0.55, -0.84))*0.5 + 0.5, 0.0, 1.0), 1.7);
+      float shell = exp(-pow((rr - R)/(R*0.38), 2.0))*side;
+      float body  = smoothstep(R, R*0.20, rr)*0.22;
+      float alive = smoothstep(0.0, 0.07, k)*(1.0 - smoothstep(pop - 0.05, pop, k));
+      c += bc*(shell + body)*alive*onEdge*1.7*born;
+
+      // The burst. Same rule as the big one: the rim runs outward at a
+      // constant speed and is gone inside a tenth of the bubble's own life.
+      float bk = k - pop;
+      if (bk > 0.0) {
+        c += mix(vec3(1.0), normalize(bc + vec3(0.0015)), 0.6)
+           * exp(-pow((rr - R*(1.0 + bk*10.0))/0.0030, 2.0))
+           * exp(-bk*26.0)*1.6*onEdge*born;
+      }
+    }
+  }
 
   // --- the pop --------------------------------------------------------------
   // Nothing below is eased. A rupturing film does not decelerate: the hole
