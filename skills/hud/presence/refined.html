@@ -188,7 +188,7 @@ float stage(float t, float a, float b){ return clamp((t-a)/(b-a), 0.0, 1.0); }
           gain: 0.65,
           src: `
 // Overall level of the film. Swept, see the commit.
-#define SKIN 1.1
+#define SKIN 1.25
 
 // Belcour and Barla's pre-integrated spectral response, verbatim from
 // KHR_materials_iridescence. A soap film is not a hue ramp. It is the whole
@@ -230,7 +230,7 @@ vec3 film(float opd){
 // and the answer is just "far".
 float depthAt(vec2 uvp, float W, float margin){
   vec2 r2 = (uvp - 0.5)*2.0;
-  const float SQ = 4.0;
+  const float SQ = 5.0;
   float rad = pow(pow(abs(r2.x), SQ) + pow(abs(r2.y), SQ), 1.0/SQ);
   float gk  = pow(max(rad, 1e-3), 1.0 - SQ);
   vec2  g   = vec2(gk*pow(abs(r2.x), SQ - 1.0)*(2.0/W),
@@ -263,7 +263,7 @@ void main(){
   // is done. That wobble is the part that reads as liquid rather than as
   // hardware, and it is why this is a damped cosine where every other move in
   // this file is an expoOut.
-  float REST = 0.300, PEAK = 1.10;
+  float REST = 0.230, PEAK = 0.90;
   float band;
   if (t < 0.30) {
     band = PEAK*expoOut(stage(t, 0.0, 0.30));
@@ -515,7 +515,7 @@ void main(){
   // somebody blows a bubble: the bands sweep down through the orders while the
   // wall is stretching, and they stop sweeping when it stops growing. Nothing
   // else in the intro had to be animated to make it read as inflation.
-  float stretch = mix(2.6, 1.0, smoothstep(0.0, 0.70, t));
+  float stretch = mix(1.9, 1.0, smoothstep(0.0, 0.70, t));
 
   // Gravity drains the film downward, so it is thinnest at the top. On a real
   // bubble this is the cue that says the surface is liquid rather than glass.
@@ -526,8 +526,32 @@ void main(){
   // itself leaves the frame the size it was and moves the colour through it,
   // which is the difference between something beating and something warming
   // up.
-  float nm = (345.0 + 215.0*flow - (uv.y - 0.5)*130.0
-           + 95.0*breath + 90.0*glance)*cosT*stretch;
+  //
+  // The whole film lives inside one interference order, and that is the single
+  // decision that separates iridescence from a rainbow. An order is one full
+  // sweep of the spectrum, so a band wide enough to hold three of them draws
+  // three stripes, which is what this was: teal, magenta, green, orange, in
+  // rings, a gradient border rather than a soap film. The centre sits at an
+  // optical path of about 400nm and the whole range, drain and flow and breath
+  // and the refracted angle together, moves it by less than a third of an
+  // order. What that buys is one colour across the band with a drift in it.
+  //
+  // Measured rather than chosen. Ramping this across the screen and reading
+  // the row back gives one full cycle every 210nm here, and inside that cycle
+  // the stretch from 265 to 335 is the only part with no dark in it: teal,
+  // pale green, pale gold, nothing that lands on brown or on the near-black
+  // violet at 205. Everything below keeps the film inside that stretch, which
+  // is a third of a cycle, so the colour drifts across the band and never
+  // comes back round to where it started. A band wide enough to hold a whole
+  // cycle draws a stripe, and three of them is a rainbow gradient border.
+  //
+  // The refracted angle is folded in at a sixth of its real weight. Taken
+  // literally it is a 1.5x multiplier on its own, which is most of a cycle
+  // before anything else has moved, and it puts the dark violet back at the
+  // silhouette.
+  float angle = mix(0.86, 1.0, cosT);
+  float nm = (296.0 + 24.0*flow - (uv.y - 0.5)*17.0
+           + 15.0*breath + 26.0*glance)*angle*stretch;
 
   // Two-beam reflectance, not the bare integral. film() is the AC part alone
   // and decays to zero as the film thickens, so normalising it by its own
@@ -535,7 +559,52 @@ void main(){
   // almost colourless thick film. Adding the DC term first is what makes the
   // high orders wash out to pearl. The minus sign is the half-wave shift at
   // the front face, which is also why a film goes black just before it pops.
+  //
+  // It is no longer what you see. The interference runs the shimmer now and
+  // the palette below runs the colour, because the reference is not a soap
+  // bubble: it is a contour field, and no physical film produces it.
   vec3 refl = max(0.5*(vec3(1.0) - film(2.0*1.33*nm)), vec3(0.0));
+  float shimmer = 0.86 + 0.34*dot(refl, vec3(0.333));
+
+  // The contour field. A clear ground with blue filaments winding through it,
+  // and a rim on each filament running yellow at the filament out to an
+  // inferno orange at the far side of the rim. Level sets of the same domain
+  // warped flow that used to drive the film thickness, plus the band's own
+  // depth so the filaments run along the edge rather than across it, and
+  // folded through a triangle wave so they repeat without a seam. fract()
+  // alone puts a hard step at every period, which reads as a cut.
+  //
+  // Frequency is set so the band holds two and a half filaments plus the
+  // flow's own wander. Denser than that and a 180px band is hatching.
+  float ctr = (flow*2.2 + u*2.0 + 0.16*breath)*stretch;
+  float tri = abs(fract(ctr) - 0.5)*2.0;
+  float d   = tri - 0.5;
+
+  // Clear is nearly transparent, not white. The ground between the filaments
+  // is film you are meant to see through, and on a dark screen that is dim,
+  // not bright. Taking it literally as white put the whole band at a level
+  // where the tonemap compresses everything toward the same pale grey, and
+  // the blue and the rim went with it: a chalk sketch of the reference.
+  const vec3 CLEAR = vec3(0.14, 0.20, 0.30);
+  // Two blues, as the reference has: a deep one on the filament's shoulders
+  // and a near white one along its spine. One flat blue is a painted line,
+  // and the spine is where the film is thinnest and should read as clear.
+  const vec3 BLUE_DEEP = vec3(0.10, 0.30, 1.12);
+  const vec3 BLUE_PALE = vec3(0.70, 0.88, 1.15);
+  const vec3 YEL   = vec3(1.25, 0.95, 0.24);
+  const vec3 ORG   = vec3(1.20, 0.27, 0.02);
+  vec3 BLUE = mix(BLUE_DEEP, BLUE_PALE, smoothstep(0.15, 0.46, d));
+
+  // The rim sits on the outside of the filament and only on the outside,
+  // which is what makes it read as heat coming off an edge rather than as a
+  // third colour in the sequence.
+  float toRim  = smoothstep(-0.26, -0.12, d);
+  float toBlue = smoothstep( 0.10,  0.20, d);
+  vec3  col    = mix(CLEAR, mix(ORG, YEL, smoothstep(-0.10, 0.08, d)), toRim);
+  col          = mix(col, BLUE, toBlue);
+
+  // The rim is the only part that is hotter than the film carrying it.
+  col *= (1.0 + 1.10*exp(-pow((d + 0.02)/0.120, 2.0)))*shimmer;
 
   // Fresnel. Physically the body of a film returns four percent and the
   // silhouette returns nearly all of it, and driving the band with that ratio
@@ -543,7 +612,7 @@ void main(){
   // from bright to nothing across three hundred pixels, and a ramp is a
   // vignette however it was derived. Compressed to a bit under two to one, so
   // the angle is still legible and the band still has a body.
-  float fres = 0.30 + 0.70*pow(1.0 - cosI, 2.5);
+  float fres = 0.44 + 0.56*pow(1.0 - cosI, 2.5);
 
   // The band ends rather than fading out, over about a tenth of its own
   // depth. A long ramp down to nothing is a vignette, and a vignette is not a
@@ -553,9 +622,9 @@ void main(){
 
   // The film's colour with its brightness divided out, for the places that
   // want the hue without the level: the silhouette line and the rim of a pop.
-  vec3 sheen = normalize(refl + vec3(0.0015));
+  vec3 sheen = normalize(col + vec3(0.0015));
 
-  vec3 c = refl*fres*env*SKIN*born*lit;
+  vec3 c = col*fres*env*SKIN*born*lit;
 
   // The inner boundary is a lip, not a place the gradient ran out. Liquid held
   // by surface tension beads along its own edge and the bead catches light, so
