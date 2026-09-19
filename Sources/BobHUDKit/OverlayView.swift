@@ -27,6 +27,16 @@ public struct OverlayView: View {
             // even at low opacity, tints the entire display.
             Color.clear
 
+            // The other half of the presence surface, at the size peripheral
+            // vision can actually see. It obeys the line above: the shader
+            // returns an empty alpha everywhere except the edge, so the middle
+            // of the display comes back genuinely untouched.
+            //
+            // Under everything. This is the state of the assistant rather than
+            // content, and content wins any pixel they both want.
+            PresenceField(presence: model.presence, amplitude: model.amplitude)
+                .zIndex(0)
+
             // Marks sit under the panels: a panel is something the person
             // asked for, a mark is something the assistant added, and when they
             // overlap the answer should not be hidden by the annotation.
@@ -407,6 +417,12 @@ struct LiquidGlass: ViewModifier {
     let shape: RoundedRectangle
 
     func body(content: Content) -> some View {
+        // Compiled out below the macOS 26 SDK, not merely skipped at runtime.
+        // `#available` guards execution; it does not stop the compiler from
+        // needing the symbol, so this target did not build at all against the
+        // 15.5 SDK that ships with the Command Line Tools. Xcode 26 carries
+        // Swift 6.2, which is what the compiler check is standing in for.
+        #if compiler(>=6.2)
         if #available(macOS 26, *) {
             content.glassEffect(
                 .regular.tint(.black.opacity(0.18)),
@@ -414,6 +430,9 @@ struct LiquidGlass: ViewModifier {
         } else {
             content
         }
+        #else
+        content
+        #endif
     }
 }
 
