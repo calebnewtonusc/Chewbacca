@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Presence field tuner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        font-family: Inter, sans-serif;
+      }
+      body {
+        margin: 0;
+      }
+      input[type="range"] {
+        accent-color: #6366f1;
+      }
+      input[type="color"] {
+        appearance: none;
+        border: 0;
+        padding: 0;
+        background: none;
+        width: 100%;
+        height: 1.75rem;
+        border-radius: 0.5rem;
+        cursor: pointer;
+      }
+      input[type="color"]::-webkit-color-swatch-wrapper {
+        padding: 0;
+      }
+      input[type="color"]::-webkit-color-swatch {
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 0.5rem;
+      }
+      .panel::-webkit-scrollbar {
+        width: 8px;
+      }
+      .panel::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.14);
+        border-radius: 99px;
+      }
+    </style>
+  </head>
+  <body class="antialiased text-zinc-100">
+    <!-- What the field composites over. Translucency cannot be judged against
+         nothing, and the overlay spends its life on top of whatever the person
+         had open. -->
+    <div id="backdrop" class="fixed inset-0 -z-10"></div>
+    <canvas id="gl" class="fixed inset-0 w-full h-full"></canvas>
+
+    <aside
+      class="panel fixed left-4 top-4 bottom-4 z-10 w-[19rem] overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/80 p-5 backdrop-blur-xl shadow-2xl"
+    >
+      <h1 class="text-base font-semibold tracking-tight">Presence field</h1>
+      <p class="mt-1 text-xs text-zinc-500">
+        The same shader the overlay runs, converted from
+        <span class="text-zinc-400">PresenceFieldShader.swift</span>.
+      </p>
+
+      <div class="mt-5">
+        <div
+          class="text-[11px] font-medium uppercase tracking-wider text-zinc-500"
+        >
+          State
+        </div>
+        <div id="states" class="mt-2 flex flex-wrap gap-1.5"></div>
+      </div>
+
+      <div class="mt-5">
+        <div
+          class="text-[11px] font-medium uppercase tracking-wider text-zinc-500"
+        >
+          Behind it
+        </div>
+        <div id="backdrops" class="mt-2 flex flex-wrap gap-1.5"></div>
+      </div>
+
+      <div class="mt-6">
+        <div
+          class="text-[11px] font-medium uppercase tracking-wider text-zinc-500"
+        >
+          Transparency
+        </div>
+        <p class="mt-1 text-[11px] leading-relaxed text-zinc-500">
+          Translucent at 0 is a film that only exists where it glows. At 1 it is
+          tinted glass over the whole band. Judge it against Document or Photo,
+          never against the black desktop.
+        </p>
+        <div id="alpha" class="mt-3 space-y-3"></div>
+      </div>
+
+      <div class="mt-6">
+        <div
+          class="text-[11px] font-medium uppercase tracking-wider text-zinc-500"
+        >
+          Palette
+        </div>
+        <div id="colors" class="mt-3 space-y-3"></div>
+      </div>
+
+      <div class="mt-6">
+        <div
+          class="text-[11px] font-medium uppercase tracking-wider text-zinc-500"
+        >
+          Shape
+        </div>
+        <div id="sliders" class="mt-3 space-y-3"></div>
+      </div>
+
+      <div class="mt-6 flex gap-2">
+        <button
+          id="export"
+          class="flex-1 cursor-pointer rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all duration-200 hover:bg-indigo-500 active:bg-indigo-700"
+        >
+          Copy Metal
+        </button>
+        <button
+          id="reset"
+          class="cursor-pointer rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-sm font-medium text-zinc-100 transition-all duration-200 hover:bg-zinc-700"
+        >
+          Reset
+        </button>
+      </div>
+      <textarea
+        id="out"
+        readonly
+        class="mt-3 hidden h-56 w-full resize-none rounded-xl border border-zinc-800 bg-zinc-900 p-3 font-mono text-[10px] leading-relaxed text-zinc-300 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
+      ></textarea>
+      <p id="note" class="mt-2 hidden text-xs text-emerald-400">
+        On the clipboard. Paste over the block in PresenceFieldShader.swift.
+      </p>
+    </aside>
+
+    <script id="fs" type="x-shader/x-fragment">
+      /*__SHADER__*/
+    </script>
+
+    <script>
+      // --- the knobs -----------------------------------------------------
+      // Colours are HDR: the palette runs past 1.0 on purpose, because the
+      // rim is meant to be hotter than anything a display can show before the
+      // tonemap pulls it back. A colour input cannot express that, so each
+      // swatch is a hue at unit scale plus its own level.
+      const COLORS = [
+        ["u_clear", "Ground", [0.14, 0.2, 0.3]],
+        ["u_pool", "Deep pool", [0.05, 0.15, 0.6]],
+        ["u_blueDeep", "Filament shoulder", [0.1, 0.3, 1.12]],
+        ["u_bluePale", "Filament spine", [0.7, 0.88, 1.15]],
+        ["u_yel", "Rim, inner", [1.25, 0.95, 0.24]],
+        ["u_org", "Rim, outer", [1.2, 0.27, 0.02]],
+      ];
+
+      // The last field is which panel section the slider lands in. The four
+      // alpha terms interact with each other and with nothing else, so they
+      // are read together or not at all.
+      const SLIDERS = [
+        ["u_translucency", "Translucent", 0, 1, 0.01, 0, "alpha"],
+        ["u_sheet", "Sheet coverage", 0, 1, 0.01, 0.55, "alpha"],
+        ["u_alpha", "Opacity", 0, 1, 0.01, 1, "alpha"],
+        ["u_gain", "Film coverage", 0.5, 3, 0.01, 1.35, "alpha"],
+        ["u_expose", "Exposure", 0.5, 4, 0.01, 1.9],
+        ["u_rimA", "Rim start", -0.4, 0, 0.005, -0.13],
+        ["u_rimB", "Rim end", -0.3, 0.1, 0.005, -0.05],
+        ["u_blueA", "Blue start", -0.1, 0.3, 0.005, 0.03],
+        ["u_blueB", "Blue end", 0, 0.4, 0.005, 0.11],
+        ["u_glow", "Rim heat", 0, 3, 0.01, 0.85],
+        ["u_glowW", "Rim width", 0.01, 0.3, 0.002, 0.07],
+        ["u_fresA", "Body light", 0.2, 1.5, 0.01, 0.74],
+        ["u_fresB", "Surface light", 0, 1.5, 0.01, 0.36],
+        ["u_lip", "Surface lip", 0, 0.3, 0.002, 0.055],
+        ["u_rest", "Thickness", 0.05, 0.5, 0.005, 0.268],
+        ["u_drift", "Drift", 0, 5, 0.05, 0.5],
+      ];
+
+      // Straight out of Presence.field in PresenceField.swift.
+      const STATES = {
+        dormant: { rest: 0.105, drift: 0, anger: 0 },
+        attentive: { rest: 0.268, drift: 0.5, anger: 0 },
+        hearing: { rest: 0.38, drift: 0.35, anger: 0 },
+        thinking: { rest: 0.24, drift: 3.2, anger: 0 },
+        acting: { rest: 0.285, drift: 1.1, anger: 0 },
+        attention: { rest: 0.33, drift: 0.9, anger: 0 },
+        failed: { rest: 0.3, drift: 0.3, anger: 1 },
+      };
+
+      const BACKDROPS = {
+        Desktop:
+          "radial-gradient(ellipse at 30% 20%, #1e1b4b 0%, #0a0a0b 60%), #0a0a0b",
+        Document: "#f4f4f5",
+        Photo:
+          "radial-gradient(circle at 20% 30%, #b45309 0%, transparent 45%)," +
+          "radial-gradient(circle at 75% 65%, #0f766e 0%, transparent 50%)," +
+          "radial-gradient(circle at 55% 10%, #7e22ce 0%, transparent 40%), #1c1917",
+        Checker:
+          "repeating-conic-gradient(#3f3f46 0% 25%, #71717a 0% 50%) 0 0 / 56px 56px",
+      };
+
+      // --- state ---------------------------------------------------------
+      const values = {};
+      const defaults = {};
+      for (const [k, , v] of COLORS) defaults[k] = v.slice();
+      for (const [k, , , , , v] of SLIDERS) defaults[k] = v;
+      defaults.u_anger = 0;
+      Object.assign(values, JSON.parse(JSON.stringify(defaults)));
+
+      // Colour work happens over several sittings and a reload in the middle
+      // of one used to throw the evening away. `u_rest`, `u_drift` and
+      // `u_anger` are not saved: those are the state chips, and restoring them
+      // would mean the page opens in a state no chip is lit for.
+      const STORE = "presence-tuner";
+      const TRANSIENT = ["u_rest", "u_drift", "u_anger"];
+
+      const save = () => {
+        const keep = { ...values };
+        for (const k of TRANSIENT) delete keep[k];
+        try {
+          localStorage.setItem(STORE, JSON.stringify(keep));
+        } catch (e) {
+          /* private window, and losing the tuning is not worth a dialog */
+        }
+      };
+
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORE) || "null");
+        // Key by key, so a slider added to the table after the last save gets
+        // its default instead of undefined, which reaches the GL call and
+        // silently blanks the shader.
+        if (saved) {
+          for (const k of Object.keys(defaults)) {
+            if (saved[k] !== undefined) values[k] = saved[k];
+          }
+        }
+      } catch (e) {
+        /* nothing saved, or saved by an older shape of this page */
+      }
+
+      let state = "attentive";
+      let awokeAt = performance.now() / 1000;
+
+      // --- ui --------------------------------------------------------------
+      const chip = (label, on, click) => {
+        const b = document.createElement("button");
+        b.textContent = label;
+        b.className =
+          "cursor-pointer rounded-lg px-2.5 py-1 text-xs font-medium transition-all " +
+          "duration-200 border " +
+          (on
+            ? "border-indigo-500/40 bg-indigo-500/15 text-indigo-300"
+            : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200");
+        b.onclick = click;
+        return b;
+      };
+
+      function drawStates() {
+        const host = document.getElementById("states");
+        host.replaceChildren();
+        for (const name of Object.keys(STATES)) {
+          host.append(
+            chip(name, name === state, () => {
+              state = name;
+              const s = STATES[name];
+              values.u_rest = s.rest;
+              values.u_drift = s.drift;
+              values.u_anger = s.anger;
+              awokeAt = performance.now() / 1000;
+              drawStates();
+              drawSliders();
+            }),
+          );
+        }
+      }
+
+      let backdrop = "Desktop";
+      function drawBackdrops() {
+        const host = document.getElementById("backdrops");
+        host.replaceChildren();
+        for (const name of Object.keys(BACKDROPS)) {
+          host.append(
+            chip(name, name === backdrop, () => {
+              backdrop = name;
+              document.getElementById("backdrop").style.background =
+                BACKDROPS[name];
+              drawBackdrops();
+            }),
+          );
+        }
+      }
+
+      const toHex = (c) => {
+        const m = Math.max(...c, 1e-6);
+        const f = (x) =>
+          Math.round(Math.min(x / m, 1) * 255)
+            .toString(16)
+            .padStart(2, "0");
+        return "#" + f(c[0]) + f(c[1]) + f(c[2]);
+      };
+
+      function drawColors() {
+        const host = document.getElementById("colors");
+        host.replaceChildren();
+        for (const [key, label] of COLORS) {
+          const level = Math.max(...values[key], 1e-6);
+          const row = document.createElement("div");
+          row.innerHTML = `
+            <div class="flex items-baseline justify-between">
+              <span class="text-xs text-zinc-300">${label}</span>
+              <span class="font-mono text-[10px] text-zinc-500">${level.toFixed(2)}</span>
+            </div>`;
+          const pick = document.createElement("input");
+          pick.type = "color";
+          pick.value = toHex(values[key]);
+          pick.className = "mt-1.5";
+          const lv = document.createElement("input");
+          lv.type = "range";
+          lv.min = 0;
+          lv.max = 2;
+          lv.step = 0.01;
+          lv.value = level;
+          lv.className = "mt-1.5 w-full";
+          const apply = () => {
+            const h = pick.value;
+            const base = [1, 3, 5].map(
+              (i) => parseInt(h.slice(i, i + 2), 16) / 255,
+            );
+            const m = Math.max(...base, 1e-6);
+            values[key] = base.map((x) => (x / m) * parseFloat(lv.value));
+            save();
+            drawColors();
+          };
+          pick.oninput = apply;
+          lv.oninput = apply;
+          row.append(pick, lv);
+          host.append(row);
+        }
+      }
+
+      function drawSliders() {
+        const hosts = {
+          alpha: document.getElementById("alpha"),
+          shape: document.getElementById("sliders"),
+        };
+        for (const h of Object.values(hosts)) h.replaceChildren();
+        for (const [key, label, min, max, step, , group] of SLIDERS) {
+          const host = hosts[group === "alpha" ? "alpha" : "shape"];
+          const row = document.createElement("div");
+          row.innerHTML = `
+            <div class="flex items-baseline justify-between">
+              <span class="text-xs text-zinc-300">${label}</span>
+              <span class="font-mono text-[10px] text-zinc-500">${values[key].toFixed(3)}</span>
+            </div>`;
+          const r = document.createElement("input");
+          r.type = "range";
+          r.min = min;
+          r.max = max;
+          r.step = step;
+          r.value = values[key];
+          r.className = "mt-1.5 w-full";
+          r.oninput = () => {
+            values[key] = parseFloat(r.value);
+            row.querySelector("span:last-child").textContent =
+              values[key].toFixed(3);
+            save();
+          };
+          row.append(r);
+          host.append(row);
+        }
+      }
+
+      // --- export ----------------------------------------------------------
+      const v3 = (c) => `float3(${c.map((x) => x.toFixed(3)).join(", ")})`;
+
+      document.getElementById("export").onclick = async () => {
+        const text = [
+          `    const float3 CLEAR = ${v3(values.u_clear)};`,
+          `    const float3 POOL = ${v3(values.u_pool)};`,
+          `    const float3 BLUE_DEEP = ${v3(values.u_blueDeep)};`,
+          `    const float3 BLUE_PALE = ${v3(values.u_bluePale)};`,
+          `    const float3 YEL = ${v3(values.u_yel)};`,
+          `    const float3 ORG = ${v3(values.u_org)};`,
+          ``,
+          `    float toRim = smoothstep(${values.u_rimA.toFixed(3)}, ${values.u_rimB.toFixed(3)}, d);`,
+          `    float toBlue = smoothstep(${values.u_blueA.toFixed(3)}, ${values.u_blueB.toFixed(3)}, d);`,
+          `    col *= (1.0 + ${values.u_glow.toFixed(3)} * exp(-pow((d + 0.01) / ${values.u_glowW.toFixed(3)}, 2.0))) * shimmer;`,
+          `    float fres = ${values.u_fresA.toFixed(3)} + ${values.u_fresB.toFixed(3)} * exp(-v * 7.0);`,
+          `    // lip: ${values.u_lip.toFixed(3)}    exposure: ${values.u_expose.toFixed(3)}`,
+          ``,
+          `    // compositing`,
+          `    float lum = max(max(c.r, c.g), c.b);`,
+          `    float filmA = clamp(lum * ${values.u_gain.toFixed(3)}, 0.0, 1.0);`,
+          `    float sheetA = clamp(born * lit * env * ${values.u_sheet.toFixed(3)}, 0.0, 1.0);`,
+          `    float a = mix(filmA, max(filmA, sheetA), ${values.u_translucency.toFixed(3)}) * U.alpha;`,
+          `    return half4(half3(min(c, float3(a))), half(a));`,
+        ].join("\n");
+        document.getElementById("out").value = text;
+        document.getElementById("out").classList.remove("hidden");
+        try {
+          await navigator.clipboard.writeText(text);
+          const n = document.getElementById("note");
+          n.classList.remove("hidden");
+          setTimeout(() => n.classList.add("hidden"), 2400);
+        } catch (e) {
+          /* the textarea is the fallback, and it is already open */
+        }
+      };
+
+      document.getElementById("reset").onclick = () => {
+        Object.assign(values, JSON.parse(JSON.stringify(defaults)));
+        const s = STATES[state];
+        values.u_rest = s.rest;
+        values.u_drift = s.drift;
+        values.u_anger = s.anger;
+        save();
+        drawColors();
+        drawSliders();
+      };
+
+      // --- gl ----------------------------------------------------------------
+      const canvas = document.getElementById("gl");
+      const gl = canvas.getContext("webgl2", { alpha: true, antialias: false });
+      const VS = `#version 300 es
+void main() {
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+      function compile(type, src) {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+          // Printing the log alone is useless for a generated shader: the line
+          // numbers are the only way back to the Metal it came from.
+          const log = gl.getShaderInfoLog(s);
+          console.error(log);
+          console.error(
+            src
+              .split("\n")
+              .map((l, i) => `${String(i + 1).padStart(4)} ${l}`)
+              .join("\n"),
+          );
+          throw new Error(log);
+        }
+        return s;
+      }
+
+      const program = gl.createProgram();
+      gl.attachShader(program, compile(gl.VERTEX_SHADER, VS));
+      gl.attachShader(
+        program,
+        // Trimmed: the script tag indents its contents, and `#version` is only
+        // a version directive when it is the very first thing in the source.
+        compile(
+          gl.FRAGMENT_SHADER,
+          document.getElementById("fs").textContent.trim(),
+        ),
+      );
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        throw new Error(gl.getProgramInfoLog(program));
+      }
+      gl.useProgram(program);
+
+      const loc = {};
+      const at = (n) => (loc[n] ??= gl.getUniformLocation(program, n));
+
+      function frame(ms) {
+        const t = ms / 1000;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const w = Math.round(innerWidth * dpr);
+        const h = Math.round(innerHeight * dpr);
+        if (canvas.width !== w || canvas.height !== h) {
+          canvas.width = w;
+          canvas.height = h;
+          gl.viewport(0, 0, w, h);
+        }
+
+        gl.uniform2f(at("u_size"), w, h);
+        gl.uniform2f(at("u_popAt"), 0.5, 0.5);
+        gl.uniform1f(at("u_time"), t);
+        gl.uniform1f(at("u_act"), t - awokeAt);
+        gl.uniform1f(at("u_closing"), -1);
+        gl.uniform1f(at("u_anger"), values.u_anger);
+        for (const [k] of COLORS) gl.uniform3fv(at(k), values[k]);
+        for (const [k] of SLIDERS) gl.uniform1f(at(k), values[k]);
+
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+        requestAnimationFrame(frame);
+      }
+
+      document.getElementById("backdrop").style.background =
+        BACKDROPS[backdrop];
+      drawStates();
+      drawBackdrops();
+      drawColors();
+      drawSliders();
+      requestAnimationFrame(frame);
+    </script>
+  </body>
+</html>
