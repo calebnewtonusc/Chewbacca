@@ -22,6 +22,12 @@ public enum Presence: String, Sendable, CaseIterable {
     case thinking
     /// Executing something. Arc segments stepping, one per completed action.
     case acting
+    /// The thing it was executing finished, and nothing is in flight. Holds
+    /// until the next request rather than dropping straight back to `dormant`:
+    /// someone who looked away for ten seconds still gets to find out it
+    /// worked, and a state that clears itself the instant it arrives is a
+    /// state nobody ever sees.
+    case done
     /// Wants to say something, or is blocked on you. Two pulses, then hold.
     case attention
     /// An action failed in a way that may have left something in a bad state.
@@ -31,6 +37,7 @@ public enum Presence: String, Sendable, CaseIterable {
     /// Colour carries meaning here and nothing else. No branding, no theming.
     var tint: Color {
         switch self {
+        case .acting, .done: return HUD.good
         case .attention: return HUD.warn
         case .failed: return HUD.bad
         default: return HUD.accent
@@ -97,6 +104,12 @@ struct PresenceRing: View {
         switch presence {
         case .dormant, .attentive:
             EmptyView()
+
+        case .done:
+            // A closed ring, not moving. Every other lit state here is in
+            // motion, so stillness is the signature: the errand is over.
+            Circle()
+                .stroke(presence.tint, lineWidth: 1.8)
 
         case .hearing:
             // Thickness modulates with what it is hearing. Nothing rotates,
