@@ -1,0 +1,773 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Presence refined</title>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.11"
+      integrity="sha384-A1XhMANHciQ8ED89Ap5K0zOdmQKiEeXSjaN0sakNxIzq9Z2YfXV/BwHp7oP3z5ip"
+      crossorigin="anonymous"
+    ></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <script
+      src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"
+      integrity="sha384-hJnF5AwidE18GSWTAGHv3ByzzvfNZ1Tcx5y1UUV3WkauuMCEzBJBMSwSt/PUPXnM"
+      crossorigin="anonymous"
+    ></script>
+  </head>
+  <body
+    class="antialiased overflow-hidden bg-zinc-950"
+    style="font-family: Inter, sans-serif"
+  >
+    <div id="backdrop" class="fixed inset-0"></div>
+    <canvas
+      id="gl"
+      class="fixed inset-0 w-full h-full pointer-events-none"
+    ></canvas>
+
+    <div
+      id="panel"
+      class="fixed top-6 left-6 z-50 w-72 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 p-5 shadow-2xl transition-opacity duration-200"
+    >
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2 text-zinc-200">
+          <i data-lucide="aperture" class="w-4 h-4 text-amber-400"></i>
+          <span class="text-sm font-semibold tracking-tight"
+            >Presence refined</span
+          >
+        </div>
+        <button
+          id="hide"
+          class="text-zinc-500 hover:text-white px-2 py-1 rounded-lg hover:bg-white/5 transition-all duration-200 cursor-pointer"
+          title="Hide panel (h)"
+        >
+          <i data-lucide="chevron-up" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div id="list" class="space-y-1 mb-4"></div>
+
+      <button
+        id="replay"
+        class="w-full bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-zinc-950 font-semibold px-4 py-2.5 rounded-xl transition-all duration-200 shadow-lg shadow-amber-500/25 cursor-pointer flex items-center justify-center gap-2"
+      >
+        <i data-lucide="play" class="w-4 h-4"></i> Trigger
+      </button>
+
+      <div id="sliders" class="mt-4 space-y-3"></div>
+
+      <div class="mt-4 pt-4 border-t border-white/10">
+        <div class="text-xs text-zinc-500 mb-2">Backdrop</div>
+        <div class="grid grid-cols-3 gap-2">
+          <button
+            data-bd="dark"
+            class="bd bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 text-xs font-medium px-2 py-1.5 rounded-lg transition-all duration-200 cursor-pointer"
+          >
+            Dark
+          </button>
+          <button
+            data-bd="photo"
+            class="bd bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 text-xs font-medium px-2 py-1.5 rounded-lg transition-all duration-200 cursor-pointer"
+          >
+            Photo
+          </button>
+          <button
+            data-bd="light"
+            class="bd bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 text-xs font-medium px-2 py-1.5 rounded-lg transition-all duration-200 cursor-pointer"
+          >
+            Light
+          </button>
+        </div>
+      </div>
+
+      <div class="mt-4 pt-4 border-t border-white/10 space-y-1">
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-zinc-500">frame</span>
+          <span
+            id="fps"
+            class="text-xs text-zinc-300"
+            style="font-family: &quot;JetBrains Mono&quot;, monospace"
+          ></span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-zinc-500">buffers</span>
+          <span
+            id="fmt"
+            class="text-xs text-zinc-300"
+            style="font-family: &quot;JetBrains Mono&quot;, monospace"
+          ></span>
+        </div>
+      </div>
+      <div
+        id="errs"
+        class="mt-2 text-xs text-rose-300"
+        style="font-family: &quot;JetBrains Mono&quot;, monospace"
+      ></div>
+    </div>
+
+    <div
+      id="hint"
+      class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 text-xs text-zinc-500 pointer-events-none"
+      style="font-family: &quot;JetBrains Mono&quot;, monospace"
+    >
+      1-3 switch &nbsp;&middot;&nbsp; space trigger &nbsp;&middot;&nbsp; h panel
+    </div>
+
+    <script>
+      // ---------------------------------------------------------------------------
+      // Three survivors, built properly.
+      //
+      // Two things changed from the ten-model sheet, and they are the two reasons
+      // that sheet looked cheap.
+      //
+      // 1. GLOW IS NOW REAL. Before, every "glow" was exp(-d*k) painted straight into
+      //    the pixel. That is a gradient, not light: it cannot spill across a shape,
+      //    it cannot accumulate where two bright things overlap, and it clips flat at
+      //    white. Here the scene renders to a half-float target, the bright part is
+      //    extracted, blurred separably at two scales, and composited back. Highlights
+      //    bleed, corners accumulate, and the falloff has the long dim tail that a
+      //    real lens produces. It is the single biggest difference available.
+      //
+      // 2. ACTIVATIONS ARE CHOREOGRAPHED. The ten shared one easing curve so the
+      //    comparison stayed honest, which also made all ten open the same way. Each
+      //    of these runs its own multi-stage sequence with its own timings, because a
+      //    single sine is the thing that reads as bland no matter how good the shape.
+      //
+      // Hairlines use fwidth for analytic antialiasing, so a line is the same weight
+      // on a laptop and on a 6K panel. A line that thickens with resolution is the
+      // other classic tell.
+      // ---------------------------------------------------------------------------
+
+      const QUAD_VS = `#version 300 es
+precision highp float;
+const vec2 V[3] = vec2[3](vec2(-1.0,-1.0), vec2(3.0,-1.0), vec2(-1.0,3.0));
+out vec2 vUV;
+void main(){
+  vec2 p = V[gl_VertexID];
+  vUV = p*0.5 + 0.5;
+  gl_Position = vec4(p, 0.0, 1.0);
+}`;
+
+      const COMMON = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform vec2  u_res;
+uniform float u_time;
+uniform float u_act;
+uniform vec2  u_cursor;
+uniform float u_gain;
+out vec4 o;
+
+const vec3 AMBER = vec3(1.00, 0.70, 0.34);
+const vec3 ICE   = vec3(0.62, 0.80, 1.00);
+
+float hash11(float p){ return fract(sin(p*127.1)*43758.5453); }
+float hash21(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+float noise(vec2 p){
+  vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  return mix(mix(hash21(i), hash21(i+vec2(1.0,0.0)), f.x),
+             mix(hash21(i+vec2(0.0,1.0)), hash21(i+vec2(1.0,1.0)), f.x), f.y);
+}
+float fbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<4;i++){ s+=a*noise(p); p*=2.03; a*=0.5; } return s; }
+
+// A hairline of constant pixel weight at any resolution. fwidth gives the
+// footprint of d in this pixel, so the line never thickens on a denser panel.
+float hairline(float d, float px){
+  float w = fwidth(d)*px;
+  return 1.0 - smoothstep(0.0, w, abs(d));
+}
+// Easings. expo-out is what makes a move read as mechanical rather than soft:
+// almost all of the distance is covered in the first fifth of the duration.
+float expoOut(float x){ return x >= 1.0 ? 1.0 : 1.0 - pow(2.0, -10.0*x); }
+float expoIn (float x){ return x <= 0.0 ? 0.0 : pow(2.0, 10.0*(x-1.0)); }
+float stage(float t, float a, float b){ return clamp((t-a)/(b-a), 0.0, 1.0); }
+// Damped spring: overshoots, crosses back, settles. Real hardware does this.
+float spring(float x, float freq, float damp){
+  return 1.0 - exp(-damp*x)*cos(freq*x);
+}
+`;
+
+      const MODELS = [
+        {
+          name: "Aperture",
+          note: "a ring fractures into eight blades and locks",
+          gain: 45.0,
+          src: `
+// One blade sector of a rotating iris. Each blade carries its own stagger, so
+// the eight never arrive together and the ring reads as a mechanism with parts
+// rather than as a polygon being scaled.
+float iris(vec2 p, float r, float rot, float fan, float seedOff, out float bladeId){
+  float a = atan(p.y, p.x) + rot;
+  float seg = 6.2831853/8.0;
+  float idx = floor((a + 3.14159265)/seg);
+  bladeId = idx;
+  float stagger = hash11(idx*1.7 + seedOff);
+  float rr = r + fan*(0.06 + stagger*0.16);
+  float aa = mod(a + 3.14159265, seg) - seg*0.5;
+  return cos(aa)*length(p) - rr;
+}
+
+void main(){
+  vec2 p = (vUV*u_res - 0.5*u_res)/u_res.y;
+  float t = u_act;
+
+  // s1 snap in, s2 contract and fracture, s3 lock, then idle.
+  float s1 = stage(t, 0.00, 0.09);
+  float s2 = stage(t, 0.07, 0.46);
+  float s3 = stage(t, 0.42, 0.85);
+  float fan  = (1.0-expoOut(s2))*1.0 + (1.0-s3)*0.25*sin(s3*9.0);
+  float pull = mix(1.02, 0.62, expoOut(s2));
+
+  float v = 0.0, hot = 0.0;
+  for(int i=0;i<3;i++){
+    float fi = float(i);
+    // Counter-rotation. Two rings turning the same way read as one object.
+    float dir = (mod(fi,2.0) < 0.5) ? 1.0 : -1.0;
+    float rot = u_time*0.035*dir*(1.0+fi*0.4) + fi*0.5
+              + (1.0-expoOut(s3))*dir*0.9;
+    float r = pull + fi*0.115 + sin(u_time*0.22 + fi*1.9)*0.006;
+    float id;
+    float d = iris(p, r, rot, fan*(1.0-fi*0.25), fi*13.0, id);
+    float core = hairline(d, 1.6);
+    float halo = exp(-abs(d)*46.0);
+    float w = (1.0 - fi*0.26)*s1;
+    v   += (core*2.2 + halo*0.10)*w;
+    hot += core*w;
+
+    // Lens-barrel graduations on the outer ring only: density that costs no
+    // contrast, which is how an instrument gets busy without getting loud.
+    if(i == 2){
+      float a = atan(p.y, p.x) + rot;
+      float ticks = abs(fract(a*(96.0/6.2831853)) - 0.5);
+      float onRing = exp(-abs(d)*160.0);
+      v += smoothstep(0.42, 0.5, ticks)*onRing*0.5*s1;
+    }
+  }
+  // The lock: one bright frame as the blades seat.
+  float lock = exp(-pow((t-0.46)/0.05, 2.0));
+  v += lock*hot*0.45 + lock*0.012;
+
+  vec3 c = mix(AMBER, vec3(1.0), clamp(v*0.5, 0.0, 1.0));
+  o = vec4(c*v*u_gain, 1.0);
+}`,
+        },
+        {
+          name: "Interference",
+          note: "one line splits and drives the beat to the edges",
+          gain: 12.0,
+          src: `
+void main(){
+  vec2 uv = vUV;
+  float t = u_act;
+  float asp = u_res.x/u_res.y;
+
+  float s1 = stage(t, 0.00, 0.07);
+  float s2 = stage(t, 0.06, 0.52);
+  float s3 = stage(t, 0.40, 1.05);
+
+  // The two fronts leave the centre line and drive outward on expo-out, so
+  // they are almost at the edge before the eye has found them.
+  float travel = expoOut(s2);
+  float y = abs(uv.y - 0.5);
+  float frontY = travel*0.5;
+
+  float v = 0.0;
+  // Leading edge, split into colour: a real fast-moving bright edge smears
+  // across wavelengths, so the fringe belongs to the optics not the palette.
+  vec3 fr = vec3(0.0);
+  for(int k=0;k<3;k++){
+    float off = (float(k)-1.0)*0.0022*(1.0-s3);
+    float d = abs(y - (frontY + off));
+    fr[k] = exp(-d*260.0)*s1*(1.0-s3*0.55);
+  }
+  float lead = (fr.r+fr.g+fr.b)/3.0;
+
+  // Wake: bands materialise behind the front rather than everywhere at once.
+  float passed = smoothstep(frontY, frontY-0.06, y);
+  float s_a = sin(uv.y*u_res.y*0.0850 - u_time*1.15);
+  float s_b = sin(uv.y*u_res.y*0.0905 + u_time*0.95);
+  float beat = pow(abs(s_a*s_b), 7.0);
+
+  float edge = min(min(uv.x, 1.0-uv.x), min(uv.y, 1.0-uv.y));
+  float band = exp(-edge*17.0);
+  v += beat*passed*band*1.5*s3;
+  v += lead*2.2;
+
+  // Fine vertical graduation along the two long edges, low contrast.
+  float ticks = abs(fract(uv.x*asp*70.0) - 0.5);
+  v += smoothstep(0.40, 0.5, ticks)*exp(-edge*30.0)*0.32*s3;
+
+  // A single wide flash as the fronts touch the edges.
+  v += exp(-pow((t-0.52)/0.06, 2.0))*band*0.25;
+
+  vec3 c = mix(AMBER, vec3(1.0), clamp(v*0.45, 0.0, 1.0));
+  c = mix(c, vec3(1.0), lead*0.8);
+  o = vec4(c*v*u_gain, 1.0);
+}`,
+        },
+        {
+          name: "Chromatic",
+          note: "the rim shatters into three and springs back",
+          gain: 0.65,
+          src: `
+// One luminous rim profile, sampled per channel at a different width. The whole
+// model is this function called three times.
+float rim(vec2 uv, float k, float warp){
+  float e = min(min(uv.x, 1.0-uv.x), min(uv.y, 1.0-uv.y));
+  return exp(-max(e + warp, 0.0)*k);
+}
+
+void main(){
+  vec2 uv = vUV;
+  float t = u_act;
+
+  float s1 = stage(t, 0.00, 0.05);
+  // Split hard, then converge on a damped spring: it crosses the rest point a
+  // couple of times before settling, the way a real mechanism does. A single
+  // ease into place is the part that was reading as bland.
+  float shatter = expoOut(stage(t, 0.03, 0.26));
+  float settle  = stage(t, 0.22, 1.30);
+  float split   = shatter*(1.0 - spring(settle, 15.0, 4.2))*7.0;
+
+  float warp = fbm(uv*vec2(u_res.x/u_res.y,1.0)*3.0 + u_time*0.05)*0.020;
+  float base = 19.0 + sin(u_time*0.28)*0.90;
+
+  vec3 c;
+  c.r = rim(uv, base - split*0.85, warp);
+  c.g = rim(uv, base,              warp);
+  c.b = rim(uv, base + split*0.85, warp);
+
+  // Opening flash, white, before the channels tear apart.
+  float flash = s1*(1.0 - stage(t, 0.04, 0.16));
+  c += flash*rim(uv, 9.0, 0.0)*1.5;
+
+  // A very fine scan texture inside the glow. It is below the threshold of
+  // being read as a pattern and above the threshold of being felt as material.
+  float lum = max(max(c.r,c.g),c.b);
+  c *= 1.0 + 0.07*sin(uv.y*u_res.y*0.85)*smoothstep(0.02, 0.5, lum);
+
+  o = vec4(c*1.9*u_gain, 1.0);
+}`,
+        },
+      ];
+
+      // --- bloom ------------------------------------------------------------------
+      const BRIGHT_FS =
+        COMMON.split("in vec2 vUV;")[0] +
+        `
+in vec2 vUV;
+uniform sampler2D uTex;
+uniform float uThresh;
+out vec4 o;
+void main(){
+  vec3 c = texture(uTex, vUV).rgb;
+  // Soft knee. A hard threshold makes the bloom pop on and off as something
+  // crosses it, which flickers on anything that breathes.
+  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  float k = smoothstep(uThresh, uThresh + 0.55, l);
+  o = vec4(c*k, 1.0);
+}`;
+
+      const BLUR_FS = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D uTex;
+uniform vec2 uDir;      // texel-sized step, horizontal or vertical
+out vec4 o;
+void main(){
+  // Nine-tap gaussian, separable. Weights are a real binomial kernel; an
+  // even box blur leaves visible square structure in a wide bloom.
+  float w[5] = float[5](0.2270270270, 0.1945945946, 0.1216216216, 0.0540540541, 0.0162162162);
+  vec3 c = texture(uTex, vUV).rgb * w[0];
+  for(int i=1;i<5;i++){
+    vec2 off = uDir*float(i);
+    c += texture(uTex, vUV + off).rgb * w[i];
+    c += texture(uTex, vUV - off).rgb * w[i];
+  }
+  o = vec4(c, 1.0);
+}`;
+
+      const DOWN_FS = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D uTex;
+out vec4 o;
+void main(){ o = vec4(texture(uTex, vUV).rgb, 1.0); }`;
+
+      const COMP_FS = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D uScene, uBloomA, uBloomB;
+uniform float uBloom, uTime, uExposure;
+out vec4 o;
+float hash21(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+void main(){
+  vec3 c = texture(uScene, vUV).rgb;
+  c += (texture(uBloomA, vUV).rgb*0.62 + texture(uBloomB, vUV).rgb*1.00)*uBloom;
+  c *= uExposure;
+  // Reinhard. Without a tonemap every hot pixel clips to flat white and the
+  // whole thing looks like a blown-out screenshot, which is most of "cheap".
+  c = c/(1.0 + c);
+  // Temporal dither at one 8-bit step. Smooth falloffs band visibly without it
+  // and banding is the fastest way to make a gradient look amateur.
+  c += (hash21(gl_FragCoord.xy + fract(uTime)) - 0.5)/255.0;
+  c = max(c, vec3(0.0));
+  float a = clamp(max(max(c.r,c.g),c.b), 0.0, 1.0);
+  o = vec4(c, a);      // premultiplied for compositing over the page
+}`;
+
+      const canvas = document.getElementById("gl");
+      const gl = canvas.getContext("webgl2", {
+        alpha: true,
+        premultipliedAlpha: true,
+        antialias: false,
+      });
+      if (!gl) {
+        document.body.innerHTML =
+          '<div class="fixed inset-0 grid place-items-center text-zinc-300">WebGL2 unavailable in this browser.</div>';
+        throw new Error("no webgl2");
+      }
+      // Half-float targets let the scene carry values above 1.0, which is what makes
+      // a bright core bloom further than a dim one. On RGBA8 everything clips at 1
+      // and the bloom is uniform, which defeats the point.
+      const canFloat =
+        !!gl.getExtension("EXT_color_buffer_half_float") ||
+        !!gl.getExtension("EXT_color_buffer_float");
+      gl.getExtension("OES_texture_float_linear");
+      const HDR = canFloat ? gl.RGBA16F : gl.RGBA8;
+      document.getElementById("fmt").textContent = canFloat
+        ? "RGBA16F"
+        : "RGBA8 (no HDR)";
+
+      const errs = [];
+      function compile(type, src) {
+        const sh = gl.createShader(type);
+        gl.shaderSource(sh, src);
+        gl.compileShader(sh);
+        if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+          const log = gl.getShaderInfoLog(sh);
+          gl.deleteShader(sh);
+          throw new Error(log);
+        }
+        return sh;
+      }
+      function program(fs, label) {
+        try {
+          const p = gl.createProgram();
+          gl.attachShader(p, compile(gl.VERTEX_SHADER, QUAD_VS));
+          gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+          gl.linkProgram(p);
+          if (!gl.getProgramParameter(p, gl.LINK_STATUS))
+            throw new Error(gl.getProgramInfoLog(p));
+          return p;
+        } catch (e) {
+          errs.push(label + ": " + String(e.message).split("\n")[0]);
+          return null;
+        }
+      }
+
+      for (const m of MODELS) {
+        m.prog = program(COMMON + m.src, m.name);
+        if (m.prog) {
+          m.u = {};
+          for (const n of ["u_res", "u_time", "u_act", "u_cursor", "u_gain"])
+            m.u[n] = gl.getUniformLocation(m.prog, n);
+        }
+      }
+      const pBright = program(BRIGHT_FS, "brightpass");
+      const pBlur = program(BLUR_FS, "blur");
+      const pDown = program(DOWN_FS, "downsample");
+      const pComp = program(COMP_FS, "composite");
+      document.getElementById("errs").textContent = errs.join(" | ");
+
+      const vao = gl.createVertexArray();
+      const draw = () => {
+        gl.bindVertexArray(vao);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      };
+
+      function makeTarget() {
+        const tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        const fbo = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        gl.framebufferTexture2D(
+          gl.FRAMEBUFFER,
+          gl.COLOR_ATTACHMENT0,
+          gl.TEXTURE_2D,
+          tex,
+          0,
+        );
+        return { tex, fbo, w: 0, h: 0 };
+      }
+      const T = {
+        scene: makeTarget(),
+        a1: makeTarget(),
+        a2: makeTarget(),
+        b1: makeTarget(),
+        b2: makeTarget(),
+      };
+
+      function sizeTarget(t, w, h) {
+        if (t.w === w && t.h === h) return;
+        t.w = w;
+        t.h = h;
+        gl.bindTexture(gl.TEXTURE_2D, t.tex);
+        gl.texImage2D(
+          gl.TEXTURE_2D,
+          0,
+          HDR,
+          w,
+          h,
+          0,
+          gl.RGBA,
+          canFloat ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE,
+          null,
+        );
+      }
+
+      let W = 0,
+        H = 0,
+        PW = 0,
+        PH = 0;
+      function resize() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        W = window.innerWidth;
+        H = window.innerHeight;
+        PW = Math.round(W * dpr);
+        PH = Math.round(H * dpr);
+        canvas.width = PW;
+        canvas.height = PH;
+        sizeTarget(T.scene, PW, PH);
+        const hw = Math.max(1, PW >> 1),
+          hh = Math.max(1, PH >> 1);
+        const qw = Math.max(1, PW >> 2),
+          qh = Math.max(1, PH >> 2);
+        sizeTarget(T.a1, hw, hh);
+        sizeTarget(T.a2, hw, hh);
+        sizeTarget(T.b1, qw, qh);
+        sizeTarget(T.b2, qw, qh);
+      }
+      window.addEventListener("resize", resize);
+      resize();
+
+      function pass(prog, target, setup) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, target ? target.fbo : null);
+        gl.viewport(0, 0, target ? target.w : PW, target ? target.h : PH);
+        gl.useProgram(prog);
+        setup(prog);
+        draw();
+      }
+      function bindTex(prog, name, t, unit) {
+        gl.activeTexture(gl.TEXTURE0 + unit);
+        gl.bindTexture(gl.TEXTURE_2D, t.tex);
+        gl.uniform1i(gl.getUniformLocation(prog, name), unit);
+      }
+
+      const P = {
+        bloom: { v: 1.0, min: 0, max: 3, step: 0.01, label: "Bloom" },
+        thresh: {
+          v: 0.55,
+          min: 0,
+          max: 2,
+          step: 0.01,
+          label: "Bloom threshold",
+        },
+        exposure: { v: 1.05, min: 0.2, max: 3, step: 0.01, label: "Exposure" },
+        gain: { v: 1.0, min: 0.1, max: 4, step: 0.01, label: "Scene gain" },
+      };
+
+      const params = new URLSearchParams(location.search);
+      const FREEZE = params.get("freeze");
+      const frozen = FREEZE === null ? null : parseFloat(FREEZE);
+      let current = Math.max(
+        0,
+        Math.min(MODELS.length - 1, parseInt(params.get("m") || "0", 10) || 0),
+      );
+      let actStart = performance.now();
+      const trigger = () => {
+        actStart = performance.now();
+      };
+
+      const list = document.getElementById("list");
+      function paintList() {
+        [...list.children].forEach((el, i) => {
+          const on = i === current;
+          el.className =
+            "w-full text-left px-3 py-2 rounded-lg transition-all duration-200 cursor-pointer flex items-baseline gap-2.5 " +
+            (on
+              ? "bg-amber-500/15 border border-amber-500/40"
+              : "border border-transparent hover:bg-white/5");
+          el.querySelector(".k").className =
+            "k text-xs " + (on ? "text-amber-400" : "text-zinc-600");
+          el.querySelector(".n").className =
+            "n text-sm font-medium " +
+            (on ? "text-amber-200" : "text-zinc-300");
+        });
+      }
+      MODELS.forEach((m, i) => {
+        const b = document.createElement("button");
+        b.innerHTML = `<span class="k" style="font-family:'JetBrains Mono',monospace">${i + 1}</span>
+                 <span class="min-w-0"><span class="n">${m.name}</span>
+                 <span class="block text-xs text-zinc-500 leading-snug">${m.note}</span></span>`;
+        b.addEventListener("click", () => {
+          current = i;
+          paintList();
+          trigger();
+        });
+        list.appendChild(b);
+      });
+      paintList();
+
+      const sliders = document.getElementById("sliders");
+      for (const [key, p] of Object.entries(P)) {
+        const row = document.createElement("div");
+        row.innerHTML = `
+    <div class="flex items-center justify-between mb-1">
+      <label class="text-xs text-zinc-400">${p.label}</label>
+      <span class="text-xs text-zinc-300" style="font-family:'JetBrains Mono',monospace" id="v_${key}">${p.v}</span>
+    </div>
+    <input type="range" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.v}"
+           class="w-full h-1 rounded-full bg-zinc-700 appearance-none cursor-pointer accent-amber-500">`;
+        const input = row.querySelector("input");
+        input.addEventListener("input", () => {
+          p.v = parseFloat(input.value);
+          document.getElementById("v_" + key).textContent = p.v;
+        });
+        sliders.appendChild(row);
+      }
+
+      document.getElementById("replay").addEventListener("click", trigger);
+      const panel = document.getElementById("panel");
+      document
+        .getElementById("hide")
+        .addEventListener("click", () => panel.classList.toggle("opacity-0"));
+      window.addEventListener("keydown", (e) => {
+        if (e.code === "Space") {
+          e.preventDefault();
+          trigger();
+          return;
+        }
+        if (e.key === "h") {
+          panel.classList.toggle("opacity-0");
+          return;
+        }
+        const n = parseInt(e.key, 10);
+        if (n >= 1 && n <= MODELS.length) {
+          current = n - 1;
+          paintList();
+          trigger();
+        }
+      });
+
+      const BACKDROPS = {
+        dark: "#0a0a0a",
+        photo:
+          "radial-gradient(ellipse at 20% 15%, #1e1b4b 0%, #0a0a0a 55%), radial-gradient(ellipse at 85% 80%, #422006 0%, transparent 60%)",
+        light: "#f4f4f5",
+      };
+      function setBackdrop(k) {
+        document.getElementById("backdrop").style.background = BACKDROPS[k];
+        document.querySelectorAll(".bd").forEach((b) => {
+          const on = b.dataset.bd === k;
+          b.classList.toggle("bg-amber-500/15", on);
+          b.classList.toggle("border-amber-500/40", on);
+          b.classList.toggle("text-amber-300", on);
+        });
+      }
+      document
+        .querySelectorAll(".bd")
+        .forEach((b) =>
+          b.addEventListener("click", () => setBackdrop(b.dataset.bd)),
+        );
+      setBackdrop("photo");
+
+      let cursor = [-9999, -9999],
+        target = [-9999, -9999];
+      window.addEventListener("mousemove", (e) => {
+        target = [(e.clientX * PW) / W, ((H - e.clientY) * PH) / H];
+      });
+
+      const fpsEl = document.getElementById("fps");
+      let last = performance.now(),
+        acc = 0,
+        frames = 0;
+
+      function render(now) {
+        const dt = Math.min((now - last) / 1000, 0.05);
+        last = now;
+        acc += dt;
+        frames++;
+        if (acc > 0.5) {
+          fpsEl.textContent = (frames / acc).toFixed(0) + " fps";
+          acc = 0;
+          frames = 0;
+        }
+        cursor[0] += (target[0] - cursor[0]) * Math.min(dt * 14, 1);
+        cursor[1] += (target[1] - cursor[1]) * Math.min(dt * 14, 1);
+
+        const m = MODELS[current];
+        if (!m.prog || !pBright || !pBlur || !pComp || !pDown) {
+          requestAnimationFrame(render);
+          return;
+        }
+
+        const tNow = frozen !== null ? 12.0 : now / 1000;
+        const tAct = frozen !== null ? frozen : (now - actStart) / 1000;
+
+        gl.disable(gl.BLEND);
+
+        pass(m.prog, T.scene, () => {
+          gl.uniform2f(m.u.u_res, PW, PH);
+          gl.uniform1f(m.u.u_time, tNow);
+          gl.uniform1f(m.u.u_act, tAct);
+          gl.uniform2f(m.u.u_cursor, cursor[0], cursor[1]);
+          gl.uniform1f(m.u.u_gain, m.gain * P.gain.v);
+        });
+
+        pass(pBright, T.a1, (p) => {
+          bindTex(p, "uTex", T.scene, 0);
+          gl.uniform1f(gl.getUniformLocation(p, "uThresh"), P.thresh.v);
+        });
+        pass(pBlur, T.a2, (p) => {
+          bindTex(p, "uTex", T.a1, 0);
+          gl.uniform2f(gl.getUniformLocation(p, "uDir"), 1.0 / T.a1.w, 0.0);
+        });
+        pass(pBlur, T.a1, (p) => {
+          bindTex(p, "uTex", T.a2, 0);
+          gl.uniform2f(gl.getUniformLocation(p, "uDir"), 0.0, 1.0 / T.a2.h);
+        });
+        pass(pDown, T.b1, (p) => bindTex(p, "uTex", T.a1, 0));
+        pass(pBlur, T.b2, (p) => {
+          bindTex(p, "uTex", T.b1, 0);
+          gl.uniform2f(gl.getUniformLocation(p, "uDir"), 1.0 / T.b1.w, 0.0);
+        });
+        pass(pBlur, T.b1, (p) => {
+          bindTex(p, "uTex", T.b2, 0);
+          gl.uniform2f(gl.getUniformLocation(p, "uDir"), 0.0, 1.0 / T.b2.h);
+        });
+
+        pass(pComp, null, (p) => {
+          bindTex(p, "uScene", T.scene, 0);
+          bindTex(p, "uBloomA", T.a1, 1);
+          bindTex(p, "uBloomB", T.b1, 2);
+          gl.uniform1f(gl.getUniformLocation(p, "uBloom"), P.bloom.v);
+          gl.uniform1f(gl.getUniformLocation(p, "uExposure"), P.exposure.v);
+          gl.uniform1f(gl.getUniformLocation(p, "uTime"), tNow);
+        });
+
+        requestAnimationFrame(render);
+      }
+      requestAnimationFrame(render);
+      lucide.createIcons();
+    </script>
+  </body>
+</html>
