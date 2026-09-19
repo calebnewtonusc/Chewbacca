@@ -179,6 +179,15 @@ float fbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<4;i++){ s+=a*noise(p); p*=2.
 // almost all of the distance is covered in the first fifth of the duration.
 float expoOut(float x){ return x >= 1.0 ? 1.0 : 1.0 - pow(2.0, -10.0*x); }
 float stage(float t, float a, float b){ return clamp((t-a)/(b-a), 0.0, 1.0); }
+// Smooth union. Two bodies of the same liquid in contact do not intersect,
+// they coalesce: interfacial tension pulls the junction into a fillet and
+// what was two surfaces becomes one. A hard min() draws the intersection of
+// two outlines, which is the one thing that never happens in the footage.
+// This is the whole reason the frame and the blobs now read as one entity.
+float smin(float a, float b, float k){
+  float h = clamp(0.5 + 0.5*(b - a)/k, 0.0, 1.0);
+  return mix(b, a, h) - k*h*(1.0 - h);
+}
 `;
 
       const MODELS = [
@@ -263,7 +272,7 @@ void main(){
   // is done. That wobble is the part that reads as liquid rather than as
   // hardware, and it is why this is a damped cosine where every other move in
   // this file is an expoOut.
-  float REST = 0.230, PEAK = 0.90;
+  float REST = 0.268, PEAK = 0.92;
   float band;
   if (t < 0.30) {
     band = PEAK*expoOut(stage(t, 0.0, 0.30));
@@ -329,31 +338,51 @@ void main(){
   inward += (fbm(q*1.6 + vec2(-u_time*0.085, u_time*0.50)) - 0.5)*0.105
           * smoothstep(0.30, 1.0, u0);
 
-  // --- oil in water --------------------------------------------------------
-  // Where the film runs thick it stops holding still. The boundary bulges
-  // inward, the bulge necks off, and what leaves is a drop of the same film
-  // travelling into the dark. It cannot hold itself together out there for
-  // long, so it thins, goes quiet, and is gone.
+  // --- the lava lamp -------------------------------------------------------
+  // Read up on what one actually is before touching this. It is Rayleigh
+  // Benard convection between two nearly immiscible liquids whose densities
+  // cross over inside the working temperature range: the wax is a hair denser
+  // than the water when cool and a hair lighter when warm, so heat at the base
+  // is the only thing that ever moves anything.
   //
-  // The drop is not drawn. It declares a depth into the band and min() lets it
-  // win against the frame's own, so everything downstream shades it as film:
-  // the same interference colour, the same Fresnel, the same lip terminating
-  // its rim. Two earlier passes drew these as circles with a colour on top of
-  // the scene, and a circle with a colour is what they looked like, however
-  // carefully the colour was chosen.
+  // Three facts out of that reading run everything below.
+  //
+  // One: the base is a single continuous pool and it never empties. Nothing in
+  // a lava lamp is created and nothing is destroyed. Every blob is an
+  // excursion out of that pool which comes back to it, so nothing here fades
+  // out in mid air any more and nothing arrives already at full size.
+  //
+  // Two: a blob leaves by necking, not by appearing. The pool swells, the
+  // swelling draws into a column, and the column waists. In a real lamp
+  // Plateau Rayleigh finishes the job, because surface tension minimises area
+  // and a waist thins faster the thinner it already is. Here it does not, and
+  // that is a deliberate departure from the physics: what detaches is a
+  // separate object, and a separate object is the one thing this is not
+  // allowed to be. The waist bottoms out at a third of the bulb and holds.
+  //
+  // Three: two bodies of the same liquid that touch merge. They never overlap
+  // and they never show two outlines crossing. That is smin() below, and it is
+  // also why a blob coming home does not land on the pool, it joins it.
+  //
+  // The drop is not drawn. It declares a depth into the band and the union
+  // lets it win against the pool's own, so everything downstream shades it as
+  // the same liquid: the same contour palette, the same rim, the same
+  // termination. Two earlier passes drew these as circles with a colour on
+  // top of the scene, and a circle with a colour is what they looked like.
   float ub = inward/max(band, 1e-3);
-  if (ub > 0.35 && ub < 1.80) {
+  if (ub < 2.60) {
     const float CELL = 0.170;
+    // The band's own thickness, in the units inward is measured in. Every
+    // depth below is expressed as a fraction of it so a blob and the pool
+    // carry the same range of colour rather than the blob bottoming out at
+    // the solid end of the palette.
+    float SPAN = max(band - MARGIN, 1e-4);
     vec2 cid = floor(q/CELL);
     for (int j = -1; j <= 1; j++)
     for (int i = -1; i <= 1; i++) {
       vec2  cc = cid + vec2(float(i), float(j));
       float h0 = hash21(cc), h1 = hash21(cc + 41.7);
 
-      // Jitter is held under a sixth of a cell. Two neighbours are then never
-      // closer than seven tenths of a cell, which is more than twice the
-      // largest radius below, so no two drops can touch whatever phase they
-      // are each in.
       vec2  anchor = (cc + 0.5 + (vec2(h0, h1) - 0.5)*0.30)*CELL;
       float ad     = depthAt(anchor/vec2(W, 1.0) + 0.5, W, MARGIN);
 
@@ -362,21 +391,21 @@ void main(){
       // only worth taking for a cell that is already in the right area.
       if (exp(-pow((ad - band)/0.22, 2.0)) < 0.05) continue;
 
-      // Then the same displacement the boundary itself got, sampled here. The
-      // undisplaced depth is not where the sheet is: the lobes move it by up
+      // Then the same displacement the surface itself got, sampled here. The
+      // undisplaced depth is not where the surface is: the lobes move it by up
       // to a fifth of the band, and taking the anchor without them leaves the
-      // neck rooted in mid air a long way from anything.
+      // column rooted in mid air a long way from anything.
       ad += (fbm(anchor*2.3   + vec2( u_time*0.155, -u_time*0.118)) - 0.5)*0.085
           + (noise(anchor*4.1 + vec2(-u_time*0.081,  u_time*0.136)) - 0.5)*0.055
           + (fbm(anchor*1.6   + vec2(-u_time*0.085,  u_time*0.50 )) - 0.5)*0.105;
 
-      float onEdge = exp(-pow((ad - band)/0.060, 2.0));
-      if (onEdge < 0.50) continue;
+      if (exp(-pow((ad - band)/0.060, 2.0)) < 0.50) continue;
 
-      // Slow. A cycle runs nine to sixteen seconds and almost all of it is the
-      // drop travelling: the point is that the film got too heavy, not that
+      // Slow, because convection is slow. A cycle runs fourteen to twenty six
+      // seconds and it is one round trip: swell, neck, pinch, rise, stall,
+      // sink, merge. The point is that the pool got too warm, not that
       // anything here is energetic.
-      float cyc = 9.0 + 7.0*hash21(cc + 93.1);
+      float cyc = 14.0 + 12.0*hash21(cc + 93.1);
       float ph  = u_time/cyc + h0*11.0;
       float k   = fract(ph), gen = floor(ph);
       if (hash21(cc + gen*17.3) < 0.42) continue;
@@ -384,104 +413,88 @@ void main(){
 
       float hr = hash21(cc + gen*3.7);
 
-      // It leaves the edge and goes for the middle, and it takes most of the
-      // cycle to get there: nine to sixteen seconds for a hundred and fifty
-      // pixels.
-      float fade   = 1.0 - smoothstep(0.87, 1.00, k);
-      float travel = (0.160 + 0.060*h1)*smoothstep(0.0, 0.92, k);
+      // Out and back, because the density crossover runs both ways. It is
+      // buoyant while it is warm, it loses that on the way in, it stalls, and
+      // it comes home. travel is zero at both ends of the cycle, which is what
+      // makes the blob start inside the pool and finish inside it.
+      //
+      // Short. A blob in a lamp rises through a column of liquid; this one has
+      // nowhere to go, and a blob that crosses two hundred pixels of black is
+      // reading as a separate object no matter how it left. It gets about half
+      // its own pool's thickness and stays in contact with the mass for most
+      // of the cycle, which is the difference between a border that bleeds and
+      // a border that emits.
+      float TMAX   = 0.075 + 0.035*h1;
 
-      // Nothing in this fluid detaches by pinching at its own edge. It draws
-      // out a neck and the neck breaks late: measured off the footage, the
-      // neck runs about one and a half bulb diameters and the bulb is at full
-      // size long before it lets go. So the drop stays connected for the first
-      // half of its travel and this is the number that says when it stops.
-      float free = smoothstep(0.42, 0.60, k);
+      // It never lets go. Plateau Rayleigh says a column of this liquid would
+      // pinch, and the version that pinched was right about the physics and
+      // wrong about the brief: what detaches is a separate object, and no
+      // amount of necking on the way out changes how it reads once it is out
+      // there on its own. So the waist thins to a third and holds. The mass
+      // reaches in, stretches, loses its buoyancy and comes home, and it is
+      // one body the entire time.
+      float reach  = smoothstep(0.04, 0.70, k)*(1.0 - smoothstep(0.76, 1.00, k));
+      float travel = TMAX*reach;
 
-      // The bulb never lies across the band, attached or not. Clearance is
-      // measured from the boundary rather than from the anchor: measured from
-      // the anchor, a spawn point sitting a third of a band shallow spends its
-      // whole travel budget getting back to the edge, and that is the one that
-      // ends up on top of it. The margin opens up once the neck is gone,
-      // because after that there is nothing bridging the gap.
-      float clear = ad + travel - band;
-      float R = min((0.030 + 0.020*hr)*(0.60 + 0.40*fade),
-                    max(clear - mix(0.020, 0.055, free), 0.0)*0.88);
-      // Below this it is not a drop, it is a hairline. A radius near zero
-      // still produces a neck, and a neck around a radius near zero is a one
-      // pixel line running off across the dark.
-      if (R < 0.010) continue;
+      // It grows out of the pool and is absorbed back into it. Nothing pops
+      // into existence at size: that was the single loudest thing wrong with
+      // the last pass, and no amount of easing on the position hides it.
+      float R = (0.038 + 0.026*hr)*smoothstep(0.0, 0.26, k)
+                                  *(1.0 - smoothstep(0.93, 1.00, k));
+      if (R < 0.005) continue;
 
       vec2  dir = normalize(-anchor);
       vec2  cen = anchor + dir*travel;
 
-      // Drawn out along its travel while the neck still has hold of it, and
-      // relaxing toward round once it does not. Round is where it is heading
-      // and not where it arrives: every free blob in ten minutes of this is an
-      // irregular oval, so the stretch settles at a tenth rather than at zero.
-      float el = 1.0 + 0.30*(1.0 - free) + 0.10;
+      // Drawn out along its travel, most at full reach. Round is where it is
+      // heading and not where it arrives: every blob in ten minutes of footage
+      // is an irregular oval, so the stretch never settles to zero.
+      float el = 1.0 + 0.34*reach + 0.10;
       vec2  dq = q - cen;
       float r  = length(vec2(dot(dq, dir)/el, dot(dq, vec2(-dir.y, dir.x))*el))/R;
 
-      // The neck. Widest where it leaves the sheet, waisted in the middle,
-      // flaring into the bulb, which is the profile in the footage rather than
-      // a cone. It is the same body as the bulb, not a second one lying on it,
-      // so the two are unioned first and shaded once: no seam, and nothing
-      // here overlaps anything, which holds for every blob in the video too.
+      // The column. Widest where it leaves the pool, waisted, flaring into the
+      // blob, which is the profile in the footage rather than a cone.
       vec2  root = anchor - dir*0.030;
       vec2  ab = cen - root;
       float LL = max(dot(ab, ab), 1e-9);
       float sg = clamp(dot(q - root, ab)/LL, 0.0, 1.0);
-      // Waist at four tenths of the bulb's own half width, measured off the
-      // footage: a drop there ran a 210px bulb on a 90px neck. A quarter, which
-      // is where this started, is a thread rather than a neck.
-      float wn = R*(0.95 - 0.55*smoothstep(0.0, 0.62, sg)
-                         + 0.60*smoothstep(0.62, 1.0, sg))
-               * max(1.0 - free*1.05, 0.0);
+      // The waist rides the reach: widest when the bulge has barely left,
+      // thinnest at full stretch, and never below a third of the bulb. A
+      // thread reads as a hairline and a hairline reads as a mistake.
+      float wn = R*(0.95 - (0.40 + 0.28*reach)*smoothstep(0.0, 0.62, sg)
+                         + 0.60*smoothstep(0.62, 1.0, sg));
       float rn = wn > 1e-5 ? length(q - root - ab*sg)/wn : 9.0;
-      // The union of bulb and neck. Everything below terminates against this
-      // rather than against the bulb alone, which is what silently deleted the
-      // neck: outside the bulb its own radius is past the cutoff, so the ramp
-      // that ends the limb was ending the neck with it.
+
+      // The union of blob and column. Everything below terminates against this
+      // rather than against the blob alone, which is what silently deleted the
+      // column: outside the blob its own radius is past the cutoff, so the
+      // ramp that ends the limb was ending the column with it.
       float rm = min(r, rn);
-      if (rm > 1.12) continue;
 
-      // The drop is a small sphere, and its own grazing angle runs the other
-      // way round from the frame's: straight through at the middle, fully edge
-      // on at the limb. Mapping that onto the same depth coordinate is what
-      // makes the shading below draw it as a bubble, a bright limb around a
-      // nearly clear middle, instead of as a disc of colour with a ring on it.
-      // Written the obvious way round it was the disc, and the only reason it
-      // read at all was the frame's own lip happening to land near its edge.
-      // The range is deliberately narrow, a fifth to seven tenths of the
-      // band. Run edge to edge it sweeps a full interference order between the
-      // limb and the middle and crosses the frame's own lip on the way, and
-      // what that draws is a bullseye. A bubble this size shows one colour
-      // with a gradient across it, not five rings.
-      // One depth for the whole body, taken off the union's own radius rather
-      // than one per shape. Shading each separately and taking the min drew
-      // the neck's flared end as a limb inside the bulb, which came out as a
-      // second oval crossing the first: exactly the overlap this is supposed
-      // to rule out, and it was one blob the whole time.
-      //
-      // Each shape still ends on its own radius, and that matters more than it
-      // looks. A depth that stays shallow outside its own body wins the min()
-      // against everything around it, so the bulb was declaring its brightest
-      // value across the whole cell and the neck's root came out as a separate
-      // bead lying on the sheet instead of merging into it.
-      float ct = sqrt(max(1.0 - min(rm, 1.0)*min(rm, 1.0), 0.0));
-      float dd = mix(mix(0.20, 0.72, ct)*band, band*9.0,
-                     smoothstep(0.92, 1.06, rm));
+      if (rm <= 1.12) {
+        // One depth for the whole body, taken off the union's own radius
+        // rather than one per shape. Shading each separately and taking the
+        // min drew the column's flared end as a limb inside the blob, which
+        // came out as a second oval crossing the first.
+        //
+        // The blob is liquid with a surface, and the surface is where the
+        // colour lives: solid through the middle, running out to the free
+        // surface value at the limb, on exactly the scale the pool uses. Run
+        // over a wider range it bottoms out and draws as a flat disc.
+        float ct = sqrt(max(1.0 - min(rm, 1.0)*min(rm, 1.0), 0.0));
+        float dd = band - SPAN*mix(0.02, 0.55, ct);
+        dd = mix(dd, band*9.0, smoothstep(0.92, 1.06, rm));
 
-      // The neck's root is the sheet, so at the root it declares exactly what
-      // the sheet already declares here and only becomes its own thing as it
-      // leaves. Ramping to a fixed value instead, which is where this started,
-      // leaves the capsule's rounded end cap sitting on the sheet as a flat
-      // disc of its own colour with a visible outline: a bead again, just a
-      // dimmer one. By the bulb the segment parameter has long since
-      // saturated, so none of this costs the bulb anything.
-      dd = mix(inward, dd, smoothstep(0.0, 0.40, sg));
-      dd = mix(dd, band*1.10, 1.0 - fade);
-      inward = min(inward, dd);
+        // The column's root is the pool, so at the root it declares exactly
+        // what the pool already declares here and only becomes its own thing
+        // as it leaves. Ramping to a fixed value instead leaves the capsule's
+        // rounded end cap sitting on the surface as a flat disc with an
+        // outline around it: a bead again, just a dimmer one.
+        dd = mix(inward, dd, smoothstep(0.0, 0.40, sg));
+        inward = smin(inward, dd, SPAN*0.40);
+      }
+
     }
   }
 
@@ -501,6 +514,15 @@ void main(){
   // bubble and looking at its edge, and it is why the colour belongs at the
   // edge of the screen in the first place.
   float u = clamp(inward/band, 0.0, 1.0);
+
+  // How deep into the pool, measured across the pool rather than across the
+  // whole screen: 1 hard against the glass, 0 at the free surface. inward runs
+  // from MARGIN at the screen edge to band at the surface, which is a window
+  // about a tenth as wide as inward's full range, so every term below that
+  // used u was working on the last thirteen percent of its own domain and
+  // doing almost nothing. That is why the pool read as a gradient with no body
+  // in it: the termination ramp was three quarters of the pool.
+  float v = clamp((band - inward)/max(band - MARGIN, 1e-4), 0.0, 1.0);
 
   // Refract it and use the real path length. cos of the refracted angle only
   // falls to 0.66 at full grazing, so the orders compress into the silhouette
@@ -576,7 +598,13 @@ void main(){
   //
   // Frequency is set so the band holds two and a half filaments plus the
   // flow's own wander. Denser than that and a 180px band is hatching.
-  float ctr = (flow*2.2 + u*2.0 + 0.16*breath)*stretch;
+  // Weighted toward the flow and away from the depth. Depth alone draws
+  // contours parallel to the edge, which is a racetrack of concentric rings,
+  // and parallel rings are the stripes this was supposed to have stopped
+  // drawing. The reference's contours are closed irregular loops, and a loop
+  // is what you get when the field wandering across the band outweighs the
+  // field running through it.
+  float ctr = (flow*3.4 + v*1.0 + 0.16*breath)*stretch;
   float tri = abs(fract(ctr) - 0.5)*2.0;
   float d   = tri - 0.5;
 
@@ -585,7 +613,12 @@ void main(){
   // not bright. Taking it literally as white put the whole band at a level
   // where the tonemap compresses everything toward the same pale grey, and
   // the blue and the rim went with it: a chalk sketch of the reference.
+  // The base of a lava lamp is a continuous mass with one free surface on
+  // top. It does not thin out toward the glass, so neither does this: the
+  // ground fills in solid toward the screen edge and the only boundary in
+  // view is the inner one.
   const vec3 CLEAR = vec3(0.14, 0.20, 0.30);
+  const vec3 POOL  = vec3(0.05, 0.15, 0.60);
   // Two blues, as the reference has: a deep one on the filament's shoulders
   // and a near white one along its spine. One flat blue is a painted line,
   // and the spine is where the film is thinnest and should read as clear.
@@ -594,17 +627,22 @@ void main(){
   const vec3 YEL   = vec3(1.25, 0.95, 0.24);
   const vec3 ORG   = vec3(1.20, 0.27, 0.02);
   vec3 BLUE = mix(BLUE_DEEP, BLUE_PALE, smoothstep(0.15, 0.46, d));
+  vec3 GROUND = mix(CLEAR, POOL, smoothstep(0.22, 0.90, v));
 
   // The rim sits on the outside of the filament and only on the outside,
   // which is what makes it read as heat coming off an edge rather than as a
   // third colour in the sequence.
-  float toRim  = smoothstep(-0.26, -0.12, d);
-  float toBlue = smoothstep( 0.10,  0.20, d);
-  vec3  col    = mix(CLEAR, mix(ORG, YEL, smoothstep(-0.10, 0.08, d)), toRim);
+  // The rim is a quarter of the period, not a third. At a third it stops
+  // being the heat on the edge of a filament and becomes a rope running round
+  // the screen, which is the same failure as the rainbow border wearing a
+  // different colour.
+  float toRim  = smoothstep(-0.13, -0.05, d);
+  float toBlue = smoothstep( 0.03,  0.11, d);
+  vec3  col    = mix(GROUND, mix(ORG, YEL, smoothstep(-0.05, 0.03, d)), toRim);
   col          = mix(col, BLUE, toBlue);
 
   // The rim is the only part that is hotter than the film carrying it.
-  col *= (1.0 + 1.10*exp(-pow((d + 0.02)/0.120, 2.0)))*shimmer;
+  col *= (1.0 + 0.85*exp(-pow((d + 0.01)/0.070, 2.0)))*shimmer;
 
   // Fresnel. Physically the body of a film returns four percent and the
   // silhouette returns nearly all of it, and driving the band with that ratio
@@ -612,13 +650,19 @@ void main(){
   // from bright to nothing across three hundred pixels, and a ramp is a
   // vignette however it was derived. Compressed to a bit under two to one, so
   // the angle is still legible and the band still has a body.
-  float fres = 0.44 + 0.56*pow(1.0 - cosI, 2.5);
+  // A touch hotter at the free surface, flat everywhere else. Driven off the
+  // grazing angle it was a 300px ramp from bright to nothing, and a ramp is a
+  // vignette however it was derived.
+  float fres = 0.74 + 0.36*exp(-v*7.0);
 
   // The band ends rather than fading out, over about a tenth of its own
   // depth. A long ramp down to nothing is a vignette, and a vignette is not a
   // film: a real one has an inner boundary you can point at, and that
   // boundary is the thing carrying the flow.
-  float env = 1.0 - smoothstep(0.90, 1.0, u);
+  // The pool ends at its surface, over about a seventh of its own depth, and
+  // is at full strength everywhere behind that. This used to run across three
+  // quarters of the pool, which is the fade he kept pointing at.
+  float env = smoothstep(0.0, 0.14, v);
 
   // The film's colour with its brightness divided out, for the places that
   // want the hue without the level: the silhouette line and the rim of a pop.
@@ -631,8 +675,11 @@ void main(){
   // the thing that reads as an edge is a bright line sitting on it. Without
   // this the termination is invisible and the band goes back to being a fade
   // no matter how short the fade is.
-  c += exp(-pow((u - 0.90)/0.052, 2.0))*0.26
-     * mix(vec3(1.0), sheen, 0.65)*born*lit;
+  // Gated by the same termination the pool body uses. Without that gate it is
+  // the one term with no idea where the liquid ends, and at a tenth of its
+  // peak across the whole screen it reads as a brown haze over everything.
+  c += env*exp(-pow((v - 0.11)/0.085, 2.0))*0.055
+     * mix(vec3(1.0), sheen, 0.92)*born*lit;
 
 
   // --- the pop --------------------------------------------------------------
