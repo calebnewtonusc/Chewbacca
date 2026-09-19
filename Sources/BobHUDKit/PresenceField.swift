@@ -8,6 +8,12 @@ import SwiftUI
 /// a state is a row in that table rather than a branch in Metal.
 struct PresenceFieldStyle: Equatable {
     /// How thick the pool sits at rest, in units of the short screen edge.
+    ///
+    /// Every row was cut to 55% of its original on 2026-09-19: at the old
+    /// numbers `attention` banked a third of the short edge and the field
+    /// was the loudest thing on the display rather than the quietest. One
+    /// factor across all seven, so the separation between states is the
+    /// same and only the footprint moved.
     var rest: Double
     /// How fast the contour field travels round the edge.
     var drift: Double
@@ -31,25 +37,25 @@ extension Presence {
         switch self {
         case .dormant:
             // Nothing. Not a thin band: the assistant is not there.
-            return .init(rest: 0.105, drift: 0, anger: 0, fps: 1, animating: false)
+            return .init(rest: 0.058, drift: 0, anger: 0, fps: 1, animating: false)
         case .attentive:
-            return .init(rest: 0.268, drift: 0.5, anger: 0, fps: 20, animating: true)
+            return .init(rest: 0.147, drift: 0.5, anger: 0, fps: 20, animating: true)
         case .hearing:
             // The one state driven from outside. `rest` here is a floor and
             // the voice adds to it, so 60fps is not decoration: it is the rate
             // the amplitude arrives at.
-            return .init(rest: 0.200, drift: 0.35, anger: 0, fps: 60, animating: true)
+            return .init(rest: 0.11, drift: 0.35, anger: 0, fps: 60, animating: true)
         case .thinking:
             // Thin and fast. Work reads as travel round the edge rather than
             // as weight on it.
-            return .init(rest: 0.240, drift: 3.2, anger: 0, fps: 30, animating: true)
+            return .init(rest: 0.132, drift: 3.2, anger: 0, fps: 30, animating: true)
         case .acting:
-            return .init(rest: 0.285, drift: 1.1, anger: 0, fps: 30, animating: true)
+            return .init(rest: 0.157, drift: 1.1, anger: 0, fps: 30, animating: true)
         case .attention:
             // The thickest, because this is the one that has to be noticed.
-            return .init(rest: 0.330, drift: 0.9, anger: 0, fps: 30, animating: true)
+            return .init(rest: 0.182, drift: 0.9, anger: 0, fps: 30, animating: true)
         case .failed:
-            return .init(rest: 0.300, drift: 0.3, anger: 1, fps: 20, animating: true)
+            return .init(rest: 0.165, drift: 0.3, anger: 1, fps: 20, animating: true)
         }
     }
 }
