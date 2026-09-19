@@ -114,7 +114,7 @@
       class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 text-xs text-zinc-500 pointer-events-none"
       style="font-family: &quot;JetBrains Mono&quot;, monospace"
     >
-      1-3 switch &nbsp;&middot;&nbsp; space trigger &nbsp;&middot;&nbsp; h panel
+      1-3 switch &nbsp;&middot;&nbsp; space trigger &nbsp;&middot;&nbsp; x pop &nbsp;&middot;&nbsp; h panel
     </div>
 
     <script>
@@ -160,6 +160,10 @@ uniform float u_time;
 uniform float u_act;
 uniform vec2  u_cursor;
 uniform float u_gain;
+// Seconds since the close key, or negative when the bubble is still up.
+uniform float u_close;
+// Where the film ruptured, in uv.
+uniform vec2  u_pop;
 out vec4 o;
 
 const vec3 AMBER = vec3(1.00, 0.70, 0.34);
@@ -463,6 +467,11 @@ void main(){
   // push that way, so clamping the thickness is what stops them having to be
   // budgeted against each other: either one alone can reach the limit and
   // neither can go past it.
+  // Gravity drains the film downward, so it is thinnest at the top. On a real
+  // bubble this is the cue that says the surface is liquid rather than glass.
+  // One gradient across the whole frame, which is not a band.
+  nm -= (uv.y - 0.5)*18.0;
+
   nm = clamp(nm, 1252.0, 1300.0);
 
   // Two-beam reflectance, not the bare integral. film() is the AC part alone
@@ -483,6 +492,61 @@ void main(){
   // belongs to the motion, and two colour stories at once is mud.
   float alive = smoothstep(0.25, 1.0, settle);
   c *= mix(vec3(1.0), iri, alive*CHROMA);
+
+  // --- the pop --------------------------------------------------------------
+  // Nothing below is eased. A rupturing film does not decelerate: the hole
+  // opens at the speed where surface tension balances the film's own inertia,
+  // and high speed footage shows that speed holding constant from the first
+  // frame to the last. Every other move in this file is an expoOut. This one
+  // is a straight line, and that is most of why it reads as a rupture rather
+  // than as a transition out.
+  //
+  // A real one is over in fifteen milliseconds, which is a single frame here.
+  // It runs at 340, slow enough to see and still far faster than anything else
+  // this thing does.
+  if (u_close >= 0.0) {
+    float k = u_close;
+    vec2  d = (uv - u_pop)*vec2(W, 1.0);
+    float r = length(d), ang = atan(d.y, d.x);
+
+    // The film thins where it is about to go. In a real bubble this is the
+    // black spot: the two surfaces come within a wavelength of each other and
+    // their reflections cancel, so the last thing you see before it bursts is
+    // darkness opening in a place that still has film in it.
+    c *= 1.0 - 0.9*exp(-r*13.0)*stage(k, 0.0, 0.10);
+
+    float R = max(k - 0.10, 0.0)*7.0;
+
+    // Smooth while the rim is thin, then shear against the still air tears
+    // indentations into it. They appear past a critical radius, which is why a
+    // pop ends in a scatter instead of starting as one.
+    float tear = smoothstep(0.30, 0.95, R);
+    float edge = R*(1.0 + 0.10*tear*sin(ang*13.0 + 1.7));
+
+    // Everything the hole has already crossed is gone.
+    c *= smoothstep(edge - 0.02, edge + 0.01, r);
+
+    // The film the hole swallowed has to go somewhere, and it collects in the
+    // rim of the hole. That is why the edge of a bursting bubble is brighter
+    // than the film was, and why fading one out looks nothing like one.
+    float ring = exp(-pow((r - edge)/0.014, 2.0))*(0.35 + R*1.1)*(1.0 - tear*0.5);
+    c += ring*mix(vec3(1.0), iri, 0.55);
+
+    // Drops thrown out of the indentations, flying a little ahead of the rim
+    // that threw them.
+    float b  = floor((ang + 3.14159265)*15.0/6.2831853);
+    float sd = hash11(b*7.31);
+    float detach = 0.30 + sd*0.55;
+    if (R > detach) {
+      float dr = detach + (R - detach)*1.45;
+      float da = (b + 0.5)/15.0*6.2831853 - 3.14159265 + (sd - 0.5)*0.26;
+      c += exp(-pow(length(d - vec2(cos(da), sin(da))*dr)/0.011, 2.0))
+         * 1.5*exp(-(R - detach)*1.7);
+    }
+
+    // Past the far corner there is nothing left to throw.
+    c *= 1.0 - stage(k, 0.44, 0.60);
+  }
 
   o = vec4(c*1.9*u_gain, 1.0);
 }
@@ -609,7 +673,15 @@ void main(){
         m.prog = program(COMMON + m.src, m.name);
         if (m.prog) {
           m.u = {};
-          for (const n of ["u_res", "u_time", "u_act", "u_cursor", "u_gain"])
+          for (const n of [
+            "u_res",
+            "u_time",
+            "u_act",
+            "u_cursor",
+            "u_gain",
+            "u_close",
+            "u_pop",
+          ])
             m.u[n] = gl.getUniformLocation(m.prog, n);
         }
       }
@@ -728,8 +800,27 @@ void main(){
         Math.min(MODELS.length - 1, parseInt(params.get("m") || "0", 10) || 0),
       );
       let actStart = performance.now();
+      let closeStart = null;
+      let popAt = [0.5, 1.0];
       const trigger = () => {
         actStart = performance.now();
+        closeStart = null;
+      };
+      const close = () => {
+        if (closeStart !== null) return;
+        // Nucleate on the rim. From inside a bubble the film is only visible
+        // where you are looking through it edge on, so the rim is the only
+        // part of it you could watch a hole open in.
+        const f = Math.random(), side = (Math.random() * 4) | 0;
+        popAt =
+          side === 0
+            ? [f, 1.0]
+            : side === 1
+              ? [f, 0.0]
+              : side === 2
+                ? [0.0, f]
+                : [1.0, f];
+        closeStart = performance.now();
       };
 
       const list = document.getElementById("list");
@@ -789,6 +880,11 @@ void main(){
         if (e.code === "Space") {
           e.preventDefault();
           trigger();
+          return;
+        }
+        if (e.key === "x" || e.code === "Escape") {
+          e.preventDefault();
+          close();
           return;
         }
         if (e.key === "h") {
@@ -875,6 +971,16 @@ void main(){
           gl.uniform1f(m.u.u_act, tAct);
           gl.uniform2f(m.u.u_cursor, cursor[0], cursor[1]);
           gl.uniform1f(m.u.u_gain, m.gain * P.gain.v);
+          gl.uniform1f(
+            m.u.u_close,
+            window.__close != null
+              ? window.__close
+              : closeStart === null
+                ? -1.0
+                : (now - closeStart) / 1000,
+          );
+          const pop = window.__pop || popAt;
+          gl.uniform2f(m.u.u_pop, pop[0], pop[1]);
         });
 
         pass(pBright, T.a1, (p) => {
