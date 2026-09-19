@@ -108,6 +108,11 @@ Who this install is for:
                                           and the study skills.
                                developer  Everything. The default, and what
                                           every previous version did.
+  --fast                       Install only what makes the agent know you:
+                               settings, rules, skills, subagents. Skips brew
+                               packages, plugins, MCP servers and dictation.
+                               Takes about two minutes instead of thirty. Run
+                               `chewbacca setup` later for the rest.
   --no-github                  Skip GitHub entirely. Your second brain stays a
                                folder on this Mac. Implied by --profile personal
                                and --profile student.
@@ -138,6 +143,7 @@ NAME=""; GITHUB_USER=""; REPO_DIR=""; ANTHROPIC_KEY=""; GITHUB_PAT=""
 TODOIST_TOKEN=""; COMPOSIO_URL=""; COMPOSIO_KEY=""; ANSWERS=""
 SESSION_OPENER="none"; BYPASS_PERMS="no"; ONLY=""; DRY_RUN=0
 PROFILE="developer"; NO_GITHUB=0; ONLY_PORTABLE=0
+FAST=0
 SKIP_SECTIONS=""
 declare -a SKIPPED=()
 # Only these reach settings.json, and only when passed here in this run.
@@ -176,6 +182,15 @@ while [ $# -gt 0 ]; do
     # --only ran one section and there was no way to run everything except
     # one. Repeatable: --skip plynn --skip mac.
     --skip) SKIP_SECTIONS="$SKIP_SECTIONS ${2:-}"; shift 2 ;;
+    # The whole install is a few gigabytes of Homebrew formulae, nineteen Claude
+    # plugins and twelve MCP servers, and it ran past thirty minutes in testing
+    # on 2026-09-19. That is fine for the person who lives in this kit and
+    # useless in a twenty minute call, where the thing being shown is ingestion
+    # and nothing else. --fast installs the part that makes the agent know you:
+    # settings, rules, skills, subagents. Everything else is one later command.
+    --fast|--minimal)
+      SKIP_SECTIONS="$SKIP_SECTIONS editor desktop mcp plugins tools plynn"
+      FAST=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) err "unknown argument: $1"; echo; usage; exit 2 ;;
