@@ -26,9 +26,34 @@ blocked() { echo -e "  ${RED}BLOCKED${NC} $1"; }
 step()    { echo -e "\n${BLD}$1${NC}"; }
 
 CHECK_ONLY=0
-[ "${1:-}" = "--check" ] && CHECK_ONLY=1
 NEEDS_HUMAN=0
 UV_MISSING=0
+
+# Whether this install is going to talk to GitHub at all. start.sh defaults to
+# the personal profile, where the second brain stays on the laptop and no repo
+# is ever created, but this script used to demand `gh auth login` and a git
+# identity from everyone anyway. Two people testing the install on 2026-09-19
+# both hit a wall of red BLOCKED lines about a GitHub account they did not need
+# and had not been asked for. Red text during an install reads as "their tool is
+# broken", not as "this optional step was skipped".
+NEEDS_GITHUB=0
+PROFILE="personal"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --check) CHECK_ONLY=1; shift ;;
+    --profile) PROFILE="${2:-personal}"; shift 2 ;;
+    --github) NEEDS_GITHUB=1; shift ;;
+    --no-github) NEEDS_GITHUB=0; shift ;;
+    # An unknown flag is not worth failing an install over. setup.sh owns
+    # argument validation; this script only needs the two facts above.
+    *) shift ;;
+  esac
+done
+
+# developer is the only profile that creates repos. Everything else keeps the
+# brain local, so gh is not a prerequisite for it.
+[ "$PROFILE" = "developer" ] && NEEDS_GITHUB=1
 
 # Homebrew lands in different places on Apple Silicon and Intel, and it is not
 # on PATH in the shell that just installed it.
@@ -103,15 +128,21 @@ install_brew_pkg() {
     blocked "run: brew install $pkg"
     return 1
   fi
-  if "$BREW" install "$pkg" &>/dev/null; then
+  local out
+  if out="$("$BREW" install "$pkg" 2>&1)"; then
     ok "$cmd installed"
   else
+    # "brew install X failed" with the reason thrown away is unactionable, and
+    # the reason is usually mundane: an outdated brew, a locked cellar, no disk.
+    # Print the last few lines so the agent reading this output can fix it
+    # instead of reporting a dead end.
     blocked "brew install $pkg failed"
+    echo "$out" | tail -4 | sed 's/^/          /'
     return 1
   fi
 }
 
-install_brew_pkg gh || NEEDS_HUMAN=1
+[ "$NEEDS_GITHUB" -eq 1 ] && { install_brew_pkg gh || NEEDS_HUMAN=1; }
 install_brew_pkg node || NEEDS_HUMAN=1
 # Recent macOS ships jq at /usr/bin/jq. Only install it when it is genuinely absent.
 install_brew_pkg jq || NEEDS_HUMAN=1
@@ -148,26 +179,28 @@ else
   NEEDS_HUMAN=1
 fi
 
-step "GitHub sign-in"
-if command -v gh &>/dev/null && gh auth status &>/dev/null; then
-  ok "signed in as $(gh api user --jq .login 2>/dev/null)"
-else
-  blocked "run: gh auth login    (opens a browser, needs your GitHub account)"
-  NEEDS_HUMAN=1
-fi
+if [ "$NEEDS_GITHUB" -eq 1 ]; then
+  step "GitHub sign-in"
+  if command -v gh &>/dev/null && gh auth status &>/dev/null; then
+    ok "signed in as $(gh api user --jq .login 2>/dev/null)"
+  else
+    blocked "run: gh auth login    (opens a browser, needs your GitHub account)"
+    NEEDS_HUMAN=1
+  fi
 
-step "Git identity"
-if [ -n "$(git config --global user.name 2>/dev/null)" ] &&
-  [ -n "$(git config --global user.email 2>/dev/null)" ]; then
-  ok "$(git config --global user.name) <$(git config --global user.email)>"
-else
-  blocked 'run: git config --global user.name "Your Name"'
-  blocked '     git config --global user.email "you@example.com"'
-  NEEDS_HUMAN=1
+  step "Git identity"
+  if [ -n "$(git config --global user.name 2>/dev/null)" ] &&
+    [ -n "$(git config --global user.email 2>/dev/null)" ]; then
+    ok "$(git config --global user.name) <$(git config --global user.email)>"
+  else
+    blocked 'run: git config --global user.name "Your Name"'
+    blocked '     git config --global user.email "you@example.com"'
+    NEEDS_HUMAN=1
+  fi
 fi
 
 echo ""
-if [ "$NEEDS_HUMAN" -eq 0 ] && command -v gh &>/dev/null && gh auth status &>/dev/null; then
+if [ "$NEEDS_HUMAN" -eq 0 ]; then
   echo -e "  ${GRN}Ready.${NC} Next: claude \"run the setup skill\""
   [ "$UV_MISSING" -eq 1 ] &&
     echo -e "  ${YLW}!${NC} uv is still missing, so mac-use will be skipped. Everything else runs."

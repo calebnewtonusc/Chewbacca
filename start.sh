@@ -29,20 +29,63 @@ BIN_DIR="$HOME/.local/bin"
 FULL_SEND=0
 PROFILE="personal"
 DRY_RUN=0
+FAST=0
+
+# Almost nobody types this line by hand. An agent types it, from a README it
+# skimmed, and agents mistype flags: --fullsend, --full_send, -full-send all
+# showed up in testing on 2026-09-19, and each one killed the install with a
+# bare "unknown argument" and no install. An installer that refuses to run over
+# a hyphen is worse than one that guesses, so spelling is normalized here and an
+# argument that still makes no sense is a warning, not an exit.
+normalize() {
+  local a="$1"
+  a="${a#-}"; a="${a#-}"          # strip any number of leading dashes
+  a="$(printf '%s' "$a" | tr 'A-Z_' 'a-z-')"
+  case "$a" in
+    fullsend|full-send|send-it|sendit|yolo) echo "--full-send" ;;
+    fast|minimal|quick|demo)                echo "--fast" ;;
+    dryrun|dry-run)                         echo "--dry-run" ;;
+    ref|pin|pin-to)                         echo "--pin" ;;
+    version|v)                              echo "--version" ;;
+    profile)                                echo "--profile" ;;
+    h|help)                                 echo "--help" ;;
+    *)                                      echo "$1" ;;
+  esac
+}
+
 while [ $# -gt 0 ]; do
-  case "$1" in
+  case "$(normalize "$1")" in
     --full-send) FULL_SEND=1; shift ;;
+    --fast) FAST=1; TOTAL=5; shift ;;
     # Pin the install. Without this, everyone gets whatever landed on main an
     # hour ago, and "which version am I running" has no answer.
-    --version|--ref) REF="${2:-}"; shift 2 ;;
+    --pin) REF="${2:-}"; shift 2 ;;
+    # --version used to silently mean "pin to this tag", so `--version` alone
+    # ate the next argument and `--version 1.1.0` looked like it was reporting a
+    # version while actually pinning one. It now does what every other command
+    # line tool does, and still pins when handed a tag, because that spelling is
+    # in the wild and in the README.
+    --version)
+      if [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; then
+        REF="$2"; shift 2
+      else
+        echo "chewbacca start.sh, repo version $(curl -fsSL --max-time 10 \
+          "https://raw.githubusercontent.com/$REPO/$BRANCH/VERSION" 2>/dev/null || echo unknown)"
+        exit 0
+      fi ;;
     --profile)   PROFILE="${2:-personal}"; shift 2 ;;
     --dry-run)   DRY_RUN=1; shift ;;
-    -h|--help)
-      sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+    --help)
+      sed -n '2,20p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'
       exit 0 ;;
-    *) echo "unknown argument: $1"; exit 2 ;;
+    *) echo "  (ignoring unrecognized option: $1)"; shift ;;
   esac
 done
+
+case "$PROFILE" in
+  personal|student|developer|portable) ;;
+  *) echo "  (unknown profile '$PROFILE', using personal)"; PROFILE="personal" ;;
+esac
 
 # Colors, but only into a real terminal that says it can do them. Piping this
 # into a file or a terminal without color support used to print escape codes.
@@ -252,7 +295,11 @@ ok "chewbacca command installed"
 step "Installing the tools Claude will use"
 
 if [ -x "$HOME_DIR/bin/bootstrap.sh" ]; then
-  bash "$HOME_DIR/bin/bootstrap.sh" || work "some tools were skipped, continuing"
+  # The profile decides whether GitHub is part of this install at all. Without
+  # it, bootstrap demanded a GitHub account and a git identity from someone
+  # installing the personal profile, which creates no repos and needs neither.
+  bash "$HOME_DIR/bin/bootstrap.sh" --profile "$PROFILE" ||
+    work "some tools were skipped, continuing"
 fi
 
 # Their real first name, from the Mac's own account record. One less question,
@@ -262,6 +309,7 @@ FIRST_NAME=$(id -F 2>/dev/null | awk '{print $1}')
 
 SETUP_ARGS=(--profile "$PROFILE" --name "$FIRST_NAME")
 [ "$FULL_SEND" -eq 1 ] && SETUP_ARGS+=(--full-send)
+[ "$FAST" -eq 1 ] && SETUP_ARGS+=(--fast)
 
 step "Setting up Claude"
 echo "      Installing as ${B}$FIRST_NAME${N}. Tell Claude if that is wrong."
@@ -272,6 +320,19 @@ bash "$HOME_DIR/setup.sh" "${SETUP_ARGS[@]}" || {
 }
 
 # ── 5. Hand them to Claude, with something to do ─────────────────────────────
+# A fast install deliberately left things out. Say which, and say the one
+# command that gets them, rather than letting someone discover months later
+# that their dictation and their MCP servers were never installed.
+if [ "$FAST" -eq 1 ]; then
+  FAST_TAIL="
+  This was the fast install: it knows you, but it has no Homebrew packages,
+  no plugins, no MCP servers and no dictation yet. To add all of that:
+    ${B}chewbacca setup${N}
+"
+else
+  FAST_TAIL=""
+fi
+
 cat <<DONE
 
   ${G}${B}Done.${N}
@@ -287,7 +348,7 @@ cat <<DONE
   To start it any time: open Terminal and type ${B}claude${N}
   If something looks wrong:  ${B}chewbacca doctor${N}
   To remove everything:      ${B}chewbacca uninstall${N}
-
+${FAST_TAIL}
 DONE
 
 # Opening Claude for them matters more than it sounds. The install otherwise
