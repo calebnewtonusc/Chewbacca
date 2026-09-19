@@ -56,8 +56,6 @@ static inline float fbm(float2 p) {
     return s;
 }
 
-static inline float expoOut(float x) { return x >= 1.0 ? 1.0 : 1.0 - pow(2.0, -10.0 * x); }
-
 static inline float stage(float t, float a, float b) { return clamp((t - a) / (b - a), 0.0, 1.0); }
 
 /// Belcour and Barla's pre-integrated spectral response, verbatim from
@@ -106,12 +104,19 @@ static inline float depthAt(float2 uvp, float W, float margin) {
 /// this app measures in. `size` is the view. Everything else is state.
 ///
 /// `rest` is how thick the pool sits at rest, `drift` how fast the contour
-/// field travels round the edge, and `anger` mixes the palette toward the one
-/// state that is allowed to be red. Those three are
-/// the entire state vocabulary as far as this shader is concerned, which is
-/// deliberate: PresenceField.swift owns the mapping from the seven named
+/// field travels round the edge, `tint` is the colour the body takes and how
+/// much of it, and `pulse` is how many times a second the whole thing breathes.
+/// Those are the entire state vocabulary as far as this shader is concerned,
+/// which is deliberate: PresenceField.swift owns the mapping from the named
 /// states, so a new state is a row in a table there rather than a branch here.
+///
+/// `tint` is first because it is the only member wider than a `float2`, and
+/// both Metal and Swift align a four-wide vector to sixteen bytes. Anywhere
+/// else in this list it would need padding that one side would have to know
+/// about and the other would get wrong.
 struct Uniforms {
+    /// rgb is what the body is multiplied by, a is how much of it to take.
+    float4 tint;
     float2 size;
     float2 popAt;
     float time;
@@ -119,7 +124,7 @@ struct Uniforms {
     float closing;
     float rest;
     float drift;
-    float anger;
+    float pulse;
     float alpha;
 };
 
@@ -136,7 +141,7 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     float2 size = U.size;
     float time = U.time, act = U.act, closing = U.closing;
     float2 popAt = U.popAt;
-    float rest = U.rest, drift = U.drift, anger = U.anger;
+    float rest = U.rest, drift = U.drift, pulse = U.pulse;
     float2 uv = float2(fragPos.x / size.x, fragPos.y / size.y);
     float t = act;
     float W = size.x / max(size.y, 1.0);
@@ -146,31 +151,43 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     // rather than as one object. The phase is modulated so the swing is not
     // symmetric, because a breath is not: it moves through the thin half faster
     // than it rests in the thick.
+    // One oscillator, read twice: once on how much of the state's colour the
+    // body takes and once on how bright the whole thing is. Driving only the
+    // brightness gives a band that blinks, and driving only the hue gives one
+    // that changes colour without ever seeming to move. Together they read as
+    // something running.
+    float wave = 1.0;
+    if (pulse > 0.001) {
+        wave = 0.5 + 0.5 * sin(time * 6.2831853 * pulse);
+    }
+
     float bp = time * 0.72;
     float breath = sin(bp + 0.45 * sin(bp));
 
-    // The whole arrival is one number: how far into the screen the liquid
-    // reaches. It does not stop dead when it gets there. A volume of fluid that
-    // has just been pushed oscillates in its second shape mode, in and out,
-    // with the decay set by viscosity, and it crosses its rest depth three or
-    // four times before it is done. That wobble is the part that reads as
-    // liquid rather than as hardware, and it is why this is a damped cosine
-    // where every other move in the file is an expoOut.
-    float REST = rest;
-    float PEAK = rest * 3.4;
-    float band;
-    if (t < 0.30) {
-        band = PEAK * expoOut(stage(t, 0.0, 0.30));
-    } else {
-        // Multiplicative, so an inward swing divides the depth instead of
-        // subtracting from it and can never reach zero. Written as a
-        // subtraction the first return takes the pool to four percent of the
-        // screen, which reads as the thing blinking out rather than wobbling.
-        float x = t - 0.30;
-        band = REST * pow(PEAK / REST, exp(-6.0 * x) * cos(x * 14.0));
-    }
+    // The whole arrival is one number: how far into the screen the band
+    // reaches.
+    //
+    // It used to overshoot to 3.4x and settle through a damped cosine, on the
+    // argument that a pushed volume of fluid oscillates in its second shape
+    // mode and that the wobble is what reads as liquid rather than as
+    // hardware. That was the right model for liquid and the wrong one for
+    // this: it is not a pool, it is an instrument arriving, and an instrument
+    // that bounces on arrival reads as a spring toy. A straight line to the
+    // resting depth, and then it holds.
+    // How far the silhouette sits off every edge, in the units `depthAt`
+    // returns. It is the value that field takes at the screen edge itself, so
+    // a pool shallower than this draws nothing along the straight runs and
+    // survives only in the corners, where the superellipse dips to 0.09. That
+    // is exactly what the 55% thickness cut did on 2026-09-19: every state
+    // landed under 0.2, the four edges went empty, and the field read as four
+    // smudges in the corners of the screen. So the band is measured from here
+    // rather than from zero, and `rest` is now the visible depth above it.
+    const float MARGIN = 0.200;
 
-    float born = smoothstep(0.0, 0.07, band);
+    float depth = rest * clamp(t / 0.45, 0.0, 1.0);
+
+    float band = MARGIN + depth;
+    float born = smoothstep(0.0, 0.02, depth);
 
     // Domain warped noise. The field is sampled at coordinates that are
     // themselves displaced by another sample of it, twice. Plain noise gives
@@ -188,7 +205,6 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     // sides and fills the corners instead of stopping short of them. The only
     // boundary in view is the inner one, and that is the one doing the work.
     float2 q = (uv - 0.5) * float2(W, 1.0);
-    const float MARGIN = 0.200;
 
     float inward = depthAt(uv, W, MARGIN);
 
@@ -199,10 +215,15 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     // and detail at sixteen points is what makes it read as torn. The second is
     // plain noise rather than fbm for the same reason: fbm's fourth octave is
     // exactly the detail this is trying not to have.
-    inward += (fbm(q * 2.3 + float2(time * 0.155, -time * 0.118)) - 0.5) * 0.085 +
-              (vnoise(q * 4.1 + float2(-time * 0.081, time * 0.136)) - 0.5) * 0.055;
+    // Scaled by the band's own depth. Written as a fixed displacement these
+    // were tuned against a pool 0.268 deep, and against one 0.147 deep the
+    // same numbers are two thirds of the whole band: the boundary stops being
+    // a worked edge and becomes the shape of the noise, which is the blobby
+    // look that reads as plastic.
+    inward += ((fbm(q * 2.3 + float2(time * 0.155, -time * 0.118)) - 0.5) * 0.24 +
+               (vnoise(q * 4.1 + float2(-time * 0.081, time * 0.136)) - 0.5) * 0.12) * depth;
 
-    float u0 = clamp(inward / band, 0.0, 1.0);
+    float u0 = clamp((inward - MARGIN) / max(depth, 1e-4), 0.0, 1.0);
 
     // One more on the inner edge alone, drifting mostly vertically while the
     // lobes run sideways, so the boundary is worked from two directions at
@@ -212,7 +233,7 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     // them, and that concave stretch is what reads as liquid rather than as a
     // bumpy line. Bumps come free from additive noise. A waist needs amplitude
     // at low frequency.
-    inward += (fbm(q * 1.6 + float2(-time * 0.085, time * 0.50)) - 0.5) * 0.105 *
+    inward += (fbm(q * 1.6 + float2(-time * 0.085, time * 0.50)) - 0.5) * 0.39 * depth *
               smoothstep(0.30, 1.0, u0);
 
     // Nothing leaves the edge. An earlier pass had blobs neck out of this
@@ -225,15 +246,19 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     // case where a lobe drags the boundary past a corner.
     float lit = smoothstep(0.0, 0.006, inward);
 
-    // How deep into the pool, measured across the pool rather than across the
-    // whole screen: 1 hard against the glass, 0 at the free surface. `inward`
-    // runs from MARGIN at the screen edge to `band` at the surface, a window
-    // about a tenth as wide as its full range, so anything keyed on
-    // inward/band is working on the last thirteen percent of its own domain
-    // and doing almost nothing.
-    float v = clamp((band - inward) / max(band - MARGIN, 1e-4), 0.0, 1.0);
+    // Where in the pool this pixel is: 0 at the free surface and 1 hard
+    // against the glass. `inward` runs from MARGIN at the screen edge to
+    // `band` at the surface, so this is the only normalisation that spends the
+    // full 0 to 1 on the part of the field that is actually drawn.
+    float u = clamp((inward - MARGIN) / max(depth, 1e-4), 0.0, 1.0);
+    float v = 1.0 - u;
 
-    float cosI = clamp(inward / band, 0.0, 1.0);
+    // Mapped back onto the window the film response was calibrated over
+    // rather than handed the full 0 to 1. Taken literally the refracted angle
+    // now sweeps half again as far as it used to, and the nm comment below
+    // says what is at the ends of that: the only stretch of the cycle with no
+    // dark in it is 265 to 335, and a wider sweep walks straight out of it.
+    float cosI = mix(0.75, 1.0, u);
     float sinT = sqrt(max(1.0 - cosI * cosI, 0.0)) / 1.33;
     float cosT = sqrt(max(1.0 - sinT * sinT, 0.0));
 
@@ -259,7 +284,14 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     // Weighted toward the flow and away from the depth, because depth alone
     // draws contours parallel to the edge, and concentric rings round a screen
     // are a racetrack.
-    float ctr = (flow * 3.4 + v * 1.0 + 0.16 * breath) * stretch;
+    // How many filaments land inside the band. At 3.4 there are a dozen of
+    // them across a band this width, all the same brightness, and a dozen
+    // parallel lines of equal weight is a topographic map or a slab of
+    // malachite: it is the one thing that stopped this reading as metal even
+    // with a neutral palette and a tight specular. At 1.5 there are two or
+    // three, and `fres` picks one of them out near the free surface, which is
+    // what a lit edge actually looks like.
+    float ctr = (flow * 1.5 + v * 1.0 + 0.16 * breath) * stretch;
     float tri = abs(fract(ctr) - 0.5) * 2.0;
     float d = tri - 0.5;
 
@@ -296,19 +328,41 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     float3 col = mix(ground, mix(ORG, YEL, smoothstep(-0.05, 0.03, d)), toRim);
     col = mix(col, blueC, toBlue);
 
-    // The rim is the only part hotter than the liquid carrying it. Was 0.85,
-    // which on a coloured palette read as heat and on a neutral one reads as
-    // blowout: with no hue to carry the rim, all the extra gain does is clip
-    // the highlight to white and take the screen with it.
-    col *= (1.0 + 0.40 * exp(-pow((d + 0.01) / 0.070, 2.0))) * shimmer;
+    // The rim is the only part hotter than the liquid carrying it, and how
+    // hot and how wide is the whole difference between metal and moss. At 0.40
+    // over a 0.070 wide falloff it is a soft green glow along a soft edge,
+    // which is what an overgrown surface looks like. Narrow it to 0.045 and
+    // drive it to 0.95 and the same filament becomes a thin bright line with
+    // dark either side, which is what a machined one looks like. The line
+    // stays near white whatever the state's tint is, because the tint block
+    // below protects the specular core.
+    col *= (1.0 + 0.95 * exp(-pow((d + 0.01) / 0.045, 2.0))) * shimmer;
 
-    // Failure is the one state allowed to be red, and it is the one state where
-    // a person has to notice without being told. The blue goes out of the
-    // palette entirely rather than being tinted: a red filament on a blue
-    // ground is a third colour, and three colours is decoration.
-    if (anger > 0.001) {
-        float3 red = float3(dot(col, float3(0.42, 0.34, 0.24))) * float3(1.10, 0.40, 0.33);
-        col = mix(col, red, anger);
+    // Colour is the whole state channel and it is spent on three readings:
+    // white while it is listening or waiting, green while it is doing
+    // something, red when something failed. Steel is what is left when the
+    // amount is zero, and it is most of the time.
+    //
+    // The hue goes on the body and never on the hot part of the specular. A
+    // highlight that takes the object's own colour is the single thing that
+    // makes a surface read as plastic: metal returns the light's colour at the
+    // hot spot and tints only the falloff beside it. `core` is what holds that
+    // line, and without it the green states came back looking like a moulded
+    // toy however neutral the rest of the palette was.
+    if (U.tint.a > 0.001) {
+        // The hue breathes between 55% and 100% of its own amount, so a
+        // pulsing state is a band that keeps its colour and moves through it
+        // rather than one that switches on and off.
+        float amt = U.tint.a * mix(0.45, 1.0, wave);
+        float3 hue = float3(dot(col, float3(0.42, 0.34, 0.24))) * U.tint.rgb;
+        // The window this protects is the hottest specular only. At 0.55 to
+        // 1.05 it covered the filament rims as well, which are most of the
+        // bright pixels in the band, and the measured result was a band whose
+        // green channel led its red by seven levels out of 255: grey with a
+        // rumour of green in it. Tinting those and keeping only the blown
+        // highlight neutral is what a coloured light on steel actually does.
+        float core = smoothstep(0.95, 1.60, max(max(col.r, col.g), col.b));
+        col = mix(mix(col, hue, amt), col, core * 0.85);
     }
 
     // A touch hotter at the free surface and flat everywhere else. Driven off
@@ -320,7 +374,7 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     // more light than the surface did, and a screenshot on a grey checker came
     // back as an even haze with no highlight anywhere on the straight runs.
     // Steel is the other way round: a dark body and a narrow hot surface.
-    float fres = 0.34 + 1.05 * exp(-v * 9.0);
+    float fres = 0.22 + 1.05 * exp(-v * 9.0);
 
     // The pool ends at its surface, over about a seventh of its own depth, and
     // is at full strength everywhere behind that.
@@ -335,16 +389,24 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     // the same termination the body uses: without that gate it is the one term
     // with no idea where the liquid ends, and at a tenth of its peak across the
     // whole screen it reads as a haze over everything.
-    c += env * exp(-pow((v - 0.085) / 0.055, 2.0)) * 0.11 * mix(float3(1.0), sheen, 0.92) * born *
+    // This is the line that makes it read as a machined edge rather than as a
+    // lit slab, so it is much stronger and much narrower than it was: 0.30
+    // over a 0.038 window instead of 0.11 over 0.055. One bright streak
+    // running parallel to the screen edge, with dark on both sides of it.
+    //
+    // And it is mostly white rather than mostly the body's own colour. At 0.92
+    // toward `sheen` the highlight took the state's tint with it, and a green
+    // highlight on a green body is what plastic does. A metal one returns the
+    // light.
+    c += env * exp(-pow((v - 0.220) / 0.050, 2.0)) * 0.30 * mix(float3(1.0), sheen, 0.45) * born *
          lit;
 
     // --- going away ------------------------------------------------------
-    // Nothing here is eased. A rupturing film does not decelerate: the hole
-    // opens at the speed where surface tension balances the film's own inertia,
-    // and high speed footage shows that speed holding from the first frame to
-    // the last. Every other move in this file is an expoOut. This one is a
-    // straight line, and that is most of why it reads as a rupture rather than
-    // as a transition out.
+    // Nothing here is eased either. A rupturing film does not decelerate: the
+    // hole opens at the speed where surface tension balances the film's own
+    // inertia, and high speed footage shows that speed holding from the first
+    // frame to the last. Straight in, straight out, and nothing in this file
+    // eases any more: the last easing function went with the arrival wobble.
     if (closing >= 0.0) {
         float k = closing;
         float2 dp = (uv - popAt) * float2(W, 1.0);
@@ -390,7 +452,7 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     // Reinhard, folded in. The browser version tonemapped in a separate pass
     // over a half-float target; there is one pass here and no target, so it
     // happens on the way out.
-    c = max(c * 1.30, 0.0);
+    c = max(c * 2.60, 0.0);
     c = c / (1.0 + c);
 
     // Alpha is coverage, and coverage is how much liquid is at this point.
@@ -401,7 +463,18 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     // SwiftUI wants premultiplied, and `c` is already the colour this adds over
     // what is behind it, so the premultiplied form is `c` itself with the
     // coverage in alpha.
-    float a = clamp(max(max(c.r, c.g), c.b) * 1.05, 0.0, 1.0) * U.alpha;
+    // `acting` breathes for as long as it is acting. The two-beat pulse in
+    // PresenceField.swift is for a state that pulses and then holds; this is
+    // for one that is genuinely still running, and a thing that is still
+    // running has to keep saying so. Off the shader clock rather than off a
+    // Swift timer, because the timer would have to tick at the frame rate to
+    // drive it and that is a second clock doing the first one's job.
+    c *= mix(0.74, 1.0, wave);
+
+    // Coverage. Was 1.05, which put the film just above the noise floor on a
+    // bright desktop: the band was there and you had to look for it. A layer
+    // nobody can see without hunting is not quiet, it is broken.
+    float a = clamp(max(max(c.r, c.g), c.b) * 1.75, 0.0, 1.0) * U.alpha;
     return half4(half3(min(c, float3(a))), half(a));
 }
 """##

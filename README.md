@@ -44,9 +44,11 @@ failing"` draws corner brackets around a region of your display with a label. No
 a panel near your work: a mark on it. Marks decay, because one that outlives what
 it described teaches you to disbelieve all of them.
 
-**Presence.** A ring in the corner with seven states, each with its own motion,
-so you can tell whether it is listening, thinking, acting or stuck without
-looking directly at it.
+**Presence.** A ring in the corner and a field round the edge of the screen,
+with eight states between them, so you can tell whether it is listening,
+thinking, running something, finished or stuck without looking directly at it.
+Colour carries three of those and nothing else: white while it waits, green
+while it is doing something to your machine, red when that failed.
 
 **Live controls.** Buttons, fields, selects and checkboxes that write to the
 panel's own data model at once and send an event back up the socket, so they

@@ -7,23 +7,61 @@ import SwiftUI
 /// there are seven states: it takes three numbers and a frame rate, so adding
 /// a state is a row in that table rather than a branch in Metal.
 struct PresenceFieldStyle: Equatable {
-    /// How thick the pool sits at rest, in units of the short screen edge.
+    /// How deep the pool sits at rest, measured from the screen edge inward.
     ///
-    /// Every row was cut to 55% of its original on 2026-09-19: at the old
-    /// numbers `attention` banked a third of the short edge and the field
-    /// was the loudest thing on the display rather than the quietest. One
-    /// factor across all seven, so the separation between states is the
-    /// same and only the footprint moved.
+    /// Not the same quantity these numbers used to hold. The shader's band
+    /// used to be measured from zero and the screen edge sat at 0.200 of it,
+    /// so most of every value here was spent getting to the edge and only the
+    /// remainder was visible. Scaling those old numbers down on 2026-09-19
+    /// took five of the seven states below 0.200, which does not draw a
+    /// thinner band: it draws nothing along the four straight edges and
+    /// leaves the corners, where the silhouette dips, as four smudges. Now
+    /// this is the visible depth directly, so halving it halves the band.
     var rest: Double
     /// How fast the contour field travels round the edge.
     var drift: Double
-    /// Mixes the palette toward the one state allowed to be red.
-    var anger: Double
+    /// What the body is multiplied by, and how much of it to take. rgb then
+    /// amount, so `FieldTint.steel` at amount zero leaves the palette alone.
+    var tint: SIMD4<Float>
+    /// How many times a second the whole layer breathes, or 0 for a state
+    /// that holds still. Distinct from the two-beat pulse in `PresenceFrame`:
+    /// that one fires twice and stops, this one runs while the state is up.
+    var pulse: Double
     /// Redraw rate while this state is up.
     var fps: Int
     /// False means one frame and then stop. A layer that redraws forever is a
     /// battery bug, which is the objection `PresenceRing` raises about itself.
     var animating: Bool
+}
+
+/// The three readings colour is spent on, and there are only three.
+///
+/// Every other channel in this layer is weak: thickness needs a side by side
+/// comparison to read at all, and rate needs you to already be watching.
+/// Colour is the one that works in peripheral vision, so it carries the
+/// distinction that matters most, which is what the assistant is doing to the
+/// machine right now.
+enum FieldTint {
+    /// Listening, waiting, idle, asking. The steel palette with nothing added,
+    /// which is white by construction: every constant in the shader sits
+    /// within a few percent of neutral.
+    static let steel = SIMD4<Float>(1, 1, 1, 0)
+    /// Working. Goes with a pulse, because a task in flight is the one thing
+    /// here that is still changing and it should read that way.
+    ///
+    /// The amount is 0.70 and not 1: at full strength the band stops being a
+    /// steel edge that has gone green and becomes a green edge, and the thing
+    /// this layer is meant to look like is an instrument, not a status light.
+    /// Between the amount and the pulse the hue swings from about a quarter to
+    /// six tenths, which is a clear band with green moving through it.
+    static let green = SIMD4<Float>(0.28, 1.45, 0.55, 0.60)
+    /// Finished, and holding. Darker than `green` and not pulsing, so the two
+    /// are not one state in two brightnesses: done is news that stops. Its
+    /// amount is higher because nothing is moving to carry it.
+    static let deepGreen = SIMD4<Float>(0.14, 0.62, 0.30, 0.75)
+    /// Failed. The only tint taken at full strength, because it is the only
+    /// one where being unmistakable beats being quiet.
+    static let red = SIMD4<Float>(1.15, 0.38, 0.30, 1)
 }
 
 extension Presence {
@@ -36,26 +74,55 @@ extension Presence {
     var field: PresenceFieldStyle {
         switch self {
         case .dormant:
-            // Nothing. Not a thin band: the assistant is not there.
-            return .init(rest: 0.058, drift: 0, anger: 0, fps: 1, animating: false)
+            // Nothing. Not a thin band: the assistant is not there, and a
+            // depth of zero is the one value the shader draws no pixels for.
+            return .init(
+                rest: 0, drift: 0, tint: FieldTint.steel, pulse: 0, fps: 1, animating: false)
         case .attentive:
-            return .init(rest: 0.147, drift: 0.5, anger: 0, fps: 20, animating: true)
+            return .init(
+                rest: 0.049, drift: 0.5, tint: FieldTint.steel, pulse: 0, fps: 20,
+                animating: true)
         case .hearing:
             // The one state driven from outside. `rest` here is a floor and
             // the voice adds to it, so 60fps is not decoration: it is the rate
             // the amplitude arrives at.
-            return .init(rest: 0.11, drift: 0.35, anger: 0, fps: 60, animating: true)
+            return .init(
+                rest: 0.022, drift: 0.35, tint: FieldTint.steel, pulse: 0, fps: 60,
+                animating: true)
         case .thinking:
             // Thin and fast. Work reads as travel round the edge rather than
-            // as weight on it.
-            return .init(rest: 0.132, drift: 3.2, anger: 0, fps: 30, animating: true)
+            // as weight on it, and it is still white: nothing has been done to
+            // the machine yet.
+            return .init(
+                rest: 0.029, drift: 3.2, tint: FieldTint.steel, pulse: 0, fps: 30,
+                animating: true)
         case .acting:
-            return .init(rest: 0.157, drift: 1.1, anger: 0, fps: 30, animating: true)
+            // Green and breathing, and the only state that breathes on its own
+            // clock. Something is being done to the person's machine right now
+            // and that is the one thing in this vocabulary worth a colour they
+            // cannot miss.
+            return .init(
+                rest: 0.061, drift: 1.1, tint: FieldTint.green, pulse: 0.8, fps: 30,
+                animating: true)
+        case .done:
+            // Darker green, still, one frame. It is the same hue as `acting`
+            // on purpose, because it is the end of that same errand, and it is
+            // darker and stops moving because there is nothing left to wait
+            // for.
+            return .init(
+                rest: 0.038, drift: 0.1, tint: FieldTint.deepGreen, pulse: 0, fps: 1,
+                animating: false)
         case .attention:
-            // The thickest, because this is the one that has to be noticed.
-            return .init(rest: 0.182, drift: 0.9, anger: 0, fps: 30, animating: true)
+            // The thickest, because this is the one that has to be noticed. It
+            // stays white: green and red are spoken for, and a third hue here
+            // would make the palette decoration again.
+            return .init(
+                rest: 0.094, drift: 0.9, tint: FieldTint.steel, pulse: 0, fps: 30,
+                animating: true)
         case .failed:
-            return .init(rest: 0.165, drift: 0.3, anger: 1, fps: 20, animating: true)
+            return .init(
+                rest: 0.072, drift: 0.3, tint: FieldTint.red, pulse: 0, fps: 20,
+                animating: true)
         }
     }
 }
@@ -244,6 +311,12 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
     /// declaration order with no padding needed: two `float2` first, then
     /// scalars, which keeps every member on its natural alignment.
     private struct Uniforms {
+        /// First because it is the only member wider than a `SIMD2`, and both
+        /// sides align a four-wide vector to sixteen bytes. Anywhere else it
+        /// would sit behind padding that Swift inserts and Metal expects in a
+        /// different place, and the symptom of getting that wrong is a field
+        /// that renders in the wrong colour with no error anywhere.
+        var tint: SIMD4<Float>
         var size: SIMD2<Float>
         var popAt: SIMD2<Float>
         var time: Float
@@ -251,7 +324,7 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
         var closing: Float
         var rest: Float
         var drift: Float
-        var anger: Float
+        var pulse: Float
         var alpha: Float
     }
 
@@ -263,6 +336,21 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
     private var broken = false
     /// Stop the clock at the end of the next frame. See `updateNSView`.
     var parkWhenDrawn = false
+
+    /// The tint actually on screen, which chases the state's tint rather than
+    /// jumping to it.
+    ///
+    /// A state change is instant and a colour change should not be: green
+    /// arriving in one frame reads as a light being switched, and the thing
+    /// this is meant to read as is a surface warming up. Eased here rather
+    /// than in `PresenceFrame` because this is the only object that runs on
+    /// the frame clock, and easing needs a clock.
+    private var shownTint = FieldTint.steel
+    private var lastDrawn: Date?
+    /// Time constant of that chase. 0.30s puts it about 95% of the way there
+    /// in a second, which is slow enough to see and fast enough that a task
+    /// finishing in under a second still shows its colour.
+    private static let tintTau = 0.30
 
     var frame = PresenceFrame(
         style: Presence.dormant.field, awokeAt: nil, closingAt: nil,
@@ -321,9 +409,32 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
         let time = now.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 86_400)
         let act: Double = frame.awokeAt.map { max(now.timeIntervalSince($0), 0) } ?? 0
         let closing: Double = frame.closingAt.map { now.timeIntervalSince($0) } ?? -1
-        let rest: Double = frame.style.rest + 0.18 * frame.heard
+        // The voice rides on top of the floor. 0.08 rather than the old 0.18,
+        // because `rest` is now the visible depth rather than a number with
+        // the screen edge buried in it, and 0.18 on top of a 0.022 floor is a
+        // band that goes from a hairline to thicker than `attention` on one
+        // loud syllable.
+        // Exponential, off real elapsed time rather than a per-frame constant:
+        // the four live rates in this file run from 20 to 60fps, and a fixed
+        // step per frame would make the same transition take three times
+        // longer in one state than in another.
+        let dt = lastDrawn.map { now.timeIntervalSince($0) } ?? 0
+        lastDrawn = now
+        let target = frame.style.tint
+        if parkWhenDrawn || dt <= 0 {
+            // A state that draws one frame and parks has nowhere to run the
+            // chase, so it takes its colour immediately. Same for reduce
+            // motion, which arrives here as the same flag.
+            shownTint = target
+        } else {
+            let k = Float(1 - exp(-dt / Self.tintTau))
+            shownTint += (target - shownTint) * k
+        }
+
+        let rest: Double = frame.style.rest + 0.08 * frame.heard
 
         var uniforms = Uniforms(
+            tint: shownTint,
             size: SIMD2(Float(size.width), Float(size.height)),
             popAt: SIMD2(Float(frame.popAt.x), Float(frame.popAt.y)),
             time: Float(time),
@@ -331,7 +442,7 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
             closing: Float(closing),
             rest: Float(rest),
             drift: Float(frame.style.drift),
-            anger: Float(frame.style.anger),
+            pulse: Float(frame.style.pulse),
             alpha: Float(frame.alpha))
 
         encoder.setRenderPipelineState(pipeline)
