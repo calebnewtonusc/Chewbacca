@@ -116,10 +116,23 @@ cat <<INTRO
     4. Set up Claude to read your calendar, send texts, and see your screen
     5. Open Claude and introduce you
 
-  About 10 minutes, most of it downloads. It will ask for your Mac password
-  once, because Homebrew installs outside your account.
+  Before any of it runs, here is exactly what it touches:
 
-  Nothing is uploaded anywhere. To remove all of it later: chewbacca uninstall
+    Everything it writes goes in your own account:
+      ~/.chewbacca        the kit itself
+      ~/.claude           what your agent reads every session
+      ~/.local/bin        the commands it installs
+
+    It will ask for your Mac password ONCE, and only for Homebrew, which
+    installs shared developer tools outside your account. Nothing else here
+    needs it.
+
+    It uploads nothing. Every file it writes stays on this machine.
+
+    To remove all of it later: chewbacca uninstall
+
+  About 10 minutes, most of it downloads. Add --fast to install only the part
+  that makes the agent know you, which takes seconds instead.
 
 INTRO
 

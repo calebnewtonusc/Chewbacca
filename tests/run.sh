@@ -365,6 +365,54 @@ if group "installer"; then
       --name CI > "$sandbox/install.log" 2>&1 || {
         echo "install exited $?"; tail -5 "$sandbox/install.log"; exit 1; }
     grep -q "Try asking it" "$sandbox/install.log"' _ "$ROOT"
+
+  # Skills are plain markdown and run wherever an agent runs, but they lived
+  # inside the plugins section, so portable, the only non-macOS profile,
+  # installed 57 commands and zero skills. The biggest piece of the kit was
+  # missing from every Windows and Linux install.
+  check  "the portable profile installs skills" bash -c '
+    sandbox="$(mktemp -d)"
+    HOME="$sandbox" bash "$1/setup.sh" --profile portable --name CI >/dev/null 2>&1
+    n=$(ls "$sandbox/.claude/skills" 2>/dev/null | wc -l)
+    [ "$n" -gt 20 ] || { echo "only $n skills installed"; exit 1; }' _ "$ROOT"
+fi
+
+# ── Windows installer ─────────────────────────────────────────────────────────
+if group "windows installer"; then
+  # Windows ships PowerShell 5.1. Every 7-only operator in this file is a parse
+  # error on exactly the machines it was written for, and a parse error means
+  # the install does not start at all.
+  check  "no PowerShell 7-only operators" bash -c '
+    ! grep -nE "(\?\?|\?\.)" "$1/start.ps1" | grep -vE "^[0-9]+:[[:space:]]*#"' _ "$ROOT"
+  check  "the disclaimer names both folders it writes" bash -c '
+    grep -q "chewbacca" "$1/start.ps1" && grep -q "does NOT ask for administrator" "$1/start.ps1"' _ "$ROOT"
+  check  "it verifies checksums like start.sh does" \
+    grep -q "SHA256SUMS.txt" "$ROOT/start.ps1"
+  check  "checksums cover the Windows installer" \
+    grep -q "start.ps1" "$ROOT/SHA256SUMS.txt"
+
+  # Parsing is not running. If pwsh is on this machine, run the whole thing.
+  if command -v pwsh >/dev/null 2>&1 || [ -x /tmp/pwsh/pwsh ]; then
+    PWSH="$(command -v pwsh 2>/dev/null || echo /tmp/pwsh/pwsh)"
+    check "start.ps1 parses" "$PWSH" -NoProfile -Command "
+      \$e=\$null
+      \$null=[System.Management.Automation.Language.Parser]::ParseFile('$ROOT/start.ps1',[ref]\$null,[ref]\$e)
+      if(\$e){\$e|%{Write-Host \$_.Message}; exit 1}"
+    check "start.ps1 installs into a clean HOME" bash -c '
+      sandbox="$(mktemp -d)"
+      HOME="$sandbox" "$2" -NoProfile -File "$1/start.ps1" > "$sandbox/win.log" 2>&1 || {
+        echo "exited $?"; tail -5 "$sandbox/win.log"; exit 1; }
+      n=$(ls "$sandbox/.claude/skills" 2>/dev/null | wc -l)
+      [ "$n" -gt 20 ] || { echo "only $n skills"; exit 1; }
+      [ -f "$sandbox/.claude/CLAUDE.md" ] || { echo "no CLAUDE.md"; exit 1; }' _ "$ROOT" "$PWSH"
+    check "start.ps1 keeps a CLAUDE.md the user already had" bash -c '
+      sandbox="$(mktemp -d)"; mkdir -p "$sandbox/.claude"
+      printf "# mine\n\nAlways use tabs.\n" > "$sandbox/.claude/CLAUDE.md"
+      HOME="$sandbox" "$2" -NoProfile -File "$1/start.ps1" >/dev/null 2>&1
+      grep -q "Always use tabs" "$sandbox/.claude/CLAUDE.md"' _ "$ROOT" "$PWSH"
+  else
+    skip "start.ps1 runs" "no pwsh on this machine"
+  fi
 fi
 
 # ── CLAUDE.md merge ───────────────────────────────────────────────────────────
