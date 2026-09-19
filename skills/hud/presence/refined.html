@@ -166,9 +166,6 @@ uniform float u_close;
 uniform vec2  u_pop;
 out vec4 o;
 
-const vec3 AMBER = vec3(1.00, 0.70, 0.34);
-const vec3 ICE   = vec3(0.62, 0.80, 1.00);
-
 float hash11(float p){ return fract(sin(p*127.1)*43758.5453); }
 float hash21(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
 float noise(vec2 p){
@@ -178,33 +175,20 @@ float noise(vec2 p){
 }
 float fbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<4;i++){ s+=a*noise(p); p*=2.03; a*=0.5; } return s; }
 
-// A hairline of constant pixel weight at any resolution. fwidth gives the
-// footprint of d in this pixel, so the line never thickens on a denser panel.
-float hairline(float d, float px){
-  float w = fwidth(d)*px;
-  return 1.0 - smoothstep(0.0, w, abs(d));
-}
 // Easings. expo-out is what makes a move read as mechanical rather than soft:
 // almost all of the distance is covered in the first fifth of the duration.
 float expoOut(float x){ return x >= 1.0 ? 1.0 : 1.0 - pow(2.0, -10.0*x); }
-float expoIn (float x){ return x <= 0.0 ? 0.0 : pow(2.0, 10.0*(x-1.0)); }
 float stage(float t, float a, float b){ return clamp((t-a)/(b-a), 0.0, 1.0); }
-// Damped spring: overshoots, crosses back, settles. Real hardware does this.
-float spring(float x, float freq, float damp){
-  return 1.0 - exp(-damp*x)*cos(freq*x);
-}
 `;
 
       const MODELS = [
         {
           name: "Chromatic",
-          note: "a split hairline drives the rim out, then the rim becomes a film",
+          note: "blown in from the edges, then it wobbles and settles",
           gain: 0.65,
           src: `
 // Overall level of the film. Swept, see the commit.
 #define SKIN 1.1
-
-float rimAt(float e, float k, float warp){ return exp(-max(e + warp, 0.0)*k); }
 
 // Belcour and Barla's pre-integrated spectral response, verbatim from
 // KHR_materials_iridescence. A soap film is not a hue ramp. It is the whole
@@ -229,29 +213,13 @@ vec3 film(float opd){
               -0.4985314,  0.0415560,  1.0572252)*xyz;
 }
 
-// Arc length around the frame. The bands have to run continuously through the
-// corners, and a per-edge coordinate restarts at every one of them.
-float perim(vec2 p, float w){
-  float dl = p.x, dr = w - p.x, db = p.y, dt = 1.0 - p.y;
-  float m = min(min(dl, dr), min(db, dt));
-  if(m == db) return p.x;
-  if(m == dr) return w + p.y;
-  if(m == dt) return w + 1.0 + (w - p.x);
-  return 2.0*w + 1.0 + (1.0 - p.y);
-}
-
 void main(){
   vec2 uv = vUV;
   float t = u_act;
   float W = u_res.x/u_res.y;
   float e = min(min(uv.x, 1.0-uv.x), min(uv.y, 1.0-uv.y));
 
-  float s1     = stage(t, 0.00, 0.07);
-  float s2     = stage(t, 0.06, 0.52);
-  float s3     = stage(t, 0.07, 0.42);
-  float settle = stage(t, 0.45, 1.45);
-
-  // One breath drives the falloff, the thickness and the split together. Two
+  // One breath drives the film thickness and its resting depth together. Two
   // sines at their own rates read as two layers sitting on each other rather
   // than as one object. The phase is modulated so the swing is not symmetric,
   // because a breath is not: it moves through the thin half faster than it
@@ -259,47 +227,35 @@ void main(){
   float bp = u_time*0.72;
   float breath = sin(bp + 0.45*sin(bp));
 
-  // Fronts overshoot past the edge rather than stopping on it, so the wake
-  // below reaches 1 everywhere instead of leaving the top and bottom unlit.
-  float travel = expoOut(s2);
-  float y = abs(uv.y - 0.5);
-  float frontY = travel*0.58;
-  float warp = fbm(uv*vec2(W,1.0)*3.0 + u_time*0.05)*0.020;
-
-  vec3 c = vec3(0.0);
-
-  // One hairline at the centre, split per channel, driven to both edges. The
-  // fringe is widest while it is moving fastest: a fast bright edge smears
-  // across wavelengths, so the separation belongs to the motion rather than
-  // being a colour choice laid on top of it.
-  float speed = 1.0 - s2;
-  for(int k=0;k<3;k++){
-    float off = (float(k)-1.0)*(0.0015 + speed*0.0080);
-    c[k] += exp(-abs(y - (frontY + off))*230.0)*s1*(1.0 - s3*0.55);
+  // --- being blown ---------------------------------------------------------
+  // The whole intro is one number: how far into the screen the film reaches.
+  // You are standing inside the bubble, so a wall inflating toward you sweeps
+  // the band in from all four edges until the film is over nearly everything,
+  // and the wall settling back takes it out again.
+  //
+  // It does not stop dead when it arrives. A bubble that has just left the
+  // wand oscillates in its second shape mode, in and out, with the decay set
+  // by viscosity, and it crosses its rest radius three or four times before it
+  // is done. That wobble is the part that reads as liquid rather than as
+  // hardware, and it is why this is a damped cosine where every other move in
+  // this file is an expoOut.
+  float REST = 0.21, PEAK = 0.86;
+  float band;
+  if (t < 0.30) {
+    band = PEAK*expoOut(stage(t, 0.0, 0.30));
+  } else {
+    // The wobble is multiplicative, so an inward swing divides the depth
+    // instead of subtracting from it and can never reach zero. Written as a
+    // subtraction the first return took the band to four percent of the
+    // screen, which reads as the thing blinking out rather than wobbling, and
+    // the floor I put under it to stop that was also holding the band above
+    // zero at t=0, so the film was already lit before the intro began.
+    float x = t - 0.30;
+    band = REST*pow(PEAK/REST, exp(-6.0*x)*cos(x*14.0));
   }
 
-  // The rim lights only where a front has already passed, so the frame unzips
-  // from the middle of each long edge outward instead of fading in as a whole.
-  float passed = smoothstep(frontY, frontY - 0.09, y);
-  float base  = 19.0 + breath*0.90;
-  // Separation converges on a damped spring, crossing the rest point twice,
-  // and the rest point is zero. It used to settle at 0.55, which left blue on
-  // a steeper falloff than red for good: a standing green bias across the
-  // whole band that pinned the film's cool half at 159 degrees however the
-  // thickness was tuned. The fringe belongs to the move. At rest the three
-  // channels share one profile and the film owns the colour.
-  float split = (1.0 - spring(settle, 15.0, 4.2))*5.0;
-  c.r += rimAt(e, base - split*0.85, warp)*passed*s3;
-  c.g += rimAt(e, base,              warp)*passed*s3;
-  c.b += rimAt(e, base + split*0.85, warp)*passed*s3;
-
-  // The hit as both fronts reach the edge.
-  c += exp(-pow((t-0.52)/0.055, 2.0))*rimAt(e, 11.0, 0.0)*0.55;
-
-  // --- what it does while nothing is happening -----------------------------
-  // At rest the rim stops being a glow with a tint on it and becomes the film
-  // itself. That swap is the whole point: a lit band with a colour multiplied
-  // over it is paint, and paint is opaque however faint you make it.
+  // Nothing at all before the film arrives.
+  float born = smoothstep(0.0, 0.035, band);
 
   // Domain warped noise. The field is sampled at coordinates that are
   // themselves displaced by another sample of it, twice. Plain noise gives
@@ -319,24 +275,31 @@ void main(){
   // no mouse on screen, which falls off to nothing on its own.
   float glance = exp(-length(gl_FragCoord.xy - u_cursor)/300.0);
 
-  // Across the band the line of sight rolls from straight through the film at
-  // the inner boundary to fully edge on at the border. That is the geometry of
-  // standing inside a bubble and looking at its silhouette, and it is why the
-  // glow belongs at the edge of the screen in the first place.
-  float u = clamp(e/0.21, 0.0, 1.0);
+  // Across the band the line of sight rolls from straight through the film to
+  // fully edge on at the border. That is the geometry of standing inside a
+  // bubble and looking at its silhouette, and it is why the colour belongs at
+  // the edge of the screen in the first place.
+  float u = clamp(e/band, 0.0, 1.0);
 
   // Refract it and use the real path length. cos of the refracted angle only
   // falls to 0.66 at full grazing, so the orders compress into the silhouette
-  // rather than multiplying without limit. That compression is the thin bright
-  // band of crowded colour on the outside of every bubble.
+  // rather than multiplying without limit. That crowding is the thin bright
+  // band of stacked colour on the outside of every bubble.
   float cosI = u;
   float sinT = sqrt(max(1.0 - cosI*cosI, 0.0))/1.33;
   float cosT = sqrt(max(1.0 - sinT*sinT, 0.0));
 
+  // A fixed amount of liquid spread over a surface that is still growing, so
+  // the film thins as it blows. This is the part you actually watch when
+  // somebody blows a bubble: the bands sweep down through the orders while the
+  // wall is stretching, and they stop sweeping when it stops growing. Nothing
+  // else in the intro had to be animated to make it read as inflation.
+  float stretch = mix(2.6, 1.0, smoothstep(0.0, 0.70, t));
+
   // Gravity drains the film downward, so it is thinnest at the top. On a real
   // bubble this is the cue that says the surface is liquid rather than glass.
   float nm = (300.0 + 620.0*flow - (uv.y - 0.5)*130.0
-           + 40.0*breath + 90.0*glance)*cosT;
+           + 40.0*breath + 90.0*glance)*cosT*stretch;
 
   // Two-beam reflectance, not the bare integral. film() is the AC part alone
   // and decays to zero as the film thickens, so normalising it by its own
@@ -353,26 +316,20 @@ void main(){
   // between a bubble and a painted border.
   float fres = 0.04 + 0.96*pow(1.0 - cosI, 4.0);
 
+  // Nothing past the band. Inside a real bubble the film is everywhere, and it
+  // is genuinely beautiful across the whole view, but a HUD that marbles the
+  // middle of the screen is standing in front of the work.
+  float env = 1.0 - smoothstep(0.55, 1.0, u);
+
   // The film's colour with its brightness divided out, for the places that
   // want the hue without the level: the silhouette line and the rim of a pop.
   vec3 sheen = normalize(refl + vec3(0.0015));
 
-  // Nothing past the band. Inside a real bubble the film is everywhere, and it
-  // is genuinely beautiful across the whole view, but a HUD that marbles the
-  // middle of the screen is standing in front of the work. So the reflectance
-  // is faded out where the line of sight is no longer anywhere near edge on.
-  float env = 1.0 - smoothstep(0.55, 1.0, u);
-
-  vec3 skin = refl*fres*env*SKIN;
+  vec3 c = refl*fres*env*SKIN*born;
 
   // The last sliver of a silhouette is a bright near white line, because there
   // the two surfaces of the film are being seen almost exactly superimposed.
-  skin += exp(-e*320.0)*0.55*mix(vec3(1.0), sheen, 0.5);
-
-  // Held back until the activation has landed. During the move the colour
-  // belongs to the motion, and two colour stories at once is mud.
-  float alive = smoothstep(0.25, 1.0, settle);
-  c = mix(c, skin, alive);
+  c += exp(-e*320.0)*0.55*mix(vec3(1.0), sheen, 0.5)*born;
 
   // --- the pop --------------------------------------------------------------
   // Nothing below is eased. A rupturing film does not decelerate: the hole
