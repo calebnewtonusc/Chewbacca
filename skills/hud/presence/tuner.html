@@ -390,10 +390,19 @@ void main() {
     // is liquid you are meant to see through, and on a screen that is dim. The
     // pool does not thin out toward the glass, so the ground fills in solid
     // toward the screen edge and the only boundary in view is the inner one.
-    // Two blues: a deep one on a filament's shoulders and a near white one
+    // Steel, not liquid colour. Every one of these is within a few percent of
+    // neutral with a slight cool cast, because that is what metal is: the hue
+    // carries almost nothing and the whole read comes from how fast it goes
+    // from dark body to hot specular. Saturate any of these and it stops being
+    // steel and becomes tinted plastic, which is the failure this palette
+    // replaced.
+    // Two greys: a mid one on a filament's shoulders and a near white one
     // along its spine, where the liquid is thinnest and should read as clear.
+    // The specular. Near white and barely warm, which is what a polished
+    // surface returns; the falloff beside it stays cool so the highlight reads
+    // as a reflection rather than as a colour the object has.
 
-    vec3 blueC = mix(u_blueDeep, u_bluePale, smoothstep(0.15, 0.46, d));
+    vec3 blueC = mix(u_blueDeep, u_bluePale, smoothstep(0.26, 0.46, d));
     vec3 ground = mix(u_clear, u_pool, smoothstep(0.22, 0.90, v));
 
     // The rim is a quarter of the period, not a third. At a third it stops
@@ -404,7 +413,10 @@ void main() {
     vec3 col = mix(ground, mix(u_org, u_yel, smoothstep(-0.05, 0.03, d)), toRim);
     col = mix(col, blueC, toBlue);
 
-    // The rim is the only part hotter than the liquid carrying it.
+    // The rim is the only part hotter than the liquid carrying it. Was 0.85,
+    // which on a coloured palette read as heat and on a neutral one reads as
+    // blowout: with no hue to carry the rim, all the extra gain does is clip
+    // the highlight to white and take the screen with it.
     col *= (1.0 + u_glow * exp(-pow((d + 0.01) / u_glowW, 2.0))) * shimmer;
 
     // Failure is the one state allowed to be red, and it is the one state where
@@ -412,14 +424,20 @@ void main() {
     // palette entirely rather than being tinted: a red filament on a blue
     // ground is a third colour, and three colours is decoration.
     if (anger > 0.001) {
-        vec3 red = vec3(dot(col, vec3(0.42, 0.34, 0.24))) * vec3(1.35, 0.30, 0.22);
+        vec3 red = vec3(dot(col, vec3(0.42, 0.34, 0.24))) * vec3(1.10, 0.40, 0.33);
         col = mix(col, red, anger);
     }
 
     // A touch hotter at the free surface and flat everywhere else. Driven off
     // the grazing angle it is a three hundred point ramp from bright to
     // nothing, and a ramp is a vignette however it was derived.
-    float fres = u_fresA + u_fresB * exp(-v * 7.0);
+    //
+    // The split between the two terms is what decides whether this reads as
+    // metal or as fog. At 0.62 flat and 0.55 at the surface the body carried
+    // more light than the surface did, and a screenshot on a grey checker came
+    // back as an even haze with no highlight anywhere on the straight runs.
+    // Steel is the other way round: a dark body and a narrow hot surface.
+    float fres = u_fresA + u_fresB * exp(-v * 9.0);
 
     // The pool ends at its surface, over about a seventh of its own depth, and
     // is at full strength everywhere behind that.
@@ -434,7 +452,7 @@ void main() {
     // the same termination the body uses: without that gate it is the one term
     // with no idea where the liquid ends, and at a tenth of its peak across the
     // whole screen it reads as a haze over everything.
-    c += env * exp(-pow((v - 0.11) / 0.085, 2.0)) * u_lip * mix(vec3(1.0), sheen, 0.92) * born *
+    c += env * exp(-pow((v - 0.085) / 0.055, 2.0)) * u_lip * mix(vec3(1.0), sheen, 0.92) * born *
          lit;
 
     // --- going away ------------------------------------------------------
@@ -515,12 +533,12 @@ void main() {
       // tonemap pulls it back. A colour input cannot express that, so each
       // swatch is a hue at unit scale plus its own level.
       const COLORS = [
-        ["u_clear", "Ground", [0.14, 0.2, 0.3]],
-        ["u_pool", "Deep pool", [0.05, 0.15, 0.6]],
-        ["u_blueDeep", "Filament shoulder", [0.1, 0.3, 1.12]],
-        ["u_bluePale", "Filament spine", [0.7, 0.88, 1.15]],
-        ["u_yel", "Rim, inner", [1.25, 0.95, 0.24]],
-        ["u_org", "Rim, outer", [1.2, 0.27, 0.02]],
+        ["u_clear", "Ground", [0.13, 0.14, 0.155]],
+        ["u_pool", "Deep pool", [0.16, 0.175, 0.2]],
+        ["u_blueDeep", "Filament shoulder", [0.26, 0.28, 0.32]],
+        ["u_bluePale", "Filament spine", [0.84, 0.87, 0.92]],
+        ["u_yel", "Rim, inner", [1.0, 0.99, 0.96]],
+        ["u_org", "Rim, outer", [0.5, 0.54, 0.6]],
       ];
 
       // The last field is which panel section the slider lands in. The four
@@ -530,18 +548,18 @@ void main() {
         ["u_translucency", "Translucent", 0, 1, 0.01, 0, "alpha"],
         ["u_sheet", "Sheet coverage", 0, 1, 0.01, 0.55, "alpha"],
         ["u_alpha", "Opacity", 0, 1, 0.01, 1, "alpha"],
-        ["u_gain", "Film coverage", 0.5, 3, 0.01, 1.35, "alpha"],
-        ["u_expose", "Exposure", 0.5, 4, 0.01, 1.9],
+        ["u_gain", "Film coverage", 0.5, 3, 0.01, 1.05, "alpha"],
+        ["u_expose", "Exposure", 0.5, 4, 0.01, 1.3],
         ["u_rimA", "Rim start", -0.4, 0, 0.005, -0.13],
         ["u_rimB", "Rim end", -0.3, 0.1, 0.005, -0.05],
         ["u_blueA", "Blue start", -0.1, 0.3, 0.005, 0.03],
         ["u_blueB", "Blue end", 0, 0.4, 0.005, 0.11],
-        ["u_glow", "Rim heat", 0, 3, 0.01, 0.85],
+        ["u_glow", "Rim heat", 0, 3, 0.01, 0.4],
         ["u_glowW", "Rim width", 0.01, 0.3, 0.002, 0.07],
-        ["u_fresA", "Body light", 0.2, 1.5, 0.01, 0.74],
-        ["u_fresB", "Surface light", 0, 1.5, 0.01, 0.36],
-        ["u_lip", "Surface lip", 0, 0.3, 0.002, 0.055],
-        ["u_rest", "Thickness", 0.05, 0.5, 0.005, 0.268],
+        ["u_fresA", "Body light", 0.1, 1.5, 0.01, 0.34],
+        ["u_fresB", "Surface light", 0, 2, 0.01, 1.05],
+        ["u_lip", "Surface lip", 0, 0.3, 0.002, 0.11],
+        ["u_rest", "Thickness", 0.02, 0.35, 0.005, 0.147],
         ["u_drift", "Drift", 0, 5, 0.05, 0.5],
       ];
 
@@ -580,7 +598,7 @@ void main() {
       // of one used to throw the evening away. `u_rest`, `u_drift` and
       // `u_anger` are not saved: those are the state chips, and restoring them
       // would mean the page opens in a state no chip is lit for.
-      const STORE = "presence-tuner";
+      const STORE = "presence-tuner-steel";
       const TRANSIENT = ["u_rest", "u_drift", "u_anger"];
 
       const save = () => {

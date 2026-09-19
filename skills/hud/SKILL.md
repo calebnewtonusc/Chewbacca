@@ -379,6 +379,15 @@ to carry a distinction on its own.** Two states with the same fps, thickness
 within 15%, and no hue difference are one state with two names, and `states.html`
 prints that pair in red rather than leaving you to notice it.
 
+The steel palette spends that budget deliberately: every constant in the shader
+now sits within a few percent of neutral, so `failed` is the only state using
+channel 1 at all and the other six are separated on rate and thickness alone.
+That is the correct trade for a layer that lives over somebody's work, and it is
+also why the `acting` and `attention` pair is now the one real collision in the
+table: 14% apart on thickness, 18% on rate, identical fps, no hue between them.
+Anything that closes that gap has to move a number in `Presence.field`, not a
+colour in the shader, because there is no colour left to spend.
+
 ### Judge it at the edge of your eye, not in a tab
 
 These live in peripheral vision on a screen somebody is not looking at. Staring
