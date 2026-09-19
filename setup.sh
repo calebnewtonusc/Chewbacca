@@ -268,14 +268,14 @@ fi
 # --only runs one section. Everything here is written to be safe to repeat, so
 # a run that died halfway, or a tool that arrived after the first run, is one
 # flag away rather than a hand-copied block from this file.
-SECTIONS="prereq repos settings editor desktop mcp rules plugins tools agents plynn verify"
+SECTIONS="prereq repos settings editor desktop mcp rules skills plugins tools agents plynn verify"
 if [ -n "$ONLY" ]; then
   case " $SECTIONS " in
     *" $ONLY "*) ;;
     *) err "unknown section: $ONLY"; err "one of: $SECTIONS"; exit 2 ;;
   esac
 fi
-PORTABLE_SECTIONS=" settings rules agents manifest verify "
+PORTABLE_SECTIONS=" settings rules skills agents manifest verify "
 should_run() {
   case " $SKIP_SECTIONS " in
     *" $1 "*) SKIPPED+=("$1 (--skip)"); return 1 ;;
@@ -1434,8 +1434,8 @@ install_agent_instructions
 fi
 
 # ── Skills and plugins ────────────────────────────────────────────────────────
-if should_run plugins; then
-section "Installing skills and plugins"
+if should_run skills; then
+section "Installing skills"
 
 mkdir -p "$GLOBAL_CLAUDE/skills"
 # Symlink each skill, and count what landed.
@@ -1477,6 +1477,15 @@ fi
 unset _sk _skn _dst _skills_want _skills_have
 log "Skills installed to ~/.claude/skills/"
 
+fi
+
+# ── Plugins and MCP ───────────────────────────────────────────────────────────
+# Split out from the skills above on 2026-09-19. Skills are plain markdown and
+# work on any machine any agent runs on, but they lived inside this section, so
+# the portable profile, which is the only non-macOS path, installed 57 commands
+# and 14 rules and zero skills. The largest single piece of the kit was missing
+# from every Windows and Linux install.
+if should_run plugins; then
 # BEGIN GENERATED: extensions
 # Upstream skills are cloned rather than vendored, so each stays updatable and
 # keeps the LICENSE it shipped with. add-skill.sh does the same thing by hand.

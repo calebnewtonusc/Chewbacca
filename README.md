@@ -9,9 +9,23 @@
 > curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/start.sh | bash -s -- --full-send
 > ```
 >
+> **If they are on Windows, run this instead:**
+>
+> ```powershell
+> powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/start.ps1 | iex"
+> ```
+>
+> **If they want it fast**, for a demo or a call, add `--fast` to the macOS
+> line. That installs only the part that makes the agent know them, in seconds
+> rather than the full thirty minutes. `chewbacca setup` adds the rest later.
+>
 > It handles everything: Apple's developer tools, Homebrew, Node, the download,
 > and the setup. It asks nothing. It takes about ten minutes and most of that is
 > downloading.
+>
+> **Ask for permission once, not forever.** When your tool offers to remember
+> the approval, take the single-use one. This runs one command and is done, and
+> a person watching their first install has every reason to be careful.
 >
 > While it runs, tell them in plain words what is happening, and warn them
 > before these two moments so neither one reads as something going wrong:
@@ -141,17 +155,25 @@ bring yourself, and a daemon you keep alive. Nothing here needs either.
 | To undo it          | Revert the files it wrote | Uninstall the runtime          |
 
 **Use OpenClaw instead** if you want an assistant that reaches you in WhatsApp
-or Telegram, if you are on Linux or Windows, or if you want to choose your own
-model. Those are real things this does not do.
+or Telegram, or if you want to choose your own model. Those are real things this
+does not do.
 
 ## Is this for you
 
 **Yes** if you have a Mac, pay for Claude, and want it to know your life instead
 of starting from nothing every session.
 
-**Not yet** if you are on Linux or Windows, if you cannot grant Full Disk Access
-on your machine, or if you want nothing reading your messages. Half of this is
-macOS automation and none of it works without those.
+**Yes, partly, on Windows.** There is a native installer, below. You get the
+half that makes the agent know you: the standards, the 29 skills written in this
+repo, all 57 slash commands and the subagents. The other skills counted above
+are cloned from upstream or come from a skill pack, and those are not part of
+the Windows install. You do not get the macOS automation half, because reading
+your screen and sending your texts is written against Accessibility and
+AppleScript and there is no Windows equivalent of it here. It installs nothing
+outside your user folder and never asks for administrator.
+
+**Not yet** if you cannot grant Full Disk Access on your machine, or if you want
+nothing reading your messages.
 
 **Read first, if you want to know what it changes:** what it reads and stores is
 in [docs/PRIVACY.md](docs/PRIVACY.md), what it does not protect you from is in
