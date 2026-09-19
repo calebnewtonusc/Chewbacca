@@ -1615,8 +1615,7 @@ section "Installing macOS tools"
 mkdir -p "$HOME/.local/bin"
 for HELPER in peekaboo chrome-js slop-check; do
   if [ -f "$SCRIPT_DIR/bin/$HELPER" ]; then
-    cp "$SCRIPT_DIR/bin/$HELPER" "$HOME/.local/bin/$HELPER"
-    chmod +x "$HOME/.local/bin/$HELPER"
+    link_tool "$HELPER"
     log "$HELPER installed to ~/.local/bin/"
   fi
 done
@@ -1727,11 +1726,11 @@ else
   [ -d "$MU_DIR/.git" ] || git clone -q --depth 1 \
     https://github.com/browser-use/macOS-use.git "$MU_DIR" 2>/dev/null || true
   if [ -d "$MU_DIR" ]; then
-    # macOS-use supplies the upstream runtime and its .venv, nothing else.
-    # The provider shims are Chewbacca's and stay in this repo; bin/mac-use
-    # resolves them from CHEWBACCA_ROOT. Copying them into the upstream
-    # checkout leaves stale duplicates that shadow the real ones.
-    link_tool mac-use
+    cp "$SCRIPT_DIR/bin/mac_use_cli.py" "$MU_DIR/mac_use_cli.py"
+    cp "$SCRIPT_DIR/bin/mac_use_claude.py" "$MU_DIR/mac_use_claude.py"
+    mkdir -p "$HOME/.local/bin"
+    cp "$SCRIPT_DIR/bin/mac-use" "$HOME/.local/bin/mac-use"
+    chmod +x "$HOME/.local/bin/mac-use"
     if (cd "$MU_DIR" && uv venv --python 3.11 &>/dev/null \
         && uv pip install --python .venv/bin/python --editable . &>/dev/null); then
       log "mac-use installed"
