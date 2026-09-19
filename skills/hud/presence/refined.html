@@ -278,11 +278,6 @@ void main(){
     band = REST*pow(PEAK/REST, exp(-6.0*x)*cos(x*14.0));
   }
 
-  // The frame breathes. Not the colour in it, which it was already doing: the
-  // boundary itself, in and out by a seventh of its own depth, on the same
-  // slow asymmetric cycle as everything else here.
-  band *= 1.0 + 0.145*breath;
-
   // Nothing at all before the film arrives.
   float born = smoothstep(0.0, 0.07, band);
 
@@ -357,8 +352,8 @@ void main(){
       // are each in.
       vec2  anchor = (cc + 0.5 + (vec2(h0, h1) - 0.5)*0.30)*CELL;
       float ad     = depthAt(anchor/vec2(W, 1.0) + 0.5, W, MARGIN);
-      float onEdge = exp(-pow((ad - band)/0.085, 2.0));
-      if (onEdge < 0.35) continue;
+      float onEdge = exp(-pow((ad - band)/0.060, 2.0));
+      if (onEdge < 0.50) continue;
 
       // Slow. A cycle runs nine to sixteen seconds and almost all of it is the
       // drop travelling: the point is that the film got too heavy, not that
@@ -371,17 +366,30 @@ void main(){
 
       float hr = hash21(cc + gen*3.7);
 
-      // Swell, leave, thin, gone. The exit is a fade rather than a burst: this
-      // one is small enough that surface tension loses quietly.
-      float swell = smoothstep(0.00, 0.20, k);
-      float fade  = 1.0 - smoothstep(0.87, 1.00, k);
-      float R = (0.030 + 0.020*hr)*swell*(0.60 + 0.40*fade);
-      if (R < 1e-4) continue;
+      // It leaves the edge and goes for the middle, and it takes most of the
+      // cycle to get there: nine to sixteen seconds for a hundred and fifty
+      // pixels.
+      float fade   = 1.0 - smoothstep(0.87, 1.00, k);
+      float travel = (0.160 + 0.060*h1)*smoothstep(0.0, 0.92, k);
 
-      // It stays attached while the swell is still growing, because the centre
-      // has barely moved and the drop and the boundary are still the same
-      // sheet. The neck breaks on its own once travel outruns the radius.
-      vec2  cen = anchor + normalize(-anchor)*(0.085 + 0.070*h1)*smoothstep(0.26, 0.95, k);
+      // Its size is capped by how far it has already cleared the boundary,
+      // which is what makes it impossible for a drop to sit on top of the edge
+      // it came off. Gating visibility on clearance instead would have it
+      // appear at full size out of nothing; capping the radius has it emerge,
+      // round up, and only then reach its own size.
+      //
+      // Clearance is measured from the boundary, not from the anchor. Measured
+      // from the anchor, a spawn point sitting a third of a band shallow gets
+      // its whole travel budget eaten just returning to the edge, and that is
+      // the one that ends up lying across it. The fixed term underneath is for
+      // the lobes, which move the real boundary after the anchor's depth was
+      // taken.
+      float clear = ad + travel - band;
+      float R = min((0.030 + 0.020*hr)*(0.60 + 0.40*fade),
+                    max(clear - 0.055, 0.0)*0.85);
+      if (R < 0.004) continue;
+
+      vec2  cen = anchor + normalize(-anchor)*travel;
       float r   = length(q - cen)/R;
       if (r > 1.12) continue;
 
@@ -447,8 +455,15 @@ void main(){
 
   // Gravity drains the film downward, so it is thinnest at the top. On a real
   // bubble this is the cue that says the surface is liquid rather than glass.
+  //
+  // The breath lives here and nowhere else. Driving the band depth with it as
+  // well made the whole frame swell and shrink, and a frame that changes
+  // thickness on a cycle is a pulse. Driving only the thickness of the film
+  // itself leaves the frame the size it was and moves the colour through it,
+  // which is the difference between something beating and something warming
+  // up.
   float nm = (345.0 + 215.0*flow - (uv.y - 0.5)*130.0
-           + 40.0*breath + 90.0*glance)*cosT*stretch;
+           + 95.0*breath + 90.0*glance)*cosT*stretch;
 
   // Two-beam reflectance, not the bare integral. film() is the AC part alone
   // and decays to zero as the film thickens, so normalising it by its own
