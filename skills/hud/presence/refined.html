@@ -311,7 +311,7 @@ void main(){
         },
         {
           name: "Chromatic",
-          note: "the rim shatters into three and springs back",
+          note: "a split hairline drives the rim out to the edges",
           gain: 0.65,
           src: `
 // One luminous rim profile, sampled per channel at a different width. The whole
@@ -325,33 +325,51 @@ void main(){
   vec2 uv = vUV;
   float t = u_act;
 
-  float s1 = stage(t, 0.00, 0.05);
-  // Split hard, then converge on a damped spring: it crosses the rest point a
-  // couple of times before settling, the way a real mechanism does. A single
-  // ease into place is the part that was reading as bland.
-  float shatter = expoOut(stage(t, 0.03, 0.26));
-  float settle  = stage(t, 0.22, 1.30);
-  float split   = shatter*(1.0 - spring(settle, 15.0, 4.2))*7.0;
+  float s1     = stage(t, 0.00, 0.07);
+  float s2     = stage(t, 0.06, 0.52);
+  float s3     = stage(t, 0.07, 0.42);
+  float settle = stage(t, 0.45, 1.45);
 
+  // Fronts overshoot past the edge rather than stopping on it, so the wake
+  // below reaches 1 everywhere instead of leaving the top and bottom unlit.
+  float travel = expoOut(s2);
+  float y = abs(uv.y - 0.5);
+  float frontY = travel*0.58;
   float warp = fbm(uv*vec2(u_res.x/u_res.y,1.0)*3.0 + u_time*0.05)*0.020;
-  float base = 19.0 + sin(u_time*0.28)*0.90;
 
-  vec3 c;
-  c.r = rim(uv, base - split*0.85, warp);
-  c.g = rim(uv, base,              warp);
-  c.b = rim(uv, base + split*0.85, warp);
+  vec3 c = vec3(0.0);
 
-  // Opening flash, white, before the channels tear apart.
-  float flash = s1*(1.0 - stage(t, 0.04, 0.16));
-  c += flash*rim(uv, 9.0, 0.0)*1.5;
+  // One hairline at the centre, split per channel, driven to both edges. The
+  // fringe is widest while it is moving fastest: a fast bright edge smears
+  // across wavelengths, so the separation belongs to the motion rather than
+  // being a colour choice laid on top of it.
+  float speed = 1.0 - s2;
+  for(int k=0;k<3;k++){
+    float off = (float(k)-1.0)*(0.0015 + speed*0.0080);
+    c[k] += exp(-abs(y - (frontY + off))*230.0)*s1*(1.0 - s3*0.55);
+  }
 
-  // A very fine scan texture inside the glow. It is below the threshold of
-  // being read as a pattern and above the threshold of being felt as material.
+  // The rim lights only where a front has already passed, so the frame unzips
+  // from the middle of each long edge outward instead of fading in as a whole.
+  float passed = smoothstep(frontY, frontY - 0.09, y);
+  float base  = 19.0 + sin(u_time*0.28)*0.90;
+  // Separation converges on a damped spring, crossing the rest point twice.
+  float split = 0.55 + (1.0 - spring(settle, 15.0, 4.2))*5.0;
+  c.r += rim(uv, base - split*0.85, warp)*passed*s3;
+  c.g += rim(uv, base,              warp)*passed*s3;
+  c.b += rim(uv, base + split*0.85, warp)*passed*s3;
+
+  // The hit as both fronts reach the edge.
+  c += exp(-pow((t-0.52)/0.055, 2.0))*rim(uv, 11.0, 0.0)*0.55;
+
+  // A very fine scan texture inside the glow: below the threshold of being read
+  // as a pattern, above the threshold of being felt as material.
   float lum = max(max(c.r,c.g),c.b);
   c *= 1.0 + 0.07*sin(uv.y*u_res.y*0.85)*smoothstep(0.02, 0.5, lum);
 
   o = vec4(c*1.9*u_gain, 1.0);
-}`,
+}
+`,
         },
       ];
 
