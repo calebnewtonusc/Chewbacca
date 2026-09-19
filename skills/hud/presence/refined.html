@@ -217,7 +217,6 @@ void main(){
   vec2 uv = vUV;
   float t = u_act;
   float W = u_res.x/u_res.y;
-  float e = min(min(uv.x, 1.0-uv.x), min(uv.y, 1.0-uv.y));
 
   // One breath drives the film thickness and its resting depth together. Two
   // sines at their own rates read as two layers sitting on each other rather
@@ -239,7 +238,7 @@ void main(){
   // is done. That wobble is the part that reads as liquid rather than as
   // hardware, and it is why this is a damped cosine where every other move in
   // this file is an expoOut.
-  float REST = 0.21, PEAK = 0.86;
+  float REST = 0.155, PEAK = 2.15;
   float band;
   if (t < 0.30) {
     band = PEAK*expoOut(stage(t, 0.0, 0.30));
@@ -255,14 +254,47 @@ void main(){
   }
 
   // Nothing at all before the film arrives.
-  float born = smoothstep(0.0, 0.035, band);
+  float born = smoothstep(0.0, 0.07, band);
+
+  // --- the shape -----------------------------------------------------------
+  // A superelliptic norm, not the distance to the nearest edge. min() of the
+  // four edge distances is a Chebyshev metric and every contour it draws is a
+  // rectangle with square corners, which is exactly the hard frame that was
+  // sitting around the clear middle. This has a rounded contour at every
+  // level, and the exponent sets how square: 2 is an ellipse, 7 is close to a
+  // rounded rectangle while leaving the middle of the screen usable. The
+  // screen corners fall outside it, which is what rounded means.
+  vec2 r2 = (uv - 0.5)*2.0;
+  float SQ = 7.0;
+  float rad = pow(pow(abs(r2.x), SQ) + pow(abs(r2.y), SQ), 1.0/SQ);
+
+  // The boundary is not a fixed offset from the screen. It creeps and folds on
+  // its own flow, so the frame reads as liquid held in place by surface
+  // tension rather than as a border somebody drew. Low frequency on purpose:
+  // this is the shape moving, not the surface texturing.
+  rad += (fbm(r2*1.7 + vec2( u_time*0.155, -u_time*0.118)) - 0.5)*0.055
+       + (fbm(r2*3.3 + vec2(-u_time*0.081,  u_time*0.136)) - 0.5)*0.026;
+
+  // Distance in from the silhouette. The norm is taken per axis, so one unit
+  // of it is half the screen width going sideways and half the height going
+  // up, and on a 16 by 10 panel that alone made the frame twice as thick down
+  // the sides as across the top. Divide by the local scale to get most of that
+  // back. Not all of it: a wide screen has the room and a perfectly even
+  // frame on one looks drawn rather than held.
+  float ax = pow(abs(r2.x), SQ), ay = pow(abs(r2.y), SQ);
+  float sideways = ax/(ax + ay + 1e-6);
+  float scale = mix(1.0, mix(1.0, u_res.x/u_res.y, sideways), 0.75);
+  float inward = (1.0 - rad)*scale;
+
+  // Off the silhouette there is no bubble to draw.
+  float lit = smoothstep(0.0, 0.010, inward);
 
   // Domain warped noise. The field is sampled at coordinates that are
   // themselves displaced by another sample of it, twice. Plain noise gives
   // soft round blobs. This gives drawn out filaments and folded sheets,
   // because on a real film the thickness is not sitting still: it is being
   // carried around by convection in the liquid, and the streaks are the flow.
-  vec2 p = uv*vec2(W, 1.0)*2.6;
+  vec2 p = uv*vec2(W, 1.0)*1.25;
   float dt = u_time*0.035;
   vec2 w1 = vec2(fbm(p + vec2(0.0, dt)), fbm(p + vec2(5.2, 1.3) - dt*0.7));
   vec2 w2 = vec2(fbm(p + 3.4*w1 + vec2(1.7, 9.2) + dt*0.5),
@@ -276,10 +308,10 @@ void main(){
   float glance = exp(-length(gl_FragCoord.xy - u_cursor)/300.0);
 
   // Across the band the line of sight rolls from straight through the film to
-  // fully edge on at the border. That is the geometry of standing inside a
-  // bubble and looking at its silhouette, and it is why the colour belongs at
-  // the edge of the screen in the first place.
-  float u = clamp(e/band, 0.0, 1.0);
+  // fully edge on at the silhouette. That is the geometry of standing inside a
+  // bubble and looking at its edge, and it is why the colour belongs at the
+  // edge of the screen in the first place.
+  float u = clamp(inward/band, 0.0, 1.0);
 
   // Refract it and use the real path length. cos of the refracted angle only
   // falls to 0.66 at full grazing, so the orders compress into the silhouette
@@ -298,7 +330,7 @@ void main(){
 
   // Gravity drains the film downward, so it is thinnest at the top. On a real
   // bubble this is the cue that says the surface is liquid rather than glass.
-  float nm = (300.0 + 620.0*flow - (uv.y - 0.5)*130.0
+  float nm = (345.0 + 215.0*flow - (uv.y - 0.5)*130.0
            + 40.0*breath + 90.0*glance)*cosT*stretch;
 
   // Two-beam reflectance, not the bare integral. film() is the AC part alone
@@ -309,27 +341,37 @@ void main(){
   // the front face, which is also why a film goes black just before it pops.
   vec3 refl = max(0.5*(vec3(1.0) - film(2.0*1.33*nm)), vec3(0.0));
 
-  // Fresnel, and this is the term that decides opaque or not. Looking straight
-  // through a soap film you see four percent of it. At the silhouette almost
-  // all of it comes back. So the body of the band is very nearly clear and
-  // only the outer strip carries the colour, which is the whole difference
-  // between a bubble and a painted border.
-  float fres = 0.04 + 0.96*pow(1.0 - cosI, 4.0);
+  // Fresnel. Physically the body of a film returns four percent and the
+  // silhouette returns nearly all of it, and driving the band with that ratio
+  // is what stops it reading as paint. But taken literally it is also a ramp
+  // from bright to nothing across three hundred pixels, and a ramp is a
+  // vignette however it was derived. Compressed to a bit under two to one, so
+  // the angle is still legible and the band still has a body.
+  float fres = 0.30 + 0.70*pow(1.0 - cosI, 2.5);
 
-  // Nothing past the band. Inside a real bubble the film is everywhere, and it
-  // is genuinely beautiful across the whole view, but a HUD that marbles the
-  // middle of the screen is standing in front of the work.
-  float env = 1.0 - smoothstep(0.55, 1.0, u);
+  // The band ends rather than fading out, over about a tenth of its own
+  // depth. A long ramp down to nothing is a vignette, and a vignette is not a
+  // film: a real one has an inner boundary you can point at, and that
+  // boundary is the thing carrying the flow.
+  float env = 1.0 - smoothstep(0.90, 1.0, u);
 
   // The film's colour with its brightness divided out, for the places that
   // want the hue without the level: the silhouette line and the rim of a pop.
   vec3 sheen = normalize(refl + vec3(0.0015));
 
-  vec3 c = refl*fres*env*SKIN*born;
+  vec3 c = refl*fres*env*SKIN*born*lit;
+
+  // The inner boundary is a lip, not a place the gradient ran out. Liquid held
+  // by surface tension beads along its own edge and the bead catches light, so
+  // the thing that reads as an edge is a bright line sitting on it. Without
+  // this the termination is invisible and the band goes back to being a fade
+  // no matter how short the fade is.
+  c += exp(-pow((u - 0.90)/0.052, 2.0))*0.26
+     * mix(vec3(1.0), sheen, 0.65)*born*lit;
 
   // The last sliver of a silhouette is a bright near white line, because there
   // the two surfaces of the film are being seen almost exactly superimposed.
-  c += exp(-e*320.0)*0.55*mix(vec3(1.0), sheen, 0.5)*born;
+  c += exp(-max(inward, 0.0)*150.0)*0.55*mix(vec3(1.0), sheen, 0.5)*born*lit;
 
   // --- the pop --------------------------------------------------------------
   // Nothing below is eased. A rupturing film does not decelerate: the hole
