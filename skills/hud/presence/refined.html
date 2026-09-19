@@ -304,25 +304,29 @@ void main(){
 
   float inward = depthAt(uv, W, MARGIN);
 
-  // Two slow lobes move the whole boundary, so it creeps and folds rather than
-  // holding an exact offset from the screen.
-  inward += (fbm(q*3.4 + vec2( u_time*0.155, -u_time*0.118)) - 0.5)*0.060
-          + (fbm(q*6.6 + vec2(-u_time*0.081,  u_time*0.136)) - 0.5)*0.028;
+  // Two lobes, both low, and that is the entire deformation. A blob in a lava
+  // lamp filling four hundred pixels has one continuous curve for an outline:
+  // no serration, no ripple, no texture at any scale. Three overlapping fbm
+  // terms were putting detail down to sixteen pixels on this boundary, and
+  // detail at sixteen pixels is what made it read as torn.
+  //
+  // The second is plain noise rather than fbm for the same reason. fbm's
+  // fourth octave is exactly the detail this is trying not to have, and there
+  // is no amplitude small enough to make it belong.
+  inward += (fbm(q*2.3   + vec2( u_time*0.155, -u_time*0.118)) - 0.5)*0.085
+          + (noise(q*4.1 + vec2(-u_time*0.081,  u_time*0.136)) - 0.5)*0.055;
 
   float u0 = clamp(inward/band, 0.0, 1.0);
 
-  // A capillary ripple on the inner edge alone, four times faster than the
-  // lobes. Without it the boundary is one shape being slid around, which is
-  // legible as a single rigid outline however much it wanders. With it the
-  // edge itself is working, which is the part that reads as liquid.
-  //
-  // Frequency matters more than amplitude here. At seventeen cycles across the
-  // screen this same term read as torn paper, because fbm's fourth octave was
-  // landing at six pixels and a six pixel wobble on a boundary is not a wave,
-  // it is a serration.
-  // The drift is mostly vertical while the lobes below run sideways, so the
-  // edge detail climbs through a boundary that is sliding across it.
-  inward += (fbm(q*6.5 + vec2(-u_time*0.085, u_time*0.50)) - 0.5)*0.030
+  // One more on the inner edge alone, drifting mostly vertically while the
+  // lobes run sideways, so the boundary is worked from two directions at once.
+  // Lower in frequency than either of them and with the largest amplitude of
+  // the three, because what this is for is the long concave run: a wall of wax
+  // holds an hourglass waist, two broad convex stretches with a concave one
+  // between them, and that concave stretch is what reads as liquid rather than
+  // as a bumpy line. Bumps come free from additive noise. A waist needs
+  // amplitude at low frequency.
+  inward += (fbm(q*1.6 + vec2(-u_time*0.085, u_time*0.50)) - 0.5)*0.105
           * smoothstep(0.30, 1.0, u0);
 
   // --- oil in water --------------------------------------------------------
@@ -352,6 +356,20 @@ void main(){
       // are each in.
       vec2  anchor = (cc + 0.5 + (vec2(h0, h1) - 0.5)*0.30)*CELL;
       float ad     = depthAt(anchor/vec2(W, 1.0) + 0.5, W, MARGIN);
+
+      // Wide and cheap first. Nine cells are walked for every pixel on screen
+      // and the displacement below costs three more noise samples, so it is
+      // only worth taking for a cell that is already in the right area.
+      if (exp(-pow((ad - band)/0.22, 2.0)) < 0.05) continue;
+
+      // Then the same displacement the boundary itself got, sampled here. The
+      // undisplaced depth is not where the sheet is: the lobes move it by up
+      // to a fifth of the band, and taking the anchor without them leaves the
+      // neck rooted in mid air a long way from anything.
+      ad += (fbm(anchor*2.3   + vec2( u_time*0.155, -u_time*0.118)) - 0.5)*0.085
+          + (noise(anchor*4.1 + vec2(-u_time*0.081,  u_time*0.136)) - 0.5)*0.055
+          + (fbm(anchor*1.6   + vec2(-u_time*0.085,  u_time*0.50 )) - 0.5)*0.105;
+
       float onEdge = exp(-pow((ad - band)/0.060, 2.0));
       if (onEdge < 0.50) continue;
 
@@ -372,26 +390,60 @@ void main(){
       float fade   = 1.0 - smoothstep(0.87, 1.00, k);
       float travel = (0.160 + 0.060*h1)*smoothstep(0.0, 0.92, k);
 
-      // Its size is capped by how far it has already cleared the boundary,
-      // which is what makes it impossible for a drop to sit on top of the edge
-      // it came off. Gating visibility on clearance instead would have it
-      // appear at full size out of nothing; capping the radius has it emerge,
-      // round up, and only then reach its own size.
-      //
-      // Clearance is measured from the boundary, not from the anchor. Measured
-      // from the anchor, a spawn point sitting a third of a band shallow gets
-      // its whole travel budget eaten just returning to the edge, and that is
-      // the one that ends up lying across it. The fixed term underneath is for
-      // the lobes, which move the real boundary after the anchor's depth was
-      // taken.
+      // Nothing in this fluid detaches by pinching at its own edge. It draws
+      // out a neck and the neck breaks late: measured off the footage, the
+      // neck runs about one and a half bulb diameters and the bulb is at full
+      // size long before it lets go. So the drop stays connected for the first
+      // half of its travel and this is the number that says when it stops.
+      float free = smoothstep(0.42, 0.60, k);
+
+      // The bulb never lies across the band, attached or not. Clearance is
+      // measured from the boundary rather than from the anchor: measured from
+      // the anchor, a spawn point sitting a third of a band shallow spends its
+      // whole travel budget getting back to the edge, and that is the one that
+      // ends up on top of it. The margin opens up once the neck is gone,
+      // because after that there is nothing bridging the gap.
       float clear = ad + travel - band;
       float R = min((0.030 + 0.020*hr)*(0.60 + 0.40*fade),
-                    max(clear - 0.055, 0.0)*0.85);
-      if (R < 0.004) continue;
+                    max(clear - mix(0.020, 0.055, free), 0.0)*0.88);
+      // Below this it is not a drop, it is a hairline. A radius near zero
+      // still produces a neck, and a neck around a radius near zero is a one
+      // pixel line running off across the dark.
+      if (R < 0.010) continue;
 
-      vec2  cen = anchor + normalize(-anchor)*travel;
-      float r   = length(q - cen)/R;
-      if (r > 1.12) continue;
+      vec2  dir = normalize(-anchor);
+      vec2  cen = anchor + dir*travel;
+
+      // Drawn out along its travel while the neck still has hold of it, and
+      // relaxing toward round once it does not. Round is where it is heading
+      // and not where it arrives: every free blob in ten minutes of this is an
+      // irregular oval, so the stretch settles at a tenth rather than at zero.
+      float el = 1.0 + 0.30*(1.0 - free) + 0.10;
+      vec2  dq = q - cen;
+      float r  = length(vec2(dot(dq, dir)/el, dot(dq, vec2(-dir.y, dir.x))*el))/R;
+
+      // The neck. Widest where it leaves the sheet, waisted in the middle,
+      // flaring into the bulb, which is the profile in the footage rather than
+      // a cone. It is the same body as the bulb, not a second one lying on it,
+      // so the two are unioned first and shaded once: no seam, and nothing
+      // here overlaps anything, which holds for every blob in the video too.
+      vec2  root = anchor - dir*0.030;
+      vec2  ab = cen - root;
+      float LL = max(dot(ab, ab), 1e-9);
+      float sg = clamp(dot(q - root, ab)/LL, 0.0, 1.0);
+      // Waist at four tenths of the bulb's own half width, measured off the
+      // footage: a drop there ran a 210px bulb on a 90px neck. A quarter, which
+      // is where this started, is a thread rather than a neck.
+      float wn = R*(0.95 - 0.55*smoothstep(0.0, 0.62, sg)
+                         + 0.60*smoothstep(0.62, 1.0, sg))
+               * max(1.0 - free*1.05, 0.0);
+      float rn = wn > 1e-5 ? length(q - root - ab*sg)/wn : 9.0;
+      // The union of bulb and neck. Everything below terminates against this
+      // rather than against the bulb alone, which is what silently deleted the
+      // neck: outside the bulb its own radius is past the cutoff, so the ramp
+      // that ends the limb was ending the neck with it.
+      float rm = min(r, rn);
+      if (rm > 1.12) continue;
 
       // The drop is a small sphere, and its own grazing angle runs the other
       // way round from the frame's: straight through at the middle, fully edge
@@ -405,18 +457,30 @@ void main(){
       // limb and the middle and crosses the frame's own lip on the way, and
       // what that draws is a bullseye. A bubble this size shows one colour
       // with a gradient across it, not five rings.
-      float ct = sqrt(max(1.0 - min(r, 1.0)*min(r, 1.0), 0.0));
-      float dd = mix(0.20, 0.72, ct)*band;
-
-      // Two ways out, and both are the same move: slide past the band's own
-      // termination and stop existing. One ends the limb, the other is the
-      // drop dying. Quiet, no burst.
+      // One depth for the whole body, taken off the union's own radius rather
+      // than one per shape. Shading each separately and taking the min drew
+      // the neck's flared end as a limb inside the bulb, which came out as a
+      // second oval crossing the first: exactly the overlap this is supposed
+      // to rule out, and it was one blob the whole time.
       //
-      // onEdge stays out of this. Folded in as a strength it pushed every drop
-      // that was not perfectly placed past the termination too, so the only
-      // ones that ever rendered were the handful sitting exactly on the
-      // boundary. It decides whether a drop forms, not how real it is.
-      dd = mix(dd, band*1.10, max(smoothstep(0.90, 1.10, r), 1.0 - fade));
+      // Each shape still ends on its own radius, and that matters more than it
+      // looks. A depth that stays shallow outside its own body wins the min()
+      // against everything around it, so the bulb was declaring its brightest
+      // value across the whole cell and the neck's root came out as a separate
+      // bead lying on the sheet instead of merging into it.
+      float ct = sqrt(max(1.0 - min(rm, 1.0)*min(rm, 1.0), 0.0));
+      float dd = mix(mix(0.20, 0.72, ct)*band, band*9.0,
+                     smoothstep(0.92, 1.06, rm));
+
+      // The neck's root is the sheet, so at the root it declares exactly what
+      // the sheet already declares here and only becomes its own thing as it
+      // leaves. Ramping to a fixed value instead, which is where this started,
+      // leaves the capsule's rounded end cap sitting on the sheet as a flat
+      // disc of its own colour with a visible outline: a bead again, just a
+      // dimmer one. By the bulb the segment parameter has long since
+      // saturated, so none of this costs the bulb anything.
+      dd = mix(inward, dd, smoothstep(0.0, 0.40, sg));
+      dd = mix(dd, band*1.10, 1.0 - fade);
       inward = min(inward, dd);
     }
   }
