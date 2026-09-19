@@ -34,19 +34,20 @@ capabilities instead of claiming an unsupported slash command or hook ran.
 
 ## Working standards
 
-Make focused changes using the existing project conventions. Investigate the actual
-error and its callers before fixing it. Validate external data, parameterize SQL,
-check authorization, and never print credentials or personal data in logs. Preserve
-loading, error, empty, and mobile states when changing a UI. Avoid implicit `any`,
-unchecked null assertions, dead code, and swallowed errors. Use clear names and plain
-prose. Do not use emojis or em dashes in code, documentation, or responses.
+The detailed standards live in `.claude/rules/` (git, security, naming,
+review-discipline, context-discipline, typescript, design-system, deploy-gate)
+and in the user's global instructions, both of which already load for the
+primary agent. Nothing here restates them. What is specific to a non-Claude
+agent: that path metadata and those Claude-only instructions are not executable
+hooks elsewhere, so use supported tools and never claim an unsupported slash
+command or hook ran.
 
-Run appropriate syntax and regression checks. Chewbacca's hermetic suite is
-`bash tests/run.sh`; pass a group name as its positional argument. Live checks
-are separate: `chewbacca live --list` lists checks that touch real apps or models.
-Normal doctor never spends model quota. Use `ai-scan` and `slop-check` for prose and
-`code-slop` for code when installed. Read back generated files and verify the edit
-landed. Report observed outcomes, failures, and skipped checks accurately.
+Chewbacca's hermetic suite is `bash tests/run.sh`; pass a group name as its
+positional argument. Live checks are separate: `chewbacca live --list` lists the
+checks that touch real apps or models. Normal doctor never spends model quota.
+Use `ai-scan` and `slop-check` for prose and `code-slop` for code when installed.
+Read back generated files and verify the edit landed. Report observed outcomes,
+failures, and skipped checks accurately.
 
 Run independent reads in parallel. Delegate only substantial independent tracks
 when the active agent supports delegation. Keep file ownership clear and preserve

@@ -32,6 +32,7 @@ These load into every session, about 4,100 tokens total. They apply
 regardless of language or framework, so they are imported rather than left to
 be discovered.
 
+@~/.claude/rules/agent-neutral.md
 @~/.claude/rules/git.md
 @~/.claude/rules/security.md
 @~/.claude/rules/writing.md

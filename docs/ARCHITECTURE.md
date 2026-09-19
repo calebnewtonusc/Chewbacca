@@ -89,3 +89,43 @@ install list are generated from the tree by `tools/counts.py` and
 **Nothing prompts.** Bypass mode is on by default, with a deny list for what
 stays blocked. See [THREAT-MODEL.md](THREAT-MODEL.md) for what that buys and
 what it costs.
+
+## Agent roles
+
+Claude Code remains the primary Chewbacca agent. Its `.claude/` rules, skills,
+slash commands, subagents, hooks, and context wiring retain their existing roles.
+Codex is an optional secondary coding agent for intentional use or when Claude
+credits are unavailable. Start it with `codex` from the Chewbacca repository.
+ChatGPT Web is the signed-in browser model backend used by `mac-use` and the
+reverse gateway. It is separate from both coding agents.
+
+`instructions/agent-neutral.md` is the shared operational context. Setup installs
+it as a Claude rule, and `python3 tools/agents_md.py` generates the repository's
+`AGENTS.md` from it. The generator enforces a 24 KiB ceiling, leaving room within
+Codex's default 32 KiB project instruction budget for ancestor instructions.
+`python3 tools/agents_md.py --check` checks freshness without writing. The export
+contains guidance and paths to relevant rules and skills, without copying Claude
+hooks, imported memory, session rituals, or the entire task-specific rule tree.
+Do not edit the generated file. Codex reads AGENTS.md on a fresh session. The
+explicit native adapter translates supported shared hooks; Claude's MCP tools
+and permission settings are not imported.
+
+Codex's native SessionStart hook reads the live identity, current priorities,
+people, voice, and memory index. Global instructions retain the
+`tools/codex_context.py` reader as a fallback before answering.
+It follows the index for task-specific detail. The personal context stays in the
+shared private second brain; public exports contain no personal facts or credentials.
+Existing global Codex instructions are preserved. Codex does not run the Claude auto-sync
+hooks. Setup never installs Codex or makes it the default. Missing Codex is a
+normal optional state in doctor, and does not block setup. See
+[Codex hooks](CODEX-HOOKS.md) for event mappings, trust activation, and limitations.
+
+`chewbacca status --json` includes backend states. `chewbacca doctor` probes CLI
+login status and the browser bridge without asking a model anything. States mean:
+`missing` is absent, `installed` is present but unproven, `unhealthy` failed a
+probe, and `healthy` passed the indicated probe. Browser health means an idle,
+usable tab and working Apple Events JavaScript; only a live check proves a model
+round trip. `chewbacca live codex` checks version, login, and exported instructions.
+Set `CHEWBACCA_CODEX_LIVE=1` for its small read-only model discovery check.
+`chewbacca live chatgpt` tests the signed-in browser backend and can skip when the
+session is unavailable.

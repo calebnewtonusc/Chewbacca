@@ -1,27 +1,34 @@
 #!/usr/bin/env bash
-# mac-use: one-shot macOS UI agent, backed by browser-use/macOS-use (mlx_use).
-#
-# The upstream repo ships examples, not a CLI. This wraps the Agent loop so a
-# task can be run from anywhere without activating a venv or editing a script.
-#
-#   mac-use "open Calculator and compute 5 x 4"
-#   mac-use --steps 40 --vision "read the frontmost Safari tab title"
-#
-# Needs one of GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY, and
-# Accessibility permission for the terminal running it.
+# mac-use: one-shot macOS UI agent powered by browser-use/macOS-use.
+# Chewbacca owns the provider adapters; macOS-use supplies the runtime/venv.
 set -euo pipefail
 
-# mlx_use ships PostHog telemetry on by default. Off unless asked for.
 export ANONYMIZED_TELEMETRY="${ANONYMIZED_TELEMETRY:-false}"
 
-REPO="${MACOS_USE_HOME:-$HOME/Projects/macOS-use}"
-PY="$REPO/.venv/bin/python"
+MACOS_USE="${MACOS_USE_HOME:-$HOME/Projects/macOS-use}"
+PY="$MACOS_USE/.venv/bin/python"
 
 if [ ! -x "$PY" ]; then
-  echo "mac-use: macOS-use venv missing at $REPO/.venv" >&2
-  echo "  git clone https://github.com/browser-use/macOS-use.git $REPO" >&2
-  echo "  cd $REPO && uv venv --python 3.11 && uv pip install --editable ." >&2
+  echo "mac-use: macOS-use venv missing at $MACOS_USE/.venv" >&2
+  echo "  run: chewbacca setup --only tools" >&2
   exit 1
 fi
 
-exec "$PY" "$REPO/mac_use_cli.py" "$@"
+# Resolve this launcher, including ~/.local/bin symlinks. Another checkout's
+# chewbacca command on PATH must never redirect provider ownership.
+src="${BASH_SOURCE[0]}"
+while [ -L "$src" ]; do
+  dir="$(cd -P "$(dirname "$src")" && pwd)"
+  src="$(readlink "$src")"
+  [[ $src != /* ]] && src="$dir/$src"
+done
+CHEWBACCA_ROOT="$(cd -P "$(dirname "$src")/.." && pwd)"
+
+CLI="$CHEWBACCA_ROOT/bin/mac_use_cli.py"
+[ -f "$CLI" ] || {
+  echo "mac-use: provider CLI missing at $CLI" >&2
+  exit 1
+}
+
+export PYTHONPATH="$CHEWBACCA_ROOT/bin${PYTHONPATH:+:$PYTHONPATH}"
+exec "$PY" "$CLI" "$@"

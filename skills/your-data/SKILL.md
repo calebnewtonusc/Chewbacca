@@ -1,6 +1,6 @@
 ---
 name: your-data
-description: "Decide what Chewbacca is allowed to read, then get it in. Use when somebody has just installed this and does not know where to start, asks what it can see or what it can read, asks how to get their life into it, says they want to get organised, asks which permissions it needs or why macOS is asking for something, wants to import their messages, contacts, LinkedIn, email, calendar, notes, or files, or asks what to do with a Google Drive or Takeout export. Also use when a question could not be answered because the data was never imported, and when deciding what to import next."
+description: "Decide what Chewbacca is allowed to read, then get it in. Use when somebody has just installed this and does not know where to start, asks what it can see or read, asks how to get their life into it, asks which permissions it needs or why macOS is prompting, wants to import messages, contacts, LinkedIn, email, calendar, notes or files, or asks what to do with a Google Drive or Takeout export. Also use when a question could not be answered because the data was never imported, and when deciding what to import next."
 ---
 
 # Getting somebody's life into this

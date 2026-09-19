@@ -1,6 +1,6 @@
 ---
 name: graph-engineering
-description: Teaches an agent graph engineering, both halves. Knowledge graphs (ontology design, entity/relation/event extraction, fusion, GraphRAG/memory serving; distilled and translated from Southeast University's graduate Knowledge Graph course, npubird/KnowledgeGraphCourse, 4.4K stars) and task graphs (agent orchestration, parallel fan-out, verifier separation, the stop rule, human gates). Use when asked to build a knowledge graph, extract entities/relations from text, design an ontology, dedupe/merge entities, add graph memory or GraphRAG to an agent, orchestrate multi-agent workflows as a graph, or LEARN graph engineering, in teaching mode the agent explains each stage with worked examples and generates visual diagram artifacts.
+description: 'Teaches an agent graph engineering, both halves: knowledge graphs (ontology design, entity/relation/event extraction, fusion, GraphRAG/memory serving) and task graphs (agent orchestration, parallel fan-out, verifier separation, the stop rule, human gates). Use when asked to build a knowledge graph, extract entities or relations from text, design an ontology, dedupe or merge entities, add graph memory or GraphRAG to an agent, orchestrate multi-agent workflows as a graph, or LEARN graph engineering, where teaching mode explains each stage with worked examples and diagrams.'
 ---
 
 # Graph Engineering
