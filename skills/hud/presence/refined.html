@@ -311,31 +311,77 @@ void main(){
         },
         {
           name: "Chromatic",
-          note: "a split hairline drives the rim out to the edges",
+          note: "a split hairline drives the rim out, then the rim becomes a film",
           gain: 0.65,
           src: `
-// One luminous rim profile, sampled per channel at a different width. The whole
-// model is this function called three times.
-float rim(vec2 uv, float k, float warp){
-  float e = min(min(uv.x, 1.0-uv.x), min(uv.y, 1.0-uv.y));
-  return exp(-max(e + warp, 0.0)*k);
+// How much of the film's colour reaches the glow. Swept against the rim band
+// weighted by its own light, not along a line: at 1.0 the median saturation of
+// the lit frame is 0.52 and the frame is an oil slick. 0.38 puts the median at
+// 0.02 to 0.10 over the breath, which is a cast you notice only once you have
+// been looking at it.
+#define CHROMA 0.38
+
+float rimAt(float e, float k, float warp){ return exp(-max(e + warp, 0.0)*k); }
+
+// Belcour and Barla's pre-integrated spectral response, verbatim from
+// KHR_materials_iridescence. A soap film is not a hue ramp. It is the whole
+// visible spectrum interfering with itself at one optical path difference,
+// integrated against the eye's three sensitivities.
+//
+// The exp(-phase^2*var) term is the reason to use this rather than rotate a
+// hue: it is why a thickening film washes out to pearl instead of cycling
+// saturated rainbows forever, and cycling forever is exactly the tell that
+// makes hand-rolled iridescence look like an oil slick decal.
+vec3 film(float opd){
+  float phase = 6.2831853*opd*1.0e-9;
+  vec3 val = vec3(5.4856e-13, 4.4201e-13, 5.2481e-13);
+  vec3 pos = vec3(1.6810e+06, 1.7953e+06, 2.2084e+06);
+  vec3 vr  = vec3(4.3278e+09, 9.3046e+09, 6.6121e+09);
+  vec3 xyz = val*sqrt(6.2831853*vr)*cos(pos*phase)*exp(-phase*phase*vr);
+  xyz.x += 9.7470e-14*sqrt(6.2831853*4.5282e+09)
+         * cos(2.2399e+06*phase)*exp(-4.5282e+09*phase*phase);
+  xyz /= 1.0685e-7;
+  return mat3( 3.2404542, -0.9692660,  0.0556434,
+              -1.5371385,  1.8760108, -0.2040259,
+              -0.4985314,  0.0415560,  1.0572252)*xyz;
+}
+
+// Arc length around the frame. The bands have to run continuously through the
+// corners, and a per-edge coordinate restarts at every one of them.
+float perim(vec2 p, float w){
+  float dl = p.x, dr = w - p.x, db = p.y, dt = 1.0 - p.y;
+  float m = min(min(dl, dr), min(db, dt));
+  if(m == db) return p.x;
+  if(m == dr) return w + p.y;
+  if(m == dt) return w + 1.0 + (w - p.x);
+  return 2.0*w + 1.0 + (1.0 - p.y);
 }
 
 void main(){
   vec2 uv = vUV;
   float t = u_act;
+  float W = u_res.x/u_res.y;
+  float e = min(min(uv.x, 1.0-uv.x), min(uv.y, 1.0-uv.y));
 
   float s1     = stage(t, 0.00, 0.07);
   float s2     = stage(t, 0.06, 0.52);
   float s3     = stage(t, 0.07, 0.42);
   float settle = stage(t, 0.45, 1.45);
 
+  // One breath drives the falloff, the thickness and the split together. Two
+  // sines at their own rates read as two layers sitting on each other rather
+  // than as one object. The phase is modulated so the swing is not symmetric,
+  // because a breath is not: it moves through the thin half faster than it
+  // rests in the thick.
+  float bp = u_time*0.72;
+  float breath = sin(bp + 0.45*sin(bp));
+
   // Fronts overshoot past the edge rather than stopping on it, so the wake
   // below reaches 1 everywhere instead of leaving the top and bottom unlit.
   float travel = expoOut(s2);
   float y = abs(uv.y - 0.5);
   float frontY = travel*0.58;
-  float warp = fbm(uv*vec2(u_res.x/u_res.y,1.0)*3.0 + u_time*0.05)*0.020;
+  float warp = fbm(uv*vec2(W,1.0)*3.0 + u_time*0.05)*0.020;
 
   vec3 c = vec3(0.0);
 
@@ -352,20 +398,91 @@ void main(){
   // The rim lights only where a front has already passed, so the frame unzips
   // from the middle of each long edge outward instead of fading in as a whole.
   float passed = smoothstep(frontY, frontY - 0.09, y);
-  float base  = 19.0 + sin(u_time*0.28)*0.90;
-  // Separation converges on a damped spring, crossing the rest point twice.
-  float split = 0.55 + (1.0 - spring(settle, 15.0, 4.2))*5.0;
-  c.r += rim(uv, base - split*0.85, warp)*passed*s3;
-  c.g += rim(uv, base,              warp)*passed*s3;
-  c.b += rim(uv, base + split*0.85, warp)*passed*s3;
+  float base  = 19.0 + breath*0.90;
+  // Separation converges on a damped spring, crossing the rest point twice,
+  // and the rest point is zero. It used to settle at 0.55, which left blue on
+  // a steeper falloff than red for good: a standing green bias across the
+  // whole band that pinned the film's cool half at 159 degrees however the
+  // thickness was tuned. The fringe belongs to the move. At rest the three
+  // channels share one profile and the film owns the colour.
+  float split = (1.0 - spring(settle, 15.0, 4.2))*5.0;
+  c.r += rimAt(e, base - split*0.85, warp)*passed*s3;
+  c.g += rimAt(e, base,              warp)*passed*s3;
+  c.b += rimAt(e, base + split*0.85, warp)*passed*s3;
 
   // The hit as both fronts reach the edge.
-  c += exp(-pow((t-0.52)/0.055, 2.0))*rim(uv, 11.0, 0.0)*0.55;
+  c += exp(-pow((t-0.52)/0.055, 2.0))*rimAt(e, 11.0, 0.0)*0.55;
 
-  // A very fine scan texture inside the glow: below the threshold of being read
-  // as a pattern, above the threshold of being felt as material.
-  float lum = max(max(c.r,c.g),c.b);
-  c *= 1.0 + 0.07*sin(uv.y*u_res.y*0.85)*smoothstep(0.02, 0.5, lum);
+  // --- what it does while nothing is happening -----------------------------
+  // Thickness varies along the perimeter as a handful of broad bands that
+  // rotate around the frame and slowly change shape underneath the rotation.
+  // Sampling on a circle makes the field exactly periodic in arc length, so
+  // there is no seam at the corner where s wraps back to zero.
+  //
+  // Everything here is deliberately low spatial frequency. Static is
+  // uncorrelated between neighbouring pixels; a film is smooth over hundreds
+  // of them and moves by drifting rather than by twinkling in place.
+  float ang = perim(vec2(uv.x*W, uv.y), W)/(2.0*(W + 1.0))*6.2831853;
+  vec2 q = vec2(cos(ang + u_time*0.030), sin(ang + u_time*0.030))*2.2;
+  float bands = (noise(q + vec2(0.0, u_time*0.016))
+              + 0.42*noise(q*2.1 + vec2(u_time*0.021, 0.0)))/1.42;
+
+  // Depth into the rim stands in for viewing angle, but only just. Driving a
+  // whole order across the band depth put concentric green and magenta rings
+  // around the frame, which is a decal, not a film. A film's colour travels
+  // along the surface. Across the thickness of a glow it barely moves.
+  float grazing = clamp(e*7.0, 0.0, 1.0);
+
+  // The sheen tilts toward the pointer. Iridescence is the one colour that is
+  // a function of where you are looking from, and on a flat panel the only
+  // thing standing in for a viewing angle is the cursor. Reads as -9999 with
+  // no mouse on screen, which falls off to nothing on its own.
+  float glance = exp(-length(gl_FragCoord.xy - u_cursor)/260.0);
+
+  // 1248 to 1350 nm, and the window is the whole decision.
+  //
+  // Below about 700 the film is in its low orders, where the hue runs red to
+  // blue to green to orange inside a hundred nanometres at full saturation.
+  // That is the oil slick on a puddle and it looks like a decal.
+  //
+  // 1285 is a crossing: rose on one side, cyan on the other, and a nearly
+  // colourless point between them. Centred there, the whole swing is rose to
+  // white to cyan and back. A wider one walked the hue right around the wheel
+  // through orange and green in nine seconds, which is a mood ring.
+  //
+  // Almost none of the swing is spatial. A full order along the perimeter put
+  // a cyan third and a rose third on opposite sides of the screen: a striped
+  // bangle, not a sheen. The frame holds one hue at a time. What moves it is
+  // the breath and the pointer, not the position on the edge.
+  float nm = 1285.0 + 24.0*breath + 5.0*(bands*2.0 - 1.0)
+           + 4.0*grazing + 14.0*glance;
+
+  // Hard stop before the green. Past about 1312 the cyan side slides from 178
+  // degrees down toward 160, and a faint green over a white glow reads as a
+  // dirty panel rather than as a colour. The breath and the pointer can both
+  // push that way, so clamping the thickness is what stops them having to be
+  // budgeted against each other: either one alone can reach the limit and
+  // neither can go past it.
+  nm = clamp(nm, 1252.0, 1300.0);
+
+  // Two-beam reflectance, not the bare integral. film() is the AC part alone
+  // and decays to zero as the film thickens, so normalising it by its own
+  // luminance hands back a fully saturated colour from what ought to be an
+  // almost colourless thick film. Measured that way the whole rim came back at
+  // 0.78 saturation, uniform: an RGB keyboard rather than a bubble. Adding the
+  // DC term first is what makes the high orders wash out to pearl. The minus
+  // sign is the half-wave shift at the front face, which is also why a real
+  // film goes black just before it pops.
+  vec3 iri = max(0.5*(vec3(1.0) - film(2.0*1.33*nm)), vec3(0.0));
+  float il = dot(iri, vec3(0.2126, 0.7152, 0.0722));
+  // Normalised to unit luminance, so the iridescence lives entirely in chroma.
+  // A film that modulates brightness reads as flicker, not as material.
+  iri = il > 0.02 ? iri/il : vec3(1.0);
+
+  // Held back until the activation has landed. During the move the colour
+  // belongs to the motion, and two colour stories at once is mud.
+  float alive = smoothstep(0.25, 1.0, settle);
+  c *= mix(vec3(1.0), iri, alive*CHROMA);
 
   o = vec4(c*1.9*u_gain, 1.0);
 }
@@ -738,8 +855,17 @@ void main(){
           return;
         }
 
-        const tNow = frozen !== null ? 12.0 : now / 1000;
-        const tAct = frozen !== null ? frozen : (now - actStart) / 1000;
+        // Overridable so the idle can be sampled at a known phase. The breath
+        // and the film drift are both slow, and eyeballing a 9 second cycle is
+        // how you end up calling a dead frame alive.
+        const tNow =
+          window.__t != null ? window.__t : frozen !== null ? 12.0 : now / 1000;
+        const tAct =
+          window.__act != null
+            ? window.__act
+            : frozen !== null
+              ? frozen
+              : (now - actStart) / 1000;
 
         gl.disable(gl.BLEND);
 
