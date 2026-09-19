@@ -214,6 +214,26 @@ if group "tools"; then
   fi
   check  "secret scan finds nothing in the repo" python3 "$ROOT/bin/secret-scan" "$ROOT"
   check  "checksums are current" python3 "$ROOT/tools/checksums.py" --check
+  # The checksum file is not decoration. start.sh verifies every downloaded
+  # file against it and aborts the install on a single mismatch. On 2026-09-19
+  # a generated edit to setup.sh shipped without regenerating it, so the
+  # README's one-line install died on every machine while a pinned tag still
+  # worked, and it looked like the testers' fault. This walks the same loop
+  # start.sh walks, against the real tree.
+  check  "start.sh's own checksum gate passes on this tree" bash -c '
+    cd "$1" || exit 1
+    mismatches=0
+    while IFS= read -r line; do
+      want="${line%% *}"; file="${line##* }"
+      [ -f "$file" ] || continue
+      got="$(shasum -a 256 "$file" | cut -d" " -f1)"
+      [ "$want" = "$got" ] || { echo "mismatch: $file"; mismatches=$((mismatches + 1)); }
+    done < SHA256SUMS.txt
+    [ "$mismatches" -eq 0 ]' _ "$ROOT"
+  # The generator that rewrites setup.sh has to rewrite the checksums with it,
+  # or the two drift apart again the next time the inventory regenerates.
+  check  "the inventory generator regenerates checksums too" \
+    grep -q "checksums.py" "$ROOT/tools/inventory.py"
   check  "skills declare their tool dependencies" bash -c "python3 '$ROOT/tools/skill_requires.py' | grep -q '^chewie:'"
   # A skill whose YAML is malformed is not registered, so it never fires and
   # the user concludes the skill is bad at triggering. life-ops shipped that
@@ -298,6 +318,53 @@ if group "installer"; then
   expect "portable profile installs no Mac tools" "Claude and Codex configuration, no Mac tools" bash "$ROOT/setup.sh" --dry-run --profile portable --name CI
   exits  "an unknown profile exits 2" 2 bash "$ROOT/setup.sh" --dry-run --profile nonsense --name CI
   check  "no read calls in the installer" bash -c "! grep -nE '^[[:space:]]*read (-[a-z]+ )*' '$ROOT/setup.sh'"
+
+  # Everything below was found by watching two people install this on their own
+  # machines on 2026-09-19. Each one is a thing they hit, not a thing imagined.
+
+  # The personal profile creates no repos, so demanding a GitHub account and a
+  # git identity produced a screenful of red BLOCKED lines about something the
+  # install never needed. Red text during an install reads as a broken product.
+  check  "bootstrap does not demand GitHub in the personal profile" bash -c "
+    ! bash '$ROOT/bin/bootstrap.sh' --check --profile personal 2>&1 | grep -qi 'gh auth login'"
+  check  "bootstrap still demands GitHub in the developer profile" bash -c "
+    bash '$ROOT/bin/bootstrap.sh' --check --profile developer 2>&1 | grep -qiE 'gh auth login|signed in as'"
+  check  "start.sh passes the profile to bootstrap" \
+    grep -q 'bootstrap.sh" --profile' "$ROOT/start.sh"
+
+  # An agent types this line, from a README it skimmed, and agents mistype.
+  # Each of these spellings used to exit 2 with no install and no explanation.
+  for _flag in --fullsend --full_send -full-send --FULL-SEND --yolo; do
+    expect "start.sh survives $_flag" "stopping here" \
+      bash "$ROOT/start.sh" "$_flag" --dry-run
+  done
+  expect "an unknown flag warns instead of aborting" "ignoring unrecognized option" \
+    bash "$ROOT/start.sh" --nonsense --dry-run
+  # --version used to silently mean "pin to this tag", so it ate the next
+  # argument and never printed a version.
+  check  "start.sh --version prints a version" bash -c "
+    bash '$ROOT/start.sh' --version | grep -q 'repo version'"
+
+  # Thirty-plus minutes is fine for the person who lives in this kit and
+  # useless inside a twenty minute call.
+  expect "--fast skips the slow sections" "skipping editor desktop mcp plugins tools plynn" \
+    bash "$ROOT/setup.sh" --dry-run --fast --name CI
+
+  # A signed-out Claude CLI failed all nineteen plugin installs, one red line
+  # each. Probe once, skip once.
+  check  "the plugin section probes the CLI before looping" \
+    grep -q "claude plugin marketplace list </dev/null" "$ROOT/setup.sh"
+
+  # The worst one. `gh api user` exits 4 when nobody is signed in, and as a bare
+  # assignment under set -e that killed the whole install after a single line of
+  # output, with no error. Every new personal-profile install died there. This
+  # runs the real thing into a throwaway HOME and insists it reaches the end.
+  check  "a personal install finishes in a clean HOME with no GitHub" bash -c '
+    sandbox="$(mktemp -d)"
+    HOME="$sandbox" bash "$1/setup.sh" --profile personal --fast \
+      --name CI > "$sandbox/install.log" 2>&1 || {
+        echo "install exited $?"; tail -5 "$sandbox/install.log"; exit 1; }
+    grep -q "Try asking it" "$sandbox/install.log"' _ "$ROOT"
 fi
 
 # ── CLAUDE.md merge ───────────────────────────────────────────────────────────

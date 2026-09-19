@@ -31,6 +31,7 @@ Exit codes: 0 wrote changes, 1 nothing to do, 2 error.
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -235,11 +236,14 @@ CLI_TOOLS = {
             '  [ -d "$MU_DIR/.git" ] || git clone -q --depth 1 \\',
             '    https://github.com/browser-use/macOS-use.git "$MU_DIR" 2>/dev/null || true',
             '  if [ -d "$MU_DIR" ]; then',
-            '    cp "$SCRIPT_DIR/bin/mac_use_cli.py" "$MU_DIR/mac_use_cli.py"',
-            '    cp "$SCRIPT_DIR/bin/mac_use_claude.py" "$MU_DIR/mac_use_claude.py"',
-            '    mkdir -p "$HOME/.local/bin"',
-            '    cp "$SCRIPT_DIR/bin/mac-use" "$HOME/.local/bin/mac-use"',
-            '    chmod +x "$HOME/.local/bin/mac-use"',
+            '    # macOS-use supplies the runtime and the venv; Chewbacca owns the',
+            '    # provider adapters and reads them out of its own bin/ via the',
+            '    # resolved symlink. The two copies that used to land in $MU_DIR were',
+            '    # writes into somebody else\'s checkout that nothing ever read, and',
+            '    # they overwrote any local work there. link_tool, not cp: bin/mac-use',
+            '    # walks its own symlink back to find the adapters, so a plain copy',
+            '    # points it at the wrong tree.',
+            '    link_tool mac-use',
             '    if (cd "$MU_DIR" && uv venv --python 3.11 &>/dev/null \\',
             '        && uv pip install --python .venv/bin/python --editable . &>/dev/null); then',
             '      log "mac-use installed"',
@@ -907,7 +911,24 @@ def setup_block(upstream, plugins, markets, mcp):
         '    || warn "could not install the claude CLI: npm install -g @anthropic-ai/claude-code"',
         "fi",
         "",
+        "# `command -v claude` only proves a binary is on PATH. It does not prove",
+        "# the CLI can do anything, and on a machine where it was npm-installed a",
+        "# minute ago and never signed in, every plugin install below fails. Two",
+        "# people testing this on 2026-09-19 watched nineteen consecutive red",
+        "# lines scroll past, which reads as a broken product rather than as one",
+        "# optional step being unavailable. Ask it one cheap question first.",
+        "PLUGINS_OK=0",
         "if command -v claude &>/dev/null; then",
+        "  if claude plugin marketplace list </dev/null &>/dev/null; then",
+        "    PLUGINS_OK=1",
+        "  else",
+        '    warn "Claude Code is installed but not signed in yet, so plugins were skipped."',
+        '    warn "  Sign in by running: claude"',
+        '    warn "  Then install them with: chewbacca setup --only plugins"',
+        "  fi",
+        "fi",
+        "",
+        'if [ "$PLUGINS_OK" -eq 1 ]; then',
         "  for m in \\",
     ]
     lines += [f"    {m} \\" for m in markets[:-1]] + [f"    {markets[-1]}; do"]
@@ -932,10 +953,10 @@ def setup_block(upstream, plugins, markets, mcp):
         '  if [ "$PLUGIN_FAILED" -eq 1 ]; then',
         '    warn "Some plugins failed. Retry individually: claude plugin install <name>"',
         "  fi",
-        '  warn "Plugins needing OAuth (Vercel, Railway) stay inert until you run /mcp and authorize."',
-        "else",
+        '  log "Plugins needing OAuth (Vercel, Railway) stay inert until you run /mcp and authorize."',
+        "elif ! command -v claude &>/dev/null; then",
         '  warn "claude CLI still missing. Plugins skipped: install node, then re-run"',
-        '  warn "  ./setup.sh --only plugins"',
+        '  warn "  chewbacca setup --only plugins"',
         "fi",
     ]
     if mcp:
@@ -950,7 +971,9 @@ def setup_block(upstream, plugins, markets, mcp):
             "# exported, because `claude mcp add` will happily register a server that",
             "# fails on every call, and a broken tool in the list is worse than a",
             "# missing one: the agent keeps reaching for it.",
-            "if command -v claude &>/dev/null; then",
+            "# Same probe as the plugins above: a signed-out CLI registers nothing",
+            "# and warns once per server.",
+            'if [ "$PLUGINS_OK" -eq 1 ]; then',
             "  mcp_present() { claude mcp list 2>/dev/null | grep -q \"^$1:\"; }",
             "",
             "  while IFS='|' read -r M_NAME M_CMD M_ARGS; do",
@@ -1140,6 +1163,23 @@ def main():
 
     if not changed:
         return 1
+
+    # SHA256SUMS.txt covers setup.sh, and start.sh refuses to install when a
+    # downloaded file does not match it. Rewriting setup.sh here without
+    # rewriting the checksums put a tree on main that aborted every install
+    # from the README's own one-line command, while a pinned tag still worked,
+    # so the break looked like a user problem. Regenerating here means the two
+    # files cannot drift apart in the first place.
+    if "setup.sh" in changed:
+        try:
+            subprocess.run(
+                [sys.executable, str(REPO / "tools" / "checksums.py")],
+                check=True, capture_output=True,
+            )
+            changed.append("SHA256SUMS.txt")
+        except Exception as exc:
+            print(f"checksums not regenerated: {exc}", file=sys.stderr)
+
     print("\n".join(changed))
     return 0
 

@@ -312,6 +312,24 @@ initialize_personal_context() {
   fi
 }
 
+# Telling somebody their PATH is wrong, at the end of an install, is handing
+# them a chore. start.sh already writes this line into their shell; setup.sh
+# run on its own did not, so it warned twice about something it could have
+# fixed in three lines. Do the edit, then say what it did.
+ensure_local_bin_on_path() {
+  local rc added=0
+  case ":$PATH:" in *":$HOME/.local/bin:"*) return 0 ;; esac
+  for rc in "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.profile"; do
+    [ -f "$rc" ] || continue
+    grep -q '.local/bin' "$rc" 2>/dev/null && continue
+    printf '\n# Added by Chewbacca\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$rc"
+    added=1
+  done
+  export PATH="$HOME/.local/bin:$PATH"
+  [ "$added" -eq 1 ] && log "Added ~/.local/bin to your PATH. New terminals pick it up automatically."
+  return 0
+}
+
 link_tool() {
   local name="$1" src="$SCRIPT_DIR/bin/$1" dst="$HOME/.local/bin/$1"
   [ -f "$src" ] || return 1
@@ -457,7 +475,18 @@ else
 fi
 
 # A passed --github-user wins; the logged-in account is only the fallback.
-GITHUB_USER="${GITHUB_USER:-$(gh api user --jq .login 2>/dev/null)}"
+#
+# `VAR="$(failing-cmd)"` as a standalone assignment exits under set -e, and
+# `gh api user` exits 4 on a machine where gh is installed but nobody has
+# signed in, which is every machine running the personal profile. The whole
+# install died right here, silently, with no error and exit 4, after printing
+# one line about git identity. The same mistake was already found and fixed
+# thirteen lines below this one; this copy was missed.
+#
+# NO_GITHUB means no repo is ever created, so there is nothing to look up.
+if [ "$NO_GITHUB" -eq 0 ]; then
+  GITHUB_USER="${GITHUB_USER:-$(gh api user --jq .login 2>/dev/null || true)}"
+fi
 fi
 
 # ── Collect info ──────────────────────────────────────────────────────────────
@@ -717,10 +746,7 @@ if [ -n "$_installed_scanners" ]; then
   else
     warn "Installed$_installed_scanners but node is missing, so they will not run until you install node >= 18"
   fi
-  case ":$PATH:" in
-    *":$HOME/.local/bin:"*) ;;
-    *) warn "~/.local/bin is not on your PATH. Add it to run$_installed_scanners by name." ;;
-  esac
+  ensure_local_bin_on_path
 fi
 unset _tool _installed_scanners
 
@@ -743,10 +769,7 @@ if [ -n "$_installed_hud" ]; then
     warn "BobHUD.app is not installed, so hud has nothing to draw on."
     warn "Build it: git clone https://github.com/calebnewtonusc/bob-the-builder && cd bob-the-builder/hud && ./scripts/bundle.sh"
   fi
-  case ":$PATH:" in
-    *":$HOME/.local/bin:"*) ;;
-    *) warn "~/.local/bin is not on your PATH. Add it to run$_installed_hud by name." ;;
-  esac
+  ensure_local_bin_on_path
 fi
 unset _tool _installed_hud
 
@@ -1497,7 +1520,24 @@ if ! command -v claude &>/dev/null && command -v npm &>/dev/null; then
     || warn "could not install the claude CLI: npm install -g @anthropic-ai/claude-code"
 fi
 
+# `command -v claude` only proves a binary is on PATH. It does not prove
+# the CLI can do anything, and on a machine where it was npm-installed a
+# minute ago and never signed in, every plugin install below fails. Two
+# people testing this on 2026-09-19 watched nineteen consecutive red
+# lines scroll past, which reads as a broken product rather than as one
+# optional step being unavailable. Ask it one cheap question first.
+PLUGINS_OK=0
 if command -v claude &>/dev/null; then
+  if claude plugin marketplace list </dev/null &>/dev/null; then
+    PLUGINS_OK=1
+  else
+    warn "Claude Code is installed but not signed in yet, so plugins were skipped."
+    warn "  Sign in by running: claude"
+    warn "  Then install them with: chewbacca setup --only plugins"
+  fi
+fi
+
+if [ "$PLUGINS_OK" -eq 1 ]; then
   for m in \
     Egonex-AI/Understand-Anything \
     anthropics/claude-plugins-official \
@@ -1539,10 +1579,10 @@ if command -v claude &>/dev/null; then
   if [ "$PLUGIN_FAILED" -eq 1 ]; then
     warn "Some plugins failed. Retry individually: claude plugin install <name>"
   fi
-  warn "Plugins needing OAuth (Vercel, Railway) stay inert until you run /mcp and authorize."
-else
+  log "Plugins needing OAuth (Vercel, Railway) stay inert until you run /mcp and authorize."
+elif ! command -v claude &>/dev/null; then
   warn "claude CLI still missing. Plugins skipped: install node, then re-run"
-  warn "  ./setup.sh --only plugins"
+  warn "  chewbacca setup --only plugins"
 fi
 
 # MCP servers, curated from mcpmarket.com. See docs/EXTENSIONS.md.
@@ -1552,7 +1592,9 @@ fi
 # exported, because `claude mcp add` will happily register a server that
 # fails on every call, and a broken tool in the list is worse than a
 # missing one: the agent keeps reaching for it.
-if command -v claude &>/dev/null; then
+# Same probe as the plugins above: a signed-out CLI registers nothing
+# and warns once per server.
+if [ "$PLUGINS_OK" -eq 1 ]; then
   mcp_present() { claude mcp list 2>/dev/null | grep -q "^$1:"; }
 
   while IFS='|' read -r M_NAME M_CMD M_ARGS; do
@@ -1741,11 +1783,14 @@ else
   [ -d "$MU_DIR/.git" ] || git clone -q --depth 1 \
     https://github.com/browser-use/macOS-use.git "$MU_DIR" 2>/dev/null || true
   if [ -d "$MU_DIR" ]; then
-    cp "$SCRIPT_DIR/bin/mac_use_cli.py" "$MU_DIR/mac_use_cli.py"
-    cp "$SCRIPT_DIR/bin/mac_use_claude.py" "$MU_DIR/mac_use_claude.py"
-    mkdir -p "$HOME/.local/bin"
-    cp "$SCRIPT_DIR/bin/mac-use" "$HOME/.local/bin/mac-use"
-    chmod +x "$HOME/.local/bin/mac-use"
+    # macOS-use supplies the runtime and the venv; Chewbacca owns the
+    # provider adapters and reads them out of its own bin/ via the
+    # resolved symlink. The two copies that used to land in $MU_DIR were
+    # writes into somebody else's checkout that nothing ever read, and
+    # they overwrote any local work there. link_tool, not cp: bin/mac-use
+    # walks its own symlink back to find the adapters, so a plain copy
+    # points it at the wrong tree.
+    link_tool mac-use
     if (cd "$MU_DIR" && uv venv --python 3.11 &>/dev/null \
         && uv pip install --python .venv/bin/python --editable . &>/dev/null); then
       log "mac-use installed"
@@ -1901,6 +1946,13 @@ section "Verifying the install"
 if [ -x "$SCRIPT_DIR/doctor.sh" ]; then
   if "$SCRIPT_DIR/doctor.sh"; then
     log "All checks passed"
+  elif [ "$FAST" -eq 1 ]; then
+    # A fast install left whole sections out on purpose, so doctor is supposed
+    # to find them missing. Ending a successful install on "some checks failed"
+    # tells the person their new tool is broken when it is doing what they
+    # asked, which is the single worst sentence to end an install on.
+    log "Checks for the sections --fast skipped did not pass, which is expected."
+    log "  Install the rest with: chewbacca setup"
   else
     warn "Some checks failed. Fix them, then re-run: ./doctor.sh"
   fi
