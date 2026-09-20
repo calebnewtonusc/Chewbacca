@@ -91,13 +91,14 @@ public struct RunClock: Sendable {
 
 /// The capsule at the bottom of the glass.
 ///
-/// Light where every other surface is dark, because the person asked for a
-/// white one, and because a 30pt object is small enough that the reason the
-/// cards force dark (a light HUD over a dark desktop is a white rectangle)
-/// stops applying: at this size the rectangle is a pill, which is the object
-/// asked for. The white wash, the shadow and the near-black ink are what keep
-/// it separate from a white document underneath; the snapshot test draws it
-/// over both grounds for exactly that reason.
+/// The same glass as the cards, with a lighter wash so what is behind it
+/// shows through. It was white for a day: a 30pt object is small enough that
+/// a light surface does not become the white rectangle the cards force dark
+/// to avoid, and a white one had been asked for. Then on 2026-09-19 the ask
+/// was "glassify the pill", and a translucent dark capsule over a real
+/// screen is what everything else on this glass already is. The rim, the
+/// shadow and the white ink are what keep it separate from whatever is
+/// underneath; the snapshot test draws it over both grounds for that reason.
 struct PillView: View {
     let state: PillState
     let presence: Presence
@@ -123,8 +124,9 @@ struct PillView: View {
     /// empty on a 440pt pill. Guessed, never measured.
     static let progressCap = 0.94
     /// Guessed, never measured: what the fill sweeps at while the run is on,
-    /// and what it sits at once it is over and the answer is up.
-    static let fillOpacity = 0.30
+    /// and what it sits at once it is over and the answer is up. 0.30 on the
+    /// white pill; a touch more on glass, where the wash under it is dark.
+    static let fillOpacity = 0.36
     /// How long the finished bar holds in colour before it fades, and how long
     /// the fade takes. Both guessed, never measured.
     static let sweepHold: Duration = .milliseconds(250)
@@ -179,7 +181,7 @@ struct PillView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Capsule().fill(.black.opacity(0.75)))
+                    .background(Capsule().fill(.white.opacity(0.18)))
                     .accessibilityLabel("\(state.queued) waiting")
             }
 
@@ -204,27 +206,31 @@ struct PillView: View {
             }
         }
         .background {
-            // The card's three layers with the wash flipped white. 0.22 and
-            // the 0.35 sheen are guessed, never measured; the 0.18 tint on the
-            // glass is the one number in this repo measured right for an
-            // object this size (Plynn's 168pt capsule).
+            // The card's three layers with half its wash. The card sits at
+            // 0.55 black because four hundred points of glass over a white
+            // document is mud at anything lighter; a capsule this size can
+            // afford to show what is behind it, which is the point of glass.
+            // 0.30 and the 0.14 sheen are guessed, never measured.
             ZStack {
-                VisualEffect(material: .hudWindow, blending: .behindWindow, appearance: .aqua)
-                Color.white.opacity(0.22)
+                VisualEffect(material: .hudWindow, blending: .behindWindow)
+                Color.black.opacity(0.30)
                 LinearGradient(
-                    colors: [.white.opacity(0.35), .clear],
+                    colors: [.white.opacity(0.14), .clear],
                     startPoint: .top, endPoint: .center)
             }
         }
         .clipShape(shape)
-        .modifier(LiquidGlass(shape: shape, tint: .white.opacity(0.18)))
+        .modifier(LiquidGlass(shape: shape, tint: .black.opacity(0.10)))
         .overlay {
+            // The card's rim, a little brighter: bright along the top, gone
+            // a third of the way down, back along the bottom. The return is
+            // what reads as thickness.
             shape.strokeBorder(
                 LinearGradient(
                     stops: [
-                        .init(color: .white.opacity(0.85), location: 0),
-                        .init(color: .white.opacity(0.25), location: 0.35),
-                        .init(color: .white.opacity(0.45), location: 1),
+                        .init(color: .white.opacity(0.62), location: 0),
+                        .init(color: .white.opacity(0.10), location: 0.35),
+                        .init(color: .white.opacity(0.28), location: 1),
                     ],
                     startPoint: .top, endPoint: .bottom),
                 lineWidth: 1)
@@ -232,7 +238,7 @@ struct PillView: View {
         // Half the card's shadow. Guessed, never measured.
         .shadow(color: .black.opacity(0.28), radius: 14, y: 6)
         .animation(Motion.fade(0.18, reduced: reduceMotion), value: line)
-        .environment(\.colorScheme, .light)
+        .environment(\.colorScheme, .dark)
         .task(id: state.phase) {
             sweepFaded = false
             guard state.phase == .saying || state.phase == .failed else { return }
@@ -253,13 +259,14 @@ struct PillView: View {
         let late = elapsed > clock.p90
         return Text(Duration.seconds(Int(elapsed)), format: .time(pattern: .minuteSecond))
             .font(.system(size: 11, weight: .semibold).monospacedDigit())
-            .foregroundStyle(.black.opacity(late ? 0.85 : 0.5))
+            // White digits on the glass; near-black ones on the amber plate,
+            // because white on HUD.warn is 1.5:1 and a phone camera cannot
+            // read it.
+            .foregroundStyle(late ? .black.opacity(0.85) : HUD.ink.opacity(0.62))
             .padding(.horizontal, late ? 5 : 0)
             .padding(.vertical, late ? 1 : 0)
-            // Past p90 the counter sits on amber rather than turning amber.
-            // HUD.warn as ink on this glass is 1.5:1 against white, which is
-            // not readable; as a plate behind near-black digits it is the same
-            // signal at a contrast a phone camera can see.
+            // Past p90 the counter sits on amber rather than turning amber:
+            // the same signal at a contrast a phone camera can see.
             .background(HUD.warn.opacity(late ? 0.85 : 0), in: Capsule())
             .accessibilityLabel("\(Int(elapsed)) seconds")
     }
@@ -309,7 +316,7 @@ struct PillView: View {
     }
 
     private var ink: Color {
-        isTranscript ? .black.opacity(0.58) : .black.opacity(0.85)
+        isTranscript ? HUD.ink.opacity(0.62) : HUD.ink.opacity(0.92)
     }
 
     private var helpText: String {

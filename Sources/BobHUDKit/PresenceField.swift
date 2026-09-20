@@ -383,6 +383,9 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
         var alpha: Float
         /// How far the band has parted round the pointer, 0 to 1.
         var part: Float
+        /// The parting's clear radius and its soft edge, in screen heights.
+        var partRadius: Float
+        var partFeather: Float
     }
 
     let device: MTLDevice?
@@ -423,18 +426,25 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
     /// band does not flicker between them.
     private var heard = Chase(shown: 0, tau: 0.04)
     private var part = Chase(shown: 0, tau: 0.18)
+    /// Where the parting is drawn, following the pointer rather than sitting
+    /// on it: at 20 points across, a hole that jumps between mouse events
+    /// reads as flicker, and one that trails by a few frames reads as liquid.
+    private var pointerX = Chase(shown: -10, tau: 0.04)
+    private var pointerY = Chase(shown: -10, tau: 0.04)
     /// Integrals of the eased drift and pulse rate, in the units the shader
     /// multiplies by time. Wrapped on a long period for the same float
     /// resolution reason `time` is.
     private var travel: Double = 0
     private var beat: Double = 0
 
-    /// How far from the band, in screen heights, the pointer starts to part
-    /// it, and the radius of the parting itself. 0.16 of a 982pt display is
-    /// about 157pt, which is a hand's width round the cursor. Guessed against
-    /// the eye on 2026-09-19, never measured. The shader's PART_RADIUS is the
-    /// same number and the two have to move together.
-    static let partRadius: Float = 0.16
+    /// The parting, in points: clear inside `partRadius` of the cursor and
+    /// back to full depth `partFeather` further out. Was 0.16 of the screen
+    /// height, about 157pt, and reviewed on screen on 2026-09-19 as "much
+    /// smaller, should be a 20 pixel circle around the mouse", so it is 20
+    /// with a soft edge. In points rather than screen heights because a
+    /// cursor is the same size on every display.
+    static let partRadius: Float = 20
+    static let partFeather: Float = 10
     /// How much more transparent the band goes while the pointer is in it.
     /// Asked for as "10% more transparent" on 2026-09-19.
     static let partFade: Float = 0.10
@@ -516,8 +526,18 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
 
         let style = frame.style
         let W = Float(size.width / max(size.height, 1))
+        // Points to screen heights, through the backing scale, so the circle
+        // is 20 points on a Retina display and on a plain one alike.
+        let pixelsPerPoint = Float(size.height) / Float(max(view.bounds.height, 1))
+        let radius = Self.partRadius * pixelsPerPoint / Float(max(size.height, 1))
+        let feather = Self.partFeather * pixelsPerPoint / Float(max(size.height, 1))
         let partTarget = Self.parting(
-            pointer: frame.pointer, aspect: W, rest: Float(style.rest))
+            pointer: frame.pointer, aspect: W, rest: Float(style.rest),
+            reach: radius + feather)
+        if let p = frame.pointer {
+            pointerX.step(toward: Float(p.x), dt: dt)
+            pointerY.step(toward: Float(p.y), dt: dt)
+        }
         let heardTarget = Float(frame.heard)
         // Release slower than attack, or the band shakes between syllables.
         heard.tau = heardTarget > heard.shown ? 0.04 : 0.16
@@ -539,13 +559,17 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
             && alpha.settled(at: Float(frame.alpha))
             && heard.settled(at: heardTarget)
             && part.settled(at: partTarget)
+            && (frame.pointer.map {
+                pointerX.settled(at: Float($0.x)) && pointerY.settled(at: Float($0.y))
+            } ?? true)
             && simd_length(shownTint - tintTarget) < 0.002
             && frame.closingAt == nil
         if !settled && frame.closingAt == nil {
             // A still state's own rate is one frame a second, which would
             // draw its arrival in three steps. Thirty is the slowest rate a
-            // transition reads as continuous at.
-            view.preferredFramesPerSecond = max(style.fps, 30)
+            // transition reads as continuous at, and a hole following the
+            // hand wants the full sixty.
+            view.preferredFramesPerSecond = part.shown > 0.001 ? 60 : max(style.fps, 30)
         }
 
         // The voice rides on top of the floor. 0.08 rather than the old 0.18,
@@ -553,12 +577,11 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
         // the screen edge buried in it, and 0.18 on top of a 0.022 floor is a
         // band that goes from a hairline to thicker than `attention` on one
         // loud syllable.
-        let pointer = frame.pointer ?? CGPoint(x: -10, y: -10)
         var uniforms = Uniforms(
             tint: shownTint,
             size: SIMD2(Float(size.width), Float(size.height)),
             popAt: SIMD2(Float(frame.popAt.x), Float(frame.popAt.y)),
-            pointer: SIMD2(Float(pointer.x), Float(pointer.y)),
+            pointer: SIMD2(pointerX.shown, pointerY.shown),
             time: Float(time),
             act: Float(act),
             closing: Float(closing),
@@ -567,7 +590,9 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
             pulse: pulseDepth.shown,
             beat: Float(beat),
             alpha: alpha.shown * (1 - Self.partFade * part.shown),
-            part: part.shown)
+            part: part.shown,
+            partRadius: radius,
+            partFeather: feather)
 
         encoder.setRenderPipelineState(pipeline)
         encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
@@ -584,16 +609,18 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
 
     /// How far the band should part for a pointer at `pointer`.
     ///
-    /// 1 with the pointer inside the band, falling to 0 one parting radius
-    /// beyond its free surface, so the liquid starts to move as the cursor
-    /// approaches rather than the moment it crosses in. Distances are in
-    /// screen heights, which is what the shader measures depth in.
-    nonisolated static func parting(pointer: CGPoint?, aspect: Float, rest: Float) -> Float {
+    /// 1 with the pointer inside the band, falling to 0 `reach` beyond its
+    /// free surface, so the liquid starts to move as the cursor approaches
+    /// rather than the moment it crosses in. Distances are in screen
+    /// heights, which is what the shader measures depth in.
+    nonisolated static func parting(
+        pointer: CGPoint?, aspect: Float, rest: Float, reach: Float
+    ) -> Float {
         guard let pointer else { return 0 }
         let x = Float(pointer.x), y = Float(pointer.y)
         let near = min(x * aspect, (1 - x) * aspect, y, 1 - y)
-        let inner = rest + 0.02
-        let outer = rest + partRadius
+        let inner = rest
+        let outer = rest + max(reach, 0.0001)
         let t = min(max((near - inner) / (outer - inner), 0), 1)
         return 1 - t * t * (3 - 2 * t)
     }
