@@ -425,6 +425,10 @@ class Listener:
         # The send lock. Never taken while `self.state` is held, so a stalled
         # socket write can never hold the queue.
         self.lock = threading.Lock()
+        # Whether hud-speak is making sound right now, and the last presence
+        # line sent that was not the voice's, for `heard_speaker` to restore.
+        self.talking = False
+        self.shown: str | None = None
 
         # One lock for everything the reader thread and the worker both touch.
         self.state = threading.Lock()
@@ -453,6 +457,16 @@ class Listener:
             print(*args, file=sys.stderr, flush=True)
 
     def send(self, line: str) -> None:
+        if line.startswith("p "):
+            state = line.split()[1]
+            if state != "speaking":
+                self.shown = f"p {state}"
+                # A `thinking` pulse landing mid-sentence would swap the
+                # voice's ring for the spinner for one frame every two
+                # seconds. The voice keeps the display awake on its own, and
+                # `quiet` puts the pulse's state back.
+                if self.talking and state in ("thinking", "acting"):
+                    return
         with self.lock:
             try:
                 self.sock.sendall((line.rstrip("\n") + "\n").encode("utf-8"))
@@ -653,10 +667,19 @@ class Listener:
         def watch() -> None:
             # The model loader prints its own lines to stdout before "ready"
             # ("Creating new KokoroPipeline ..."), so read until it comes.
+            # After it, every line is the voice's level, one JSON object per
+            # frame while it plays, and reading them is not optional: a pipe
+            # nobody drains fills, and a full pipe stops the speaker.
             for line in proc.stdout or []:
                 if line.strip() == "ready":
                     self.log(f"voice ready: {voice}")
-                    return
+                    continue
+                try:
+                    message = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(message, dict):
+                    self.heard_speaker(message)
             proc.wait()
             self.log(f"hud-speak exited ({proc.returncode}), falling back to say")
             self.speaker = None
@@ -664,6 +687,30 @@ class Listener:
 
         threading.Thread(target=watch, daemon=True).start()
         return proc
+
+    def heard_speaker(self, message: dict) -> None:
+        """Move the ring with the voice, and put it back when the voice stops.
+
+        `level` becomes `p speaking amp=`, the same line the display makes
+        for itself from the microphone while the person talks, so the reply
+        has the same talking effect as the request (asked for on
+        2026-09-19). `quiet` restores whatever presence the bridge last set,
+        which is the run's state while the opening sentence is spoken and
+        `done` for the reply.
+        """
+        if "level" in message:
+            try:
+                level = min(max(float(message["level"]), 0.0), 1.0)
+            except (TypeError, ValueError):
+                return
+            self.talking = True
+            self.send(f"p speaking amp={level:.2f}")
+        elif message.get("quiet"):
+            if not self.talking:
+                return
+            self.talking = False
+            if self.shown:
+                self.send(self.shown)
 
     def tell_speaker(self, message: dict) -> bool:
         proc = self.speaker
@@ -703,6 +750,10 @@ class Listener:
 
     def hush(self) -> None:
         """Stop talking."""
+        # Whatever the ring shows next is set by whoever called for the
+        # hush, a new request or a stop, so the quiet that follows a cut-off
+        # must not put an older state back over it.
+        self.talking = False
         if self.speaker is not None:
             self.tell_speaker({"hush": True})
         proc, self.saying = self.saying, None

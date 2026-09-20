@@ -325,6 +325,41 @@ def test_speak_kokoro(m) -> None:
           and not m.KOKORO_VOICE.fullmatch("Samantha"))
 
 
+def test_voice_moves_the_ring(m) -> None:
+    """hud-speak's level lines drive the ring as the microphone does, and
+    quiet puts the bridge's own state back."""
+
+    class FakeSock:
+        def __init__(self) -> None:
+            self.lines: list[str] = []
+
+        def sendall(self, data: bytes) -> None:
+            self.lines.append(data.decode().rstrip("\n"))
+
+    listener = m.Listener("claude -p", False, False)
+    listener.sock = sock = FakeSock()
+    listener.send("p thinking")
+    listener.heard_speaker({"level": 0.4})
+    listener.send("p thinking")
+    listener.heard_speaker({"level": 1.7})
+    listener.heard_speaker({"quiet": True})
+    check("a level is the same line the mic makes, a pulse mid-sentence is swallowed, "
+          "and quiet restores the state",
+          sock.lines == ["p thinking", "p speaking amp=0.40", "p speaking amp=1.00", "p thinking"],
+          f"got {sock.lines}")
+    listener.heard_speaker({"quiet": True})
+    check("quiet with nothing playing sends nothing", sock.lines[-1] == "p thinking" and len(sock.lines) == 4)
+    sock.lines.clear()
+    listener.send("p done")
+    listener.heard_speaker({"level": 0.5})
+    listener.hush()
+    listener.heard_speaker({"quiet": True})
+    check("a cut-off restores nothing: the caller of hush sets what comes next",
+          sock.lines == ["p done", "p speaking amp=0.50"], f"got {sock.lines}")
+    listener.heard_speaker({"level": "loud"})
+    check("a bad level is ignored", sock.lines[-1] == "p speaking amp=0.50")
+
+
 def test_stop_words(m) -> None:
     """The whole utterance is the gesture; a sentence that starts with it is not."""
     check("case and punctuation are ignored", m.normalise("Stop!") == "stop")
