@@ -183,3 +183,35 @@ difference between brutalist and broken), **hierarchy comes from size and
 space, never colour tricks**, and **the subtraction is visible**. A page that
 is visibly cheaper reads as a decision; a page that is merely plain reads as an
 absence of one.
+
+## If the brief is "make it cool", not "make it usable"
+
+Measured across 33 award winners, 131 JS bundles grepped, in
+`calebnewtonusc/ux-engine/research/01-award-corpus.md`.
+
+**The corpus does not say 3D wins. It says one committed mechanism wins.** 3D
+is just the most common way to buy one. Igloo wrote an ice-crystal growth
+algorithm. The Line Studio made its loader animate on twos. Dropbox turned its
+brand guidelines into toys and took Website of the Year, Best UX and a Webby
+with **no WebGL at all**. Don't Board Me won on copywriting and a funny 404.
+
+**Pick one mechanism, couple everything to it, skip the rest.**
+
+**The measured stack, which is not the one people assume.** Lenis is on 18 of
+23 sites, more common than GSAP itself. Nuxt beats Next 10 to 2. And
+**Framer Motion, React Three Fiber and Spline are each on 0 of 32 sites**,
+which contradicts `~/.claude/rules/design-system.md` outright. Award work
+writes Three.js by hand and drives Lenis from `gsap.ticker` so scroll and
+animation share one clock. Normalise scroll to a single 0-1 value and push it
+into shader uniforms rather than wiring triggers one at a time.
+
+**Awwwards weights Design 40, Usability 30, Creativity 20, Content 10.** Scores
+run 7.45 to 8.25 and nobody cleared 8.3 in three years, so plan to a 7.9.
+
+**Know the price before quoting this section.** No award body publishes a
+performance budget, a Core Web Vitals threshold or a WCAG level, and it shows:
+only 11 of 23 winners reference `prefers-reduced-motion` at all, 8 of 32 ship
+under 60 words of initial HTML (one ships a single word), 13 of 32 have no
+`<h1>`, and the largest single bundle is 4.7MB. NN/g found the majority of
+users disoriented by scroll hijacking. **Use this section for a campaign
+microsite. Do not use it for anything someone has to get work done in.**
