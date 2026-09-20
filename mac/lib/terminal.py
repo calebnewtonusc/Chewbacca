@@ -11,6 +11,7 @@ Chewbacca also submitted is a prompt nobody read.
     chewie terminal draft "<text>" [--tty]  paste into the claude tab, no Return
     chewie terminal submit [--tty]          press Return in that tab
     chewie terminal clear [--tty]           Control-U in that tab
+    chewie terminal hook                    a Claude Code hook: event JSON on stdin (see terminal_events.py)
 
 Memory (`~/.bob/memory/`, or BOB_MEMORY_DIR): `draft.json` is the outstanding
 draft, written by `draft`, removed by `submit` and `clear`. `project.json`
@@ -380,7 +381,19 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("draft"); p.add_argument("text"); p.add_argument("--tty")
     p = sub.add_parser("submit"); p.add_argument("--tty")
     p = sub.add_parser("clear"); p.add_argument("--tty")
+    sub.add_parser("hook")
     args = parser.parse_args(argv)
+
+    if args.verb == "hook":
+        # Lazy: the events module is a sibling file, and this script is also
+        # loaded by tests through SourceFileLoader with no sys.path entry.
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import terminal_events
+        try:
+            sys.stdout.write(terminal_events.handle(sys.stdin.read()))
+        except Exception as err:  # noqa: BLE001  a hook that crashes blocks the tab
+            print(f"terminal hook: {err}", file=sys.stderr)
+        return 0
 
     if args.verb == "tabs":
         out = tabs()
