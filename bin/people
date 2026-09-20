@@ -49,6 +49,15 @@ const DB_PATH = path.join(DIR, "people.db");
 
 // ---------------------------------------------------------------- output
 
+// `people reconnect` blend. Additive and renormalized, so a missing signal
+// costs its weight instead of zeroing the row. Lateness dominates because the
+// question is who you are overdue with; score is the tiebreaker toward people
+// there is written evidence you care about. They need not sum to 1. The shape
+// is Karthik Devarakonda's from amber-search's PeopleRank.
+const RECONNECT_W_LATENESS = Number(process.env.PEOPLE_W_LATENESS ?? 0.85);
+const RECONNECT_W_SCORE = Number(process.env.PEOPLE_W_SCORE ?? 0.15);
+const clamp01 = (n) => (Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0);
+
 const TTY = process.stdout.isTTY;
 const c = {
   b: (s) => (TTY ? `\x1b[1m${s}\x1b[0m` : s),
@@ -6005,7 +6014,37 @@ function overdueList(limit = 20) {
     const days = r.last_interaction_at ? daysBetween(r.last_interaction_at, now) : null;
     const over = days === null ? null : days - cadence;
     if (days !== null && over < 0) continue;
-    // Never contacted sorts by importance; overdue sorts by how far past.
+    // A MULTIPLICATIVE URGENCY IS A NO-OP ON A REAL ADDRESS BOOK.
+    //
+    // This was `score * (1 + over / cadence)`. base_score is 0 for anyone with
+    // no hand-written observation, and zero times anything is zero, so every
+    // urgency was 0, the sort below compared 0 to 0 for every pair, and the
+    // list came back in table order. Gavin hit it on 2026-09-18 with 944 of
+    // his 945 people at base_score 0: his overdue list was alphabetical,
+    // opening on AJ Flamino and Abby Waterstreet. The bug is invisible because
+    // a sorted-looking list is still a list.
+    //
+    // The shape is borrowed from Karthik Devarakonda's PeopleRank in
+    // amberintelligence/amber-search (api/people_rank.py), which solved the
+    // same problem: a renormalized ADDITIVE blend of two 0..1 signals, so a
+    // missing signal costs its weight instead of zeroing the result, plus an
+    // explicit tiebreak chain for the all-zero row rather than whatever order
+    // the rows arrived in.
+    //
+    // Lateness dominates because the question is "who am I overdue with".
+    // Score breaks ties toward people there is written evidence you care
+    // about. For someone never contacted there is no lateness signal at all,
+    // so score carries the whole thing.
+    // Saturating but strictly monotonic: r/(1+r). Clamping at 1 was wrong,
+    // because on a real address book almost everyone is more than one cadence
+    // overdue, every lateness pinned to 1.0, and score quietly became the only
+    // sort key again. This keeps someone five cadences late above someone one
+    // cadence late forever, while still living in 0..1 so the blend is sane.
+    const ratio = over / Math.max(cadence, 1);
+    const lateness = days === null ? null : ratio / (1 + ratio);
+    const wl = RECONNECT_W_LATENESS;
+    const ws = RECONNECT_W_SCORE;
+    const wt = wl + ws > 0 ? wl + ws : 1;
     out.push({
       name: r.name,
       company: r.company,
@@ -6013,10 +6052,20 @@ function overdueList(limit = 20) {
       cadence,
       over,
       score,
-      urgency: days === null ? score : score * (1 + over / cadence),
+      urgency: lateness === null
+        ? clamp01(score)
+        : (wl * lateness + ws * clamp01(score)) / wt,
     });
   }
-  out.sort((a, b) => b.urgency - a.urgency);
+  // Tiebreak explicitly. `over` is raw and unclamped here on purpose: someone
+  // ten cadences late and someone one cadence late both saturate `lateness` at
+  // 1, and the first of them is the one to call.
+  out.sort((a, b) =>
+    (b.urgency - a.urgency) ||
+    ((b.over ?? -1) - (a.over ?? -1)) ||
+    (b.score - a.score) ||
+    String(a.name || "").toLowerCase().localeCompare(String(b.name || "").toLowerCase())
+  );
   return out.slice(0, limit);
 }
 

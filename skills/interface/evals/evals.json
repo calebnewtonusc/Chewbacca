@@ -1,0 +1,39 @@
+{
+  "skill": "interface",
+  "cases": [
+    {
+      "prompt": "Build me a dashboard of who I owe a reply to",
+      "expect_behavior": "name the Dashboard template and the organisms first, find the source in data-loaders (people, chat.db), then build, rather than improvising a layout"
+    },
+    {
+      "prompt": "Make a settings page for this",
+      "expect_behavior": "load the Settings template: sidebar of sections, grouped forms, save bar"
+    },
+    {
+      "prompt": "I want to see my overdue assignments, not read about them",
+      "expect_behavior": "treat it as an interface request, pick the surface, and read the coursework ledger rather than guessing dates"
+    },
+    {
+      "prompt": "Add a fancy custom table widget with its own styling",
+      "reject": [
+        "inventing a bespoke table component"
+      ],
+      "why": "table is in the taxonomy; a one-off variant will not match the next thing generated"
+    },
+    {
+      "prompt": "Make it pop, add a gradient",
+      "expect_behavior": "say in one line which rule it breaks (details last), build the version with the scale and hierarchy, and offer the literal version separately"
+    },
+    {
+      "prompt": "Build a dashboard from my Strava data",
+      "expect_behavior": "data-loaders has no Strava row, so run discover-data, find its store cheapest-first, then append what was learned back to data-loaders"
+    },
+    {
+      "prompt": "What is the capital of France?",
+      "reject": [
+        "building an interface"
+      ],
+      "why": "a plain question is not a UI request"
+    }
+  ]
+}
