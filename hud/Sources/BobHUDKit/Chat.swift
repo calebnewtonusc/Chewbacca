@@ -75,6 +75,9 @@ public final class ChatWindow: NSPanel {
     /// Whether a saved frame was found at construction. Without one, the
     /// panel opens where the pill was.
     private let restoredFrame: Bool
+    /// Whether it has been put at the pill once this session. After that a
+    /// drag is respected, as long as it stays on the main display.
+    private var placed = false
 
     public init(
         model: OverlayModel,
@@ -127,9 +130,11 @@ public final class ChatWindow: NSPanel {
     /// Where the pill was: bottom centre of the main display, the same
     /// lift above the Dock, so opening reads as the pill growing
     /// rather than a second thing arriving elsewhere. Once it has been
-    /// dragged somewhere it comes back to that place instead.
+    /// dragged somewhere on that display it comes back to that place
+    /// instead.
     public func present() {
-        if !restoredFrame, let screen = OverlayWindow.active {
+        if let screen = OverlayWindow.active,
+           Self.needsPlacing(frame: frame, on: screen.frame, restored: restoredFrame, placed: placed) {
             let visible = screen.visibleFrame
             let size = frame.size
             setFrameOrigin(
@@ -137,8 +142,20 @@ public final class ChatWindow: NSPanel {
                     x: visible.midX - size.width / 2,
                     y: visible.minY + PillView.pillLift))
         }
+        placed = true
         makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Whether the panel goes to the pill's spot rather than where it is.
+    /// A frame is kept only while its centre is on the main display: one
+    /// saved on 2026-09-20 while the glass still followed the pointer sat
+    /// on the laptop screen at y=1791, below the monitor's 1440, and would
+    /// have opened there on every click after the display was pinned.
+    static func needsPlacing(frame: NSRect, on screen: NSRect, restored: Bool, placed: Bool) -> Bool {
+        let centre = NSPoint(x: frame.midX, y: frame.midY)
+        if !screen.contains(centre) { return true }
+        return !restored && !placed
     }
 
     public func dismiss() {

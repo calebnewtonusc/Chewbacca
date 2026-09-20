@@ -1,3 +1,4 @@
+import AppKit
 import Testing
 
 @testable import BobHUDKit
@@ -163,6 +164,21 @@ struct ChatTests {
         // A step with no answer open is just a line on the pill.
         model.apply(.step("Late step"))
         #expect(model.turns.last?.steps.count == 2)
+    }
+
+    @Test("the panel keeps a frame only on the main display")
+    func placing() {
+        let main = NSRect(x: 0, y: 0, width: 2560, height: 1440)
+        let onMain = NSRect(x: 1000, y: 300, width: 520, height: 600)
+        // The laptop screen below the monitor, where a frame was saved while
+        // the glass still followed the pointer.
+        let below = NSRect(x: 1034, y: -951, width: 520, height: 600)
+        #expect(ChatWindow.needsPlacing(frame: below, on: main, restored: true, placed: false))
+        #expect(ChatWindow.needsPlacing(frame: below, on: main, restored: true, placed: true))
+        #expect(!ChatWindow.needsPlacing(frame: onMain, on: main, restored: true, placed: false))
+        // No saved frame: at the pill the first time, then where it was dragged.
+        #expect(ChatWindow.needsPlacing(frame: onMain, on: main, restored: false, placed: false))
+        #expect(!ChatWindow.needsPlacing(frame: onMain, on: main, restored: false, placed: true))
     }
 
     @Test("opening counts, so the panel can animate each entrance")
