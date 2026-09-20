@@ -1,7 +1,7 @@
 2b4c3d09aa7d44acece030a70da076a4ee8baae96d348342758125de661bdc38  .claude/hooks/coursework-context.sh
 3856d3932a4390ab147bc9d9c31db31c931834c902d588b78ee0b3cb8dba56de  .claude/hooks/env-guard.sh
 78f68fcafb56d73f636043b873edffd08b70dd91c3b36c9de0da87b36d9819f8  .claude/hooks/format-and-sync.sh
-6c206320c0aeceed4d7594c29d23ee605c425bc616eecdd2b640336df610d3e3  .claude/hooks/kit-autopush.sh
+cf8a811e45fa8d841559ade83e55fd5d75c9a5a01b1f179cfba0c82532f4f7dc  .claude/hooks/kit-autopush.sh
 886da8b194ed8906f4d132344f63819839ffc090a646aaf10d89c012308a9829  .claude/hooks/kit-route.sh
 511fde97efcf32a0527b1eef1ceb26d50dd2a9321d7020e1d5921645320f1730  .claude/hooks/lib.sh
 baff09b097b67758927ae5ea8ed991dc855687ccd34face005381a4fb432ab42  .claude/hooks/prose-guard.sh

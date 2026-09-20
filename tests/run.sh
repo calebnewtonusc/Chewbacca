@@ -516,6 +516,92 @@ if group "hooks"; then
   '
   check  "the hook log was written" test -f "$CHEWBACCA_LOG_DIR/hooks.log"
   expect "log rows carry a duration" "|ok|" cat "$CHEWBACCA_LOG_DIR/hooks.log"
+
+  # kit-autopush pushes to a real remote without being asked, so every path
+  # that decides NOT to push is tested against an actual bare repo rather than
+  # read and trusted. Each case builds its own origin and asserts the remote
+  # SHA afterwards, because "it printed the right thing" and "it did not push"
+  # are different claims.
+  #
+  # CHEWBACCA_REPO_DIR is exported in each case on purpose. The hook takes an
+  # explicit environment value over ~/.claude/d1-config.sh, and if it did not,
+  # this test would push the author's real checkout.
+  # `git -C <bare>` dies under safe.bareRepository=explicit, so every read of
+  # the origin below uses --git-dir. Two of these cases passed vacuously first
+  # time round, comparing one empty string against another.
+  autopush_fixture() {
+    # $1 = branch to end up on. Prints the work tree path.
+    local d; d="$(mktemp -d)"
+    git init -q --bare "$d/origin.git"
+    git clone -q "$d/origin.git" "$d/work" 2>/dev/null
+    cd "$d/work" || return 1
+    git config user.email t@t; git config user.name t
+    git symbolic-ref HEAD refs/heads/main
+    echo one > a.txt; git add a.txt; git commit -qm init; git push -q origin main
+    # A non-main branch is pushed once so it HAS an upstream. Without that the
+    # hook exits at the no-upstream check and never reaches the branch guard,
+    # so the case proved nothing: deleting the guard left it green.
+    if [ "$1" != "main" ]; then
+      git checkout -qb "$1"
+      git push -q -u origin "$1"
+    fi
+    # Gate stubs that exit 0. Without them every gate fails for want of a
+    # tools/ directory, and a case meant to prove the BRANCH guard stops the
+    # push passes because the gates stopped it instead. Breaking the branch
+    # check left that case green, which is how this was caught.
+    mkdir -p tools bin
+    for f in tools/checksums.py tools/counts.py tools/frontmatter.py tools/evals.py bin/secret-scan; do
+      echo "import sys; sys.exit(0)" > "$f"
+    done
+    git add tools bin
+    echo two >> a.txt; git add a.txt; git commit -qm ahead
+    printf '%s' "$d"
+  }
+
+  # Every ref, not just main. `git push origin HEAD` from a feature branch
+  # creates refs/heads/feature/x and leaves main alone, so a main-only
+  # assertion stays green with the branch guard deleted. It did.
+  check "a feature branch is never auto-published" bash -c '
+    d="$('"$(declare -f autopush_fixture)"'; autopush_fixture feature/x)"
+    before="$(git --git-dir="$d/origin.git" show-ref | sort)"
+    CHEWBACCA_REPO_DIR="$d/work" bash "'"$ROOT"'/.claude/hooks/kit-autopush.sh" >/dev/null 2>&1
+    after="$(git --git-dir="$d/origin.git" show-ref | sort)"
+    [ "$before" = "$after" ] || { echo "the remote grew a ref: $after"; exit 1; }
+    exit 0
+  '
+
+  # One gate is made to fail on purpose. The point is that a failed gate leaves
+  # the remote exactly where it was and says so out loud.
+  check "a failed gate blocks the push and leaves the remote alone" bash -c '
+    d="$('"$(declare -f autopush_fixture)"'; autopush_fixture main)"
+    echo "import sys; sys.exit(1)" > "$d/work/tools/checksums.py"
+    before="$(git --git-dir="$d/origin.git" rev-parse main)"
+    out="$(CHEWBACCA_REPO_DIR="$d/work" bash "'"$ROOT"'/.claude/hooks/kit-autopush.sh" 2>&1)"
+    after="$(git --git-dir="$d/origin.git" rev-parse main)"
+    [ "$before" = "$after" ] || { echo "it pushed past a failed gate"; exit 1; }
+    echo "$out" | grep -q BLOCKED || { echo "said nothing: $out"; exit 1; }
+    exit 0
+  '
+
+  # The fixture's gates all pass, so nothing is left to stop the push.
+  check "gates passing on main pushes, and the remote actually moves" bash -c '
+    d="$('"$(declare -f autopush_fixture)"'; autopush_fixture main)"
+    before="$(git --git-dir="$d/origin.git" rev-parse main)"
+    local_head="$(git -C "$d/work" rev-parse HEAD)"
+    CHEWBACCA_REPO_DIR="$d/work" bash "'"$ROOT"'/.claude/hooks/kit-autopush.sh" >/dev/null 2>&1
+    after="$(git --git-dir="$d/origin.git" rev-parse main)"
+    [ "$before" != "$after" ] || { echo "nothing was pushed"; exit 1; }
+    [ "$after" = "$local_head" ] || { echo "remote is not at the local head"; exit 1; }
+    exit 0
+  '
+
+  check "a repo in sync with its remote says nothing" bash -c '
+    d="$('"$(declare -f autopush_fixture)"'; autopush_fixture main)"
+    git -C "$d/work" reset -q --hard HEAD~1
+    out="$(CHEWBACCA_REPO_DIR="$d/work" bash "'"$ROOT"'/.claude/hooks/kit-autopush.sh" 2>&1)"
+    [ -z "$out" ] || { echo "spoke when it had nothing to say: $out"; exit 1; }
+    exit 0
+  '
 fi
 
 # ── the display ───────────────────────────────────────────────────────────────
