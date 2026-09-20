@@ -526,14 +526,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             width: abs(to.x - from.x), height: abs(to.y - from.y))
     }
 
-    /// Tell the field where the hand is, so the band can part round it.
+    /// Tell the field where the hand is, so the band can part round it. A
+    /// pointer on another display is nowhere the band can reach.
     private func trackPointer() {
-        guard let screen = OverlayWindow.active else {
+        let mouse = NSEvent.mouseLocation
+        guard let screen = OverlayWindow.active, screen.frame.contains(mouse) else {
             model.point(at: nil, aspect: 1)
             return
         }
         let frame = screen.frame
-        let mouse = NSEvent.mouseLocation
         let unit = CGPoint(
             x: (mouse.x - frame.minX) / frame.width,
             y: (frame.maxY - mouse.y) / frame.height)
@@ -541,14 +542,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateInteractive() {
-        // Following the pointer across displays happens here rather than on a
-        // timer: the mouse monitor already fires on every move, and refitting is
-        // a no-op when the frame is already right.
+        // Refitting on every move is a no-op while the frame is right, and it
+        // is what catches a display arrangement change the notification
+        // below arrives late for.
         overlay?.fitToScreen()
         overlay?.updateInteractive(surfaces: model.frames, mouse: NSEvent.mouseLocation)
     }
 
-    /// The glass has to follow the display it is over.
+    /// The glass has to follow the main display when the arrangement changes.
     private func observeScreenChanges() {
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,

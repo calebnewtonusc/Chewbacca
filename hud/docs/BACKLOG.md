@@ -218,7 +218,7 @@ Continuous memory exists for one listening session and dies with the process. Tw
 
 `bd_2026-Code-hue`
 
-The active display follows the pointer, so surfaces appear to jump. Marker coordinates carry no display identifier, so a mark sent while the pointer is elsewhere lands on the wrong screen. Items 578-585.
+Since 2026-09-20 the glass is pinned to the main display (`OverlayWindow.active`), so it no longer jumps with the pointer; what is left is choosing a display. Marker coordinates carry no display identifier, so a mark meant for another screen has nowhere to go. Items 578-585.
 
 **Done when:** Surfaces belong to a display and stay there. Marker and region coordinates name their display.
 
