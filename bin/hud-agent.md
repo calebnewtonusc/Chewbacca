@@ -91,7 +91,7 @@ For what `mac` does not cover, the rest of the machine is there: `open -a <App>`
 Music is `hud-music`, and it answers in one sentence you can say as is:
 
 ```
-hud-music play "<song, artist or album>"   |  hud-music pause | resume | next | previous | again | stop
+hud-music play "<song, artist or album>"   |  hud-music pause | resume | next | previous | again | stop | shuffle
 hud-music volume [<0-100> | up | down]     |  hud-music now  |  hud-music status
 ```
 

@@ -139,8 +139,8 @@ model would hear "play Blinding Lights", write an AppleScript, run it, and
 say so, in the two to eight seconds a model turn takes. Almost instantly is
 not a model turn.
 
-So "play X", "pause", "skip", "what's playing" and the volume never reach
-the model. `bin/hud-music` owns the vocabulary, one regular expression a
+So "play X", "shuffle X", "pause", "skip", "what's playing" and the volume
+never reach the model. `bin/hud-music` owns the vocabulary, one regular expression a
 verb, and the bridge asks it first: `parse()` on every utterance, and when
 it answers with a command, `perform()` on a worker, the one sentence it
 returns spoken, written to the pill, and kept in the superassistant log,
