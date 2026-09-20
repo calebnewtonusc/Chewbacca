@@ -729,11 +729,11 @@ class Listener:
         started = time.monotonic()
         prompt = (
             "Warm-up for this session, before the first spoken request arrives. "
-            "Load the hud skill. Then read the usage of these commands, each "
-            "with --help: mac calendar add, mac calendar list, mac messages send, "
-            "mac messages chats, mac messages history, mac contacts find. The "
-            "display is connected. Do not draw anything, do not send anything, "
-            "and do not write a session opener. Reply with only the word: ready\n"
+            "Read the usage of these commands, each with --help: mac calendar "
+            "add, mac calendar list, mac messages send, mac messages chats, "
+            "mac messages history, mac contacts find. Do not draw anything, do "
+            "not send anything, and do not write a session opener. Reply with "
+            "only the word: ready\n"
         )
         try:
             result = subprocess.run(
@@ -925,8 +925,14 @@ class Listener:
         calls whose tool_result came back without is_error are in it.
 
         The body is short on purpose. An agent with tools should go and find
-        out rather than be told what to draw, and a long prompt about
+        out rather than be told what to say, and a long prompt about
         components is a long prompt about the wrong thing.
+
+        Since 2026-09-19 the pill is the whole answer: the model is told not
+        to draw. Panels had been landing as dialog-sized cards ("LISTENING",
+        "TEXT SENT", "NEED CLARITY") over a display whose only object is
+        meant to be the one line at the bottom, and the ask was "get rid of
+        those popups that arent the bubble".
         """
         with self.state:
             stopped, drawn = self.cancelled, list(self.cancelled_drawn)
@@ -969,18 +975,18 @@ class Listener:
             )
             + "First, before any tool call, write one short sentence, under "
             "eight words, saying what you are about to do; it is read aloud "
-            "to them at once. Then answer by drawing on their display with "
-            "the hud skill you loaded at the start of this session; the mac "
-            "CLI usage you read then still holds, so do not read either "
-            "again unless a command fails. The display is connected: do not "
-            "check whether it is running. Look up whatever real data the "
-            "answer needs. Do "
-            "not invent a number. Keep the final spoken reply under twenty "
-            "words, because the panel is the answer and the sentence is only "
-            "a pointer to it. Do not write a session opener; this is a spoken "
-            "exchange, not a session.\n\n"
-            "This is a spoken request, not a coding task. The panel is the "
-            "only deliverable: do not edit, commit, or push anything.\n"
+            "to them at once. Then do what they asked with the mac CLI whose "
+            "usage you read at the start of this session; do not read it "
+            "again unless a command fails. Look up whatever real data the "
+            "answer needs. Do not invent a number. Finish with one plain "
+            "sentence, under twenty words: it is spoken aloud and shown on "
+            "the pill at the bottom of their screen, and it is the whole "
+            "answer. Do not draw anything on the display: no panels, no "
+            "cards, no marks, no hud draw. Do not write a session opener; "
+            "this is a spoken exchange, not a session.\n\n"
+            "This is a spoken request, not a coding task. The spoken "
+            "sentence is the only deliverable: do not edit, commit, or push "
+            "anything.\n"
         )
 
     def run_plain(self, argv: list[str], prompt: str) -> tuple[bool, str, None]:
