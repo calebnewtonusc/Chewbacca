@@ -16,11 +16,15 @@ Three things happen, in this order, and each covers a different gap.
    confirmations with a chime: receipt is a signal, not a sentence.
 2. **The model's first sentence, at about 1 s.** Under the lean profile the
    first words arrived 1.0 to 1.7 s after the prompt (2026-09-20). For a task
-   that sentence says back what is being done, in the person's terms, then a
-   short acknowledgement: "Texting Caleb you're running ten late. On it."
+   that sentence is the acknowledgement on its own, "On it." or a synonym,
+   never "Okay" or "Yes" ("I'm tired of it saying yes or ok", 2026-09-20).
+   The details are said back only when a mishearing would go somewhere
+   wrong: "On it. Texting Caleb you're running ten late."
 3. **A filler, only past 2 s.** If the model has said nothing by then, the
-   bridge says "Okay." for a task or "Let me see." for a question, and the
-   model's words queue behind it instead of cutting it off.
+   bridge says "On it." for a task or "Let me see." for a question, and the
+   model's words queue behind it instead of cutting it off. A bare
+   acknowledgement arriving from the model after the filler is not said
+   again, so it is "On it." once and never "On it. On it."
 
 The filler threshold is the one number here with real evidence behind it.
 Studies of conversational agents from 2019 to 2025 agree that a filler improves
@@ -37,9 +41,11 @@ Google's conversation design guide, which is the most complete published set
 of rules from a team that shipped a voice assistant to hundreds of millions of
 people, sorts confirmations four ways and the prompt follows it:
 
-- **Implicit confirmation of the details, most of the time.** "Dentist,
-  Tuesday at two. Booking it." The details are the confirmation. Never "I heard
-  you say", never a restatement of the yes or no.
+- **Implicit confirmation of the details, when a detail could have been
+  misheard.** "On it. Dentist, Tuesday at two." A name, a time, an amount, the
+  words of a message. Everything else is just done: "On it." then "Chrome's
+  up." ("Simplify simple responses", 2026-09-20: the say-back on every task
+  was padding.) Never "I heard you say", never a restatement of the yes or no.
 - **Implicit confirmation of the action, unless self-evident.** "Sent."
   "Booked." A result said as a result.
 - **Explicit confirmation, rarely.** Only before what cannot be undone or costs
@@ -239,7 +245,7 @@ prosody control, so the words carry all of it):
 
 Every turn writes a `turn:` line to `~/.bob/listen.log` with `text=` (prompt
 to first words) and `audio=` (prompt to first sound). The filler logs
-`filler: Okay.` with its time. If `text=` stays under two seconds for a week,
+`filler: On it.` with its time. If `text=` stays under two seconds for a week,
 the filler never fires and can go; if it sits above three, the threshold is
 too high and the number above should move, with the new evidence written next
 to it.
