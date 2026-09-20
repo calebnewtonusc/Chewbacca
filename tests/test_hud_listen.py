@@ -671,6 +671,161 @@ def test_translate_deltas(m) -> None:
     check("blocks join as paragraphs", run.answer() == "Sent. Sagar has it.\n\nAlso booked.")
 
 
+def test_long_answer_switch(m) -> None:
+    """The panel's switch off: a long answer is read out in full with no
+    pointer, the bridge remembers the setting, and the model is told per
+    spoken request."""
+    listener = m.Listener("claude -p", False, False)
+    check("written is the default", listener.long_written)
+    listener.handle("e prefer voice long=spoken")
+    check("spoken is remembered", not listener.long_written)
+    listener.handle("e prefer voice long=written")
+    check("and written again", listener.long_written)
+    listener.handle('e prefer voice long="spoken"')
+    check("a quoted value is the same value", not listener.long_written)
+    listener.handle("e prefer voice long=loud")
+    listener.handle("e prefer sound long=written")
+    check("an unknown value or component changes nothing", not listener.long_written)
+
+    req = m.Request(said="summarise the war", spoken_at=0.0, pointed=None)
+    prompt = listener.prompt_for(req, "")
+    check("the model is told to read it all out",
+          "read this answer out in full" in prompt and "do not point at the hyper bar" in prompt,
+          prompt[-240:])
+    typed = m.Request(said="summarise the war", spoken_at=0.0, pointed=None, typed=True)
+    check("a typed request is read by nobody, so it carries no note",
+          "read this answer out" not in listener.prompt_for(typed, ""))
+    listener.long_written = True
+    check("written: the standing rule stands, no note",
+          "read this answer out" not in listener.prompt_for(req, ""))
+
+    def delta(text: str) -> dict:
+        return {"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                "delta": {"type": "text_delta", "text": text}}}
+
+    start = {"type": "stream_event", "event": {"type": "content_block_start", "index": 0,
+             "content_block": {"type": "text", "text": ""}}}
+    long = " ".join(f"Sentence number {i} of the recap is here." for i in range(1, 13))
+    run = m.Run()
+    run.subtitles = False
+    run.long_written = False
+    lines = run.translate(start, 0.0)
+    lines += run.translate(delta(long), 0.1)
+    lines += run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": long}]}}, 0.2)
+    said = " ".join(run.take_voice())
+    check("twelve sentences are all spoken, past the cap",
+          "Sentence number 1 " in said and "Sentence number 12" in said, said[-80:])
+    check("no pointer is added", m.HYPER_BAR_POINTER not in said and not run.written_aside)
+    check("the whole answer still reaches the panel", lines[-1] == "w " + json.dumps(long))
+
+    recap = ("All the info on the Civil War is ready for you in the hyper bar.\n\n"
+             "It ran from 1861 to 1865. Roughly 750,000 people died.")
+    run = m.Run()
+    run.subtitles = False
+    run.long_written = False
+    run.translate(start, 0.0)
+    run.translate(delta(recap), 0.1)
+    run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": recap}]}}, 0.2)
+    said = " ".join(run.take_voice())
+    check("a pointer sentence no longer ends the spoken part", "1861" in said and "750,000" in said, said)
+
+
+def test_read_aloud_skips_the_pointer(m) -> None:
+    """The panel's read-aloud button starts at the answer, not at the
+    sentence that pointed at the panel."""
+    recap = ("All the info on the Civil War is ready for you in the hyper bar.\n\n"
+             "The war ran from 1861 to 1865.\n\nRoughly 750,000 people died.")
+    check("the pointer paragraph goes",
+          m.without_pointer(recap) == "The war ran from 1861 to 1865.\n\nRoughly 750,000 people died.",
+          repr(m.without_pointer(recap)))
+    mixed = "Short version: it was about slavery. The full recap is in the hyper bar.\n\nIt ran from 1861 to 1865."
+    check("only the pointing sentence goes",
+          m.without_pointer(mixed) == "Short version: it was about slavery.\n\nIt ran from 1861 to 1865.",
+          repr(m.without_pointer(mixed)))
+    plain = "Paris.\n\nIt has been the capital since 987."
+    check("an answer with no pointer is untouched", m.without_pointer(plain) == plain)
+    body = "The hyper bar is the pill at the bottom.\n\nClick it to open the conversation."
+    check("the first sentence naming it is still a pointer, the rest stays",
+          m.without_pointer(body) == "Click it to open the conversation.", repr(m.without_pointer(body)))
+    only = "The rest is in the hyper bar."
+    check("a pointer with nothing after it is read as it is", m.without_pointer(only) == only)
+
+    listener = m.Listener("claude -p", False, False)
+    said: list[str] = []
+    listener.speak = said.append
+    listener.handle("e say turn text=" + json.dumps(recap))
+    check("the button reads the answer only",
+          said == ["The war ran from 1861 to 1865. Roughly 750,000 people died."], f"got {said}")
+
+
+def test_hyper_bar(m) -> None:
+    """A long answer is written for the hyper bar and the voice says only
+    the sentence that points there."""
+
+    def delta(text: str) -> dict:
+        return {"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                "delta": {"type": "text_delta", "text": text}}}
+
+    start = {"type": "stream_event", "event": {"type": "content_block_start", "index": 0,
+             "content_block": {"type": "text", "text": ""}}}
+    recap = ("All the info on the Civil War is ready for you in the hyper bar.\n\n"
+             "The war ran from 1861 to 1865. It began when Southern states seceded after Lincoln's "
+             "election.\n\nRoughly 750,000 people died. It ended with the Union preserved and slavery "
+             "abolished by the Thirteenth Amendment.")
+    run = m.Run()
+    run.subtitles = False
+    lines = run.translate(start, 0.0)
+    lines += run.translate(delta(recap[:40]), 0.1)
+    lines += run.translate(delta(recap[40:120]), 0.2)
+    lines += run.translate(delta(recap[120:]), 0.3)
+    lines += run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": recap}]}}, 0.4)
+    voice = run.take_voice()
+    check("only the pointer is spoken",
+          voice == ["All the info on the Civil War is ready for you in the hyper bar."], f"got {voice}")
+    check("the whole answer reaches the panel", lines[-1] == "w " + json.dumps(recap), f"got {lines[-1]}")
+    check("the run knows it wrote aside", run.written_aside)
+
+    # A pointer that is not the first sentence still ends the spoken part.
+    run = m.Run()
+    run.subtitles = False
+    text = "Short version: it was about slavery. The full recap is in the hyper bar.\n\nIt ran from 1861 to 1865."
+    run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}}, 1.0)
+    voice = run.take_voice()
+    check("spoken up to and including the pointer",
+          voice == ["Short version: it was about slavery.", "The full recap is in the hyper bar."], f"got {voice}")
+
+    # No pointer and no end in sight: the cap cuts it and says where the rest is.
+    run = m.Run()
+    run.subtitles = False
+    long = " ".join(f"Sentence number {i} of the recap has eight words in it." for i in range(1, 13))
+    run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": long}]}}, 2.0)
+    voice = run.take_voice()
+    said = " ".join(voice[:-1]).split()
+    check("the voice stops near the cap",
+          m.SPOKEN_CAP <= len(said) < m.SPOKEN_CAP + 12, f"spoke {len(said)} words")
+    check("and says where the rest went", voice[-1] == m.HYPER_BAR_POINTER, f"got {voice[-1]!r}")
+    check("the panel still has all of it", run.answer() == long)
+    check("the run knows it wrote aside", run.written_aside)
+
+    # Short answers, and short steps around tool calls, are untouched.
+    run = m.Run()
+    run.subtitles = False
+    run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": "Checking Friday."}]}}, 3.0)
+    run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": "Nothing on Friday, it's wide open. Saturday has the game at noon."}]}}, 4.0)
+    voice = run.take_voice()
+    check("a short reply is spoken in full",
+          voice == ["Checking Friday.", "Nothing on Friday, it's wide open.", "Saturday has the game at noon."], f"got {voice}")
+    check("and nothing was written aside", not run.written_aside)
+
+    # The fallback subtitle, with no voice to caption the pill, stops at the pointer too.
+    check("the subtitle is the pointer alone",
+          m.subtitle(recap) == "All the info on the Civil War is ready for you in the hyper bar.", f"got {m.subtitle(recap)!r}")
+
+    standing = m.AGENT_PROMPT.read_text(encoding="utf-8")
+    check("the prompt teaches the hyper bar",
+          "hyper bar" in standing and "All the info on the Civil War" in standing)
+
+
 def test_spoken(m) -> None:
     """What the voice gets: the words, not the markup."""
     check("emphasis and code marks go", m.spoken("It is **bold**, *soft*, and `code`.") == "It is bold, soft, and code.")
@@ -1295,6 +1450,12 @@ def main() -> int:
     test_turn_line(module)
     print("the silence filler")
     test_pick_filler(module)
+    print("the hyper bar")
+    test_hyper_bar(module)
+    print("the long-answer switch")
+    test_long_answer_switch(module)
+    print("read aloud skips the pointer")
+    test_read_aloud_skips_the_pointer(module)
     print("the lean profile")
     test_agent_flags(module)
     test_lean_prompt(module)

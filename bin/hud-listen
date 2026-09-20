@@ -106,6 +106,21 @@ CHUNK_END = re.compile(r"(?<=[.!?])\s+|\n+")
 # same rule for a text it is handed whole, and this is the same rule for text
 # handed over one chunk at a time.
 SHORT_CHUNK = 3
+# The floating pill at the bottom of the screen is "the hyper bar" to the
+# person, and a click on it opens the conversation panel where everything the
+# model writes is kept. A spoken sentence that names it ends the spoken part
+# of that reply: whatever follows in the block is written for the panel and
+# not read aloud. Asked for on 2026-09-20: "when the user asks questions with
+# large summaries that require a lot of speaking for the assistant, it just
+# says something along the lines of 'all info on x topic is ready for you in
+# the hyper bar'". The prompt asks the model to write long answers that way;
+# this is what makes the pointer mean it.
+HYPER_BAR = re.compile(r"hyper\s*bar", re.IGNORECASE)
+# The backstop for a long block that never pointed at the hyper bar: this
+# many words are read, the rest is written, and one line says so. Sixty is
+# about twenty seconds at a spoken pace. Guessed, never measured.
+SPOKEN_CAP = 60
+HYPER_BAR_POINTER = "The rest is in the hyper bar."
 
 # Where Claude Code keeps the session this listener resumes: the cwd with "/"
 # swapped for "-", and cwd is $HOME (see run_streamed). Checked 2026-09-19: a
@@ -459,11 +474,40 @@ def subtitle(text: str, limit: int = SUBTITLE_LIMIT) -> str:
     if not paragraphs:
         return ""
     flat = " ".join(" ".join(p.split()) for p in paragraphs)
-    line = " ".join(SENTENCE_END.split(flat)[:2])
+    sentences = SENTENCE_END.split(flat)[:2]
+    # A sentence that points at the hyper bar is the whole line, as it is
+    # the whole spoken reply: the write-up behind it is not a subtitle.
+    if HYPER_BAR.search(sentences[0]):
+        sentences = sentences[:1]
+    line = " ".join(sentences)
     if len(line) <= limit:
         return line
     cut = line.rfind(" ", 0, limit)
     return line[: cut if cut > 0 else limit].rstrip(",;:") + "…"
+
+
+def without_pointer(text: str) -> str:
+    """The answer with its hyper bar pointer taken off the front.
+
+    The pointer is the one sentence written to be spoken instead of the
+    answer. The read-aloud button on the panel is pressed by someone who
+    has already opened the hyper bar, so for them it is the one sentence
+    with nothing in it. Asked for on 2026-09-20: "if the user does want to
+    listen and clicks the audio button at the bottom of the response the
+    assistant should start at the response content and not reply the line
+    'Its ready for you in the hyperbar'". Only the first paragraph is
+    looked at, because the answer itself may say the words.
+    """
+    parts = re.split(r"\n\s*\n", text.strip(), maxsplit=1)
+    sentences = SENTENCE_END.split(" ".join(parts[0].split()))
+    kept = [s for s in sentences if not HYPER_BAR.search(s)]
+    if len(kept) == len(sentences):
+        return text
+    lead = " ".join(kept)
+    rest = parts[1] if len(parts) > 1 else ""
+    if lead and rest:
+        return f"{lead}\n\n{rest}"
+    return lead or rest or text
 
 
 def spoken(text: str) -> str:
@@ -585,6 +629,18 @@ class Run:
         self.spoken_upto = 0
         # A chunk too short to say on its own, waiting for the next.
         self.hold = ""
+        # Words of the open block the voice has had, whether a sentence of
+        # it named the hyper bar, and whether any of it was kept back.
+        self.block_words = 0
+        self.block_pointed = False
+        self.withheld = False
+        # Whether anything in this turn was written for the hyper bar
+        # instead of spoken, so the glass can hold a little longer for the
+        # click that opens it.
+        self.written_aside = False
+        # The panel's switch. Off, and nothing is ever kept from the voice:
+        # a pointer sentence is just a sentence and the cap does not apply.
+        self.long_written = True
         # Every finished prose block of the turn, in order: the written
         # answer, for the conversation panel.
         self.blocks: list[str] = []
@@ -625,7 +681,11 @@ class Run:
         return ["w " + json.dumps(text) + (" done=true" if done else "")]
 
     def flush(self, final: bool) -> list[str]:
-        """Hand the open block's complete chunks to the voice; all of it when final."""
+        """Hand the open block's complete chunks to the voice; all of it when final.
+
+        Not all of it, when the block is long: see `HYPER_BAR`. Every chunk
+        still reaches the panel through `write`; only the voice is spared.
+        """
         rest = self.block[self.spoken_upto:]
         chunks: list[str] = []
         while True:
@@ -642,6 +702,12 @@ class Run:
             words = spoken(chunk)
             if not words:
                 continue
+            if self.long_written and (self.block_pointed or self.block_words >= SPOKEN_CAP):
+                self.withheld = True
+                continue
+            self.block_words += len(words.split())
+            if HYPER_BAR.search(words):
+                self.block_pointed = True
             self.hold = f"{self.hold} {words}".strip()
             if len(self.hold.split()) >= SHORT_CHUNK:
                 self.voice.append(self.hold)
@@ -654,10 +720,17 @@ class Run:
     def close_block(self) -> list[str]:
         """The open text block is complete: speak the rest, keep the text."""
         out = self.flush(final=True)
+        if self.withheld:
+            self.written_aside = True
+            # Cut by the cap rather than by its own pointer: say where the
+            # rest went, or the reply just stops mid-thought.
+            if not self.block_pointed:
+                self.voice.append(HYPER_BAR_POINTER)
         if self.block.strip():
             self.blocks.append(self.block.strip())
         self.block = ""
         self.spoken_upto = 0
+        self.block_words, self.block_pointed, self.withheld = 0, False, False
         return out
 
     def take_voice(self) -> list[str]:
@@ -690,6 +763,7 @@ class Run:
             if etype == "content_block_start":
                 if (inner.get("content_block") or {}).get("type") == "text":
                     self.block, self.spoken_upto, self.hold = "", 0, ""
+                    self.block_words, self.block_pointed, self.withheld = 0, False, False
             elif etype == "content_block_delta":
                 delta = inner.get("delta") or {}
                 if delta.get("type") == "text_delta":
@@ -711,6 +785,7 @@ class Run:
                     # has not had goes to it now.
                     if not text.startswith(self.block):
                         self.spoken_upto, self.hold = 0, ""
+                        self.block_words, self.block_pointed, self.withheld = 0, False, False
                     if self.first_text_at is None and text:
                         self.first_text_at = now
                     self.block = text
@@ -855,6 +930,14 @@ class Listener:
         self.turn_report: dict | None = None
         # The last silence filler said, so the next one is different.
         self.last_filler: str | None = None
+        # Whether the last reply was written for the hyper bar rather than spoken.
+        self.aside = False
+        # The panel's switch, "Speech off for long answers": on, a long
+        # answer is written for the hyper bar and one sentence points at it;
+        # off, everything is read out. The display sends it as `e prefer
+        # voice long=written|spoken` on every change and again each time
+        # this bridge subscribes, so a restart starts right. On until told.
+        self.long_written = True
         # A reply handed to hud-speak that has not yet reported quiet. Set
         # before the first level arrives, because synthesis takes most of a
         # second and the leave timer must not start in that gap.
@@ -889,6 +972,18 @@ class Listener:
     def log(self, *args) -> None:
         if self.verbose:
             print(*args, file=sys.stderr, flush=True)
+
+    def prefer(self, rest: str) -> None:
+        """`voice long=written|spoken`, from the panel's switch."""
+        fields = rest.split()
+        if not fields or fields[0] != "voice":
+            return
+        for field in fields[1:]:
+            key, _, raw = field.partition("=")
+            value = raw.strip('"')
+            if key == "long" and value in ("written", "spoken"):
+                self.long_written = value == "written"
+                self.log("long answers", value)
 
     def send(self, line: str) -> None:
         if line.startswith("p "):
@@ -1028,6 +1123,10 @@ class Listener:
                 # answer in the conversation panel. Spoken here, not asked,
                 # because the words already exist.
                 self.read_aloud(component)
+            elif action == "prefer":
+                # `e prefer voice long=written|spoken`: a switch on the
+                # panel. Kept, not asked: the next request carries it.
+                self.prefer(component)
             else:
                 # A control was used. Same path: the press is a request in words.
                 self.ask(f"The user pressed {action} on {component}. Respond by updating the display.")
@@ -1051,6 +1150,11 @@ class Listener:
     # of the voice, not from `p done`: an eight-second hold from done used to
     # take a twelve-second reply down mid-sentence.
     LEAVE_AFTER = 10.0
+    # Longer when the reply was written for the hyper bar rather than spoken:
+    # the voice said "it's in the hyper bar" and stopped, and the bar is what
+    # they now reach for. Twenty is guessed, never measured; the panel keeps
+    # the text after the bar has gone either way.
+    LEAVE_AFTER_WRITTEN = 20.0
     # How long "Stopped." stays up with nothing waiting. The pill's own X path
     # hides the same line after 3 s (OverlayModel.swift cancelRun, marked
     # guessed there too); matching it makes a spoken stop and a pressed one
@@ -1272,7 +1376,7 @@ class Listener:
         return False
 
     def read_aloud(self, rest: str) -> None:
-        """Speak the text in an `e say` line's `text=` field, as written."""
+        """Speak the text in an `e say` line's `text=` field, minus its pointer."""
         marker = rest.find("text=")
         if marker < 0:
             return
@@ -1281,7 +1385,7 @@ class Listener:
         except json.JSONDecodeError:
             return
         if isinstance(text, str) and text.strip():
-            self.speak(spoken(text))
+            self.speak(spoken(without_pointer(text)))
 
     def speak(self, text: str) -> None:
         """Say the reply out loud, cutting off whatever was still being said.
@@ -1484,7 +1588,7 @@ class Listener:
                 # `done` forever is a field that stops meaning finished, and
                 # one that leaves the moment the reply lands never showed the
                 # person that their errand worked at all.
-                state, hold = "done", self.LEAVE_AFTER
+                state, hold = "done", self.LEAVE_AFTER_WRITTEN if self.aside else self.LEAVE_AFTER
             else:
                 state, hold = "failed", self.LEAVE_AFTER
             if has_next:
@@ -1941,6 +2045,16 @@ class Listener:
             )
         elif self.turns > 0:
             building = ""
+        # The switch overrides the standing rule, so it is said on every
+        # spoken request while it is off, not once: the rule is in the
+        # system prompt for every turn, and a note said once fades under it.
+        aloud = (
+            "They have turned speech on for long answers: read this answer "
+            "out in full, however long it runs, and do not point at the "
+            "hyper bar.\n"
+            if not self.long_written and not req.typed
+            else ""
+        )
         if self.lean:
             # The standing rules are the system prompt's (hud-agent.md);
             # only what changed since the last turn is repeated, because
@@ -1952,6 +2066,7 @@ class Listener:
                 + pointed
                 + building + terminal
                 + ("Reply in writing: nothing is read aloud for a typed request.\n" if req.typed else "")
+                + aloud
             )
         return (
             prefix
@@ -1966,6 +2081,7 @@ class Listener:
             "sentence, under twenty words, that answers on its own: it is the "
             "line on the pill at the bottom of their screen. "
             + heard
+            + aloud
             + "Write plain prose in short paragraphs: no headings, no tables, "
             "and no code unless they asked for code; a short list is fine. "
             "Before any tool call, write one short sentence saying what you "
@@ -2098,6 +2214,7 @@ class Listener:
         run = Run()
         streaming = self.speaker is not None and self.voice is not None and not typed
         run.subtitles = not streaming
+        run.long_written = self.long_written
         started = time.monotonic()
         spoken_first = False
         voiced = False
@@ -2192,6 +2309,7 @@ class Listener:
         }
         with self.state:
             self.turn_report = report
+        self.aside = run.written_aside
         # Logged now if the voice has started or is not coming; a one
         # sentence reply usually ends its turn before its first sound, and
         # then `heard_speaker` logs it on that sound.

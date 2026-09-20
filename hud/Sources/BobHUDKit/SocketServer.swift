@@ -29,6 +29,9 @@ public final class SocketServer: @unchecked Sendable {
         public enum Kind: Sendable {
             case began
             case line(String)
+            /// A client sent `listen` and has been told the version. The app
+            /// follows with whatever else a fresh subscriber has to be told.
+            case subscribed
             case ended
             case failed(String)
         }
@@ -260,6 +263,7 @@ public final class SocketServer: @unchecked Sendable {
                     // the verb it is about to use exists in this build.
                     _ = write(
                         OutboundEvent.version(Self.version).line + "\n", to: fd)
+                    onEvent(Event(kind: .subscribed))
                     continue
                 }
                 if trimmed == "version" {
