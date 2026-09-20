@@ -91,10 +91,11 @@ extension Presence {
             return .init(
                 rest: 0.039, drift: 0.5, tint: FieldTint.steel, pulse: 0, fps: 20,
                 animating: true)
-        case .hearing:
-            // The one state driven from outside. `rest` here is a floor and
+        case .hearing, .speaking:
+            // The two states driven from outside. `rest` here is a floor and
             // the voice adds to it, so 60fps is not decoration: it is the rate
-            // the amplitude arrives at.
+            // the amplitude arrives at. Its own voice draws the same as the
+            // person's on purpose; see `Presence.speaking`.
             return .init(
                 rest: 0.018, drift: 0.35, tint: FieldTint.steel, pulse: 0, fps: 60,
                 animating: true)
@@ -255,7 +256,7 @@ struct PresenceField: View {
             awokeAt: awokeAt,
             closingAt: closingAt,
             popAt: popAt,
-            heard: presence == .hearing ? min(max(amplitude, 0), 1) : 0,
+            heard: presence.voiced ? min(max(amplitude, 0), 1) : 0,
             alpha: pulsing && pulses < 2 ? 0.55 : 1.0,
             pointer: pointer)
     }
