@@ -1868,13 +1868,28 @@ class Listener:
     def terminal_in_front(self) -> bool:
         return route.seen_app(looking_at()) == "Terminal"
 
+    # What counts as news rather than history. `t` alone decides, so an
+    # entry older than this is folded in silence.
+    TERMINAL_SHOWN = ("state", "text", "ask", "held")
+
     def on_terminal_event(self, entry: dict) -> None:
         before = self.terminal_state
         after = terminal_state.fold(before, entry)
         self.terminal_state = after
-        if after == before:
+        # `t` is written on every fold, so the whole dicts differ whenever
+        # the timestamps do. Only these four reach the person.
+        if all(after[k] == before[k] for k in self.TERMINAL_SHOWN):
             return
+        # The strip always: it is how the state is recovered after a restart
+        # or a rotation, and it costs one line. The presence sends and the
+        # voice only for something that just happened. Replaying the file
+        # from the top used to re-ask permission questions answered hours
+        # ago, each one cutting off the last, with a 3 s front check between
+        # them. A restart mid-hold still leaves the person able to say yes,
+        # because the state says waiting and held either way.
         self.send(terminal_state.strip_line(after))
+        if time.time() - float(entry.get("t") or 0.0) > self.TERMINAL_FRESH_S:
+            return
         became = after["state"] != before["state"] or after["text"] != before["text"]
         if after["state"] == "waiting" and became and entry.get("event") == "PermissionRequest":
             if not self.in_flight():
@@ -1892,6 +1907,13 @@ class Listener:
                 self.speak(f"The terminal finished: {after['text']}")
 
     def write_answer(self, ask: str, text: str) -> bool:
+        # The id always comes from the hook's own uuid4().hex[:8], but it
+        # arrives through a file on disk and is interpolated into a path.
+        # One line keeps that property local instead of inferred two
+        # modules away.
+        if not re.fullmatch(r"[0-9a-f]{8}", ask or ""):
+            self.log("refusing an answer for a malformed ask id:", ask)
+            return False
         try:
             asks_dir().mkdir(parents=True, exist_ok=True)
             (asks_dir() / f"{ask}.answer").write_text(text, encoding="utf-8")
@@ -1899,6 +1921,30 @@ class Listener:
         except OSError as err:
             self.log("answer unwritable:", err)
             return False
+
+    def answer_taken(self, ask: str) -> bool:
+        """Did the hook actually read the answer? It unlinks it when it does.
+
+        The hook checks the file at the top of its loop and then sleeps, so
+        an answer written in the last poll of the window, or after the hold
+        expired, is never read. hud-listen cannot tell from its own state:
+        `ask_expired` has not been appended and folded yet, so it still says
+        held. Without this the pill said "allowed" for a call nobody granted
+        and the transcript recorded the grant.
+        """
+        path = asks_dir() / f"{ask}.answer"
+        deadline = time.monotonic() + self.ANSWER_CONFIRM_S
+        while time.monotonic() < deadline:
+            if not path.exists():
+                return True
+            time.sleep(self.ASK_POLL_S)
+        if not path.exists():
+            return True
+        try:
+            path.unlink()
+        except OSError as err:
+            self.log("stale answer left behind:", err)
+        return False
 
     def handle_terminal_word(self, said: str) -> bool:
         """"yes", "no" while the tab waits on a permission; "stop the
@@ -1925,24 +1971,31 @@ class Listener:
 
         def work() -> None:
             self.send("p acting")
+            granted = "allowed" if action == "allow" else "denied"
             if state["held"] and state["ask"]:
-                ok = self.write_answer(state["ask"], action)
+                if not self.write_answer(state["ask"], action):
+                    delivered, said_back = False, "couldn't answer the terminal"
+                elif self.answer_taken(state["ask"]):
+                    delivered, said_back = True, granted
+                else:
+                    delivered, said_back = False, "the terminal stopped waiting"
             else:
                 # The hook gave the prompt back to the tab: press the key
                 # there. Only reachable while waiting, so the Return never
                 # lands on an input holding a draft.
-                ok = self.terminal("answer", tty, "yes" if action == "allow" else "no")
-            said_back = ("allowed" if action == "allow" else "denied") if ok else "couldn't answer the terminal"
+                delivered = self.terminal("answer", tty, "yes" if action == "allow" else "no")
+                said_back = granted if delivered else "couldn't answer the terminal"
             self.send("s " + json.dumps(said_back))
             try:
                 voice_memory.append({
                     "t": voice_memory.now_iso(), "via": "voice", "text": said, "dest": "terminal",
                     "confidence": 1.0, "reason": "answer word", "reply": None,
-                    "project": voice_memory.project().get("name"), "answer": action, "ask": state["ask"],
+                    "project": voice_memory.project().get("name"), "answer": action,
+                    "ask": state["ask"], "delivered": delivered,
                 })
             except OSError as err:
                 self.log("memory unwritable:", err)
-            self.settle_unless_running("done" if ok else "failed", self.STOP_HOLD)
+            self.settle_unless_running("done" if delivered else "failed", self.STOP_HOLD)
 
         threading.Thread(target=work, daemon=True).start()
         return True
@@ -1961,6 +2014,18 @@ class Listener:
     # ensure() polls at and is already fine-grained for a strip nobody
     # stares at. Guessed, never measured.
     TERMINAL_POLL_S = 0.5
+    # How recent an entry has to be before the voice and the ring react to
+    # it. Guessed, never measured: the 0.5 s poll above plus room for the
+    # AppleScript front check in the same loop, which takes up to 3 s.
+    # Anything older is history being replayed after a restart or a
+    # rotation, and history is folded in silence.
+    TERMINAL_FRESH_S = 5.0
+    # Matches ASK_POLL_S in mac/lib/terminal_events.py: the cadence the hook
+    # reads the answer file at.
+    ASK_POLL_S = 0.25
+    # How long to wait for the hook to take an answer before calling it
+    # undelivered. Guessed, never measured: four hook polls at ASK_POLL_S.
+    ANSWER_CONFIRM_S = 1.0
 
     # Every tenth terminal-bound sentence, one haiku call rewrites the
     # project summary in the background. Ten: the summary is one line and
