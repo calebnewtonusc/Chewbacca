@@ -55,8 +55,8 @@ YOUTUBE_STATE = BOB_DIR / "music-youtube.json"
 SPOTIFY_APP = Path("/Applications/Spotify.app")
 TOKEN_URL = "https://accounts.spotify.com/api/token"
 SEARCH_URL = "https://api.spotify.com/v1/search"
-# A Spotify search answered in about 0.3 s from Texas on 2026-09-20. Six
-# seconds is a slow network, not a wait a person notices as broken.
+# Guessed, never measured: no keys existed on 2026-09-20 to time a search.
+# Six seconds is a slow network, not a wait a person notices as broken.
 SEARCH_TIMEOUT = 6
 # A yt-dlp lookup took 2.3 s on 2026-09-20. Twenty covers a slow network
 # without leaving the voice silent for longer than a person keeps listening.
@@ -71,8 +71,8 @@ ARTIST_MATCH = 0.85
 # Spotify happened to rank. Guessed, never measured.
 WEAK_ARTIST_MATCH = 0.6
 WEAK_TRACK_MATCH = 0.5
-# Spotify launches in about two seconds on this machine. The first command
-# sent while it is still coming up fails, so it is sent again after that.
+# The first command sent while Spotify is still launching fails, so it is
+# sent again after this. Guessed, never measured.
 LAUNCH_WAIT = 2.0
 LAUNCH_TRIES = 3
 
