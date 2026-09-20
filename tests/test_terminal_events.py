@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """The hook, without Claude Code: fake events on stdin, a temp memory dir,
 an injected front-app check and clock. Run: python3 tests/test_terminal_events.py"""
+import contextlib
+import io
 import json
 import sys
 import tempfile
+import time
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
@@ -162,10 +165,53 @@ def main() -> int:
     check("no answer in time: the ask file is gone", not list(te.ASKS.iterdir()))
 
     te.ASKS.mkdir(exist_ok=True)
-    Path(te.ASKS, "held.json").write_text("{}")
+    Path(te.ASKS, "held.json").write_text(json.dumps({"t": time.time()}))
     out = te.hold(ask, front=lambda: "Google Chrome", sleep=clock.sleep, clock=clock)
     check("a second ask while one is held falls through", out == "" and entries()[-1]["held"] is False)
     Path(te.ASKS, "held.json").unlink()
+
+    print("stale and torn asks")
+    # A hook killed at its timeout, or parked across a lid close, leaves its
+    # ask file behind. That file used to disable the ask protocol for good.
+    stale = Path(te.ASKS, "stale.json")
+    stale.write_text(json.dumps({"t": time.time() - (te.ASK_WAIT_S + te.HOOK_TIMEOUT_S + 1)}))
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        out = te.hold(ask, front=lambda: "Google Chrome", sleep=answer_after("allow", 1.0), clock=clock)
+    check("a stale ask does not block the next hold",
+          json.loads(out)["hookSpecificOutput"]["decision"]["behavior"] == "allow", out)
+    check("the stale ask file is cleared", not stale.exists())
+    check("clearing it is said on stderr", "stale ask" in err.getvalue(), err.getvalue())
+    Path(te.ASKS, "no-t.json").write_text("{}")
+    with contextlib.redirect_stderr(io.StringIO()):
+        out = te.hold(ask, front=lambda: "Google Chrome", sleep=answer_after("allow", 1.0), clock=clock)
+    check("an ask file with no readable time is stale too",
+          out != "" and not Path(te.ASKS, "no-t.json").exists(), out)
+
+    def torn_answer(delay: float):
+        started = clock.now
+        def sleep(s: float) -> None:
+            clock.now += s
+            if clock.now - started >= delay:
+                for f in te.ASKS.glob("*.json"):
+                    Path(str(f)[:-5] + ".answer").write_bytes(b"\xff\xfe allo")
+        return sleep
+
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        out = te.hold(ask, front=lambda: "Google Chrome", sleep=torn_answer(1.0), clock=clock)
+    check("a non-utf-8 answer expires the ask instead of aborting the hold",
+          out == "" and entries()[-1]["event"] == "ask_expired", out)
+    check("a torn answer still removes the ask file", not list(te.ASKS.glob("*.json")))
+
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        out = te.hold(ask, front=lambda: "Google Chrome", sleep=answer_after("maybe", 1.0), clock=clock)
+    check("an unrecognised answer word expires the ask", out == "")
+    check("an unrecognised answer word is said on stderr",
+          "not allow or deny" in err.getvalue(), err.getvalue())
+    for leftover in te.ASKS.iterdir():
+        leftover.unlink()
 
     check("an unknown answer word is no decision", te.decision("maybe") is None)
     check("the hook never allows on its own", te.decision("") is None)

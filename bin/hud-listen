@@ -1756,6 +1756,11 @@ class Listener:
             # terminal.py itself, not by this call being the only one that
             # exists.
             env = {**os.environ, "CHEWIE_TERMINAL_SUBMIT": "1"}
+        elif verb == "answer":
+            # Same gate, same reason: `answer yes` presses Return in the tab.
+            # Only the answer-word path reaches this, and only while the
+            # state says the tab is waiting on a permission.
+            env = {**os.environ, "CHEWIE_TERMINAL_ANSWER": "1"}
         try:
             result = subprocess.run(
                 argv, capture_output=True, text=True,

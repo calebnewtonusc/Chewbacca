@@ -864,6 +864,32 @@ settings["alwaysThinkingEnabled"] = True
 
 h = settings.setdefault("hooks", {})
 
+
+def _register(event, command, timeout=None):
+    """Register one hook for `event`, replacing any earlier copy of it.
+
+    The events this file assigns outright (`h[event] = [...]`) reset their
+    list every run. The ones it adds to did not: `setdefault(...).append(...)`
+    appended another copy on every re-run, and `chewbacca update` re-runs
+    setup by design. Two PermissionRequest hooks then fire for one prompt,
+    the one that loses the ask-file race records the prompt as not held, and
+    a voice "yes" presses Return in a tab that is showing no dialog.
+
+    Matched on the command's basename, so moving the hooks directory still
+    replaces rather than duplicates.
+    """
+    name = os.path.basename(command)
+    entries = h.setdefault(event, [])
+    entries[:] = [
+        e for e in entries
+        if not any(os.path.basename(str(hook.get("command", ""))) == name
+                   for hook in e.get("hooks", []))
+    ]
+    hook = {"type": "command", "command": command}
+    if timeout is not None:
+        hook["timeout"] = timeout
+    entries.append({"hooks": [hook]})
+
 # Session opener: off unless --session-opener names one. This used to be wired
 # unconditionally, so a stranger running the installer got every reply opening
 # with a prayer and found out from two lines in a wall of setup output. That is
@@ -943,20 +969,12 @@ h["Stop"] = [{"hooks": [{
 
 # Coursework context loads when a prompt mentions a class, so the ledger is in
 # context before Claude answers rather than after it guesses.
-h.setdefault("UserPromptSubmit", []).append({"hooks": [{
-    "type": "command",
-    "command": hooks_dir + "/coursework-context.sh",
-    "timeout": 10,
-}]})
+_register("UserPromptSubmit", hooks_dir + "/coursework-context.sh", timeout=10)
 
 # A kit already built is worth nothing if the next session answers the question
 # in a chat window instead. This matches the prompt against every kit's
 # use-when line and says nothing at all unless there is a real match.
-h.setdefault("UserPromptSubmit", []).append({"hooks": [{
-    "type": "command",
-    "command": hooks_dir + "/kit-route.sh",
-    "timeout": 10,
-}]})
+_register("UserPromptSubmit", hooks_dir + "/kit-route.sh", timeout=10)
 
 h["PreToolUse"] = [{"matcher": "Write", "hooks": [{
     "type": "command",
@@ -976,11 +994,7 @@ h["Notification"] = [{"hooks": [{
 # tab and exits at once for every other session. 45 s: the hook holds a
 # permission prompt for 30 s while the voice asks, and needs room above that.
 for _event in ("PermissionRequest", "PreToolUse", "PostToolUse", "PermissionDenied", "Stop", "SessionEnd"):
-    h.setdefault(_event, []).append({"hooks": [{
-        "type": "command",
-        "command": hooks_dir + "/terminal-loop.sh",
-        "timeout": 45,
-    }]})
+    _register(_event, hooks_dir + "/terminal-loop.sh", timeout=45)
 
 # Your commits are yours. Claude Code appends a Co-Authored-By trailer and a
 # "Generated with Claude Code" line to pull requests by default, and stripping

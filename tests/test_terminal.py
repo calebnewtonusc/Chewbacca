@@ -209,6 +209,27 @@ def main() -> int:
     # answer / interrupt / focus: focus first, then one key. The key lines
     # are single-line scripts, so their first line is the whole script.
     t.osascript = fake_osascript
+
+    # `answer yes` presses the same Return `submit` does, so it carries the
+    # same gate. Every way hud-listen's terminal state can be wrong turns an
+    # ungated Return into a prompt nobody read.
+    _os.environ.pop("CHEWIE_TERMINAL_ANSWER", None)
+    calls.clear()
+    try:
+        t.answer("yes", "/dev/ttys002")
+        check("answer yes without CHEWIE_TERMINAL_ANSWER refuses", False)
+    except SystemExit as e:
+        check("answer yes without the gate exits 3", e.code == 3)
+    check("answer yes without the gate pressed nothing", calls == [], str(calls))
+    calls.clear()
+    t.answer("no", "/dev/ttys002")
+    check("answer no needs no gate: Escape costs a tool call at worst",
+          any("key code 53" in str(c) for c in calls), str(calls))
+    calls.clear()
+    t.interrupt("/dev/ttys002")
+    check("interrupt needs no gate either", any("key code 53" in str(c) for c in calls), str(calls))
+
+    _os.environ["CHEWIE_TERMINAL_ANSWER"] = "1"
     calls.clear()
     got = t.answer("yes", "/dev/ttys002")
     keys = [c[1] for c in calls if c[0] == "osascript" and "key code" in c[1]]
@@ -235,6 +256,7 @@ def main() -> int:
         check("answer under Secure Input refuses", False)
     except SystemExit as e:
         check("answer under Secure Input exits 2", e.code == 2)
+    _os.environ.pop("CHEWIE_TERMINAL_ANSWER", None)
     try:
         t.interrupt("/dev/ttys002")
         check("interrupt under Secure Input refuses", False)

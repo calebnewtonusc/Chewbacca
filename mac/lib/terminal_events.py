@@ -50,6 +50,10 @@ ASK_WAIT_S = 30.0
 # Guessed, never measured: fast enough that an answer lands within a quarter
 # second of being written, slow enough that 30 s of polling is 120 stats.
 ASK_POLL_S = 0.25
+# The `timeout` setup.sh registers this hook with. Claude Code kills the hook
+# at that point and hold()'s finally never runs, so anything still on disk
+# after ASK_WAIT_S plus this long belongs to a hook that is gone.
+HOOK_TIMEOUT_S = 45.0
 # One System Events call takes well under a second on this machine.
 FRONT_TIMEOUT_S = 2.0
 
@@ -158,6 +162,35 @@ def decision(answer: str) -> dict | None:
     return {"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": body}}
 
 
+def live_asks() -> list[Path]:
+    """Ask files young enough that a hook could still be holding one.
+
+    Only hold()'s own `finally` removes an ask file, and it does not run when
+    the process dies. Claude Code kills the hook at its registered timeout,
+    and `clock` is monotonic, which does not advance across system sleep, so
+    a lid closed mid-hold outlives the hold. One file left behind used to
+    make every later permission prompt fall through to the tab, silently and
+    for good. A file with no readable `t` is treated as stale: the field has
+    been written since the first version.
+    """
+    cutoff = time.time() - (ASK_WAIT_S + HOOK_TIMEOUT_S)
+    live = []
+    for path in ASKS.glob("*.json"):
+        try:
+            when = float(read_json(path).get("t") or 0.0)
+        except (TypeError, ValueError):
+            when = 0.0
+        if when > cutoff:
+            live.append(path)
+            continue
+        print(f"terminal hook: clearing a stale ask {path.name}", file=sys.stderr)
+        try:
+            path.unlink()
+        except OSError:
+            pass
+    return live
+
+
 def hold(event: dict, front=front_app, sleep=time.sleep, clock=time.monotonic) -> str:
     """The ask protocol. Returns what the hook prints: a decision, or nothing.
 
@@ -167,7 +200,7 @@ def hold(event: dict, front=front_app, sleep=time.sleep, clock=time.monotonic) -
     """
     ASKS.mkdir(parents=True, exist_ok=True)
     app = front()
-    if app in ("Terminal", "") or any(ASKS.glob("*.json")):
+    if app in ("Terminal", "") or live_asks():
         append(entry_for(event, held=False))
         return ""
     ask_id = uuid.uuid4().hex[:8]
@@ -182,12 +215,25 @@ def hold(event: dict, front=front_app, sleep=time.sleep, clock=time.monotonic) -
     try:
         while clock() < deadline:
             if answer_file.exists():
-                text = answer_file.read_text(encoding="utf-8").strip()
-                answer_file.unlink()
+                try:
+                    text = answer_file.read_text(encoding="utf-8").strip()
+                except (OSError, ValueError):
+                    # A torn or non-UTF-8 write. UnicodeDecodeError is a
+                    # ValueError, so it used to escape hold() entirely and
+                    # leave the ask file behind, and that one file then
+                    # disabled the ask protocol for every later prompt.
+                    text = ""
+                try:
+                    answer_file.unlink()
+                except OSError:
+                    pass
                 chosen = decision(text)
                 if chosen is not None:
                     append({**entry_for(event, ask=ask_id), "event": "ask_answered", "summary": text})
                     return json.dumps(chosen)
+                # Nobody is told otherwise: the hold just runs out. The
+                # hook's own stderr is where the expiry gets explained.
+                print(f"terminal hook: answer {text!r} is not allow or deny", file=sys.stderr)
             sleep(ASK_POLL_S)
     finally:
         try:
