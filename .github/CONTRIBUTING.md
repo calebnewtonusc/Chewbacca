@@ -80,7 +80,8 @@ write will be rejected, and those are the three things review looks for first.
 **Nothing here is sandboxed.** There is no isolation between a skill and the
 rest of the machine. Do not propose one that assumes there is.
 
-**Vendored work keeps its author.** Skills cloned from upstream carry a
+**Vendored work keeps its author**, and is listed in
+[CREDITS.md](../CREDITS.md). Skills cloned from upstream carry a
 `.source` file and their original license. They are held to the upstream
 author's standard, not this repo's prose rules, which is why the slop threshold
 in CI is 60 rather than 0.
