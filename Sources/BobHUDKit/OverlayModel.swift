@@ -55,10 +55,11 @@ public final class OverlayModel {
     public private(set) var surfaces: [OverlaySurface] = []
     public private(set) var revision = 0
     /// Where the pointer is on the glass, in unit coordinates with a top-left
-    /// origin, or nil when it is nowhere the field cares about. Read by the
-    /// presence field alone, and deliberately not part of `revision`: a
-    /// pointer move must not replay every surface's spring.
-    public private(set) var pointer: CGPoint?
+    /// origin, or nil when it is nowhere the field cares about. Kept for
+    /// tests and for anything that asks; the field itself is told directly
+    /// through `PresenceFieldRenderer.point`, and this is not observed at
+    /// all: a pointer move must not re-evaluate a single SwiftUI body.
+    @ObservationIgnored public private(set) var pointer: CGPoint?
 
     /// Where events from any surface go.
     public var onEvent: ((OutboundEvent) -> Void)?
@@ -440,6 +441,7 @@ public final class OverlayModel {
         }
         guard next != pointer else { return }
         pointer = next
+        PresenceFieldRenderer.point(at: next)
     }
 
     public func report(pillSize: CGSize) {

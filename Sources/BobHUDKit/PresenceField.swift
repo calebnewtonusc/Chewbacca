@@ -151,9 +151,6 @@ struct PresenceFrame: Equatable {
     var heard: Double
     /// Scales the whole layer's alpha, for the two states that pulse.
     var alpha: Double
-    /// Where the pointer is, in unit coordinates with a top-left origin, or
-    /// nil when it is nowhere near the edge. The band parts around it.
-    var pointer: CGPoint?
 }
 
 /// One number that follows another instead of jumping to it.
@@ -195,10 +192,8 @@ struct Chase: Equatable {
 @MainActor
 struct PresenceField: View {
     let presence: Presence
-    /// 0 to 1, only read in `.hearing`.
+    /// 0 to 1, only read in `.hearing` and `.speaking`.
     let amplitude: Double
-    /// Unit coordinates, top-left origin, or nil when far from the edge.
-    let pointer: CGPoint?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.hudOffscreen) private var offscreen
@@ -253,8 +248,7 @@ struct PresenceField: View {
             awokeAt: awokeAt,
             closingAt: closingAt,
             heard: presence.voiced ? min(max(amplitude, 0), 1) : 0,
-            alpha: pulsing && pulses < 2 ? 0.55 : 1.0,
-            pointer: pointer)
+            alpha: pulsing && pulses < 2 ? 0.55 : 1.0)
     }
 
     /// Arrival and departure, the only two transitions this layer treats as
@@ -307,6 +301,17 @@ struct PresenceField: View {
 /// `preferredFramesPerSecond` are first class on `MTKView`, and pacing a
 /// full-screen shader by state is the entire answer to the battery question
 /// `PresenceRing` raises about animating forever.
+/// An `MTKView` that draws at `PresenceFieldRenderer.renderScale` pixels per
+/// point rather than at the display's own density.
+private final class PresenceFieldView: MTKView {
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        let scale = PresenceFieldRenderer.renderScale
+        let size = CGSize(width: newSize.width * scale, height: newSize.height * scale)
+        if drawableSize != size { drawableSize = size }
+    }
+}
+
 private struct PresenceFieldSurface: NSViewRepresentable {
     let frame: PresenceFrame
     let paused: Bool
@@ -314,7 +319,9 @@ private struct PresenceFieldSurface: NSViewRepresentable {
     func makeCoordinator() -> PresenceFieldRenderer { PresenceFieldRenderer() }
 
     func makeNSView(context: Context) -> MTKView {
-        let view = MTKView(frame: .zero, device: context.coordinator.device)
+        let view = PresenceFieldView(frame: .zero, device: context.coordinator.device)
+        // The drawable is sized by the view above, not by the display.
+        view.autoResizeDrawable = false
         // The whole point of this layer: everything behind it is the person's
         // real screen, so the drawable has to carry alpha and the layer has to
         // be told not to paint the parts that are empty.
@@ -330,10 +337,13 @@ private struct PresenceFieldSurface: NSViewRepresentable {
 
     func updateNSView(_ view: MTKView, context: Context) {
         context.coordinator.frame = frame
-        // The rupture is a fast, one-off move and it plays under `dormant`,
+        // The departure is a fast, one-off move and it plays under `dormant`,
         // whose own rate is one frame a second. Pacing it at the destination
-        // state's rate would draw it in four frames.
-        view.preferredFramesPerSecond = frame.closingAt == nil ? frame.style.fps : 60
+        // state's rate would draw it in four frames. Only written when it
+        // changes: the setter reconfigures the view's clock, and a value
+        // re-set on every update is a clock that keeps restarting.
+        let fps = frame.closingAt == nil ? frame.style.fps : 60
+        if view.preferredFramesPerSecond != fps { view.preferredFramesPerSecond = fps }
         // Stopping is a thing the renderer does to itself once it has a
         // frame on the screen, not a thing set from here. A `draw()` called
         // on a view in the same pass that paused it asks `CAMetalLayer` for a
@@ -452,6 +462,34 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
     /// longer of the two in `presenceFragment`; the two have to move together.
     static let arrival: Double = 0.70
 
+    /// Drawable pixels per point. One: the band is soft liquid with nothing
+    /// in it finer than about three points. Measured 2026-09-19 on an M4
+    /// Pro, GPU time per frame: at the display's density 10.8 ms before the
+    /// shader's empty-pixel cull and 3.1 ms after; at this scale 2.7 ms and
+    /// 0.85 ms. The first number is two thirds of a 60fps frame spent on
+    /// pixels nobody could tell apart, and the band stuttered under the
+    /// pointer.
+    static let renderScale: CGFloat = 1
+
+    /// Where the pointer is, in unit coordinates with a top-left origin, or
+    /// nil when it is nowhere near the edge. Written by `OverlayModel.point`
+    /// and read in `draw`, both on the main thread.
+    ///
+    /// Deliberately not part of the SwiftUI frame. When it was, every mouse
+    /// event re-evaluated the overlay's whole body and ran `updateNSView`,
+    /// which told the Metal view its frame rate again each time, and the
+    /// parting under the cursor was reported as not smooth on 2026-09-19.
+    /// The path now is one static write and one unpause.
+    nonisolated(unsafe) static var pointer: CGPoint?
+    /// The view on screen, so a pointer move can wake a parked field.
+    nonisolated(unsafe) private static weak var live: MTKView?
+
+    @MainActor
+    static func point(at unit: CGPoint?) {
+        pointer = unit
+        live?.isPaused = false
+    }
+
     override init() {
         device = MTLCreateSystemDefaultDevice()
         super.init()
@@ -459,6 +497,7 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
 
     @MainActor
     func attach(to view: MTKView) {
+        Self.live = view
         guard let device, !broken, pipeline == nil else { return }
         do {
             let library = try device.makeLibrary(source: presenceFieldSource, options: nil)
@@ -540,10 +579,11 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
         let pixelsPerPoint = Float(size.height) / Float(max(view.bounds.height, 1))
         let radius = Self.partRadius * pixelsPerPoint / Float(max(size.height, 1))
         let feather = Self.partFeather * pixelsPerPoint / Float(max(size.height, 1))
+        let pointer = Self.pointer
         let partTarget = Self.parting(
-            pointer: frame.pointer, aspect: W, rest: Float(style.rest),
+            pointer: pointer, aspect: W, rest: Float(style.rest),
             reach: radius + feather)
-        if let p = frame.pointer {
+        if let p = pointer {
             pointerX.step(toward: Float(p.x), dt: dt)
             pointerY.step(toward: Float(p.y), dt: dt)
         }
@@ -568,7 +608,7 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
             && alpha.settled(at: Float(frame.alpha))
             && heard.settled(at: heardTarget)
             && part.settled(at: partTarget)
-            && (frame.pointer.map {
+            && (pointer.map {
                 pointerX.settled(at: Float($0.x)) && pointerY.settled(at: Float($0.y))
             } ?? true)
             && simd_length(shownTint - tintTarget) < 0.002
@@ -577,8 +617,10 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
             // A still state's own rate is one frame a second, which would
             // draw its arrival in three steps. Thirty is the slowest rate a
             // transition reads as continuous at, and a hole following the
-            // hand wants the full sixty.
-            view.preferredFramesPerSecond = part.shown > 0.001 ? 60 : max(style.fps, 30)
+            // hand wants the full sixty. Written only on change, for the
+            // reason given in `updateNSView`.
+            let fps = part.shown > 0.001 ? 60 : max(style.fps, 30)
+            if view.preferredFramesPerSecond != fps { view.preferredFramesPerSecond = fps }
         }
 
         // The voice rides on top of the floor. 0.08 rather than the old 0.18,
