@@ -35,6 +35,13 @@ from pathlib import Path
 SOCKET = os.environ.get("BOB_HUD_SOCKET", str(Path.home() / ".bob" / "hud.sock"))
 SKILL = Path(__file__).resolve().parent.parent / "skills" / "hud" / "SKILL.md"
 CONTEXT = Path(__file__).resolve().parent / "hud-context"
+SPEAK = Path(__file__).resolve().parent / "hud-speak"
+# Kokoro names a voice by language and gender, then a name: af_heart,
+# am_michael, bf_emma. Nothing macOS ships looks like that.
+KOKORO_VOICE = re.compile(r"[a-z]{2}_[a-z]+")
+# The macOS voice used when hud-speak is not there. The best of the ones
+# that ship without a download; `say -v '?'` lists them.
+FALLBACK_VOICE = "Samantha"
 
 # Fences are the single most common thing a model wraps output in, and a fence
 # line is not a valid op, so it would be dropped silently and the surface would
@@ -81,6 +88,16 @@ SESSIONS = Path.home() / ".claude" / "projects" / str(Path.home()).replace("/", 
 STOP_WORDS = frozenset({
     "stop", "stop it", "stop that", "cancel", "cancel that",
     "never mind", "nevermind", "forget it",
+})
+
+# Stop words only while something is running. Spoken over a run these can
+# mean nothing else, and on 2026-09-19 a "No" said the moment "Looking up
+# Rylee's contact to send that text" was read out was queued behind the
+# send, the text went, and 44 seconds later the model asked what the no was
+# about. With nothing in flight they are answers ("no" to a question the
+# model asked) and go to it as requests.
+BARGE_WORDS = frozenset({
+    "no", "no no", "no stop", "wait", "wait wait", "hold on", "hang on",
 })
 
 # What the agent got onto the glass, read out of its own tool calls. It draws
@@ -265,6 +282,11 @@ class Run:
         # intent: a draw that failed drew nothing.
         self.drawn: list[str] = []
         self.pending: dict[str, list[str]] = {}
+        # The first thing the model said in prose, before any tool ran. The
+        # prompt asks for one short line up front, and it is spoken the moment
+        # it lands: the person hears what is about to happen four seconds in
+        # rather than a minute later.
+        self.first_text: str | None = None
 
     def pulse(self, now: float, force: bool = False) -> list[str]:
         if not force and now - self.last_pulse < PULSE_EVERY:
@@ -302,7 +324,10 @@ class Run:
             for block in event.get("message", {}).get("content", []) or []:
                 btype = block.get("type")
                 if btype == "text":
-                    out += self.say(subtitle(block.get("text", "")))
+                    phrase = subtitle(block.get("text", ""))
+                    if self.first_text is None and phrase:
+                        self.first_text = phrase
+                    out += self.say(phrase)
                 elif btype == "tool_use":
                     self.state = "acting"
                     self.note_draw(block)
@@ -375,12 +400,18 @@ class Listener:
         self.session = str(uuid.uuid4())
         self.started = False
 
-        # The reply is said out loud, by this voice, unless it is None. What
-        # `say` is currently speaking, so a new request or a stop can cut it
-        # off: the person talking over it is the strongest signal there is
-        # that they have heard enough.
+        # The reply is said out loud, by this voice, unless it is None. A
+        # Kokoro voice (`af_heart`, `am_michael`: two letters, underscore,
+        # name) runs through `hud-speak`, a server that keeps the model warm;
+        # anything else is a macOS voice for `say`. What `say` is currently
+        # speaking is kept so a new request or a stop can cut it off: the
+        # person talking over it is the strongest signal there is that they
+        # have heard enough. `hud-speak` does its own cutting off.
         self.voice = voice
         self.saying: subprocess.Popen[bytes] | None = None
+        self.speaker: subprocess.Popen[str] | None = None
+        if voice and KOKORO_VOICE.fullmatch(voice):
+            self.speaker = self.start_speaker(voice)
 
         # The last region the person pointed at, and when.
         #
@@ -445,6 +476,7 @@ class Listener:
             f"conversation: {self.session}",
             file=sys.stderr,
         )
+        self.prime()
 
         delay = 0.5
         announced = False
@@ -551,6 +583,11 @@ class Listener:
     # look the same.
     STOP_HOLD = 3.0
 
+    def in_flight(self) -> bool:
+        """Whether a request is running or waiting to."""
+        with self.state:
+            return self.current is not None
+
     def stop(self) -> None:
         """End the run in flight and keep what it drew.
 
@@ -595,6 +632,53 @@ class Listener:
         if idle:
             self.send("p attentive")
 
+    def start_speaker(self, voice: str) -> subprocess.Popen[str] | None:
+        """Start `hud-speak` and keep it. Its first line, "ready", means the
+        model is loaded and warm; until then anything spoken waits in the
+        pipe. On the first run of a fresh machine that is a minute of
+        installing; after that about eight seconds."""
+        try:
+            proc = subprocess.Popen(
+                [str(SPEAK), "--voice", voice],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=sys.stderr,
+                text=True,
+            )
+        except OSError as err:
+            self.log("hud-speak did not start, falling back to say:", err)
+            self.voice = FALLBACK_VOICE
+            return None
+
+        def watch() -> None:
+            # The model loader prints its own lines to stdout before "ready"
+            # ("Creating new KokoroPipeline ..."), so read until it comes.
+            for line in proc.stdout or []:
+                if line.strip() == "ready":
+                    self.log(f"voice ready: {voice}")
+                    return
+            proc.wait()
+            self.log(f"hud-speak exited ({proc.returncode}), falling back to say")
+            self.speaker = None
+            self.voice = FALLBACK_VOICE
+
+        threading.Thread(target=watch, daemon=True).start()
+        return proc
+
+    def tell_speaker(self, message: dict) -> bool:
+        proc = self.speaker
+        if proc is None or proc.stdin is None or proc.poll() is not None:
+            return False
+        try:
+            proc.stdin.write(json.dumps(message) + "\n")
+            proc.stdin.flush()
+            return True
+        except (BrokenPipeError, OSError) as err:
+            self.log("hud-speak pipe broke, falling back to say:", err)
+            self.speaker = None
+            self.voice = FALLBACK_VOICE
+            return False
+
     def speak(self, text: str) -> None:
         """Say the reply out loud, cutting off whatever was still being said.
 
@@ -603,6 +687,8 @@ class Listener:
         look for, and the whole point of speaking to it was not looking.
         """
         if not self.voice or not text:
+            return
+        if self.speaker is not None and self.tell_speaker({"say": text}):
             return
         self.hush()
         try:
@@ -617,13 +703,53 @@ class Listener:
 
     def hush(self) -> None:
         """Stop talking."""
+        if self.speaker is not None:
+            self.tell_speaker({"hush": True})
         proc, self.saying = self.saying, None
         if proc is not None and proc.poll() is None:
             proc.terminate()
 
+    def prime(self) -> None:
+        """Open the session and have the skill and CLI usage read before the
+        first spoken request, so that request does not pay for it.
+
+        Measured 2026-09-19 on the first request of a fresh session: the
+        model spent 3.3s to 12.5s of a 19s calendar booking on "Using the hud
+        skill", "Check HUD status and mac calendar CLI help" and "Show mac
+        calendar add usage", none of which the person asked for. Done here,
+        before the socket is even open, that reading costs them nothing.
+        Synchronous on purpose: `--session-id` twice is an error, and a
+        request arriving mid-prime would be the second.
+        """
+        if self.bare:
+            return
+        argv = self.command()
+        if Path(argv[0]).name != "claude":
+            return
+        started = time.monotonic()
+        prompt = (
+            "Warm-up for this session, before the first spoken request arrives. "
+            "Load the hud skill. Then read the usage of these commands, each "
+            "with --help: mac calendar add, mac calendar list, mac messages send, "
+            "mac messages chats, mac messages history, mac contacts find. The "
+            "display is connected. Do not draw anything, do not send anything, "
+            "and do not write a session opener. Reply with only the word: ready\n"
+        )
+        try:
+            result = subprocess.run(
+                argv, input=prompt, capture_output=True, text=True,
+                timeout=120, cwd=str(Path.home()),
+            )
+        except (OSError, subprocess.TimeoutExpired) as err:
+            self.log("prime failed:", err)
+            return
+        self.started = self.started or (SESSIONS / f"{self.session}.jsonl").exists()
+        self.log(f"primed in {time.monotonic() - started:.0f}s: {result.stdout.strip()[:60]!r}")
+
     def ask(self, said: str) -> None:
         self.hush()
-        if normalise(said) in STOP_WORDS:
+        words = normalise(said)
+        if words in STOP_WORDS or (words in BARGE_WORDS and self.in_flight()):
             self.stop()
             return
         req = Request(said=said, spoken_at=time.monotonic(), pointed=self.pointing())
@@ -756,8 +882,9 @@ class Listener:
         prompt = self.prompt_for(req, seen)
         self.log("->", req.said, f"[{req.id}, spoken {time.monotonic() - req.spoken_at:.0f}s ago]")
         argv = self.command()
+        first: str | None = None
         if Path(argv[0]).name == "claude":
-            ok, out, said = self.run_streamed(argv, prompt)
+            ok, out, said, first = self.run_streamed(argv, prompt)
         else:
             ok, out, said = self.run_plain(argv, prompt)
         with self.state:
@@ -774,14 +901,16 @@ class Listener:
             self.send(line)
         spoken = out.strip()
         if spoken:
-            self.log("said:", spoken[:300])
+            self.log(f"said: [{time.monotonic() - req.spoken_at:.1f}s]", spoken[:300])
         # The reply reaches the glass as the last subtitle, unless the
         # stream already put the same sentence there: the final text block
         # and `result.result` are the same words on CLI 2.1.278.
         reply = subtitle(prose(out))
         if reply and reply != said:
             self.send("s " + json.dumps(reply))
-        if ok:
+        # A run that was one sentence long already had it spoken as it
+        # arrived; saying it twice is the tell of a machine.
+        if ok and reply != first:
             self.speak(reply or said or "")
         return "done" if ok else "failed"
 
@@ -838,12 +967,18 @@ class Listener:
                 if req.pointed
                 else ""
             )
-            + "Use the hud skill to answer them by drawing on their display. "
-            "Look up whatever real data the answer needs first. Do not "
-            "invent a number. Keep any spoken reply under twenty words, "
-            "because the panel is the answer and the sentence is only a "
-            "pointer to it. Do not write a session opener; this is a "
-            "spoken exchange, not a session.\n\n"
+            + "First, before any tool call, write one short sentence, under "
+            "eight words, saying what you are about to do; it is read aloud "
+            "to them at once. Then answer by drawing on their display with "
+            "the hud skill you loaded at the start of this session; the mac "
+            "CLI usage you read then still holds, so do not read either "
+            "again unless a command fails. The display is connected: do not "
+            "check whether it is running. Look up whatever real data the "
+            "answer needs. Do "
+            "not invent a number. Keep the final spoken reply under twenty "
+            "words, because the panel is the answer and the sentence is only "
+            "a pointer to it. Do not write a session opener; this is a spoken "
+            "exchange, not a session.\n\n"
             "This is a spoken request, not a coding task. The panel is the "
             "only deliverable: do not edit, commit, or push anything.\n"
         )
@@ -884,7 +1019,7 @@ class Listener:
 
     def run_streamed(
         self, argv: list[str], prompt: str
-    ) -> tuple[bool, str, str | None]:
+    ) -> tuple[bool, str, str | None, str | None]:
         """Run Claude Code and put what it is actually doing on the glass.
 
         The field has two working states and they mean different things:
@@ -932,7 +1067,9 @@ class Listener:
         killer = threading.Timer(240.0, proc.kill)
         killer.start()
         run = Run()
-        for line in run.pulse(time.monotonic(), force=True):
+        started = time.monotonic()
+        spoken_first = False
+        for line in run.pulse(started, force=True):
             self.send(line)
         stop = threading.Event()
 
@@ -962,8 +1099,11 @@ class Listener:
                     continue
                 for line in run.translate(event, time.monotonic()):
                     if line.startswith("s "):
-                        self.log(line)
+                        self.log(f"[+{time.monotonic() - started:.1f}s]", line)
                     self.send(line)
+                if run.first_text and not spoken_first:
+                    spoken_first = True
+                    self.speak(run.first_text)
                 with self.state:
                     self.drawn = list(run.drawn)
         finally:
@@ -973,7 +1113,7 @@ class Listener:
             with self.state:
                 self.proc = None
         ok = run.ok and proc.returncode == 0
-        return ok, run.text, run.said
+        return ok, run.text, run.said, run.first_text
 
 
 def main() -> int:
@@ -1000,11 +1140,10 @@ def main() -> int:
     )
     parser.add_argument(
         "--voice",
-        # Samantha is the best of the voices macOS ships without a download;
-        # `say -v '?'` lists what this Mac has, and a Premium voice from
-        # System Settings > Accessibility > Spoken Content is a real step up.
-        default=os.environ.get("HUD_VOICE", "Samantha"),
-        help="the macOS voice that reads each reply aloud; 'off' for silence",
+        # A Kokoro voice runs through hud-speak (see its docstring for why);
+        # a macOS voice name goes to `say`, and `say -v '?'` lists those.
+        default=os.environ.get("HUD_VOICE", "af_heart"),
+        help="who reads each reply aloud: a Kokoro voice like af_heart, a macOS voice like Samantha, or 'off'",
     )
     args = parser.parse_args()
     voice = None if args.voice.lower() in {"off", "none", ""} else args.voice

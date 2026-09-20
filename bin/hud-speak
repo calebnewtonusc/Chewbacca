@@ -1,0 +1,220 @@
+#!/usr/bin/env -S uv run --script --quiet
+# /// script
+# requires-python = ">=3.10,<3.13"
+# dependencies = [
+#   "mlx-audio",
+#   "misaki[en]",
+#   "spacy<3.9",
+#   "soundfile",
+#   "numpy",
+#   "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+# ]
+# ///
+"""Read lines aloud with Kokoro, on this Mac, with the model kept warm.
+
+`say` was the first voice the display had and it sounded like 2005. The Mac's
+better voices (Ava, Zoe, Samantha Enhanced) cannot be installed from a script,
+only by clicking through System Settings, and there is no API key on this
+machine for a hosted voice. Kokoro is the 82M-parameter open model that sits
+at the top of the small-model listening tests, and on an M4 Pro through MLX it
+makes 5.5 seconds of speech in 0.9 seconds once warm. The first sentence after
+load costs about six seconds of compilation, which is why this is a server
+rather than a command: hud-listen starts it once and keeps it.
+
+One JSON object per line on stdin:
+
+    {"say": "Booked. Call with Caleb tomorrow at three."}
+    {"hush": true}
+
+`say` cuts off whatever is still being said and speaks the new text, one
+sentence at a time so the first one starts before the rest is made. `hush`
+stops it. "ready" on stdout means the model is loaded and warm.
+
+    hud-speak --say "Hello"       speak once and exit, for trying a voice
+    hud-speak --voice af_bella    another voice; af_heart is the default
+    hud-speak --list              the voices this model ships
+
+Needs `brew install espeak-ng`: Kokoro's English front end falls back to it
+for words outside its dictionary, which is every name it has not seen, and
+without it those words are dropped silently.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from pathlib import Path
+from queue import Queue
+
+# espeak-ng comes from Homebrew, and the loader Kokoro's front end ships looks
+# for it somewhere that only exists on the wheel builder's machine. Point it at
+# Homebrew before anything imports it.
+_prefix = os.environ.get("HOMEBREW_PREFIX") or (
+    "/opt/homebrew" if Path("/opt/homebrew/bin/brew").exists() else "/usr/local"
+)
+os.environ.setdefault("ESPEAK_DATA_PATH", f"{_prefix}/share/espeak-ng-data")
+os.environ.setdefault("PHONEMIZER_ESPEAK_LIBRARY", f"{_prefix}/lib/libespeak-ng.dylib")
+if not Path(os.environ["PHONEMIZER_ESPEAK_LIBRARY"]).exists():
+    print("hud-speak: espeak-ng not found; names may be skipped. brew install espeak-ng",
+          file=sys.stderr, flush=True)
+
+MODEL = "mlx-community/Kokoro-82M-bf16"
+RATE = 24_000
+# Sentence ends. Splitting here is what lets the first sentence start playing
+# while the second is still being made; a whole reply generated first added
+# most of a second before anything was heard.
+SENTENCE = re.compile(r"(?<=[.!?])\s+")
+
+
+def sentences(text: str) -> list[str]:
+    parts = [p.strip() for p in SENTENCE.split(text.strip()) if p.strip()]
+    out: list[str] = []
+    for part in parts:
+        # A two-word fragment is not worth its own generation call and pause.
+        if out and len(part.split()) < 3:
+            out[-1] = f"{out[-1]} {part}"
+        else:
+            out.append(part)
+    return out
+
+
+class Player:
+    """Plays wav files in order, and drops everything on a hush.
+
+    `generation` is bumped by `hush`; anything queued under an older number is
+    skipped when it comes up, which is how a reply that was half-made when the
+    person spoke again never reaches the speaker.
+    """
+
+    def __init__(self) -> None:
+        self.queue: Queue[tuple[str, int]] = Queue()
+        self.generation = 0
+        self.current: subprocess.Popen[bytes] | None = None
+        self.lock = threading.Lock()
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def _loop(self) -> None:
+        while True:
+            path, generation = self.queue.get()
+            try:
+                if generation != self.generation:
+                    continue
+                with self.lock:
+                    if generation != self.generation:
+                        continue
+                    self.current = subprocess.Popen(
+                        ["afplay", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
+                self.current.wait()
+            finally:
+                Path(path).unlink(missing_ok=True)
+                self.queue.task_done()
+
+    def hush(self) -> int:
+        with self.lock:
+            self.generation += 1
+            if self.current is not None and self.current.poll() is None:
+                self.current.terminate()
+            return self.generation
+
+
+class Speaker:
+    def __init__(self, voice: str, speed: float) -> None:
+        from mlx_audio.tts.utils import load_model
+
+        self.voice = voice
+        self.speed = speed
+        self.model = load_model(MODEL)
+        self.player = Player()
+        self.tmp = Path(tempfile.mkdtemp(prefix="hud-speak-"))
+        self.busy = threading.Lock()
+
+    def synthesize(self, text: str) -> str:
+        import numpy as np
+        import soundfile as sf
+
+        chunks = [
+            np.array(r.audio)
+            for r in self.model.generate(text=text, voice=self.voice, speed=self.speed)
+        ]
+        path = self.tmp / f"{os.getpid()}-{threading.get_ident()}-{abs(hash(text))}.wav"
+        sf.write(str(path), np.concatenate(chunks), RATE)
+        return str(path)
+
+    def warm(self) -> None:
+        # The first generation after load carries the compilation cost.
+        # Paying it here, before "ready", is what makes the first spoken
+        # line land in under half a second.
+        Path(self.synthesize("Ready.")).unlink(missing_ok=True)
+
+    def say(self, text: str) -> None:
+        generation = self.player.hush()
+        with self.busy:
+            for sentence in sentences(text):
+                if generation != self.player.generation:
+                    return
+                self.player.queue.put((self.synthesize(sentence), generation))
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--voice", default=os.environ.get("HUD_VOICE", "af_heart"))
+    parser.add_argument("--speed", type=float, default=1.0)
+    parser.add_argument("--say", help="speak this once and exit")
+    parser.add_argument("--list", action="store_true", help="list the voices")
+    args = parser.parse_args()
+
+    if args.list:
+        from huggingface_hub import snapshot_download
+
+        voices = sorted(Path(snapshot_download(MODEL)).glob("voices/*.safetensors"))
+        for v in voices:
+            print(v.stem)
+        return 0
+
+    speaker = Speaker(args.voice, args.speed)
+    speaker.warm()
+    if args.say:
+        speaker.say(args.say)
+        # Every sentence is queued by the time `say` returns; wait for the
+        # last one to finish playing rather than exiting mid-sentence.
+        speaker.player.queue.join()
+        return 0
+
+    print("ready", flush=True)
+
+    def follow_parent() -> None:
+        # hud-listen is the only thing that talks to this process, and when
+        # it is killed the pipe does not always close: uv sits between the
+        # two and keeps the read end open. Two of these were found running
+        # after two bridge restarts on 2026-09-19, each holding the model.
+        while True:
+            time.sleep(2)
+            if os.getppid() == 1:
+                os._exit(0)
+
+    threading.Thread(target=follow_parent, daemon=True).start()
+    for raw in sys.stdin:
+        try:
+            message = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if message.get("hush"):
+            speaker.player.hush()
+            continue
+        text = str(message.get("say") or "").strip()
+        if text:
+            # On its own thread so a hush on the next line is read while
+            # this one is still being made.
+            threading.Thread(target=speaker.say, args=(text,), daemon=True).start()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
