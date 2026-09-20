@@ -89,7 +89,18 @@ class IntegrationTests(unittest.TestCase):
                 self.assertIn('Codex absent (optional)', result.stdout)
             for name in ('mac-use', 'chatgpt-tab', 'chatgpt-gateway', 'chrome-js'):
                 self.assertEqual((Path(temp) / '.local/bin' / name).resolve(), ROOT / 'bin' / name)
-            self.assertEqual((Path(temp) / '.claude/rules/agent-neutral.md').read_text(), (ROOT / 'instructions/agent-neutral.md').read_text())
+            # The installed rule is the source plus Claude-specific `paths:`
+            # scoping. Without that frontmatter the rule is always-on, and it
+            # is written for the other agent: its own text says the standards
+            # "already load for the primary agent. Nothing here restates them."
+            # 1,204 tokens of that landed in every Claude session. The source
+            # stays clean because it is also what AGENTS.md is generated from,
+            # where Claude frontmatter would be noise.
+            installed = (Path(temp) / '.claude/rules/agent-neutral.md').read_text()
+            source = (ROOT / 'instructions/agent-neutral.md').read_text()
+            self.assertTrue(installed.startswith('---\n'), 'rule lost its scoping frontmatter')
+            self.assertRegex(installed.split('\n---\n')[0], r'(?m)^paths:')
+            self.assertTrue(installed.endswith(source), 'rule body drifted from the source')
             self.assertEqual(list(runtime.iterdir()), [sentinel])
             self.assertEqual(sentinel.read_text(), 'unchanged upstream')
             self.assertFalse((Path(temp) / 'dev').exists())
