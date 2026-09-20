@@ -77,6 +77,32 @@ prosody control, so the words carry all of it):
 - **Nothing promotional or instructional.** No "let me know if you need
   anything else", no "you can also ask me to". Speech is for moving forward.
 
+## Where a sentence goes
+
+Since 2026-09-20 a sentence is routed before it is answered. The rules live in
+`bin/lib/route.py` and the table that pins them is `tests/test_route.py`; the
+design and the evidence are in
+`docs/superpowers/specs/2026-09-20-voice-routing-design.md`.
+
+The short version: "in terminal" or "in chrome" at the start wins; a
+correction ("no, the terminal") inside fifteen seconds re-routes the last
+sentence; a person-shaped act (text, remind, call, a known name) is the
+assistant's whatever is on screen; a continuation ("and add tests", "fix
+that") follows whichever destination was used in the last ten minutes; the
+frontmost app decides next; "look up" and "search" go to Chrome; and one haiku
+call settles the rest, with three seconds to answer before the warm
+destination wins.
+
+Nothing is submitted to the terminal by the machine. A terminal sentence
+becomes a drafted prompt sitting in Claude Code's input, the pill reads
+"draft in terminal, say send", and the person presses Return or says "send
+it". "Scrap that" clears it; "no, to you" hands the sentence to the assistant
+instead.
+
+Every routed sentence is a line in `~/.bob/memory/transcript.jsonl` with its
+destination, confidence, and reason, which is the data for moving any of the
+thresholds above. The constants and what set them are listed in the spec.
+
 ## Measuring it
 
 Every turn writes a `turn:` line to `~/.bob/listen.log` with `text=` (prompt
