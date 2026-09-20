@@ -42,3 +42,6 @@ kits/
 # came here without when the hud moved in
 hud/.build/
 hud/build/
+
+# The Swift voice server's build, same as the display's
+voice/.build/

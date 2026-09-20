@@ -43,6 +43,11 @@ def test_sentences(m) -> None:
           f"got {parts}")
     check("a two-word tail joins the sentence before it", parts[-1].endswith("Ok."))
     check("blank in, nothing out", m.sentences("   ") == [])
+    check("a short opening joins the sentence after it",
+          m.sentences("Dr. Who is here. Yes.") == ["Dr. Who is here. Yes."]
+          and m.sentences("Yes. That is the one you booked yesterday.") == ["Yes. That is the one you booked yesterday."],
+          f"got {m.sentences('Dr. Who is here. Yes.')}")
+    check("one short line stays", m.sentences("Yes.") == ["Yes."])
 
 
 def test_cache_path(m) -> None:
