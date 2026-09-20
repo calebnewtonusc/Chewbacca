@@ -30,8 +30,15 @@ One JSON object per line on stdin:
 sentence at a time so the first one starts before the rest is made. `hush`
 stops it. "ready" on stdout means the model is loaded and warm.
 
+While it plays, one JSON object per line goes back out on stdout, so the
+display can move with the voice the way it moves with the person's:
+
+    {"level": 0.62}     twenty times a second, 0 to 1, how loud right now
+    {"quiet": true}     nothing more is coming for this `say`
+
     hud-speak --say "Hello"       speak once and exit, for trying a voice
     hud-speak --voice af_bella    another voice; af_heart is the default
+    hud-speak --volume 0.5        quieter; 0 plays silently, for testing
     hud-speak --list              the voices this model ships
 
 Needs `brew install espeak-ng`: Kokoro's English front end falls back to it
@@ -70,6 +77,13 @@ RATE = 24_000
 # while the second is still being made; a whole reply generated first added
 # most of a second before anything was heard.
 SENTENCE = re.compile(r"(?<=[.!?])\s+")
+# How often a level line goes out. 50ms is the frame the ring animates its
+# stroke over (PresenceRing: linear 0.06s), so a coarser envelope would step
+# and a finer one would be thrown away. Guessed against that, never measured.
+FRAME = 0.05
+# How long afplay takes to open a file and make sound, so the envelope is not
+# ahead of the voice. Guessed, never measured.
+LEAD = 0.06
 
 
 def sentences(text: str) -> list[str]:
@@ -84,37 +98,91 @@ def sentences(text: str) -> list[str]:
     return out
 
 
+def envelope(samples, rate: int = RATE) -> list[float]:
+    """How loud each FRAME of `samples` is, 0 to 1.
+
+    RMS per frame against the loudest frame of the same clip, so every
+    sentence uses the whole range of the ring however softly it was said,
+    then raised to 0.7 so the dips between words stay visible instead of
+    flattening into the vowels. The curve is guessed against the eye, never
+    measured.
+    """
+    import numpy as np
+
+    width = max(1, int(rate * FRAME))
+    frames = len(samples) // width
+    if frames == 0:
+        return []
+    block = np.asarray(samples[: frames * width], dtype=np.float32).reshape(frames, width)
+    rms = np.sqrt(np.mean(block * block, axis=1))
+    peak = float(rms.max())
+    if peak <= 1e-4:
+        return [0.0] * frames
+    return [float(v) for v in np.clip(rms / peak, 0.0, 1.0) ** 0.7]
+
+
 class Player:
     """Plays wav files in order, and drops everything on a hush.
 
     `generation` is bumped by `hush`; anything queued under an older number is
     skipped when it comes up, which is how a reply that was half-made when the
     person spoke again never reaches the speaker.
+
+    A `None` path is the end of one `say`: everything queued before it has
+    played, and `emit` is told quiet. While a file plays its envelope goes to
+    `emit` one frame at a time, on the clock, so the display can move with
+    the voice.
     """
 
-    def __init__(self) -> None:
-        self.queue: Queue[tuple[str, int]] = Queue()
+    def __init__(self, emit=None, volume: float = 1.0) -> None:
+        self.queue: Queue[tuple[str | None, int, list[float]]] = Queue()
         self.generation = 0
         self.current: subprocess.Popen[bytes] | None = None
         self.lock = threading.Lock()
+        self.emit = emit or (lambda message: None)
+        self.volume = volume
         threading.Thread(target=self._loop, daemon=True).start()
 
     def _loop(self) -> None:
         while True:
-            path, generation = self.queue.get()
+            path, generation, levels = self.queue.get()
             try:
                 if generation != self.generation:
+                    continue
+                if path is None:
+                    self.emit({"quiet": True})
                     continue
                 with self.lock:
                     if generation != self.generation:
                         continue
                     self.current = subprocess.Popen(
-                        ["afplay", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                        ["afplay", "-v", str(self.volume), path],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                     )
-                self.current.wait()
+                self._follow(self.current, generation, levels)
             finally:
-                Path(path).unlink(missing_ok=True)
+                if path is not None:
+                    Path(path).unlink(missing_ok=True)
                 self.queue.task_done()
+
+    def _follow(self, proc: subprocess.Popen[bytes], generation: int, levels: list[float]) -> None:
+        start = time.monotonic() + LEAD
+        for i, level in enumerate(levels):
+            delay = start + i * FRAME - time.monotonic()
+            if delay > 0:
+                time.sleep(delay)
+            if proc.poll() is not None or generation != self.generation:
+                break
+            self.emit({"level": round(level, 2)})
+        proc.wait()
+        if generation != self.generation:
+            # Cut off. Nothing queued under this generation will play, so the
+            # end-of-say marker never comes; say it here instead.
+            self.emit({"quiet": True})
+        else:
+            # Between sentences, while the next one is still being made: the
+            # voice is not gone, it is between words.
+            self.emit({"level": 0.0})
 
     def hush(self) -> int:
         with self.lock:
@@ -125,17 +193,17 @@ class Player:
 
 
 class Speaker:
-    def __init__(self, voice: str, speed: float) -> None:
+    def __init__(self, voice: str, speed: float, emit=None, volume: float = 1.0) -> None:
         from mlx_audio.tts.utils import load_model
 
         self.voice = voice
         self.speed = speed
         self.model = load_model(MODEL)
-        self.player = Player()
+        self.player = Player(emit, volume)
         self.tmp = Path(tempfile.mkdtemp(prefix="hud-speak-"))
         self.busy = threading.Lock()
 
-    def synthesize(self, text: str) -> str:
+    def synthesize(self, text: str) -> tuple[str, list[float]]:
         import numpy as np
         import soundfile as sf
 
@@ -143,15 +211,16 @@ class Speaker:
             np.array(r.audio)
             for r in self.model.generate(text=text, voice=self.voice, speed=self.speed)
         ]
+        samples = np.concatenate(chunks)
         path = self.tmp / f"{os.getpid()}-{threading.get_ident()}-{abs(hash(text))}.wav"
-        sf.write(str(path), np.concatenate(chunks), RATE)
-        return str(path)
+        sf.write(str(path), samples, RATE)
+        return str(path), envelope(samples)
 
     def warm(self) -> None:
         # The first generation after load carries the compilation cost.
         # Paying it here, before "ready", is what makes the first spoken
         # line land in under half a second.
-        Path(self.synthesize("Ready.")).unlink(missing_ok=True)
+        Path(self.synthesize("Ready.")[0]).unlink(missing_ok=True)
 
     def say(self, text: str) -> None:
         generation = self.player.hush()
@@ -159,13 +228,16 @@ class Speaker:
             for sentence in sentences(text):
                 if generation != self.player.generation:
                     return
-                self.player.queue.put((self.synthesize(sentence), generation))
+                path, levels = self.synthesize(sentence)
+                self.player.queue.put((path, generation, levels))
+            self.player.queue.put((None, generation, []))
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--voice", default=os.environ.get("HUD_VOICE", "af_heart"))
     parser.add_argument("--speed", type=float, default=1.0)
+    parser.add_argument("--volume", type=float, default=1.0, help="afplay volume, 0 to 1")
     parser.add_argument("--say", help="speak this once and exit")
     parser.add_argument("--list", action="store_true", help="list the voices")
     args = parser.parse_args()
@@ -178,15 +250,23 @@ def main() -> int:
             print(v.stem)
         return 0
 
-    speaker = Speaker(args.voice, args.speed)
-    speaker.warm()
     if args.say:
+        speaker = Speaker(args.voice, args.speed, volume=args.volume)
+        speaker.warm()
         speaker.say(args.say)
         # Every sentence is queued by the time `say` returns; wait for the
         # last one to finish playing rather than exiting mid-sentence.
         speaker.player.queue.join()
         return 0
 
+    out = threading.Lock()
+
+    def emit(message: dict) -> None:
+        with out:
+            print(json.dumps(message), flush=True)
+
+    speaker = Speaker(args.voice, args.speed, emit, args.volume)
+    speaker.warm()
     print("ready", flush=True)
 
     def follow_parent() -> None:

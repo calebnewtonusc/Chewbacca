@@ -447,6 +447,7 @@ it costs one line:
 | `p failed` | it did not | red |
 | `p attention` | you are blocked on them | white, thick, two pulses |
 | `p dormant` | nothing in flight | nothing at all |
+| `p speaking amp=0.6` | the voice is playing; hud-listen sends this itself, twenty times a second, from the level of what it is saying | white, thickness moving with the voice, the same as while they talk |
 
 Send `p acting` before the thing that takes time, not after. A state that
 arrives once the work is finished is a state nobody ever saw, and the colour
