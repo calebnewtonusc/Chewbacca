@@ -27,6 +27,9 @@ environment. That is the mechanism, not the doctrine in `bin/hud-agent.md`:
 `bin/hud-listen`'s draft-word path is the only caller that sets it, only when
 a person said "send it" (or similar) with a draft outstanding, so a model
 that decides on its own to run `chewie terminal submit` presses nothing.
+`answer yes` presses the same key and refuses the same way, on
+`CHEWIE_TERMINAL_ANSWER=1`, which hud-listen's answer-word path sets. `answer
+no` and `interrupt` press Escape and need no gate.
 """
 import argparse
 import json
@@ -386,6 +389,18 @@ def answer(choice: str, tty: str | None) -> dict:
     by hud-listen while its terminal state is waiting and the hook has
     already given the prompt back to the tab, so the Return never lands on
     an input holding a draft."""
+    # `yes` presses the same Return `submit` does, and every way hud-listen's
+    # state can be wrong turns that into a prompt nobody read. The docstring
+    # above was the whole safety argument; this is the mechanism. `no` and
+    # `interrupt` press Escape, which costs a tool call at worst.
+    if choice == "yes" and os.environ.get("CHEWIE_TERMINAL_ANSWER") != "1":
+        print(
+            "terminal: answer yes refused; CHEWIE_TERMINAL_ANSWER=1 is set only by "
+            "hud-listen's answer-word path, in response to a person saying yes while "
+            "the tab waits on a permission",
+            file=sys.stderr,
+        )
+        raise SystemExit(3)
     refuse_under_secure_input()
     tab = pick(tty)
     focus(tab["tty"])

@@ -55,7 +55,14 @@ REROUTE_WORDS = frozenset({"no to you", "not the terminal", "no not the terminal
 # Answers to the terminal's permission dialog, only while hud-listen's
 # terminal state is waiting. "Always" is deliberately absent: a misheard
 # word costs one tool call, never a standing rule.
-ALLOW_WORDS = frozenset({"yes", "yeah", "yep", "go ahead", "allow", "allow it", "do it", "yes go ahead"})
+#
+# No word here, in DENY_WORDS, or in TERMINAL_STOP_WORDS may also be a draft
+# word above. `ask()` checks the draft words first, so a word in both sets
+# never reaches the terminal answer at all: "do it" was in ALLOW_WORDS and
+# SUBMIT_WORDS, and with a draft outstanding it submitted the draft, which
+# presses Return in the tab, while the person meant the permission dialog.
+# "yes", "yeah", "yep", "go ahead", "allow" and "allow it" cover the intent.
+ALLOW_WORDS = frozenset({"yes", "yeah", "yep", "go ahead", "allow", "allow it", "yes go ahead"})
 DENY_WORDS = frozenset({"no", "nope", "deny", "deny it", "don't", "dont", "do not"})
 TERMINAL_STOP_WORDS = frozenset({
     "stop the terminal", "stop in the terminal", "terminal stop", "stop terminal",

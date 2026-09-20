@@ -1489,7 +1489,9 @@ def test_terminal_loop(m) -> None:
     m.NAMES = Path(mem) / "names.txt"
     Path(mem, "project.json").write_text(json.dumps({"tty": "/dev/ttys002", "cwd": mem}))
     log = os.path.join(mem, "terminal.log")
-    m.TERMINAL_CMD = ["sh", "-c", f'echo "$0 $*" >> {log}']
+    # The env too: `chewie terminal answer yes` refuses without the gate, and
+    # hud-listen setting it is the only reason the keypress path works at all.
+    m.TERMINAL_CMD = ["sh", "-c", f'echo "$0 $* gate=${{CHEWIE_TERMINAL_ANSWER:-unset}}" >> {log}']
     m.ROUTE = True
     front = {"app": "Google Chrome · tab · 0 chars selected"}
     m.looking_at = lambda: front["app"]
@@ -1577,6 +1579,8 @@ def test_terminal_loop(m) -> None:
     time.sleep(0.5)
     check("'no' pressed Escape through chewie on the remembered tty",
           Path(log).exists() and "answer no --tty /dev/ttys002" in Path(log).read_text(), Path(log).read_text() if Path(log).exists() else "")
+    check("the answer verb carries the gate terminal.py demands for a yes",
+          "gate=1" in Path(log).read_text(), Path(log).read_text())
     Path(log).unlink()
     sent.clear(); spoken.clear()
 
@@ -1591,6 +1595,7 @@ def test_terminal_loop(m) -> None:
     check("'stop the terminal' with nothing held is consumed", listener.handle_terminal_word("stop the terminal"))
     time.sleep(0.5)
     check("it pressed Escape through chewie", "interrupt --tty /dev/ttys002" in Path(log).read_text(), Path(log).read_text())
+    check("interrupt is not given the gate", "interrupt --tty /dev/ttys002 gate=unset" in Path(log).read_text(), Path(log).read_text())
     sent.clear(); spoken.clear()
 
     front["app"] = "Google Chrome · tab · 0 chars selected"

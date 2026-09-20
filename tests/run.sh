@@ -297,6 +297,7 @@ if group "installer"; then
   expect "portable profile installs no Mac tools" "~/.claude only" bash "$ROOT/setup.sh" --dry-run --profile portable --name CI
   exits  "an unknown profile exits 2" 2 bash "$ROOT/setup.sh" --dry-run --profile nonsense --name CI
   check  "no read calls in the installer" bash -c "! grep -nE '^[[:space:]]*read (-[a-z]+ )*' '$ROOT/setup.sh'"
+  check  "hook registration survives a re-run" python3 "$ROOT/tests/test_setup_hooks.py"
 fi
 
 # ── CLAUDE.md merge ───────────────────────────────────────────────────────────

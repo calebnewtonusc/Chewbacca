@@ -173,8 +173,16 @@ def main() -> int:
     print("answer words")
     for said, want in [("yes", "allow"), ("Yeah.", "allow"), ("go ahead", "allow"), ("allow it", "allow"),
                        ("no", "deny"), ("Nope", "deny"), ("deny it", "deny"), ("don't", "deny"),
-                       ("yes but only this once", None), ("open chrome", None)]:
+                       ("yes but only this once", None), ("open chrome", None),
+                       ("do it", None)]:
         check(f"answer_word({said!r}) is {want}", r.answer_word(said) == want, str(r.answer_word(said)))
+    # ask() runs the draft words before the terminal words, so a word in both
+    # sets never reaches the permission dialog: "do it" was in ALLOW_WORDS
+    # and SUBMIT_WORDS, and with a draft outstanding it submitted the draft.
+    drafts = r.SUBMIT_WORDS | r.CLEAR_WORDS | r.REROUTE_WORDS
+    answers = r.ALLOW_WORDS | r.DENY_WORDS | r.TERMINAL_STOP_WORDS
+    check("no word is both a draft word and a terminal word",
+          not (drafts & answers), str(sorted(drafts & answers)))
     for said, want in [("stop the terminal", True), ("Stop in the terminal.", True), ("terminal stop", True),
                        ("cancel the terminal", True), ("stop", False), ("stop the music", False)]:
         check(f"terminal_stop_word({said!r}) is {want}", r.terminal_stop_word(said) is want)
