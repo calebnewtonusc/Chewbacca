@@ -91,11 +91,17 @@ It shows what the assistant can already see before you type a word, which is the
 point of it. Not Command-Space, which is Spotlight, and not Option-Command-Space,
 which hides the glass.
 
-**The globe key**, held, listens. Recognition is on-device and the microphone is
-off until you turn it on from the menu bar. Pressed twice quickly, it is the way
-out: the panel, the microphone, a run in flight and the glass all go. Pressed by
-accident, with nothing said into it, the band leaves on its own three seconds
-later.
+**The talk key**, held, listens: the globe, or right Option, Command or Control
+from the menu bar for a keyboard without one. Recognition is on-device and the
+microphone is off until you turn it on from the menu bar; a Mac whose dictation
+is off is told which setting to turn on. Pressed twice quickly, the key is the
+way out: the panel, the microphone, a run in flight and the glass all go.
+Pressed by accident, with nothing said into it, the band leaves on its own three
+seconds later. A short tone says a press was heard; "Sound when heard" in the
+menu turns it off.
+
+The recogniser expects the names in `~/.bob/names.txt`, which `hud listen`
+writes from Messages and Contacts, and `~/.bob/vocabulary.txt`, which is yours.
 
 Either way the display sends `h "what they asked for"` up the socket. It holds no
 model and no key: something else has to be listening and answer by drawing.
