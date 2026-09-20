@@ -6,6 +6,7 @@ real commit; nothing here is written by hand.
 ## Unreleased
 
 ### Added
+- guide mode puts a bubble on the control they need to click
 - superassistant, the voice's memory both ways
 - a switch on the panel for speech off for long answers
 - long answers go to the hyper bar, and the voice says so in one line
