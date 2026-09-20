@@ -124,8 +124,8 @@ public final class ChatWindow: NSPanel {
     public override var canBecomeKey: Bool { true }
     public override var canBecomeMain: Bool { false }
 
-    /// Where the pill was: bottom centre of the screen the pointer is on,
-    /// the same lift above the Dock, so opening reads as the pill growing
+    /// Where the pill was: bottom centre of the main display, the same
+    /// lift above the Dock, so opening reads as the pill growing
     /// rather than a second thing arriving elsewhere. Once it has been
     /// dragged somewhere it comes back to that place instead.
     public func present() {
