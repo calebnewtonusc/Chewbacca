@@ -136,8 +136,6 @@ def main() -> int:
           tool_input={"command": "a\n  b\tc"})) == "a b c")
 
     print("the filter")
-    check("no project file: nothing", te.handle(json.dumps(event("PreToolUse", proj, tool_name="Bash", tool_input={})),
-          front=lambda: "", sleep=lambda s: None, clock=lambda: 0.0) == "" or True)
     Path(tmp, "project.json").unlink()
     te.handle(json.dumps(event("PreToolUse", proj, tool_name="Bash", tool_input={"command": "ls"})),
               front=lambda: "", sleep=lambda s: None, clock=lambda: 0.0)
@@ -448,7 +446,7 @@ def handle(raw: str, front=front_app, sleep=time.sleep, clock=time.monotonic) ->
 - [ ] **Step 4: Run the test**
 
 Run: `python3 tests/test_terminal_events.py`
-Expected: all pass. The first "no project file" check is a no-op placeholder for ordering; it passes by construction and the next line is the real assertion.
+Expected: all pass.
 
 - [ ] **Step 5: Commit**
 
@@ -507,7 +505,7 @@ Expected: "hook exits 0" fails (argparse rejects the verb, exit 2).
 
 - [ ] **Step 3: Add the verb**
 
-In `mac/lib/terminal.py`, add to the docstring's usage block:
+The docstring's usage block in `mac/lib/terminal.py` gains one line:
 
 ```
     chewie terminal hook                    a Claude Code hook: event JSON on stdin (see terminal_events.py)
@@ -519,7 +517,7 @@ In `main()`, add the subparser and branch. The branch runs before argparse's oth
     sub.add_parser("hook")
 ```
 
-and, right after `args = parser.parse_args(argv)`:
+The branch goes right after `args = parser.parse_args(argv)`:
 
 ```python
     if args.verb == "hook":
@@ -534,7 +532,7 @@ and, right after `args = parser.parse_args(argv)`:
         return 0
 ```
 
-In `mac/bin/chewie`, change the usage lines to:
+The usage lines in `mac/bin/chewie` become:
 
 ```
   chewie terminal tabs|ensure|draft|submit|clear|answer|interrupt|focus|hook
@@ -562,7 +560,7 @@ Run `chmod +x .claude/hooks/terminal-loop.sh`.
 
 - [ ] **Step 5: Register it in setup.sh**
 
-After the `h["Notification"] = [...]` block, add:
+The registration goes after the `h["Notification"] = [...]` block in `setup.sh`:
 
 ```python
 # The terminal loop: hud-listen hears when the remembered Claude Code tab is
@@ -615,7 +613,7 @@ Append to `tests/test_terminal.py` in `main()`, before the hook block from Task 
     got = t.answer("yes", "/dev/ttys002")
     keys = [c[1] for c in calls if c[0] == "osascript" and "key code" in c[1]]
     check("answer yes presses Return", keys == ['tell application "System Events" to key code 36'], str(keys))
-    check("answer focused the tab first", any("want" in c[1] or c[2] == ("/dev/ttys002",) for c in calls), str(calls))
+    check("answer focused the tab first", calls[0][2] == ("/dev/ttys002",), str(calls))
     check("answer reports", got == {"tty": "/dev/ttys002", "answer": "yes"}, str(got))
     calls.clear()
     t.answer("no", "/dev/ttys002")
@@ -650,7 +648,7 @@ Expected: AttributeError on `t.answer`.
 
 - [ ] **Step 3: Implement**
 
-In `mac/lib/terminal.py`, next to `KEY_CONTROL_U`:
+The key constant sits next to `KEY_CONTROL_U` in `mac/lib/terminal.py`:
 
 ```python
 # Escape. Claude Code reads it as "interrupt" during a run and as "no" on a
@@ -660,7 +658,7 @@ In `mac/lib/terminal.py`, next to `KEY_CONTROL_U`:
 KEY_ESCAPE = 'tell application "System Events" to key code 53'
 ```
 
-After `clear()`:
+The three verbs go after `clear()` and share its shape: refuse under Secure Input, pick the tab, focus it, press one key:
 
 ```python
 def answer(choice: str, tty: str | None) -> dict:
@@ -690,7 +688,7 @@ def focus_tab(tty: str | None) -> dict:
     return {"tty": tab["tty"], "focused": True}
 ```
 
-In `main()`:
+The three subparsers are declared in `main()` beside the existing ones, and each takes the same optional tty:
 
 ```python
     p = sub.add_parser("answer"); p.add_argument("choice", choices=["yes", "no"]); p.add_argument("--tty")
@@ -698,7 +696,7 @@ In `main()`:
     p = sub.add_parser("focus"); p.add_argument("--tty")
 ```
 
-and in the dispatch chain, before the final `else`:
+The dispatch chain in `main()` gains three arms before its final `else`, one per verb:
 
 ```python
     elif args.verb == "answer":
@@ -711,7 +709,7 @@ and in the dispatch chain, before the final `else`:
 
 The existing plain-output `else` branch prints `f"{args.verb} {out['tty']}"`, which is right for all three.
 
-Docstring usage block, add:
+The docstring's usage block at the top of the file gains three lines, one per verb, in the same column as the others:
 
 ```
     chewie terminal answer yes|no [--tty]   Return or Escape on the permission dialog
@@ -719,7 +717,7 @@ Docstring usage block, add:
     chewie terminal focus [--tty]           bring that tab to the front
 ```
 
-`docs/REFERENCE.md` line 96 becomes:
+Line 96 of `docs/REFERENCE.md` becomes:
 
 ```
 | `chewie terminal`       | The Claude Code tab: draft a prompt, never submit it; answer its permission dialog, interrupt it, focus it; `hook` feeds the terminal loop |
@@ -935,7 +933,7 @@ def tail(path: Path, offset: int) -> tuple[list[dict], int]:
 
 - [ ] **Step 4: Register the scripts in `tests/run.sh`**
 
-In the `hud` group, after the `check "the router's table holds"` line:
+Two checks join the `hud` group after the `check "the router's table holds"` line:
 
 ```bash
   check  "the terminal hook filters and holds" python3 "$ROOT/tests/test_terminal_events.py"
@@ -969,7 +967,7 @@ git commit -m "feat: one terminal state folded from the hook's events"
 
 - [ ] **Step 1: Write the failing route test**
 
-In `tests/test_route.py`, inside `main()` before the final print, add:
+The rows go inside `main()` of `tests/test_route.py`, before the final print:
 
 ```python
     print("answer words")
@@ -991,7 +989,7 @@ Expected: AttributeError on `answer_word`.
 
 - [ ] **Step 3: Add the words to `bin/lib/route.py`**
 
-After `REROUTE_WORDS`:
+Add the three word sets to `bin/lib/route.py` directly after `REROUTE_WORDS`:
 
 ```python
 # Answers to the terminal's permission dialog, only while hud-listen's
@@ -1005,7 +1003,7 @@ TERMINAL_STOP_WORDS = frozenset({
 })
 ```
 
-After `draft_word`:
+The two lookups go after `draft_word` and use the same `_norm` it uses, so punctuation and case never matter:
 
 ```python
 def answer_word(said: str) -> str | None:
@@ -1030,7 +1028,7 @@ Expected: all pass.
 
 - [ ] **Step 5: Write the failing hud-listen test**
 
-Add to `tests/test_hud_listen.py`, after `test_draft_words`:
+The loop test goes in `tests/test_hud_listen.py` after `test_draft_words`:
 
 ```python
 def test_terminal_loop(m) -> None:
@@ -1130,7 +1128,7 @@ def test_terminal_loop(m) -> None:
     check("a strip click focuses the tab", "focus --tty /dev/ttys002" in Path(log).read_text(), Path(log).read_text())
 ```
 
-Register it in `main()` after `test_draft_words(module)`:
+The script runner in `main()` calls it after `test_draft_words(module)`:
 
 ```python
     print("terminal loop")
@@ -1144,13 +1142,13 @@ Expected: AttributeError on `poll_terminal`.
 
 - [ ] **Step 7: Implement in `bin/hud-listen`**
 
-Imports, after `import voice_memory`:
+The state module is imported in `bin/hud-listen` after `import voice_memory`:
 
 ```python
 import terminal_state  # noqa: E402
 ```
 
-Module helpers, after the `TERMINAL_CMD = ...` line:
+Two module helpers go after the `TERMINAL_CMD = ...` line:
 
 ```python
 def events_path() -> Path:
@@ -1162,7 +1160,7 @@ def asks_dir() -> Path:
     return voice_memory.MEMORY / "asks"
 ```
 
-In `Listener.__init__`, after `self.drawn: list[str] = []`:
+The state lives on the Listener as two plain attributes, initialised in `__init__` right after `self.drawn: list[str] = []`, because the watcher thread and the answer-word path both read them:
 
 ```python
         # The remembered Claude Code tab, folded from the hook's events
@@ -1172,7 +1170,7 @@ In `Listener.__init__`, after `self.drawn: list[str] = []`:
         self.terminal_offset = 0
 ```
 
-Class constants, next to `TERMINAL_TIMEOUT_S`:
+One class constant joins `TERMINAL_TIMEOUT_S`:
 
 ```python
     # The hook writes an event per tool call; half a second is the cadence
@@ -1181,14 +1179,14 @@ Class constants, next to `TERMINAL_TIMEOUT_S`:
     TERMINAL_POLL_S = 0.5
 ```
 
-In `run()`, right after `self.prime()`:
+The watcher thread starts in `run()`, right after `self.prime()`:
 
 ```python
         if ROUTE:
             threading.Thread(target=self.watch_terminal, daemon=True).start()
 ```
 
-Change `terminal`'s signature and argv building:
+`terminal` takes extra positional arguments for `answer yes|no`, so its signature and argv building change:
 
 ```python
     def terminal(self, verb: str, tty: str | None = None, *extra: str) -> bool:
@@ -1200,7 +1198,7 @@ Change `terminal`'s signature and argv building:
 
 (keep the rest of the body as it is).
 
-New methods, after `handle_draft_word`:
+The new methods go after `handle_draft_word`:
 
 ```python
     def watch_terminal(self) -> None:
@@ -1301,7 +1299,7 @@ New methods, after `handle_draft_word`:
         return True
 ```
 
-In `ask()`, change the draft-word line to run the terminal words after it:
+In `ask()`, the terminal words run right after the draft words:
 
 ```python
         if not typed and dest is None and self.handle_draft_word(said):
@@ -1353,7 +1351,7 @@ git commit -m "feat: hud-listen hears the terminal, answers its permission by vo
 
 - [ ] **Step 1: Write the failing parser tests**
 
-In `hud/Tests/BobHUDKitTests/ParserTests.swift`, after the `say` tests:
+The parser tests go in `hud/Tests/BobHUDKitTests/ParserTests.swift` after the `say` tests:
 
 ```swift
     @Test("the terminal strip is one JSON string and a state")
@@ -1371,7 +1369,7 @@ In `hud/Tests/BobHUDKitTests/ParserTests.swift`, after the `say` tests:
     }
 ```
 
-In `hud/Tests/BobHUDKitTests/ChatTests.swift`, a new test in the suite:
+The model test is a new test in the suite in `hud/Tests/BobHUDKitTests/ChatTests.swift`:
 
 ```swift
     @Test("the terminal strip is held, taken down, and its click reaches the bridge")
@@ -1396,7 +1394,7 @@ Expected: compile errors on `.terminal`.
 
 - [ ] **Step 3: The op and the state**
 
-In `Spec.swift`, after `case queued(Int)`:
+The op enum in `Spec.swift` gains two cases after `case queued(Int)`:
 
 ```swift
     /// The strip under the pill: what the remembered Claude Code tab is
@@ -1406,7 +1404,7 @@ In `Spec.swift`, after `case queued(Int)`:
     case terminalOff
 ```
 
-Below the `Op` enum (same file):
+The state and the strip value live below the `Op` enum in the same file:
 
 ```swift
 /// The three things a terminal strip can say. Colours follow the ring:
@@ -1427,7 +1425,7 @@ public struct TerminalStrip: Equatable, Sendable {
 
 - [ ] **Step 4: The parser**
 
-In `LineParser.swift`, before `case "q":`:
+The parser gets a `case "t":` in `LineParser.swift`, placed before `case "q":`:
 
 ```swift
         case "t":
@@ -1452,14 +1450,14 @@ In `LineParser.swift`, before `case "q":`:
 
 - [ ] **Step 5: The model**
 
-In `OverlayModel.swift`, next to `public private(set) var pill = PillState()`:
+The model stores the strip next to `public private(set) var pill = PillState()` in `OverlayModel.swift`:
 
 ```swift
     /// The strip under the pill, or nil when the terminal is idle.
     public private(set) var terminal: TerminalStrip?
 ```
 
-In `apply(_ op:)`, before `default:`:
+The two ops are applied in `apply(_ op:)`, before the `default:` arm:
 
 ```swift
         case .terminal(let text, let state):
@@ -1471,7 +1469,7 @@ In `apply(_ op:)`, before `default:`:
             revision += 1
 ```
 
-A method next to `cancelRun`:
+The click handler is a public method next to `cancelRun`, and it sends the same kind of event a Stop press does:
 
 ```swift
     /// A click on the strip: the bridge brings the tab to the front.
@@ -1549,13 +1547,13 @@ The pill sits at `bottomInset + pillLift` (14) from the bottom and is about 40pt
 
 - [ ] **Step 7: The wire tables**
 
-`hud/CLAUDE.md`, after the `q <n>` line in the fenced block:
+The wire table in `hud/CLAUDE.md` gains a line after `q <n>` inside the fenced block:
 
 ```
 t "<text>" state=running|waiting|done                    the terminal strip under the pill; `t off` hides it
 ```
 
-`skills/hud/SKILL.md`, after line 60 (`q <n>`):
+The same line, in the skill's words, goes after line 60 (`q <n>`) of `skills/hud/SKILL.md`:
 
 ```
 t "<text>" state=running|waiting|done   the Claude Code tab's state, as a strip under the pill; t off hides it
@@ -1589,7 +1587,7 @@ git commit -m "feat: a terminal strip under the pill, driven by the t line"
 
 - [ ] **Step 1: The doc section**
 
-In `docs/VOICE-DESIGN.md`, after the "Where a sentence goes" section, add:
+The section goes in `docs/VOICE-DESIGN.md` after "Where a sentence goes":
 
 ```markdown
 ## The terminal talks back
@@ -1624,7 +1622,7 @@ Run `slop-check docs/VOICE-DESIGN.md` and keep the score under 10.
 
 - [ ] **Step 2: The live check**
 
-Create `tests/live/terminal-loop.sh` (mode 755):
+Create `tests/live/terminal-loop.sh` (mode 755). The hook Claude Code runs reads the real `~/.bob/memory/project.json`, so this check works in the real memory dir and points the project at the tab it opens:
 
 ```bash
 #!/usr/bin/env bash
@@ -1632,52 +1630,40 @@ Create `tests/live/terminal-loop.sh` (mode 755):
 # it, and an answer file grants it. Opens a Terminal window with --fresh and
 # takes focus for about thirty seconds, so this is never run by
 # tests/run.sh. Run it when the person says go. Needs the hook registered
-# (setup.sh) and Terminal not in front while the prompt is held, so it puts
-# the check's own window behind by activating nothing after the draft.
+# (setup.sh). Works in the real memory dir on purpose: the hook Claude Code
+# runs reads ~/.bob/memory/project.json, not a temp copy.
 source "$(dirname "${BASH_SOURCE[0]}")/harness.sh"
 need claude "npm i -g @anthropic-ai/claude-code"
 need peekaboo "run install.sh"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CH="$REPO/mac/bin/chewie"
-export BOB_MEMORY_DIR="$(mktemp -d)"
+MEM="${BOB_MEMORY_DIR:-$HOME/.bob/memory}"
 DIR="$(mktemp -d)"
 TTY="$(bash "$CH" terminal ensure --cwd "$DIR" --fresh --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["tty"])')"
-ok "ensure opened a claude tab" test -n "$TTY"
+ok "ensure opened a claude tab and remembered it" test -n "$TTY"
+rm -f "$MEM"/asks/*.json "$MEM"/asks/*.answer 2>/dev/null
 sleep 2
-ok "draft a prompt that needs a permission" bash "$CH" terminal draft "run: touch loop-proof.txt" --tty "$TTY"
+ok "draft a prompt that needs a permission" bash "$CH" terminal draft "run this shell command: touch loop-proof.txt" --tty "$TTY"
 sleep 1
 ok "submit it" env CHEWIE_TERMINAL_SUBMIT=1 bash "$CH" terminal submit --tty "$TTY"
-# Put Chrome or the Finder in front so the hook holds instead of falling
-# through; the hook checks the frontmost app itself.
+# The hook holds only when Terminal is not in front; put the Finder there.
 osascript -e 'tell application "Finder" to activate' >/dev/null 2>&1 || true
 echo "  LOOK: within ~20 s the pill should say the terminal is waiting. 20 s."
+ASK=""
 for _ in $(seq 1 40); do
-  ls "$BOB_MEMORY_DIR/asks/"*.json >/dev/null 2>&1 && break
+  ASK="$(ls "$MEM"/asks/*.json 2>/dev/null | head -1)"
+  [ -n "$ASK" ] && break
   sleep 0.5
 done
-ASK="$(ls "$BOB_MEMORY_DIR/asks/"*.json 2>/dev/null | head -1)"
 ok "the hook wrote an ask for this tab" test -n "$ASK"
-if [ -n "$ASK" ]; then
-  echo allow > "${ASK%.json}.answer"
-fi
+[ -n "$ASK" ] && echo allow > "${ASK%.json}.answer"
 sleep 3
 ok "the answer was consumed" test ! -e "${ASK:-/nonexistent}"
-ok "the event log records the allow" grep -q ask_answered "$BOB_MEMORY_DIR/terminal-events.jsonl"
+ok "the event log records the allow" grep -q ask_answered "$MEM/terminal-events.jsonl"
 echo "  LOOK: claude should have created loop-proof.txt in $DIR. Close that window when done."
 mutant "an unknown terminal verb is rejected" bash "$CH" terminal nonsense
 finish
 ```
-
-Note: this check's `BOB_MEMORY_DIR` is a temp dir, but the hook Claude Code runs reads the real `~/.bob/memory/project.json`. So before the draft, the check must point the real project at its tab: add after `ok "ensure opened..."`:
-
-```bash
-# The hook Claude Code runs reads the real memory dir, not this check's
-# temp one. Point both at the same place for the duration.
-export BOB_MEMORY_DIR="$HOME/.bob/memory"
-bash "$CH" terminal ensure --cwd "$DIR" --json >/dev/null
-```
-
-and remove the earlier temp `BOB_MEMORY_DIR` export (keep `DIR` temp). The ask and events files are then under `~/.bob/memory/`; the check reads them from there.
 
 - [ ] **Step 3: Register the live script's static checks**
 
