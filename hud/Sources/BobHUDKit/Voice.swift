@@ -317,6 +317,15 @@ public final class VoiceListener {
             onSignal?(.failed("Speech recogniser unavailable"))
             return
         }
+        // On-device or not at all is what the request below asks, and a Mac
+        // whose dictation assets were never installed refuses it with
+        // nothing said. Said here instead, with the setting that fixes it,
+        // on the first press rather than after three seconds of "Did not
+        // catch that".
+        guard recognizer.supportsOnDeviceRecognition else {
+            onSignal?(.failed(Self.dictationHint))
+            return
+        }
         latestPartial = ""
         releasedAt = nil
 
@@ -334,6 +343,13 @@ public final class VoiceListener {
         // rather than a guarantee on older hardware, so it is paired with the
         // availability check above and the mode stays opt-in.
         request.requiresOnDeviceRecognition = true
+        // Names it would otherwise spell as the nearest common word, and
+        // this assistant's own; see `Vocabulary`. Read on every press: two
+        // small files, and the bridge's list lands without a relaunch.
+        request.contextualStrings = Vocabulary.load()
+        // Sentence ends and commas from the recogniser rather than a run of
+        // words, so the model is handed a question as a question.
+        request.addsPunctuation = true
         self.request = request
 
         let input = engine.inputNode
@@ -513,10 +529,16 @@ public final class VoiceListener {
     static func message(forRecognizerError code: Int) -> String {
         switch code {
         case 0, 1110: return "Did not catch that"
-        case 1101: return "Speech model not ready (1101). Try again."
+        case 1101: return "Speech model not ready (1101). \(dictationHint)"
         default: return "Speech recogniser failed (\(code)). Try again."
         }
     }
+
+    /// The one setting that installs the on-device model. On the pill, so
+    /// it must fit in a line: the dictation toggle is where macOS downloads
+    /// the language assets the recogniser locks on to.
+    static let dictationHint =
+        "Turn on Dictation under System Settings, Keyboard, then try again"
 
     private func stop(quiet: Bool = false) {
         // First, so every callback and timer still in flight for this turn

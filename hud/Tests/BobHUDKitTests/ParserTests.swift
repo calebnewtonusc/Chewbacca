@@ -685,7 +685,7 @@ struct VoiceTests {
         }
         voice.receivedForTesting(nil, isFinal: false, failed: true, errorCode: 1101)
         #expect(heard.isEmpty)
-        #expect(failures == ["Speech model not ready (1101). Try again."])
+        #expect(failures == ["Speech model not ready (1101). Turn on Dictation under System Settings, Keyboard, then try again"])
         // Its own "no speech detected" is the person's silence.
         #expect(VoiceListener.message(forRecognizerError: 1110) == "Did not catch that")
     }

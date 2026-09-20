@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var server: SocketServer?
     private var statusItem: NSStatusItem?
     private var voiceMenu: NSMenu?
+    private var pushKeyMenu: NSMenu?
     private var commandBar: CommandBarWindow?
     /// The conversation, as a window. See `ChatWindow`.
     private var chat: ChatWindow?
@@ -40,6 +41,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Where a reticle drag began, in screen points. Nil when not dragging.
     private var reticleOrigin: CGPoint?
     private let voice = VoiceListener()
+    /// The tone that says the press was heard. See `Earcon`.
+    private let earcon = Earcon()
+    private static let earconKey = "hud.earcon"
+    /// On unless turned off from the menu.
+    private static var earconOn: Bool {
+        let defaults = UserDefaults.standard
+        return defaults.object(forKey: earconKey) == nil || defaults.bool(forKey: earconKey)
+    }
     /// Whether the push-to-talk key is currently down, so a flags change that
     /// does not involve it is ignored.
     /// The listening mode chosen from the menu, kept across launches.
@@ -366,6 +375,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.model.hear(partial: text)
 
                 case .heard(let text):
+                    if Self.earconOn { self.earcon.play() }
                     // On the pill and up the socket in the same breath. There
                     // was a one second cancel window here; it was a second on
                     // every request, for a wrong transcript that the X on the
@@ -384,12 +394,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Hold the globe key to talk.
+        // Hold a key to talk: the globe unless the menu says otherwise, see
+        // `PushKey`.
         //
-        // `fn` rather than a letter combination because it is a modifier nobody
-        // else has claimed, it cannot collide with what you are typing into the
-        // app underneath, and holding it is a gesture rather than a shortcut to
-        // remember. Nothing is captured until it goes down.
+        // A modifier rather than a letter combination because it cannot
+        // collide with what you are typing into the app underneath, and
+        // holding it is a gesture rather than a shortcut to remember.
+        // Nothing is captured until it goes down.
         //
         // Two monitors, because a global one sees only the events other apps
         // get. Click the pill and this app is the active one, and from then
@@ -397,18 +408,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // press had been seen globally also left the microphone open.
         flagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) {
             [weak self] event in
-            let down = event.modifierFlags.contains(.function)
+            guard let down = PushKey.chosen.state(keyCode: event.keyCode, flags: event.modifierFlags)
+            else { return }
             Task { @MainActor in self?.globe(down: down) }
         }
         localFlagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) {
             [weak self] event in
-            let down = event.modifierFlags.contains(.function)
-            Task { @MainActor in self?.globe(down: down) }
+            if let down = PushKey.chosen.state(keyCode: event.keyCode, flags: event.modifierFlags) {
+                Task { @MainActor in self?.globe(down: down) }
+            }
             return event
         }
     }
 
-    /// The globe key's state, from either monitor. Every flags change is
+    /// The talk key's state, from either monitor. Every flags change is
     /// forwarded, no memory of the last one kept: `beginPush` does nothing
     /// while a turn is open and `endPush` nothing while the microphone is
     /// shut, so a repeat is harmless, and a flag that tracked the key here
@@ -659,7 +672,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let listenMenu = NSMenu()
         for (title, mode) in [
             ("Off", VoiceListener.Mode.off),
-            ("Hold the globe key to talk", .pushToTalk),
+            ("Hold \(PushKey.chosen.title) to talk", .pushToTalk),
             ("Always, on a wake word", .wake),
         ] {
             let entry = NSMenuItem(
@@ -672,6 +685,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         listening.submenu = listenMenu
         menu.addItem(listening)
         voiceMenu = listenMenu
+
+        // Which key is held. See `PushKey` for why there is a choice.
+        let keyItem = NSMenuItem(title: "Talk key", action: nil, keyEquivalent: "")
+        let keyMenu = NSMenu()
+        for key in PushKey.allCases {
+            let entry = NSMenuItem(title: key.label, action: #selector(setPushKey(_:)), keyEquivalent: "")
+            entry.target = self
+            entry.representedObject = key.rawValue
+            entry.state = key == PushKey.chosen ? .on : .off
+            keyMenu.addItem(entry)
+        }
+        keyItem.submenu = keyMenu
+        menu.addItem(keyItem)
+        pushKeyMenu = keyMenu
+
+        let soundItem = NSMenuItem(
+            title: "Sound when heard", action: #selector(toggleEarcon(_:)), keyEquivalent: "")
+        soundItem.target = self
+        soundItem.state = Self.earconOn ? .on : .off
+        menu.addItem(soundItem)
         menu.addItem(.separator())
 
         let socket = NSMenuItem(title: SocketServer.defaultPath, action: nil, keyEquivalent: "")
@@ -683,6 +716,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         item.menu = menu
         statusItem = item
+    }
+
+    @objc private func setPushKey(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let key = PushKey(rawValue: raw)
+        else { return }
+        UserDefaults.standard.set(raw, forKey: PushKey.defaultsKey)
+        for item in pushKeyMenu?.items ?? [] {
+            item.state = (item.representedObject as? String) == raw ? .on : .off
+        }
+        for item in voiceMenu?.items ?? []
+        where (item.representedObject as? String) == VoiceListener.Mode.pushToTalk.rawValue {
+            item.title = "Hold \(key.title) to talk"
+        }
+    }
+
+    @objc private func toggleEarcon(_ sender: NSMenuItem) {
+        let on = !Self.earconOn
+        UserDefaults.standard.set(on, forKey: Self.earconKey)
+        sender.state = on ? .on : .off
     }
 
     @objc private func setListening(_ sender: NSMenuItem) {
