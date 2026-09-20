@@ -150,7 +150,7 @@ public final class SurfaceStore {
 
     private func applyOne(_ op: Op) {
         switch op {
-        case .surface, .close, .presence, .mark, .unmark, .say, .write, .queued:
+        case .surface, .close, .presence, .mark, .unmark, .say, .step, .write, .queued:
             // Routed by the overlay, which owns which surface is current and
             // what the ring and the pill are doing. A store knows about one
             // surface's contents and deliberately nothing about the glass

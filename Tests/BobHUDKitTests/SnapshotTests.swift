@@ -386,7 +386,7 @@ struct SnapshotTests {
         let drawn = coverage(
             "chat", size: CGSize(width: 560, height: 420), ground: ground
         ) {
-            ChatPanel(model: model, onSubmit: { _ in }, onStop: {}, onClose: {})
+            ChatPanel(model: model, onSubmit: { _ in }, onSpeak: { _ in }, onStop: {}, onClose: {})
                 .frame(width: 520, height: 380)
         }
         // A 520 by 380 panel on a 560 by 420 frame is 84 percent of the
@@ -402,17 +402,16 @@ struct SnapshotTests {
         let person = ChatTurn(id: 1, role: .person, text: "what is due this week", done: true, typed: false)
         let answer = ChatTurn(
             id: 2, role: .assistant,
-            text: "Two things.\n\n**Origin Story** is due Tuesday and the *lab* Friday.\n```\ncoursework due --days 7\n```",
-            done: true, typed: false)
+            text: "Two things.\n\n- **Origin Story** is due Tuesday\n- the *lab* Friday\n```sh\ncoursework due --days 7\n```",
+            done: true, typed: false, steps: ["Reading the ledger"])
+        let open = ChatTurn(id: 3, role: .assistant, text: "Three things", done: false, typed: false)
         let drawn = coverage(
-            "turns", size: CGSize(width: 520, height: 220), ground: ground
+            "turns", size: CGSize(width: 520, height: 300), ground: ground
         ) {
             VStack(alignment: .leading, spacing: 14) {
-                TurnView(turn: person, status: nil)
-                TurnView(turn: answer, status: nil)
-                TurnView(
-                    turn: ChatTurn(id: 3, role: .assistant, text: "", done: false, typed: false),
-                    status: "Reading the ledger")
+                turn(person)
+                turn(answer)
+                turn(open, live: true, status: "Checking the calendar")
             }
             .padding(16)
             .frame(width: 520, alignment: .leading)
@@ -421,6 +420,12 @@ struct SnapshotTests {
         // lines of 13pt type, a bubble and a code plate on a 520 by 220
         // frame. Half that is the floor; nothing drawn is zero.
         #expect(drawn > 0.035, "the turns drew \(drawn) over \(ground)")
+    }
+
+    private func turn(_ turn: ChatTurn, live: Bool = false, status: String? = nil) -> TurnView {
+        TurnView(
+            turn: turn, live: live, status: status, isLast: live,
+            onSpeak: {}, onRegenerate: {}, onEdit: {})
     }
 
     @Test("the command bar draws")

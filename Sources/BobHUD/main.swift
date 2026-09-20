@@ -260,6 +260,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onSubmit: { [weak self] asked in
                 Task { @MainActor in self?.dispatch(asked, typed: true) }
             },
+            onSpeak: { [weak self] text in
+                // Read aloud on request: the bridge owns the voice, so this
+                // goes up as an action on the turn rather than being spoken
+                // here.
+                Task { @MainActor in
+                    self?.model.onEvent?(.action(name: "say", component: "turn", payload: ["text": .string(text)]))
+                }
+            },
             onStop: { [weak self] in
                 Task { @MainActor in self?.model.cancelRun() }
             },

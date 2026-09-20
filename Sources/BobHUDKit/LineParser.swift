@@ -290,12 +290,21 @@ public enum LineParser {
             // splitting on whitespace would take the first word and drop the
             // sentence. Bare words are accepted on the way in; the string form
             // is the one to write.
-            let rest = trimmed.dropFirst(1).trimmingCharacters(in: .whitespaces)
+            var rest = trimmed.dropFirst(1).trimmingCharacters(in: .whitespaces)
+            // `s "Reading the ledger" step=true`: a tool call, not an answer.
+            var step = false
+            if rest.hasSuffix(" step=true") {
+                step = true
+                rest = String(rest.dropLast(" step=true".count))
+            }
             guard !rest.isEmpty else {
                 throw LineParseError.malformed("`s` needs text", line: trimmed)
             }
-            if case .string(let text)? = JSONDecoding.parse(rest) { return .say(text) }
-            return .say(rest.trimmingCharacters(in: CharacterSet(charactersIn: "\"")))
+            if case .string(let text)? = JSONDecoding.parse(rest) {
+                return step ? .step(text) : .say(text)
+            }
+            let bare = rest.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            return step ? .step(bare) : .say(bare)
 
         case "w":
             // `w "<the answer so far>"`, `w "<the answer>" done=true`. One
