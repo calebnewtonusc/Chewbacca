@@ -374,6 +374,8 @@ if group "hud"; then
   check  "the terminal tab chooser never picks a plain shell" python3 "$ROOT/tests/test_terminal.py"
   check  "voice memory rotates and reads back" python3 "$ROOT/tests/test_memory.py"
   check  "the router's table holds" python3 "$ROOT/tests/test_route.py"
+  check  "the terminal hook filters and holds" python3 "$ROOT/tests/test_terminal_events.py"
+  check  "the terminal state folds and tails" python3 "$ROOT/tests/test_terminal_state.py"
   # The same file has a pytest-only path (the fixtures at its top) that no
   # runner ever exercised: none of the python3 interpreters on the dev Macs,
   # 3.12 through 3.14 and /usr/bin, has pytest, so a bare `python3 -m pytest`
