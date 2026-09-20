@@ -769,8 +769,8 @@ def test_music_fast_path(m) -> None:
     state = {"player": None}
 
     class Command:
-        def __init__(self, verb: str, what: str = "", fuzzy: bool = False) -> None:
-            self.verb, self.what, self.fuzzy = verb, what, fuzzy
+        def __init__(self, verb: str, what: str = "") -> None:
+            self.verb, self.what = verb, what
             self.quiet_miss = False
 
     class Outcome:
@@ -780,7 +780,7 @@ def test_music_fast_path(m) -> None:
     def parse(said: str):
         words = said.lower().rstrip(".!")
         if words.startswith("play "):
-            return Command("play", words[5:], fuzzy="something" in words)
+            return Command("play", words[5:])
         if words == "pause":
             return Command("pause")
         return None
@@ -848,22 +848,20 @@ def test_music_fast_path(m) -> None:
         drained.clear()
         listener.ask("Play something chill.")
         deadline = time.monotonic() + 3
-        while not drained and time.monotonic() < deadline:
+        while listener.current is not None and time.monotonic() < deadline:
             time.sleep(0.02)
-        check("words that describe go to the model with the music hint, nothing played",
-              drained == ["drain"] and played[-1] == "play:hotline bling" and listener.current is not None
-              and listener.current.said == "Play something chill." and "hud-music play --anyway" in listener.current.hint, f"{drained} {played} {listener.current}")
-        prompt = listener.prompt_for(listener.current, "")
-        check("the prompt carries the hint", "could not settle" in prompt and "Play something chill." in prompt, prompt[:200])
-        listener.current = None
+        check("words that describe are played like any other, Spotify's search decides",
+              drained == [] and played[-1] == "play:something chill" and spoken[-1] == "Playing Something Chill.", f"{drained} {played} {spoken}")
         drained.clear()
         listener.ask("Play freddie again.")
         deadline = time.monotonic() + 3
         while not drained and time.monotonic() < deadline:
             time.sleep(0.02)
-        check("an unsure guess goes to the model too, and was not played",
+        check("a guess nothing was sure of goes to the model with the music hint, and was not played",
               drained == ["drain"] and played[-1] == "play:freddie again" and listener.current is not None
-              and listener.current.hint and spoken[-1] == "Paused.", f"{drained} {played} {spoken}")
+              and "hud-music play --anyway" in listener.current.hint and spoken[-1] == "Playing Something Chill.", f"{drained} {played} {spoken}")
+        prompt = listener.prompt_for(listener.current, "")
+        check("the prompt carries the hint", "could not settle" in prompt and "Play freddie again." in prompt, prompt[:200])
         listener.current = None
     finally:
         m._music = kept

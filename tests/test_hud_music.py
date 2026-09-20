@@ -39,6 +39,41 @@ def load(name: str, path: Path):
     return module
 
 
+# Spotify's search page on 2026-09-20, trimmed to the tags that are read.
+HERO_TRACK = (
+    '<div aria-live="polite" data-testid="top-result-card"><div><div draggable="true"><div><img alt=""></div><div>'
+    '<a draggable="false" title="Hotel California - 2013 Remaster" dir="auto" href="/track/40riOy7x9W7GXjyGp4pjAv">'
+    '<div data-encore-id="text">Hotel California - 2013 Remaster</div></a><div data-encore-id="text"><span data-encore-id="text">Song</span>'
+    '<span data-encore-id="text"><a draggable="true" dir="auto" href="/artist/0ECwFtbIWEVNwjlrfc6xoL">Eagles</a></span></div></div>'
+    '<button data-testid="play-button" aria-label="Play"></button></div></div></div>')
+HERO_ARTIST = (
+    '<div data-testid="top-result-card"><div><a draggable="false" title="Fred again.." dir="auto" href="/artist/4oLeXFyACqeem2VImYeBFe">'
+    '<div data-encore-id="text">Fred again..</div></a><div><span data-encore-id="text">Artist</span></div></div></div>')
+HERO_ALBUM = (
+    '<div data-testid="top-result-card"><div><a draggable="false" title="Blonde" href="/album/3mH6qwIy9crq0I9YQbOuDf"><div>Blonde</div></a>'
+    '<span data-encore-id="text">Album</span><span><a draggable="true" href="/artist/2h93pZq0e7k5yf4dywlkpM">Frank Ocean</a></span></div></div>')
+HERO_PLAYLIST = (
+    '<div data-testid="top-result-card"><div><a draggable="false" title="Something chill" href="/playlist/2DS9f2LPCPXriE16flYJxR"><div>Something chill</div></a>'
+    '<span data-encore-id="text">Playlist</span><span><a draggable="false" href="/user/1290960422">Ryan Blakewood</a></span></div></div>')
+HERO_EPISODE = (
+    '<div data-testid="top-result-card"><div><a draggable="false" title="Written In Your Heart (from &#x201C;Barbie&#x201D;)" href="/episode/6RwSh089NqZLdg8jMcTRYG">'
+    '<div>Written In Your Heart</div></a><span data-encore-id="text">Episode</span></div></div>')
+VIDEO_TRACK = (
+    '<div aria-live="polite" data-testid="top-result-card"><div title="New Freezer (feat. Kendrick Lamar)">'
+    '<div data-encore-id="card" role="group" aria-labelledby="card-title-spotify:track:2EgB4n6XyBsuNUbuarr4eG" data-video-preview-card="true">'
+    '<div role="button" aria-labelledby="card-title-spotify:track:2EgB4n6XyBsuNUbuarr4eG card-subtitle-spotify:track:2EgB4n6XyBsuNUbuarr4eG"></div>'
+    '<img data-testid="video-card-image" alt=""><p data-encore-id="cardTitle" id="card-title-spotify:track:2EgB4n6XyBsuNUbuarr4eG" dir="auto">'
+    '<span>New Freezer (feat. Kendrick Lamar)</span></p><div data-encore-id="cardSubtitle"><span><a draggable="true" href="/artist/1pPmIToKXyGdsCF6LmqLmI">Rich The Kid</a>, '
+    '<a draggable="true" href="/artist/2YZyLoL8N0Wb9xBt1NhZWg">Kendrick Lamar</a></span></div>'
+    '<button data-testid="more-button" aria-label="More options for New Freezer (feat. Kendrick Lamar)"></button></div></div></div>')
+SONG_ROW = (
+    '<div data-testid="tracklist-row" draggable="true" role="presentation"><div role="gridcell"><img alt="">'
+    '<button aria-label="Play Barbie World (with Aqua) [From Barbie The Album] by Nicki Minaj, Ice Spice, Aqua"></button></div><div>'
+    '<a draggable="false" href="/track/741UUVE2kuITl0c6zuqqbO" tabindex="-1"><div data-encore-id="text" dir="auto">Barbie World (with Aqua) [From Barbie The Album]</div></a>'
+    '<span data-encore-id="text"><span role="img" aria-label="Explicit" data-encore-id="tagIcon" title="Explicit">E</span></span>'
+    '<span><a draggable="true" href="/artist/0hCNtLu0JehylgoiP8L4Gh">Nicki Minaj</a>, <a href="/artist/3LZZPxNDGDFVSIPqf4JuEf">Ice Spice</a></span></div></div>')
+
+
 def track(name: str, artist: str, uri: str) -> dict:
     return {"name": name, "uri": uri, "artists": [{"name": artist}]}
 
@@ -112,10 +147,9 @@ def main() -> int:
             else:
                 check(f"{said!r} is not music", command is None, str(command))
         check("a query drops the by", music.Command("play", what="blinding lights by the weeknd").query == "blinding lights the weeknd")
-        for said, fuzzy in {"play something chill": True, "play the new kendrick": True, "play that song from barbie": True,
-                            "play some jazz": True, "play blinding lights": False, "play fred again": False, "play new order": True}.items():
+        for said, what in {"play something chill": "chill", "play the new kendrick": "the new kendrick", "play that song from barbie": "that song from barbie"}.items():
             command = music.parse(said)
-            check(f"{said!r} is {'described' if fuzzy else 'named'}", command is not None and command.fuzzy is fuzzy, str(command))
+            check(f"{said!r} is a search like any other", command is not None and command.verb == "play" and command.what == what, str(command))
         for said, platform in {"play mac demarco on spotify": "spotify", "play hotel california on youtube": "youtube",
                                "play hotel california in apple music": "music", "play hotel california": ""}.items():
             command = music.parse(said)
@@ -163,6 +197,8 @@ def main() -> int:
         music.system_volume = lambda: 63
         music.SPOTIFY_APP = Path(tmp) / "Spotify.app"
         music.spotify_open_search = lambda what: (calls.append(f"open spotify search {what}"), music.Outcome(True, f"Opened {what} in Spotify. Tap the top result to play it.", music.SETUP_NOTE))[1]
+        # No browser first: the open sources are what is left.
+        music.spotify_web_read = lambda query: (_ for _ in ()).throw(music.PlayerError("no browser to read Spotify's search with"))
         # The open sources, stubbed: Deezer names the thing, Wikidata or
         # MusicBrainz knows its Spotify ID.
         deezer = {
@@ -233,6 +269,66 @@ def main() -> int:
         command.anyway = True
         out = music.perform(command)
         check("--anyway plays the best guess", out.ok and out.line == "Playing Begin Again by Freddie And The Scenarios." and 'spotify play track "spotify:track:ba22"' in calls, f"{out} {calls}")
+        calls.clear()
+
+        print("Spotify's own top result")
+        fields = music.card_fields(HERO_TRACK)
+        check("a hero card: the titled link, and who it is by",
+              fields == ("spotify:track:40riOy7x9W7GXjyGp4pjAv", "Hotel California - 2013 Remaster", ["Eagles"]), str(fields))
+        fields = music.card_fields(VIDEO_TRACK)
+        check("a video card: the URI is only in its labels, the artists are links",
+              fields == ("spotify:track:2EgB4n6XyBsuNUbuarr4eG", "New Freezer (feat. Kendrick Lamar)", ["Rich The Kid", "Kendrick Lamar"]), str(fields))
+        fields = music.card_fields(SONG_ROW)
+        check("a song row: the untitled track link, not the explicit tag's title",
+              fields == ("spotify:track:741UUVE2kuITl0c6zuqqbO", "Barbie World (with Aqua) [From Barbie The Album]", ["Nicki Minaj", "Ice Spice"]), str(fields))
+        fields = music.card_fields(HERO_PLAYLIST)
+        check("a playlist: by its owner", fields == ("spotify:playlist:2DS9f2LPCPXriE16flYJxR", "Something chill", ["Ryan Blakewood"]), str(fields))
+        check("entities are read as text", music.card_fields(HERO_TRACK.replace("Hotel California - 2013 Remaster", "Fred &amp; Co"))[1] == "Fred & Co")
+        check("a card with nothing playable is nothing", music.card_fields("<div data-testid=\"top-result-card\">yb<a href=\"/user/1\">x</a></div>") is None)
+        check("what is said for each kind", [music.spoken_pick(*f).title for f in (
+            ("spotify:track:1", "Marea (we've lost dancing)", ["Fred again..", "The Blessed Madonna"]), ("spotify:artist:1", "Fred again..", []),
+            ("spotify:album:1", "After Hours (Deluxe)", ["The Weeknd"]), ("spotify:playlist:1", "Something chill", ["Ryan"]), ("spotify:episode:1", "#2551", []))]
+            == ["Marea by Fred again..", "Fred again..", "the album After Hours by The Weeknd", "the playlist Something chill", "the episode #2551"])
+        pages = {"freddie again": (HERO_ARTIST, ""), "the new kendrick": (VIDEO_TRACK, SONG_ROW), "hotel california": (HERO_TRACK, ""),
+                 "that song from barbie": (HERO_EPISODE, SONG_ROW), "the joe rogan podcast": (HERO_EPISODE, SONG_ROW),
+                 "blonde album": (HERO_ALBUM, ""), "chill": (HERO_PLAYLIST, ""), "nothing at all": ("", "")}
+        music.spotify_web_read = lambda query: (calls.append(f"web {query}"), pages[query])[1]
+        out = music.perform(music.parse("play freddie again"))
+        check("a misheard name plays what Spotify's search puts at the top, nothing else asked",
+              out.ok and out.line == "Playing Fred again.." and calls == ["web freddie again", "stop youtube", 'spotify play track "spotify:artist:4oLeXFyACqeem2VImYeBFe"'], f"{out} {calls}")
+        calls.clear()
+        out = music.perform(music.parse("play freddie again"))
+        check("the second time is from the cache", out.ok and calls == ["stop youtube", 'spotify play track "spotify:artist:4oLeXFyACqeem2VImYeBFe"'], str(calls))
+        cache = json.loads((bob / "music-cache.json").read_text())
+        cache["web:freddie again"]["at"] = 0
+        (bob / "music-cache.json").write_text(json.dumps(cache))
+        calls.clear()
+        music.perform(music.parse("play freddie again"))
+        check("a week on, the page is read again", calls[0] == "web freddie again", str(calls))
+        calls.clear()
+        out = music.perform(music.parse("play the new kendrick"))
+        check("words that describe are Spotify's to answer too", out.ok and out.line == "Playing New Freezer by Rich The Kid." and 'spotify play track "spotify:track:2EgB4n6XyBsuNUbuarr4eG"' in calls, f"{out} {calls}")
+        calls.clear()
+        out = music.perform(music.parse("play hotel california"))
+        check("the edition is not said", out.ok and out.line == "Playing Hotel California by Eagles.", f"{out}")
+        calls.clear()
+        out = music.perform(music.parse("play that song from barbie"))
+        check("a podcast at the top of a music request gives way to the first song",
+              out.ok and out.line == "Playing Barbie World by Nicki Minaj." and 'spotify play track "spotify:track:741UUVE2kuITl0c6zuqqbO"' in calls, f"{out} {calls}")
+        calls.clear()
+        out = music.perform(music.parse("play the joe rogan podcast"))
+        check("a podcast asked for is played", out.ok and out.line.startswith("Playing the episode ") and 'spotify play track "spotify:episode:6RwSh089NqZLdg8jMcTRYG"' in calls, f"{out} {calls}")
+        calls.clear()
+        out = music.perform(music.parse("play the album blonde"))
+        check("an album is searched with the word on the end", out.ok and out.line == "Playing the album Blonde by Frank Ocean." and calls[0] == "web blonde album", f"{out} {calls}")
+        calls.clear()
+        out = music.perform(music.parse("play something chill"))
+        check("a playlist plays as one", out.ok and out.line == "Playing the playlist Something chill." and 'spotify play track "spotify:playlist:2DS9f2LPCPXriE16flYJxR"' in calls, f"{out} {calls}")
+        calls.clear()
+        out = music.perform(music.parse("play nothing at all"))
+        check("a page with nothing playable falls to the open sources, then the search on screen",
+              out.ok and out.unsure and calls[0] == "web nothing at all" and "deezer tracks nothing at all" in calls and "open spotify search nothing at all" in calls, f"{out} {calls}")
+        music.spotify_web_read = lambda query: (_ for _ in ()).throw(music.PlayerError("no browser to read Spotify's search with"))
         calls.clear()
         out = music.perform(music.parse("play blinding lights on youtube"))
         check("asked for YouTube: YouTube plays it, and the note says how to stop it",

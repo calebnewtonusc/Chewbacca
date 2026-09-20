@@ -289,14 +289,15 @@ hud-music now                    # what is on, in a sentence
 hud-music status                 # which players are ready, and why not
 ```
 
-Spotify plays by name once its keys are in `~/.bob/spotify.json`
-(`hud-music setup`, which asks for the client id and secret of a free
-developer app from developer.spotify.com/dashboard; no Premium, no login).
-Without them, Deezer, Wikidata, MusicBrainz and Spotify's public embed pages
-find the URI for anything well known, a second or two. Words that describe
-("something chill", "the new Kendrick") and guesses the sources are not sure
-of go to the model, which works out the name and plays it with
-`hud-music play --anyway`.
+Spotify plays whatever its own search puts at the top for the words, misheard
+or not: a headless browser (`pip3 install playwright && playwright install
+chromium-headless-shell`, once) reads the top result off Spotify's web player,
+about 1.5 s, and the desktop app plays it. With keys in `~/.bob/spotify.json`
+(`hud-music setup`, a free developer app's client id and secret) it is one
+API search instead. Without either, Deezer, Wikidata, MusicBrainz and
+Spotify's public embed pages find the URI for anything well known, and a
+guess they are not sure of goes to the model, which works out the name and
+plays it with `hud-music play --anyway`.
 "On YouTube" plays the first result through `ffplay` with no window, a few
 seconds in, and so does any request when Spotify is not installed. "Stop" on
 its own pauses the music when the voice is idle; "stop the music" always does.

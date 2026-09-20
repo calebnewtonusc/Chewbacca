@@ -11,12 +11,13 @@
 
 The players. Where they said ("on YouTube", "in Music") wins; otherwise:
 
-- Spotify, when it is installed. With its keys in ~/.bob/spotify.json, one
-  client-credentials search for the URI (no login, no Premium), then the
-  desktop app is told to play it through AppleScript: under a second. Without
-  keys, Deezer reads the name and Wikidata or MusicBrainz gives the Spotify
-  URI, a second or two, for anything well known; a name they have never heard
-  of opens in Spotify's search on screen, one tap from playing.
+- Spotify, when it is installed: whatever its own search puts at the top for
+  the words, misheard or not, told to the desktop app through AppleScript.
+  With keys in ~/.bob/spotify.json that is one API search, under a second.
+  Without, a headless browser reads the top result off Spotify's web player,
+  about 1.5 s once the browser is up. Failing both, Deezer, Wikidata,
+  MusicBrainz and Spotify's embed pages find the URI for anything well known,
+  and a name nobody has opens in Spotify's search on screen.
 - Music.app, when it is running and Spotify is not installed: its own library.
 - YouTube, when neither is there and yt-dlp and ffplay are: the first search
   result's audio, played with no window. A few seconds, and no next or previous.
@@ -29,6 +30,8 @@ one sentence for the voice.
 from __future__ import annotations
 
 import argparse
+import asyncio
+import atexit
 import base64
 import difflib
 import json
@@ -38,11 +41,13 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from html import unescape
 from pathlib import Path
 
 BOB_DIR = Path(os.environ.get("BOB_DIR") or Path.home() / ".bob")
@@ -113,9 +118,6 @@ class Command:
     level: str = ""
     # "spotify", "youtube" or "music" when they said where, else "".
     platform: str = ""
-    # The words describe rather than name ("something chill", "the new
-    # Kendrick", "that song from Barbie"): the model's to work out.
-    fuzzy: bool = False
     # Play the best guess even when the open sources are not sure of it.
     anyway: bool = False
     # Report an unsure guess rather than opening the search on screen; the
@@ -187,14 +189,6 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         r"|what am i listening to|name this song|what's the name of this song")),
     ("play", re.compile(r"(?:play|put on|throw on|start playing|queue up|listen to|i want to hear|let's hear|lets hear) (?P<what>.+)")),
 ]
-# Words that describe music rather than name it. Nothing here is looked
-# up: what "something chill" or "the new Kendrick" is takes knowing, and
-# the model knows.
-DESCRIPTIVE = re.compile(
-    r"\b(something|anything|some music|a song|songs|playlist|mix|vibes?|chill|relax(?:ing)?|focus|study|sleep|workout|gym"
-    r"|party|sad|happy|upbeat|mellow|calm|lofi|lo fi|jazz|classical|rock|pop|rap|hip hop|edm|house|techno|country|indie|r b"
-    r"|like|similar|from (?:the )?(?:movie|film|show|game)|soundtrack|new|newest|latest|top|hits|best of|radio|that song"
-    r"|the one|the song (?:that|from|where)|goes like|sounds like|remind me|remember|whatever|favorite|favourite)\b")
 # A named thing that means "whatever": these are a resume, not a search.
 NOTHING_NAMED = {"music", "something", "anything", "a song", "songs", "some music", "some songs", "it", "stuff", "some stuff"}
 
@@ -246,7 +240,7 @@ def parse(said: str) -> Command | None:
             what, want = artist.group(1), "artist"
         elif track:
             what = track.group(1)
-        return Command("play", what=what.strip(), want=want, platform=platform, fuzzy=bool(DESCRIPTIVE.search(what)))
+        return Command("play", what=what.strip(), want=want, platform=platform)
     return None
 
 
@@ -352,13 +346,221 @@ def spotify_search(query: str) -> dict:
         raise PlayerError("Spotify could not be reached") from None
 
 
-# ── Spotify without keys ─────────────────────────────────────────────────────
+# ── Spotify's own top result, without keys ───────────────────────────────────
 #
-# Spotify's own search needs an app's keys, and its anonymous web token is
-# refused (403 on 2026-09-20). What is open: Deezer's search, which reads a
-# name the way a person says it; Wikidata, which carries Spotify's own IDs
-# for well-known songs (P2207), albums (P2205) and artists (P1902); and
-# MusicBrainz, which links most artists to their Spotify page. Deezer picks
+# "If the user doesn't speak the correct name for the song, or the assistant
+# mishears, just play whatever the top choice is that Spotify pops up when
+# you search it, it's been right every time" (2026-09-20). Spotify's search
+# API needs an app's keys and its anonymous web token is refused (403), but
+# its web player renders the search page for anyone, signed in or not, with
+# the same "Top result" card the desktop app shows. A headless browser loads
+# that page and reads the card. Measured 2026-09-20: 1.5 s to start the
+# browser, then 1.4 to 2.2 s a search; "freddie again" is Fred again.. to it,
+# "bye-bye by mac demarco" is Baby Bye Bye, "the new kendrick" is a Kendrick
+# feature from 2017, which is what the search box would have shown too.
+
+WEB_SEARCH = "https://open.spotify.com/search/"
+# The page's own test ids on 2026-09-20. The card comes in two shapes: a
+# hero card whose name is a titled link, and a video-preview card (a song
+# with a canvas) whose URI is only in its aria-labelledby.
+TOP_RESULT = '[data-testid="top-result-card"]'
+SONG_ROW = '[data-testid="tracklist-row"]'
+# Spotify serves its web player to a browser it knows, not to hud-music/0.1.
+BROWSER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
+# A search page answered in 1.4 to 2.2 s on 2026-09-20. Ten seconds is a
+# slow network, past which the open sources take over.
+WEB_TIMEOUT = 10.0
+# The browser is kept for the next request, then let go once the music is
+# clearly chosen: its four processes held 780 MB together on 2026-09-20, and
+# he played five things in four minutes that afternoon and nothing for the
+# hour after. Fifteen minutes is guessed from that one afternoon.
+WEB_IDLE = 15 * 60
+# A cached top result is asked again after a week: the same words find a new
+# release eventually. Guessed, never measured.
+WEB_CACHE_AGE = 7 * 24 * 3600
+PLAYABLE = ("track", "artist", "album", "playlist", "show", "episode", "audiobook")
+# What a music request never means unless the words say so.
+TALK = ("show", "episode", "audiobook")
+
+
+class WebSearch:
+    """One headless browser, kept open between requests, asked from any thread.
+
+    Playwright's objects belong to the thread that made them, and the bridge
+    asks from a different worker each time, so the browser lives on a thread
+    of its own with its own event loop and questions are posted to it.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._playwright = None
+        self._browser = None
+        self._context = None
+        self._idle: threading.Timer | None = None
+
+    def read(self, query: str) -> tuple[str, str]:
+        """The top result card's HTML and the first song row's, for `query`."""
+        with self._lock:
+            if self._idle:
+                self._idle.cancel()
+            try:
+                if self._loop is None:
+                    self._start()
+                found = self._run(self._read(query))
+            except Exception as error:  # noqa: BLE001
+                # Whatever broke, the next question starts a fresh browser.
+                self._close_locked()
+                raise PlayerError(f"Spotify's search page could not be read ({type(error).__name__})") from None
+            self._idle = threading.Timer(WEB_IDLE, self.close)
+            self._idle.daemon = True
+            self._idle.start()
+            return found
+
+    def close(self) -> None:
+        with self._lock:
+            self._close_locked()
+
+    def _start(self) -> None:
+        loop = asyncio.new_event_loop()
+        threading.Thread(target=loop.run_forever, daemon=True, name="hud-music-web").start()
+        self._loop = loop
+        self._run(self._open())
+
+    def _run(self, coroutine, timeout: float = WEB_TIMEOUT * 2):
+        return asyncio.run_coroutine_threadsafe(coroutine, self._loop).result(timeout)
+
+    def _close_locked(self) -> None:
+        loop, self._loop = self._loop, None
+        if loop is None:
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(self._close(), loop).result(5)
+        except Exception:  # noqa: BLE001
+            pass
+        loop.call_soon_threadsafe(loop.stop)
+        self._playwright = self._browser = self._context = None
+
+    async def _open(self) -> None:
+        from playwright.async_api import async_playwright
+        self._playwright = await async_playwright().start()
+        self._browser = await self._playwright.chromium.launch(headless=True)
+        self._context = await self._browser.new_context(user_agent=BROWSER_AGENT, viewport={"width": 1280, "height": 900})
+
+    async def _read(self, query: str) -> tuple[str, str]:
+        page = await self._context.new_page()
+        try:
+            await page.goto(WEB_SEARCH + urllib.parse.quote(query), wait_until="domcontentloaded", timeout=WEB_TIMEOUT * 1000)
+            await page.wait_for_selector(TOP_RESULT, timeout=WEB_TIMEOUT * 1000)
+            card = await page.eval_on_selector(TOP_RESULT, "e => e.outerHTML")
+            song = await page.eval_on_selector(SONG_ROW, "e => e.outerHTML") if await page.query_selector(SONG_ROW) else ""
+        finally:
+            await page.close()
+        return card or "", song or ""
+
+    async def _close(self) -> None:
+        if self._browser:
+            await self._browser.close()
+        if self._playwright:
+            await self._playwright.stop()
+
+
+_web: WebSearch | None = None
+
+
+def spotify_web_read(query: str) -> tuple[str, str]:
+    """The search page's top card and first song row, raw. PlayerError when
+    there is no browser to read them with."""
+    global _web
+    if _web is None:
+        try:
+            import playwright  # noqa: F401
+        except ImportError:
+            raise PlayerError("no browser to read Spotify's search with (pip install playwright)") from None
+        _web = WebSearch()
+    return _web.read(query)
+
+
+def shutdown() -> None:
+    """Let the browser go. Registered at exit; the bridge calls it before it
+    loads a newer copy of this file."""
+    if _web is not None:
+        _web.close()
+
+
+atexit.register(shutdown)
+
+
+def strip_tags(fragment: str) -> str:
+    return " ".join(unescape(re.sub(r"<[^>]+>", " ", fragment)).split())
+
+
+def card_fields(fragment: str) -> tuple[str, str, list[str]] | None:
+    """(uri, name, who it is by) from a top-result card or a song row, or
+    None when the fragment links to nothing playable."""
+    anchors = [(dict(re.findall(r'([\w-]+)="([^"]*)"', tag)), strip_tags(text))
+               for tag, text in re.findall(r"<a\b([^>]*)>(.*?)</a>", fragment, flags=re.S)]
+    uri = name = ""
+    labelled = re.search(r"card-title-spotify:([a-z]+):([A-Za-z0-9]+)", fragment)
+    if labelled and labelled.group(1) in PLAYABLE:
+        uri = f"spotify:{labelled.group(1)}:{labelled.group(2)}"
+        heading = re.search(r'data-encore-id="cardTitle"[^>]*>(.*?)</p>', fragment, flags=re.S)
+        titled = re.search(r'\btitle="([^"]*)"', fragment)
+        name = strip_tags(heading.group(1)) if heading else unescape(titled.group(1)) if titled else ""
+    else:
+        for attrs, text in anchors:
+            link = re.match(r"/(%s)/([A-Za-z0-9]+)" % "|".join(PLAYABLE), attrs.get("href", ""))
+            if link and (attrs.get("title") or link.group(1) == "track"):
+                uri = f"spotify:{link.group(1)}:{link.group(2)}"
+                name = unescape(attrs.get("title") or "") or text
+                break
+    if not uri:
+        return None
+    by = [text for attrs, text in anchors
+          if attrs.get("href", "").startswith(("/artist/", "/user/")) and text and text != name]
+    return uri, name, by
+
+
+def spoken_pick(uri: str, name: str, by: list[str]) -> Pick:
+    kind = uri.split(":")[1]
+    who = f" by {by[0]}" if by else ""
+    if kind == "track":
+        title = f"{bare_title(name)}{who}"
+    elif kind == "artist":
+        title = name
+    elif kind == "album":
+        title = f"the album {bare_title(name)}{who}"
+    elif kind == "playlist":
+        title = f"the playlist {name}"
+    else:
+        title = f"the {kind} {name}"
+    return Pick(uri, kind, title, 1.0)
+
+
+def spotify_web_top(query: str) -> Pick | None:
+    """What Spotify itself puts at the top for these words, or the first song
+    when the top is a podcast nobody asked for. PlayerError when the page
+    could not be read; None when it showed nothing playable."""
+    key = f"web:{clean(query)}"
+    pick = cached_pick(key, WEB_CACHE_AGE)
+    if pick:
+        return pick
+    card, song = spotify_web_read(query)
+    found = card_fields(card)
+    if found and found[0].split(":")[1] in TALK and not re.search(r"\b(podcast|episode|audiobook|show)\b", query):
+        found = card_fields(song) or found
+    if not found:
+        return None
+    pick = spoken_pick(*found)
+    remember_pick(key, pick)
+    return pick
+
+
+# ── The open sources, when the page cannot be read ────────────────────────────
+#
+# Deezer's search reads a name the way a person says it; Wikidata carries
+# Spotify's own IDs for well-known songs (P2207), albums (P2205) and artists
+# (P1902); MusicBrainz links most artists to their Spotify page. Deezer picks
 # the thing, the other two find its URI, and the desktop app plays it.
 
 
@@ -525,10 +727,12 @@ def spotify_artist_id(name: str) -> str | None:
     return None
 
 
-def cached_pick(key: str) -> Pick | None:
+def cached_pick(key: str, max_age: float | None = None) -> Pick | None:
     try:
         entry = json.loads(MUSIC_CACHE.read_text(encoding="utf-8")).get(key)
     except (OSError, ValueError, AttributeError):
+        return None
+    if max_age is not None and isinstance(entry, dict) and time.time() - float(entry.get("at", 0)) > max_age:
         return None
     if isinstance(entry, dict) and entry.get("uri"):
         return Pick(entry["uri"], entry.get("kind", ""), entry.get("title", ""), float(entry.get("fit", 1.0)))
@@ -542,7 +746,7 @@ def remember_pick(key: str, pick: Pick) -> None:
             cache = {}
     except (OSError, ValueError):
         cache = {}
-    cache[key] = {"uri": pick.uri, "kind": pick.kind, "title": pick.title, "fit": round(pick.fit, 3)}
+    cache[key] = {"uri": pick.uri, "kind": pick.kind, "title": pick.title, "fit": round(pick.fit, 3), "at": int(time.time())}
     try:
         MUSIC_CACHE.parent.mkdir(parents=True, exist_ok=True)
         MUSIC_CACHE.write_text(json.dumps(cache, indent=1), encoding="utf-8")
@@ -946,10 +1150,20 @@ def play(command: Command) -> Outcome:
             except PlayerError as error:
                 reasons.append(str(error))
         else:
-            # Without keys: the open sources for the URI, and failing that
-            # the request on screen in Spotify, never a stream from
-            # somewhere they did not ask for.
+            # Without keys: Spotify's own top result off its web player,
+            # then the open sources for the URI, and failing both the
+            # request on screen in Spotify, never a stream from somewhere
+            # they did not ask for.
             pick = None
+            try:
+                # "after hours the weeknd album" is the album to Spotify's
+                # search; "album after hours by the weeknd" is the song.
+                pick = spotify_web_top(command.query + " album" if command.want == "album" else command.what)
+                if pick:
+                    return Outcome(True, spotify_play(pick))
+                reasons.append(f"Spotify's search shows nothing for {command.what}")
+            except PlayerError as error:
+                reasons.append(str(error))
             try:
                 pick = resolve_free(command.query, command.want)
             except PlayerError as error:
