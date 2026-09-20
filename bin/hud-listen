@@ -351,7 +351,9 @@ def looking_at() -> str:
 
 
 class Listener:
-    def __init__(self, model_cmd: str, verbose: bool, bare: bool) -> None:
+    def __init__(
+        self, model_cmd: str, verbose: bool, bare: bool, voice: str | None = None
+    ) -> None:
         self.model_cmd = model_cmd
         self.verbose = verbose
         # `bare` means the model command has no tools and no skills, so it has
@@ -372,6 +374,13 @@ class Listener:
         # the first request rather than staying the same.
         self.session = str(uuid.uuid4())
         self.started = False
+
+        # The reply is said out loud, by this voice, unless it is None. What
+        # `say` is currently speaking, so a new request or a stop can cut it
+        # off: the person talking over it is the strongest signal there is
+        # that they have heard enough.
+        self.voice = voice
+        self.saying: subprocess.Popen[bytes] | None = None
 
         # The last region the person pointed at, and when.
         #
@@ -551,6 +560,7 @@ class Listener:
         nothing in flight there is nothing else the word can mean, so it
         clears the queue instead.
         """
+        self.hush()
         with self.state:
             req, proc = self.running, self.proc
             cleared = 0
@@ -585,7 +595,34 @@ class Listener:
         if idle:
             self.send("p attentive")
 
+    def speak(self, text: str) -> None:
+        """Say the reply out loud, cutting off whatever was still being said.
+
+        Asked for by voice on 2026-09-19: "if you can hear me say it out
+        loud". A reply that only lands on the glass is one the person has to
+        look for, and the whole point of speaking to it was not looking.
+        """
+        if not self.voice or not text:
+            return
+        self.hush()
+        try:
+            self.saying = subprocess.Popen(
+                ["say", "-v", self.voice, text],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError as err:
+            self.log("say failed:", err)
+
+    def hush(self) -> None:
+        """Stop talking."""
+        proc, self.saying = self.saying, None
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+
     def ask(self, said: str) -> None:
+        self.hush()
         if normalise(said) in STOP_WORDS:
             self.stop()
             return
@@ -744,6 +781,8 @@ class Listener:
         reply = subtitle(prose(out))
         if reply and reply != said:
             self.send("s " + json.dumps(reply))
+        if ok:
+            self.speak(reply or said or "")
         return "done" if ok else "failed"
 
     def prompt_for(self, req: Request, seen: str) -> str:
@@ -959,8 +998,17 @@ def main() -> int:
         action="store_true",
         help="the model command cannot use tools, so paste it the vocabulary and expect lines back",
     )
+    parser.add_argument(
+        "--voice",
+        # Samantha is the best of the voices macOS ships without a download;
+        # `say -v '?'` lists what this Mac has, and a Premium voice from
+        # System Settings > Accessibility > Spoken Content is a real step up.
+        default=os.environ.get("HUD_VOICE", "Samantha"),
+        help="the macOS voice that reads each reply aloud; 'off' for silence",
+    )
     args = parser.parse_args()
-    return Listener(args.model_cmd, args.verbose, args.bare).run()
+    voice = None if args.voice.lower() in {"off", "none", ""} else args.voice
+    return Listener(args.model_cmd, args.verbose, args.bare, voice=voice).run()
 
 
 if __name__ == "__main__":
