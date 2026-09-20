@@ -715,6 +715,14 @@ class Listener:
             if not isinstance(said, str):
                 return
             self.ask(said, typed="via=typed" in rest[end:].split())
+        elif line == "x":
+            # The person took everything down: Escape on an empty pill, or
+            # two quick globe presses. The display has already gone dormant
+            # on its own, so nothing is sent; the voice is cut, and the
+            # state the quiet would have put back is dormant, not the done
+            # the exit just cleared.
+            self.hush()
+            self.shown = "p dormant"
         elif line.startswith("g "):
             parts = line.split()
             if len(parts) == 5:

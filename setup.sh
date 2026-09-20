@@ -677,7 +677,7 @@ if [ -n "$_installed_hud" ]; then
   # rather than letting the first `hud draw` fail with a socket error.
   if [ ! -d "/Applications/BobHUD.app" ] && [ ! -d "$HOME/Applications/BobHUD.app" ]; then
     warn "BobHUD.app is not installed, so hud has nothing to draw on."
-    warn "Build it: git clone https://github.com/calebnewtonusc/bob-the-builder && cd bob-the-builder/hud && ./scripts/bundle.sh"
+    warn "Build it: cd $(dirname "$0")/hud && ./scripts/bundle.sh"
   fi
   case ":$PATH:" in
     *":$HOME/.local/bin:"*) ;;

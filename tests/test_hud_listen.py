@@ -330,6 +330,13 @@ def test_speak_kokoro(m) -> None:
     listener.handle("e say turn")
     listener.handle('e say turn text=""')
     check("a say with nothing to say is nothing", len(speaker.stdin.lines) == 1, f"got {speaker.stdin.lines}")
+    speaker.stdin.lines.clear()
+    listener.shown = "p done"
+    listener.talking = True
+    listener.handle("x")
+    check("the display's dismiss hushes the voice", speaker.stdin.lines == ['{"hush": true}\n'], f"got {speaker.stdin.lines}")
+    listener.heard_speaker({"quiet": True})
+    check("and the quiet after it puts nothing back", listener.shown == "p dormant" and not listener.talking)
     speaker.stdin.broken = True
     listener.speak("Again.")
     check("a dead speaker means say, not silence",

@@ -91,6 +91,10 @@ h "show me my week" via=typed
 read it aloud: they chose not to speak, usually because they cannot hear or be
 heard where they are.
 
+Two quick globe presses are the way out: the display closes the panel, shuts
+the microphone, sends `e stop run` for a run in flight and then `x`, and
+clears the glass. On `x`, stop talking and show nothing afterwards.
+
 Stay connected to receive it. Answer by drawing, not by writing prose back down
 the socket: nothing reads prose there.
 
