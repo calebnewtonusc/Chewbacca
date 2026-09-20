@@ -74,6 +74,15 @@ SUBTITLE_LIMIT = 140
 # A sentence ends at . ! or ? followed by whitespace. Good enough for a reply
 # capped at twenty words; abbreviations inside one are the model's problem.
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+# Where a spoken chunk ends: a sentence end, or a line break, because a list
+# item or a heading has no full stop and would otherwise wait for the next
+# sentence to be said.
+CHUNK_END = re.compile(r"(?<=[.!?])\s+|\n+")
+# Fewer words than this and a chunk waits for the next one. "Yes." alone is a
+# generation call and a pause for one syllable; hud-speak's `sentences` has the
+# same rule for a text it is handed whole, and this is the same rule for text
+# handed over one chunk at a time.
+SHORT_CHUNK = 3
 
 # Where Claude Code keeps the session this listener resumes: the cwd with "/"
 # swapped for "-", and cwd is $HOME (see run_streamed). Checked 2026-09-19: a
@@ -125,6 +134,10 @@ class Request:
     # the previous answer put on screen.
     pointed: tuple[int, int, int, int] | None
     seen: str = ""
+    # Typed into the conversation panel rather than spoken. Answered in
+    # writing: the person chose not to speak, and a reply read aloud to
+    # someone who typed because they could not be heard is the wrong reply.
+    typed: bool = False
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:6])
 
 
@@ -198,26 +211,54 @@ def prose(text: str) -> str:
 
 
 def subtitle(text: str, limit: int = SUBTITLE_LIMIT) -> str:
-    """One subtitle: the first two sentences, opener dropped, cut to the pill.
+    """One subtitle: the first two sentences, cut to the pill.
 
-    The opener is the first paragraph whenever there is more than one. The
-    recorded reply was "Building ship-ready work today.\\n\\nIt's Saturday,
-    September 19, 2026." because the session opener rule in CLAUDE.md gets
-    prepended even to a spoken answer, and the sentence the person wants is
-    the one after it. The prompt now says not to write one; this is the
-    backstop for the model that does anyway.
+    This used to drop the first paragraph whenever there was more than one,
+    as a backstop for the session opener that CLAUDE.md prepends ("Building
+    ship-ready work today.\\n\\nIt's Saturday...", recorded 2026-09-19).
+    Since answers became chat-length (2026-09-20) the first paragraph is the
+    lead sentence the prompt asks for, the one written for the pill, and a
+    real answer about Paris lost it to that rule. The prompt says not to
+    write an opener; an opener that arrives anyway is on the pill for a
+    moment, which is the cheaper failure.
     """
     paragraphs = [p for p in re.split(r"\n\s*\n", text.strip()) if p.strip()]
     if not paragraphs:
         return ""
-    if len(paragraphs) > 1:
-        paragraphs = paragraphs[1:]
     flat = " ".join(" ".join(p.split()) for p in paragraphs)
     line = " ".join(SENTENCE_END.split(flat)[:2])
     if len(line) <= limit:
         return line
     cut = line.rfind(" ", 0, limit)
     return line[: cut if cut > 0 else limit].rstrip(",;:") + "…"
+
+
+def spoken(text: str) -> str:
+    """Prose for the voice: Markdown taken off, whitespace folded.
+
+    The model writes Markdown whether or not it is asked to, and Kokoro reads
+    an asterisk as a word. Headings, list markers, quotes, rules, links, code
+    spans and emphasis all go; the words stay. A table row is read as its
+    cells, because skipping it would drop the one line that held the number.
+    """
+    out: list[str] = []
+    for line in text.splitlines():
+        line = re.sub(r"^\s{0,3}#{1,6}\s+", "", line)
+        line = re.sub(r"^\s*(?:[-*+]|\d+[.)])\s+", "", line)
+        line = re.sub(r"^\s*>\s?", "", line)
+        if re.fullmatch(r"\s*(?:[-*_]\s*){3,}", line):
+            continue
+        if re.fullmatch(r"\s*\|?[\s:|-]+\|?\s*", line) and "|" in line:
+            continue
+        if line.strip().startswith("|") and line.strip().endswith("|"):
+            line = ", ".join(cell.strip() for cell in line.strip().strip("|").split("|") if cell.strip())
+        out.append(line)
+    text = "\n".join(out)
+    text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
+    text = re.sub(r"`{1,3}([^`]*)`{1,3}", r"\1", text)
+    text = re.sub(r"(\*\*|__)(.+?)\1", r"\2", text)
+    text = re.sub(r"(?<!\w)([*_])(?!\s)(.+?)(?<!\s)\1(?!\w)", r"\2", text)
+    return " ".join(text.split())
 
 
 def breadcrumb(block: dict) -> str:
@@ -289,8 +330,30 @@ class Run:
         # The first thing the model said in prose, before any tool ran. The
         # prompt asks for one short line up front, and it is spoken the moment
         # it lands: the person hears what is about to happen four seconds in
-        # rather than a minute later.
+        # rather than a minute later. Read by the `say` fallback; with
+        # hud-speak every chunk is spoken as it lands and this is just the
+        # first of them.
         self.first_text: str | None = None
+        # The text block being written, from `stream_event` deltas, and how
+        # much of it the voice already has. `--include-partial-messages`
+        # delivers a text block as deltas, then the whole block as an
+        # `assistant` event, then `content_block_stop`; the deltas are what
+        # let the first sentence of a long answer be spoken while the rest
+        # is still being written.
+        self.block = ""
+        self.spoken_upto = 0
+        # A chunk too short to say on its own, waiting for the next.
+        self.hold = ""
+        # Every finished prose block of the turn, in order: the written
+        # answer, for the conversation panel.
+        self.blocks: list[str] = []
+        self.written: str | None = None
+        # Chunks ready for the voice, in order. `run_streamed` takes them.
+        self.voice: list[str] = []
+        # Whether text blocks reach the pill from here. False when hud-speak
+        # captions the pill itself, one sentence at a time as it says it, so
+        # the words on the pill are the words being heard.
+        self.subtitles = True
 
     def pulse(self, now: float, force: bool = False) -> list[str]:
         if not force and now - self.last_pulse < PULSE_EVERY:
@@ -303,6 +366,59 @@ class Run:
             return []
         self.said = phrase
         return ["s " + json.dumps(phrase)]
+
+    def answer(self) -> str:
+        """The written answer so far: every prose block, paragraph by paragraph."""
+        parts = self.blocks + ([self.block] if self.block.strip() else [])
+        return "\n\n".join(p.strip() for p in parts if p.strip())
+
+    def write(self, done: bool = False) -> list[str]:
+        """The answer for the panel, whole each time, when it has changed."""
+        text = self.answer()
+        if not text or (text == self.written and not done):
+            return []
+        self.written = text
+        return ["w " + json.dumps(text) + (" done=true" if done else "")]
+
+    def flush(self, final: bool) -> list[str]:
+        """Hand the open block's complete chunks to the voice; all of it when final."""
+        rest = self.block[self.spoken_upto:]
+        chunks: list[str] = []
+        while True:
+            end = CHUNK_END.search(rest)
+            if end is None:
+                break
+            chunks.append(rest[: end.end()])
+            rest = rest[end.end():]
+        if final and rest.strip():
+            chunks.append(rest)
+            rest = ""
+        self.spoken_upto = len(self.block) - len(rest)
+        for chunk in chunks:
+            words = spoken(chunk)
+            if not words:
+                continue
+            self.hold = f"{self.hold} {words}".strip()
+            if len(self.hold.split()) >= SHORT_CHUNK:
+                self.voice.append(self.hold)
+                self.hold = ""
+        if final and self.hold:
+            self.voice.append(self.hold)
+            self.hold = ""
+        return self.write() if (chunks or final) else []
+
+    def close_block(self) -> list[str]:
+        """The open text block is complete: speak the rest, keep the text."""
+        out = self.flush(final=True)
+        if self.block.strip():
+            self.blocks.append(self.block.strip())
+        self.block = ""
+        self.spoken_upto = 0
+        return out
+
+    def take_voice(self) -> list[str]:
+        out, self.voice = self.voice, []
+        return out
 
     def note_draw(self, block: dict) -> None:
         """Remember what a tool call would put on, or take off, the glass.
@@ -324,14 +440,38 @@ class Run:
             return []
         kind = event.get("type")
         out: list[str] = []
-        if kind == "assistant":
+        if kind == "stream_event":
+            inner = event.get("event") or {}
+            etype = inner.get("type")
+            if etype == "content_block_start":
+                if (inner.get("content_block") or {}).get("type") == "text":
+                    self.block, self.spoken_upto, self.hold = "", 0, ""
+            elif etype == "content_block_delta":
+                delta = inner.get("delta") or {}
+                if delta.get("type") == "text_delta":
+                    self.block += str(delta.get("text", ""))
+                    out += self.flush(final=False)
+            elif etype == "content_block_stop" and self.block:
+                # Normally the `assistant` event has closed it already.
+                out += self.close_block()
+        elif kind == "assistant":
             for block in event.get("message", {}).get("content", []) or []:
                 btype = block.get("type")
                 if btype == "text":
-                    phrase = subtitle(block.get("text", ""))
+                    text = str(block.get("text", ""))
+                    # The block is the truth. The deltas may have carried
+                    # all of it, some of it, or none (a model command that
+                    # does not stream partial messages); whatever the voice
+                    # has not had goes to it now.
+                    if not text.startswith(self.block):
+                        self.spoken_upto, self.hold = 0, ""
+                    self.block = text
+                    out += self.close_block()
+                    phrase = subtitle(text)
                     if self.first_text is None and phrase:
                         self.first_text = phrase
-                    out += self.say(phrase)
+                    if self.subtitles:
+                        out += self.say(phrase)
                 elif btype == "tool_use":
                     self.state = "acting"
                     self.note_draw(block)
@@ -561,11 +701,17 @@ class Listener:
         self.log("<-", line)
 
         if line.startswith("h "):
+            # `h "<text>"`, or `h "<text>" via=typed` from the conversation
+            # panel. The string first, so a display that only ever sends the
+            # string is still understood.
+            rest = line[2:]
             try:
-                said = json.loads(line[2:])
+                said, end = json.JSONDecoder().raw_decode(rest)
             except json.JSONDecodeError:
                 return
-            self.ask(said)
+            if not isinstance(said, str):
+                return
+            self.ask(said, typed="via=typed" in rest[end:].split())
         elif line.startswith("g "):
             parts = line.split()
             if len(parts) == 5:
@@ -724,6 +870,13 @@ class Listener:
                 return
             self.talking = True
             self.send(f"p speaking amp={level:.2f}")
+        elif "saying" in message:
+            # The sentence that just started playing. On the pill as the
+            # subtitle, so the words on the glass are the words in the air:
+            # asked for on 2026-09-19 as "have the text go with the pill".
+            text = str(message["saying"] or "")
+            if text:
+                self.send("s " + json.dumps(text))
         elif message.get("quiet"):
             self.voiced = False
             if not self.talking:
@@ -750,6 +903,23 @@ class Listener:
             self.speaker = None
             self.voice = FALLBACK_VOICE
             return False
+
+    def speak_part(self, text: str, first: bool) -> bool:
+        """One chunk of a reply to hud-speak as it lands.
+
+        `say` with `more` for the first chunk, which cuts off whatever was
+        still being said and holds the quiet; `add` for the rest, which queue
+        behind it; `end` is sent by the caller once the reply is complete,
+        and hud-speak reports quiet after the last chunk has played. Only
+        hud-speak can take a reply in parts: `say` gets the whole reply at
+        the end, as before.
+        """
+        if self.speaker is None or not text:
+            return False
+        if self.tell_speaker({"say": text, "more": True} if first else {"add": text}):
+            self.voiced = True
+            return True
+        return False
 
     def speak(self, text: str) -> None:
         """Say the reply out loud, cutting off whatever was still being said.
@@ -851,6 +1021,10 @@ class Listener:
                 argv + [
                     "--input-format", "stream-json",
                     "--output-format", "stream-json", "--verbose",
+                    # Text arrives as deltas, so the first sentence of a
+                    # long answer is spoken while the rest is still being
+                    # written, and the panel fills as it is read.
+                    "--include-partial-messages",
                 ],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
@@ -893,13 +1067,13 @@ class Listener:
         except (BrokenPipeError, OSError, AssertionError):
             return False
 
-    def ask(self, said: str) -> None:
+    def ask(self, said: str, typed: bool = False) -> None:
         self.hush()
         words = normalise(said)
         if words in STOP_WORDS or (words in BARGE_WORDS and self.in_flight()):
             self.stop()
             return
-        req = Request(said=said, spoken_at=time.monotonic(), pointed=self.pointing())
+        req = Request(said=said, spoken_at=time.monotonic(), pointed=self.pointing(), typed=typed)
         with self.state:
             waiting = self.current is not None
             if waiting:
@@ -1027,10 +1201,12 @@ class Listener:
         self.log("->", req.said, f"[{req.id}, spoken {time.monotonic() - req.spoken_at:.0f}s ago]")
         argv = self.command()
         first: str | None = None
+        voiced = False
         if Path(argv[0]).name == "claude":
-            ok, out, said, first = self.run_streamed(argv, prompt)
+            ok, out, said, first, answer, voiced = self.run_streamed(argv, prompt, typed=req.typed)
         else:
             ok, out, said = self.run_plain(argv, prompt)
+            answer = prose(out).strip()
         with self.state:
             if self.cancelled is req:
                 return "cancelled"
@@ -1043,18 +1219,26 @@ class Listener:
             self.started = True
         for line in draw_lines(out):
             self.send(line)
-        spoken = out.strip()
-        if spoken:
-            self.log(f"said: [{time.monotonic() - req.spoken_at:.1f}s]", spoken[:300])
+        replied = out.strip()
+        if replied:
+            self.log(f"said: [{time.monotonic() - req.spoken_at:.1f}s]", replied[:300])
+        # The whole answer, closed, for the conversation panel. Sent even
+        # when the stream wrote it already: the last `w` is the one the
+        # panel keeps, and `done` is what lets it close the turn.
+        if answer:
+            self.send("w " + json.dumps(answer) + " done=true")
         # The reply reaches the glass as the last subtitle, unless the
-        # stream already put the same sentence there: the final text block
-        # and `result.result` are the same words on CLI 2.1.278.
+        # stream already put the same sentence there (the final text block
+        # and `result.result` are the same words on CLI 2.1.278), or the
+        # voice is captioning the pill itself as it reads.
         reply = subtitle(prose(out))
-        if reply and reply != said:
+        if reply and reply != said and not voiced:
             self.send("s " + json.dumps(reply))
-        # A run that was one sentence long already had it spoken as it
-        # arrived; saying it twice is the tell of a machine.
-        if ok and reply != first:
+        # A typed request is answered in writing. A run that was one
+        # sentence long already had it spoken as it arrived, and one read
+        # in parts by hud-speak has been heard in full; saying it twice is
+        # the tell of a machine.
+        if ok and not req.typed and not voiced and reply != first:
             self.speak(reply or said or "")
         return "done" if ok else "failed"
 
@@ -1105,9 +1289,20 @@ class Listener:
                 "fences. If the request does not warrant a panel, reply "
                 "with a single line that is only the word: none\n"
             )
+        asked = (
+            f"The user typed this into the conversation panel on their screen: {req.said!r}\n\n"
+            if req.typed
+            else f"The user said this out loud, to their screen: {req.said!r}\n\n"
+        )
+        heard = (
+            "Reply in writing: nothing is read aloud for a typed request. "
+            if req.typed
+            else "Everything you write is read aloud to them a sentence at a time "
+            "as you write it, and shown in full in the conversation panel. "
+        )
         return (
             prefix
-            + f"The user said this out loud, to their screen: {req.said!r}\n\n"
+            + asked
             + (f"They are looking at: {seen}\n\n" if seen else "")
             + (
                 f"They are pointing at the region {req.pointed} on screen "
@@ -1117,20 +1312,24 @@ class Listener:
                 if req.pointed
                 else ""
             )
-            + "First, before any tool call, write one short sentence, under "
-            "eight words, saying what you are about to do; it is read aloud "
-            "to them at once. Then do what they asked with the mac CLI whose "
-            "usage you read at the start of this session; do not read it "
-            "again unless a command fails. Look up whatever real data the "
-            "answer needs. Do not invent a number. Finish with one plain "
-            "sentence, under twenty words: it is spoken aloud and shown on "
-            "the pill at the bottom of their screen, and it is the whole "
-            "answer. Do not draw anything on the display: no panels, no "
-            "cards, no marks, no hud draw. Do not write a session opener; "
-            "this is a spoken exchange, not a session.\n\n"
-            "This is a spoken request, not a coding task. The spoken "
-            "sentence is the only deliverable: do not edit, commit, or push "
-            "anything.\n"
+            + "Answer the way a good assistant answers in a chat: in full when "
+            "the question deserves it, in a sentence when a sentence is enough, "
+            "on any subject. Never stop short and never trail off; if the answer "
+            "takes four paragraphs, write four paragraphs. Lead with one "
+            "sentence, under twenty words, that answers on its own: it is the "
+            "line on the pill at the bottom of their screen. "
+            + heard
+            + "Write plain prose in short paragraphs: no headings, no tables, "
+            "and no code unless they asked for code; a short list is fine. "
+            "Before any tool call, write one short sentence saying what you "
+            "are about to do. Do what they asked with the mac CLI whose usage "
+            "you read at the start of this session; do not read it again "
+            "unless a command fails. Look up whatever real data the answer "
+            "needs. Do not invent a number. Do not draw anything on the "
+            "display: no panels, no cards, no marks, no hud draw. Do not "
+            "write a session opener; this is a conversation, not a session, "
+            "and not a coding task: do not edit, commit, or push anything "
+            "unless they ask for exactly that.\n"
         )
 
     def run_plain(self, argv: list[str], prompt: str) -> tuple[bool, str, None]:
@@ -1187,8 +1386,8 @@ class Listener:
         self.send("p dormant")
 
     def run_streamed(
-        self, argv: list[str], prompt: str
-    ) -> tuple[bool, str, str | None, str | None]:
+        self, argv: list[str], prompt: str, typed: bool = False
+    ) -> tuple[bool, str, str | None, str | None, str, bool]:
         """Run Claude Code and put what it is actually doing on the glass.
 
         The field has two working states and they mean different things:
@@ -1200,10 +1399,18 @@ class Listener:
         a person watching the edge of their screen wants to know about.
 
         `Run.translate` turns every event into subtitle lines (one per tool
-        call, one per narration block) and presence pulses; this loop only
-        moves them to the socket and keeps the pulses coming while a tool
-        blocks the read. Returns ok, the reply text, and the last subtitle
-        sent, so the caller does not repeat it.
+        call, one per narration block), `w` lines carrying the answer so far,
+        and presence pulses; this loop only moves them to the socket, hands
+        each finished sentence to hud-speak, and keeps the pulses coming
+        while a tool blocks the read. Returns ok, the reply text, the last
+        subtitle sent (so the caller does not repeat it), the first prose
+        line, the written answer, and whether hud-speak read the reply in
+        parts as it arrived.
+
+        With hud-speak and a spoken request, the pill is captioned by the
+        voice (`saying` lines from hud-speak, one per sentence as it starts)
+        rather than by the text blocks, so the words on the glass are the
+        words being heard. A typed request is answered in writing only.
 
         Falls back to whatever text arrived if the stream never produced a
         result event, because a missing final event is not a reason to throw
@@ -1216,7 +1423,7 @@ class Listener:
         """
         proc = self.model_process()
         if proc is None:
-            return False, "", None, None
+            return False, "", None, None, "", False
         with self.state:
             self.proc = proc
             # A stop that landed between `_run`'s check and here. Nothing has
@@ -1225,7 +1432,7 @@ class Listener:
         if late or not self.turn(proc, prompt):
             with self.state:
                 self.proc = None
-            return False, "", None, None
+            return False, "", None, None, "", False
         # A watchdog rather than a read timeout, because the read loop is
         # what is blocked. 240s: a request that chains four CLI calls and then
         # draws runs to about a minute, and killing a working answer at 180
@@ -1233,8 +1440,11 @@ class Listener:
         killer = threading.Timer(240.0, proc.kill)
         killer.start()
         run = Run()
+        streaming = self.speaker is not None and self.voice is not None and not typed
+        run.subtitles = not streaming
         started = time.monotonic()
         spoken_first = False
+        voiced = False
         for line in run.pulse(started, force=True):
             self.send(line)
         stop = threading.Event()
@@ -1260,7 +1470,12 @@ class Listener:
                     if line.startswith("s "):
                         self.log(f"[+{time.monotonic() - started:.1f}s]", line)
                     self.send(line)
-                if run.first_text and not spoken_first:
+                for chunk in run.take_voice():
+                    if streaming and self.speak_part(chunk, first=not voiced):
+                        if not voiced:
+                            self.log(f"[+{time.monotonic() - started:.1f}s] voice:", chunk[:80])
+                        voiced = True
+                if run.first_text and not spoken_first and not typed and not streaming:
                     spoken_first = True
                     self.speak(run.first_text)
                 with self.state:
@@ -1270,12 +1485,16 @@ class Listener:
         finally:
             stop.set()
             killer.cancel()
+            if voiced:
+                # Everything has been handed over; quiet follows the last
+                # sentence rather than the last chunk queued.
+                self.tell_speaker({"end": True})
             with self.state:
                 self.proc = None
         # A process that is gone before its result was read was stopped or
         # timed out, whatever text got through first.
         ok = run.ok and proc.poll() is None
-        return ok, run.text, run.said, run.first_text
+        return ok, run.text, run.said, run.first_text, run.answer(), voiced
 
 
 def main() -> int:
