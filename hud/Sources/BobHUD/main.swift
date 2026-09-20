@@ -20,6 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var chat: ChatWindow?
     /// Two globe presses in a row, which is the way out. See `DoubleTap`.
     private var taps = DoubleTap()
+    /// Whether anything above the noise floor reached the microphone this
+    /// turn. A press that heard nothing was an accident, and is dropped
+    /// without a word.
+    private var heardSound = false
     /// Which app was in front when the bar opened, so it can be given back.
     private var previousApp: NSRunningApplication?
     private var hotKeyMonitor: Any?
@@ -342,18 +346,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         return
                     }
                     self.model.setPresence(on ? .attentive : .dormant, amplitude: 0)
-                    if on && self.voice.mode == .pushToTalk { self.model.beginHearing() }
+                    if on {
+                        self.heardSound = false
+                        if self.voice.mode == .pushToTalk { self.model.beginHearing() }
+                    }
 
                 case .level(let level):
                     // Only claim to be hearing something above the noise floor.
                     // A ring that reacts to a fan is a ring nobody believes.
                     if level > 0.18 {
+                        self.heardSound = true
                         self.model.setPresence(.hearing, amplitude: level)
                     } else if self.model.presence == .hearing {
                         self.model.setPresence(.attentive, amplitude: 0)
                     }
 
                 case .partial(let text):
+                    self.heardSound = true
                     self.model.hear(partial: text)
 
                 case .heard(let text):
@@ -421,6 +430,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             voice.beginPush()
         } else {
             taps.release()
+            if !heardSound, model.pill.phase == .hearing {
+                // Nothing reached the microphone: a press by accident. Not
+                // the three-second wait for a final that never comes and
+                // the red "Did not catch that" it ends in; the pill goes,
+                // the band lingers a moment, and the next press works at
+                // once because the turn is already closed.
+                voice.dropPush()
+                model.pressHeardNothing()
+                return
+            }
             voice.endPush()
         }
     }
