@@ -970,6 +970,18 @@ h["Notification"] = [{"hooks": [{
     "async": True,
 }]}]
 
+# The terminal loop: hud-listen hears when the remembered Claude Code tab is
+# waiting on a permission, answers it by voice, and says when a turn ends.
+# One wrapper for six events; the wrapper itself filters to the remembered
+# tab and exits at once for every other session. 45 s: the hook holds a
+# permission prompt for 30 s while the voice asks, and needs room above that.
+for _event in ("PermissionRequest", "PreToolUse", "PostToolUse", "PermissionDenied", "Stop", "SessionEnd"):
+    h.setdefault(_event, []).append({"hooks": [{
+        "type": "command",
+        "command": hooks_dir + "/terminal-loop.sh",
+        "timeout": 45,
+    }]})
+
 # Your commits are yours. Claude Code appends a Co-Authored-By trailer and a
 # "Generated with Claude Code" line to pull requests by default, and stripping
 # those out of a history later means rewriting every commit and force-pushing.

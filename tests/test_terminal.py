@@ -9,9 +9,11 @@ wrong tab choice pastes a prompt into someone's live shell.
 """
 import importlib.util
 import json as _json
+import os
 import os as _os
 import pathlib
 import sys
+import tempfile
 import tempfile as _tempfile
 from importlib.machinery import SourceFileLoader
 
@@ -203,6 +205,25 @@ def main() -> int:
     check("ensure --fresh opens a new tab even with a candidate present", got["tty"] == "/dev/ttys004" and got["opened"], str(got))
     check("ensure --fresh ran do script", any("do script" in str(c) for c in calls))
     t.osascript = fake_osascript
+
+    # hook: stdin in, stdout out, exit 0 always, nothing else printed. The
+    # events module is loaded lazily so this test file's stub-loaded
+    # terminal.py does not need mac/lib on sys.path at import.
+    import subprocess as _sp
+    hookmem = tempfile.mkdtemp()
+    proj = tempfile.mkdtemp()
+    pathlib.Path(hookmem, "project.json").write_text(_json.dumps({"cwd": proj}))
+    env = {**os.environ, "BOB_MEMORY_DIR": hookmem}
+    ev = _json.dumps({"hook_event_name": "PreToolUse", "session_id": "s", "cwd": proj,
+                      "tool_name": "Bash", "tool_input": {"command": "ls"}})
+    r = _sp.run([sys.executable, str(ROOT / "mac" / "lib" / "terminal.py"), "hook"],
+                input=ev, capture_output=True, text=True, env=env, timeout=20)
+    check("hook exits 0", r.returncode == 0, r.stderr)
+    check("hook prints nothing for a plain event", r.stdout == "", repr(r.stdout))
+    check("hook wrote the event", "PreToolUse" in pathlib.Path(hookmem, "terminal-events.jsonl").read_text())
+    r = _sp.run([sys.executable, str(ROOT / "mac" / "lib" / "terminal.py"), "hook"],
+                input="{", capture_output=True, text=True, env=env, timeout=20)
+    check("hook survives garbage with exit 0 and no output", r.returncode == 0 and r.stdout == "")
 
     print(f"\n{PASSED} passed, {FAILED} failed")
     return 1 if FAILED else 0
