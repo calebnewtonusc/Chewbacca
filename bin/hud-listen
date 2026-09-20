@@ -1844,7 +1844,13 @@ class Listener:
 
     def watch_terminal(self) -> None:
         while True:
-            self.poll_terminal()
+            try:
+                self.poll_terminal()
+            except Exception as err:  # noqa: BLE001  a daemon thread that raises dies silently
+                # One malformed line in the events file (a non-numeric `t`
+                # raises in fold) must not take the strip, the voice, and
+                # the answer words down for the rest of the process.
+                self.log("terminal watcher:", err)
             time.sleep(self.TERMINAL_POLL_S)
 
     def poll_terminal(self) -> None:
