@@ -284,12 +284,71 @@ def test_speak(m) -> None:
         m.subprocess.Popen = real
 
 
+def test_speak_kokoro(m) -> None:
+    """A Kokoro voice goes to hud-speak as JSON lines; a broken pipe falls back to say."""
+
+    class FakePipe:
+        def __init__(self) -> None:
+            self.lines: list[str] = []
+            self.broken = False
+
+        def write(self, line: str) -> None:
+            if self.broken:
+                raise BrokenPipeError
+            self.lines.append(line)
+
+        def flush(self) -> None:
+            pass
+
+    class FakeSpeaker:
+        def __init__(self) -> None:
+            self.stdin = FakePipe()
+            self.stdout = None
+
+        def poll(self):
+            return None
+
+    listener = m.Listener("claude -p", False, False)
+    listener.voice = "af_heart"
+    listener.speaker = speaker = FakeSpeaker()
+    listener.speak("Booked.")
+    listener.hush()
+    check("say and hush are one JSON object per line",
+          speaker.stdin.lines == ['{"say": "Booked."}\n', '{"hush": true}\n'],
+          f"got {speaker.stdin.lines}")
+    speaker.stdin.broken = True
+    listener.speak("Again.")
+    check("a dead speaker means say, not silence",
+          listener.speaker is None and listener.voice == m.FALLBACK_VOICE)
+    check("hud-speak is a Kokoro name, say is a Mac name",
+          m.KOKORO_VOICE.fullmatch("af_heart") and m.KOKORO_VOICE.fullmatch("am_michael")
+          and not m.KOKORO_VOICE.fullmatch("Samantha"))
+
+
 def test_stop_words(m) -> None:
     """The whole utterance is the gesture; a sentence that starts with it is not."""
     check("case and punctuation are ignored", m.normalise("Stop!") == "stop")
     check("a stop word with a full stop is a stop word", m.normalise("Never mind.") in m.STOP_WORDS)
     check("a request that begins with stop is a request", m.normalise("stop the music") not in m.STOP_WORDS)
     check("nothing said is not a stop", m.normalise("...") not in m.STOP_WORDS)
+    check("no is only a stop while something is running",
+          "no" in m.BARGE_WORDS and "no" not in m.STOP_WORDS)
+
+    listener = m.Listener("claude -p", False, False)
+    stops: list[str] = []
+    listener.stop = lambda: stops.append("stop")
+    sent: list[str] = []
+    listener.send = sent.append
+    drained: list[str] = []
+    listener._drain = lambda: drained.append("drain")
+    listener.ask("No.")
+    check("with nothing running, no is a request", stops == [] and listener.current is not None
+          and listener.current.said == "No.", f"got {stops} {listener.current}")
+    listener.ask("Wait!")
+    check("with a request in flight, wait stops it rather than queueing",
+          stops == ["stop"] and len(listener.queue) == 0, f"got {stops} {list(listener.queue)}")
+    listener.ask("Cancel")
+    check("a plain stop word still stops", stops == ["stop", "stop"])
 
 
 def test_drawn(m) -> None:
