@@ -88,18 +88,18 @@ expensive way to read a screen and the least reliable way to click something.
 click by name. Vision is the fallback, not the default. The `mac-control` skill
 routes any request to the cheapest layer that can do it.
 
-| Verb                    | What it does                                         |
-| ----------------------- | ---------------------------------------------------- |
-| `chewie see`            | The screen as an accessibility tree, not an image    |
-| `chewie click` / `type` | Drive real UI by element name                        |
-| `chewie run`            | AppleScript, or JXA with `--js`                      |
-| `chewie terminal`       | The Claude Code tab: draft a prompt, never submit it |
-| `chewie texts`          | iMessage history with no UI at all                   |
-| `chewie web`            | Read and drive web pages through Chrome DevTools     |
-| `chewie plan run`       | A checked plan instead of improvised bash            |
-| `chewie brief`          | Email, texts and calendar triaged into what is next  |
-| `chewie log`            | What it actually did, afterwards                     |
-| `chewie doctor`         | Which permission is missing, and for which app       |
+| Verb                    | What it does                                                                                                                               |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `chewie see`            | The screen as an accessibility tree, not an image                                                                                          |
+| `chewie click` / `type` | Drive real UI by element name                                                                                                              |
+| `chewie run`            | AppleScript, or JXA with `--js`                                                                                                            |
+| `chewie terminal`       | The Claude Code tab: draft a prompt, never submit it; answer its permission dialog, interrupt it, focus it; `hook` feeds the terminal loop |
+| `chewie texts`          | iMessage history with no UI at all                                                                                                         |
+| `chewie web`            | Read and drive web pages through Chrome DevTools                                                                                           |
+| `chewie plan run`       | A checked plan instead of improvised bash                                                                                                  |
+| `chewie brief`          | Email, texts and calendar triaged into what is next                                                                                        |
+| `chewie log`            | What it actually did, afterwards                                                                                                           |
+| `chewie doctor`         | Which permission is missing, and for which app                                                                                             |
 
 Anything past two or three steps goes through `chewie plan`, which type-checks
 the plan, runs it, verifies each step, and logs what happened. That is the
