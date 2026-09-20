@@ -1515,6 +1515,18 @@ fi
 # section runs on every invocation, including --only.
 # ── Plugins and MCP ───────────────────────────────────────────────────────────
 if should_run plugins; then
+
+# Nothing this installs may open a window or a browser tab on somebody's
+# machine without being asked. Serena's upstream default does exactly that, and
+# it is why a browser window appeared on a tester's computer on 2026-09-19 and
+# he concluded the kit was dangerous. The logic lives in its own file so it can
+# be tested; it could not be, inside a shell function in a 2,000-line installer.
+if [ -x "$SCRIPT_DIR/bin/lib/seed-serena-config.sh" ]; then
+  if [ -n "$(bash "$SCRIPT_DIR/bin/lib/seed-serena-config.sh")" ]; then
+    log "Serena dashboard disabled (it opens a browser tab by default)"
+  fi
+fi
+
 # BEGIN GENERATED: extensions
 # Upstream skills are cloned rather than vendored, so each stays updatable and
 # keeps the LICENSE it shipped with. add-skill.sh does the same thing by hand.

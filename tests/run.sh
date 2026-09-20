@@ -393,6 +393,32 @@ if group "installer"; then
   # was still there: "brew install node" printed to someone with no brew.
   check  "a bare Mac gets no dead ends" bash "$ROOT/tests/bare_machine.sh"
 
+  # Sagar installed this on 2026-09-19 and a browser window opened on his
+  # computer by itself, because Serena's upstream default starts a web
+  # dashboard and opens a tab on first run. He concluded the kit was dangerous.
+  # That is the right conclusion to draw about software that opens windows
+  # unannounced, and it is fatal for a kit whose install line is `curl | bash`.
+  check  "nothing in the install opens a window or a browser" bash -c '
+    hits="$(grep -nE "^[[:space:]]*(open|xdg-open)[[:space:]]|--open\b|webbrowser" \
+      "$1/setup.sh" "$1/start.sh" "$1/bin/bootstrap.sh" 2>/dev/null | grep -v "no-open" || true)"
+    [ -z "$hits" ] || { echo "$hits"; exit 1; }' _ "$ROOT"
+
+  check  "Serena's dashboard is disabled before its first run" bash -c '
+    cfg="$(mktemp -d)/serena_config.yml"
+    bash "$1/bin/lib/seed-serena-config.sh" "$cfg" >/dev/null
+    grep -q "^web_dashboard_open_on_launch: false" "$cfg" || { echo "tab still opens"; exit 1; }
+    grep -q "^web_dashboard: false" "$cfg" || { echo "dashboard still on"; exit 1; }' _ "$ROOT"
+
+  check  "an existing Serena config keeps the user settings" bash -c '
+    cfg="$(mktemp -d)/serena_config.yml"
+    printf "language_backend: LSP\nweb_dashboard: true\nweb_dashboard_open_on_launch: true\n" > "$cfg"
+    bash "$1/bin/lib/seed-serena-config.sh" "$cfg" >/dev/null
+    grep -q "^language_backend: LSP" "$cfg" || { echo "clobbered their settings"; exit 1; }
+    grep -q "^web_dashboard_open_on_launch: false" "$cfg" || { echo "tab still opens"; exit 1; }' _ "$ROOT"
+
+  check  "setup calls the Serena seeder before installing plugins" \
+    grep -q "seed-serena-config.sh" "$ROOT/setup.sh"
+
   check  "the portable profile installs skills" bash -c '
     sandbox="$(mktemp -d)"
     HOME="$sandbox" bash "$1/setup.sh" --profile portable --name CI >/dev/null 2>&1
