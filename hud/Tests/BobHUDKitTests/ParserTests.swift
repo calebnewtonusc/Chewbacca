@@ -300,6 +300,8 @@ struct OutboundEventTests {
         #expect(OutboundEvent.value(pointer: "/draft/title", value: .string("Turtle Island")).line
             == #"v /draft/title "Turtle Island""#)
         #expect(OutboundEvent.dismissed.line == "x")
+        #expect(OutboundEvent.talkKey(down: true).line == "k down")
+        #expect(OutboundEvent.talkKey(down: false).line == "k up")
     }
 
     @Test("round trips a value back through the inbound parser")

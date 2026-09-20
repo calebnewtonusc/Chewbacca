@@ -570,6 +570,22 @@ def test_agent_flags(m) -> None:
     check("the full profile adds nothing", m.agent_flags("full", settings) == [])
 
 
+def test_talk_key(m) -> None:
+    """The talk key going down cuts the voice at once and mutes the run."""
+    listener = m.Listener("claude -p", False, False)
+    hushed: list[str] = []
+    listener.hush = lambda: hushed.append("hush")
+    listener.handle("k down")
+    check("with nothing in flight the voice is still cut", hushed == ["hush"] and listener.muted is None)
+    req = m.Request(said="what is on tomorrow", spoken_at=0.0, pointed=None, typed=False)
+    listener.current = req
+    listener.handle("k down")
+    check("with a run in flight it is muted", hushed == ["hush", "hush"] and listener.muted is req)
+    listener.handle("k up")
+    check("the key coming up changes nothing on its own", listener.muted is req and listener.current is req)
+    listener.current = None
+
+
 def test_pick_filler(m) -> None:
     """A question gets a looking filler, a task an okay, never twice running."""
     check("a task", m.pick_filler("text caleb I am late") in m.TASK_FILLERS)
@@ -1216,17 +1232,34 @@ def run_against(model: str, say: list, until, timeout: float = 40.0, name: str =
 # 'first'`, and sed pulls the word out of the quotes.
 SLOW_ECHO = (
     "#!/bin/sh\n"
-    "said=$(sed -n \"s/.*to their screen: '\\([^']*\\)'.*/\\1/p\" | head -1)\n"
+    # "said this out loud, to their screen" or "typed this ... on their screen".
+    "said=$(sed -n \"s/.*their screen: '\\([^']*\\)'.*/\\1/p\" | head -1)\n"
     "sleep 2\n"
     "echo \"@ $said at=topRight\"\n"
 )
 
 
-def test_queue_end_to_end() -> None:
-    """Spoken while busy: queued, shown as depth, run in order, never dropped."""
+def test_interrupt_end_to_end() -> None:
+    """Spoken while busy: the run in flight is cut off without a word and the
+    new words run instead. "It keeps talking over me" (2026-09-20)."""
     received, _ = run_against(
         SLOW_ECHO,
-        [(0.0, 'h "first"'), (0.2, 'h "second"')],
+        [(0.0, 'h "first"'), (0.2, "k down"), (0.6, "k up"), (0.7, 'h "second"')],
+        lambda lines: "p dormant" in lines,
+    )
+    lines = [line for _, line in received]
+    check("the first run never finished", "@ first at=topRight" not in lines, f"got {lines}")
+    check("the second ran", "@ second at=topRight" in lines, f"got {lines}")
+    check("nothing was queued", "q 1" not in lines, f"got {lines}")
+    check("the cut-off was not announced", not any("Stopped" in line for line in lines), f"got {lines}")
+    check("it ended by leaving", lines and lines[-1] == "p dormant", f"got {lines[-1:]}")
+
+
+def test_queue_end_to_end() -> None:
+    """Typed while busy: queued, shown as depth, run in order, never dropped."""
+    received, _ = run_against(
+        SLOW_ECHO,
+        [(0.0, 'h "first"'), (0.2, 'h "second" via=typed')],
         # `p dormant` is the settle after the second answer. The first answer
         # holds `done` for a second and goes straight on, without leaving in
         # between.
@@ -1395,6 +1428,8 @@ def main() -> int:
     test_pick_names(module)
     print("the turn line")
     test_turn_line(module)
+    print("the talk key")
+    test_talk_key(module)
     print("the silence filler")
     test_pick_filler(module)
     print("the hyper bar")
@@ -1418,6 +1453,8 @@ def main() -> int:
     test_end_to_end()
     print("queue end to end")
     test_queue_end_to_end()
+    print("interrupt end to end")
+    test_interrupt_end_to_end()
     print("stop end to end")
     test_stop_end_to_end()
     print("reconnecting")

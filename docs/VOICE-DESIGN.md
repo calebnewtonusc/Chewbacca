@@ -35,6 +35,29 @@ seconds a filler is talk over the answer. Google Duplex found the same in its
 user studies: disfluencies made calls sound more familiar, and quick, simple
 utterances needed instant replies while complex ones could take a beat.
 
+## Interrupting
+
+"Make sure if I interrupt the assistant while it's speaking, it stops talking
+and doesn't continue the task. It keeps talking over me when I try to speak
+while it's working or giving a response from a previous request" (2026-09-20).
+
+Two things were wrong. The voice was cut when the words arrived, which is
+seconds after the key went down, so the person spoke over a voice that had
+not yet been told to stop. And the cut only reached what was queued: the run
+in flight kept writing, and every later sentence was spoken as it landed,
+so the answer to the old question came out on top of the new one.
+
+Now the display sends `k down` the moment the talk key goes down, before the
+microphone opens, and the bridge stops the voice on that line and mutes the
+run in flight: what it goes on to write still reaches the panel, none of it
+is said. If nothing is said after the press, that is all that happens. If
+words follow, they replace the run: it is ended without a "Stopped", nothing
+waits behind it, and the new words start at once. What they most recently
+asked for is what they mean, and an answer to the earlier question read out
+after the new one would be exactly the talking-over this ends. "Stop" still
+stops. A typed request still queues behind a run, because typing interrupts
+nobody.
+
 ## Confirmation
 
 Google's conversation design guide, which is the most complete published set

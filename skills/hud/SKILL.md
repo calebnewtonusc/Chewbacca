@@ -356,7 +356,9 @@ quotes, and held there for a second before `h` goes up, so pressing the key
 again takes it back instead of sending it. To the person the pill is the
 "hyper bar", which is what the voice calls it. Two quick presses of the talk key
 are the way out: the panel, the microphone, a run in flight, the voice and the
-glass all go, and `x` comes up the socket so `hud listen` stops talking.
+glass all go, and `x` comes up the socket so `hud listen` stops talking. One
+press sends `k down` before the microphone opens, and `hud listen` stops
+talking on that line too; what is said next replaces whatever it was doing.
 
 `hud listen` runs Claude Code under a lean profile by default: its own short
 system prompt (`bin/hud-agent.md`, which carries the `mac` usage), one tool,

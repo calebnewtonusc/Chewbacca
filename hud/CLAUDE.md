@@ -92,6 +92,18 @@ h "show me my week" via=typed
 read it aloud: they chose not to speak, usually because they cannot hear or be
 heard where they are.
 
+The talk key itself goes up too, the moment it moves:
+
+```
+k down
+k up
+```
+
+`k down` means they are about to speak. Whatever the voice is saying stops
+there, and a run in flight goes quiet for the rest of its answer, which still
+reaches the panel. The words that follow as `h` replace that run rather than
+wait behind it; a typed request while a run is in flight still queues.
+
 Two quick presses of the talk key are the way out: the display closes the
 panel, shuts the microphone, sends `e stop run` for a run in flight and then
 `x`, and clears the glass. On `x`, stop talking and show nothing afterwards.

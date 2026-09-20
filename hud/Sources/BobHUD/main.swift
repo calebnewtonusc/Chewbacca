@@ -514,9 +514,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 leave()
                 return
             }
+            // Up the socket before the microphone opens: the bridge stops
+            // talking on this line, so the person is not talked over while
+            // they speak.
+            model.onEvent?(.talkKey(down: true))
             voice.beginPush()
         } else {
             taps.release()
+            model.onEvent?(.talkKey(down: false))
             if !heardSound, model.pill.phase == .hearing {
                 // Nothing reached the microphone: a press by accident. Not
                 // the three-second wait for a final that never comes and
