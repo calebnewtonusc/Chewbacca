@@ -296,11 +296,14 @@ struct SurfaceChrome: ViewModifier {
             .background {
                 ZStack {
                     VisualEffect(material: .hudWindow, blending: .behindWindow)
-                    Color.black.opacity(0.55)
+                    // 0.55 shipped; 0.41 is a quarter less wash, asked for on
+                    // 2026-09-19 as "25% more glassy". The snapshot tests over
+                    // a white ground are what say whether it is still a card.
+                    Color.black.opacity(0.41)
                     // The sheen, straight from the capsule: a wash off the top
                     // edge, gone by the middle.
                     LinearGradient(
-                        colors: [.white.opacity(0.10), .clear],
+                        colors: [.white.opacity(0.14), .clear],
                         startPoint: .top, endPoint: .center)
                 }
             }
@@ -312,9 +315,9 @@ struct SurfaceChrome: ViewModifier {
                 shape.strokeBorder(
                     LinearGradient(
                         stops: [
-                            .init(color: .white.opacity(0.5), location: 0),
-                            .init(color: .white.opacity(0.06), location: 0.35),
-                            .init(color: .white.opacity(0.18), location: 1),
+                            .init(color: .white.opacity(0.62), location: 0),
+                            .init(color: .white.opacity(0.10), location: 0.35),
+                            .init(color: .white.opacity(0.26), location: 1),
                         ],
                         startPoint: .top, endPoint: .bottom),
                     lineWidth: 1)
@@ -450,6 +453,9 @@ struct LiquidGlass: ViewModifier {
     /// The capsule's own number. A light surface passes white at the same
     /// opacity; the default keeps every dark call site as it was.
     var tint: Color = .black.opacity(0.18)
+    /// The clear variant: the screen through the glass with only a lens on
+    /// it, for the pill. The regular one frosts.
+    var clear = false
 
     func body(content: Content) -> some View {
         // Compiled out below the macOS 26 SDK, not merely skipped at runtime.
@@ -460,7 +466,7 @@ struct LiquidGlass: ViewModifier {
         #if compiler(>=6.2)
         if #available(macOS 26, *) {
             content.glassEffect(
-                .regular.tint(tint),
+                clear ? .clear : .regular.tint(tint),
                 in: shape)
         } else {
             content

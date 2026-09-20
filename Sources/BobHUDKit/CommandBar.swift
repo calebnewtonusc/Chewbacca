@@ -178,7 +178,7 @@ struct CommandBarView: View {
     /// the first time you open it is a front door people close.
     private var receipt: String {
         let app = NSWorkspace.shared.frontmostApplication?.localizedName
-        guard let app, app != "Bob HUD" else { return "your screen" }
+        guard let app, app != "Bob HUD", app != "Chewbacca" else { return "your screen" }
         return app
     }
 }

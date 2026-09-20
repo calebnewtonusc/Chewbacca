@@ -105,7 +105,7 @@ struct PresenceRing: View {
         .animation(.easeInOut(duration: 0.35), value: presence)
         .onAppear { restart() }
         .onChange(of: presence) { _, _ in restart() }
-        .accessibilityLabel("Assistant \(presence.rawValue)")
+        .accessibilityLabel("Chewbacca \(presence.rawValue)")
     }
 
     /// The moving part, which is what actually distinguishes the states.
