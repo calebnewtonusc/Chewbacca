@@ -7,8 +7,8 @@ import Testing
 ///
 /// This suite exists because of a bug that broke the whole system silently. The
 /// accept loop used to read each connection to completion before accepting the
-/// next, so anything that stayed connected — which is exactly what a listening
-/// loop does — meant every later client sat in the accept queue and was never
+/// next, so anything that stayed connected, which is exactly what a listening
+/// loop does, meant every later client sat in the accept queue and was never
 /// served. No error, no timeout: a command that appeared to succeed and drew
 /// nothing.
 @Suite("Socket")
@@ -167,7 +167,7 @@ struct FeedbackTests {
         // A newer client talking to an older display used to fail one silent
         // line at a time with no way to tell that was what was happening.
         #expect(SocketServer.version.contains("bobhud/"))
-        for verb in ["c", "d", "r", "@", "p", "m", "u", "listen"] {
+        for verb in ["c", "d", "r", "@", "p", "s", "q", "m", "u", "listen"] {
             #expect(SocketServer.version.contains(verb), "version omits \(verb)")
         }
     }

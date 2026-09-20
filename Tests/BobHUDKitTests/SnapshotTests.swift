@@ -335,6 +335,45 @@ struct SnapshotTests {
         return true
     }
 
+    @Test("the pill draws in every visible phase", arguments: Ground.allCases)
+    func pillDraws(ground: Ground) {
+        // Over both grounds on purpose: this is the one light surface in the
+        // project, and a white capsule over a white document is exactly the
+        // mud the cards force dark to avoid. The wash, the shadow and the ink
+        // are what keep it separate, and this is the check on them.
+        for phase in PillState.Phase.allCases where phase != .hidden {
+            var state = PillState()
+            state.phase = phase
+            state.heard = "text Sagar I am running late"
+            state.saying = "reading your calendar"
+            state.startedAt = Date().addingTimeInterval(-42)
+            state.queued = phase == .working ? 2 : 0
+            let drawn = coverage(
+                "pill-\(phase)", size: CGSize(width: 480, height: 64), ground: ground
+            ) {
+                PillView(
+                    state: state, presence: phase == .working ? .acting : .attentive,
+                    amplitude: 0, clock: RunClock(samples: []), onCancel: {})
+            }
+            // 0.04: a 30 by 300 pill on a 480 by 64 frame is 29 percent of the
+            // area, so the floor sits well under that. A short "Listening"
+            // passes and an invisible one fails.
+            #expect(drawn > 0.04, "\(phase) drew \(drawn) over \(ground)")
+        }
+    }
+
+    @Test("a hidden pill draws nothing at all")
+    func hiddenPillIsNothing() {
+        let drawn = coverage(
+            "pill-hidden", size: CGSize(width: 480, height: 64), ground: .light
+        ) {
+            PillView(
+                state: PillState(), presence: .dormant, amplitude: 0,
+                clock: RunClock(samples: []), onCancel: {})
+        }
+        #expect(drawn == 0, "a hidden pill still drew \(drawn)")
+    }
+
     @Test("the command bar draws")
     func commandBarDraws() {
         let drawn = coverage(

@@ -70,9 +70,25 @@ public final class OverlayModel {
     /// real sizes rather than a guess.
     private var heights: [String: CGFloat] = [:]
 
+    /// The pill: the transcript, the breadcrumbs, the answer, and the bar.
+    public private(set) var pill = PillState()
+    /// How long a run takes on this machine, for the pill's fill.
+    public private(set) var clock = RunClock.load()
+    /// The pill's laid-out size, reported by the view, so its hit rectangle
+    /// is the capsule that was actually drawn.
+    public private(set) var pillSize: CGSize = .zero
+    /// Where a cancel goes while the pill is still hearing: main.swift stops
+    /// the microphone. A cancel while working goes up the socket instead.
+    public var onPillCancel: ((PillState.Phase) -> Void)?
+    /// Takes a failure or a stopped run off the pill after its hold.
+    @ObservationIgnored private var pillHideTask: Task<Void, Never>?
+
     public init() {}
 
-    public var isEmpty: Bool { surfaces.isEmpty && markers.isEmpty }
+    /// Includes the pill, so Escape can reach a run with nothing drawn yet.
+    public var isEmpty: Bool {
+        surfaces.isEmpty && markers.isEmpty && pill.phase == .hidden
+    }
 
     /// True when something on the glass outranks the person having hidden it.
     ///
@@ -113,6 +129,12 @@ public final class OverlayModel {
 
         case .close(let id):
             if id.isEmpty { reset() } else { close(id) }
+
+        case .say(let text):
+            say(text)
+
+        case .queued(let count):
+            queued(count)
 
         default:
             surface(current).store.apply([op])
@@ -155,10 +177,62 @@ public final class OverlayModel {
     public static let maxSurfaces = 12
 
     /// Set the ring, and start the clock on states that claim progress.
+    ///
+    /// Presence drives every phase change on the pill too, so there is no
+    /// separate "start work" verb: the bridge already says `p thinking`,
+    /// `p done` and `p failed` at exactly the moments the pill needs.
     public func setPresence(_ next: Presence, amplitude: Double?) {
         presence = next
         if let amplitude { self.amplitude = amplitude }
         revision += 1
+
+        switch next {
+        case .thinking, .acting:
+            // The bridge pulses `p thinking` every two seconds while a run is
+            // on. While the key is held that pulse must not take the transcript
+            // off the pill mid-sentence, so a hearing turn holds its phase and
+            // the run picks the pill back up when the turn ends.
+            if pill.phase != .working && pill.phase != .hearing { pill.phase = .working }
+            // Set once, cleared only when the run ends. A press of the key in
+            // the middle of a 70s run flips the phase to hearing, and the
+            // next pulse re-enters working; resetting here would send the bar
+            // and the counter back to zero on camera.
+            if pill.startedAt == nil {
+                pill.startedAt = Date()
+                pill.saying = ""
+            }
+
+        case .done:
+            if let start = pill.startedAt {
+                clock.record(Date().timeIntervalSince(start))
+                clock.save()
+            }
+            // `p done` with nothing running and nothing to say would put an
+            // empty capsule on screen for the length of the bridge's hold.
+            if pill.phase != .hidden || !pill.saying.isEmpty {
+                pill.phase = .saying
+            }
+            pill.startedAt = nil
+
+        case .failed:
+            pill.phase = .failed
+            pill.startedAt = nil
+            if pill.saying.isEmpty { pill.saying = "Did not finish" }
+
+        case .attentive, .dormant:
+            // Only the phases that have said their piece go away. main.swift
+            // sends `attentive` on every quiet audio buffer, which is the first
+            // few hundred milliseconds of every press, so an empty hearing
+            // turn must survive it: `cancelRun()` or `fail(_:hold:)` take
+            // that one down explicitly.
+            if pill.phase == .saying || pill.phase == .failed {
+                pill = PillState(queued: pill.queued)
+            }
+
+        case .hearing, .attention:
+            break
+        }
+        pillHideTask?.cancel()
 
         patienceTask?.cancel()
         guard let patience = next.patience else { return }
@@ -237,11 +311,129 @@ public final class OverlayModel {
         sweepTask = nil
         presence = .dormant
         patienceTask?.cancel()
+        pill = PillState()
+        pillHideTask?.cancel()
+        pillHideTask = nil
         surfaces = []
         heights = [:]
         current = "main"
         nextDepth = 0
         revision += 1
+    }
+
+    // MARK: The pill
+
+    /// The key went down. Live words follow through `hear(partial:)`.
+    public func beginHearing() {
+        pill.phase = .hearing
+        pill.heard = ""
+        pillHideTask?.cancel()
+        revision += 1
+    }
+
+    /// The recogniser's current guess at the sentence so far.
+    public func hear(partial: String) {
+        pill.heard = partial
+        revision += 1
+    }
+
+    /// The sentence the person actually said. The pill shows it until presence
+    /// says thinking, so the caller owns any grace window before that.
+    public func heard(_ text: String) {
+        pill.phase = .heard
+        pill.heard = text
+        revision += 1
+    }
+
+    /// The agent's line: a breadcrumb while working, the answer after. Does
+    /// not re-arm the ring's patience; the bridge pulses `p` while events flow
+    /// and that is what keeps the ring honest.
+    public func say(_ text: String) {
+        pill.saying = text
+        revision += 1
+    }
+
+    public func queued(_ count: Int) {
+        pill.queued = max(0, count)
+        revision += 1
+    }
+
+    /// Put a failure on the pill and take it down again after `hold` seconds,
+    /// unless something else has moved the pill on by then.
+    public func fail(_ message: String, hold: TimeInterval) {
+        pill.phase = .failed
+        pill.saying = message
+        pill.startedAt = nil
+        revision += 1
+        pillHideTask?.cancel()
+        pillHideTask = hide(after: hold, ifStill: .failed)
+    }
+
+    /// The X on the pill, or Escape.
+    ///
+    /// What it means depends on where the request is. Still being heard: the
+    /// microphone stops and the words go. In flight: the bridge is told to
+    /// stop, as the same `e stop run` line any control would send, and what
+    /// has already been drawn stays. Finished: the pill goes away.
+    public func cancelRun() {
+        switch pill.phase {
+        case .hearing, .heard:
+            onPillCancel?(pill.phase)
+            pill = PillState(queued: pill.queued)
+            pillHideTask?.cancel()
+
+        case .working:
+            onEvent?(.action(name: "stop", component: "run", payload: [:]))
+            pill.phase = .saying
+            pill.saying = "Stopped. What was drawn stays."
+            pill.startedAt = nil
+            // The bridge answers a stop with `p failed` and its own hold. If
+            // nothing is listening to answer, do not sit here forever. Three
+            // seconds is guessed, never measured.
+            pillHideTask?.cancel()
+            pillHideTask = hide(after: 3, ifStill: .saying)
+
+        case .saying, .failed:
+            pill = PillState(queued: pill.queued)
+            pillHideTask?.cancel()
+
+        case .hidden:
+            break
+        }
+        revision += 1
+    }
+
+    private func hide(after seconds: TimeInterval, ifStill phase: PillState.Phase) -> Task<Void, Never> {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled, let self, self.pill.phase == phase else { return }
+            self.pill = PillState(queued: self.pill.queued)
+            self.revision += 1
+        }
+    }
+
+    public func report(pillSize: CGSize) {
+        guard abs(pillSize.width - self.pillSize.width) > 1
+            || abs(pillSize.height - self.pillSize.height) > 1
+        else { return }
+        self.pillSize = pillSize
+    }
+
+    /// The pill's rectangle in the overlay's coordinate space, or nil while
+    /// hidden. Without this the X on it draws and cannot be clicked, because
+    /// the window only accepts the mouse over a rectangle it knows about.
+    public var pillFrame: CGRect? {
+        guard pill.phase != .hidden, pillSize != .zero,
+              let screen = OverlayWindow.active
+        else { return nil }
+        let full = screen.frame
+        let usable = screen.visibleFrame
+        let bottomInset = usable.minY - full.minY
+        return CGRect(
+            x: (full.width - pillSize.width) / 2,
+            y: full.height - bottomInset - PillView.pillLift - pillSize.height,
+            width: pillSize.width,
+            height: pillSize.height)
     }
 
     public func close(_ id: String) {
@@ -345,7 +537,7 @@ public final class OverlayModel {
     /// Needed because the window has to know whether the pointer is over
     /// something before it decides to accept a mouse event at all.
     public var frames: [CGRect] {
-        surfaces.map { surface in
+        var all = surfaces.map { surface in
             let centre = origin(for: surface)
             let height = heights[surface.id] ?? 120
             return CGRect(
@@ -354,6 +546,8 @@ public final class OverlayModel {
                 width: surface.width,
                 height: height)
         }
+        if let pillFrame { all.append(pillFrame) }
+        return all
     }
 
     /// Top-left origin for a surface, in the overlay's coordinate space.

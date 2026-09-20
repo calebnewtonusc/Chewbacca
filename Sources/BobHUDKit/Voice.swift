@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import os
 import Speech
 
 /// Listening.
@@ -22,6 +23,12 @@ import Speech
 /// - **Wake** listens continuously and acts only on an utterance containing the
 ///   wake word. It is what the films depict and it costs a microphone that is
 ///   always open, so it is opt-in and it says so in the menu.
+///
+/// What was heard is shown before it is acted on. Every revision the recogniser
+/// makes goes out as `.partial` while the person is still talking, and the turn
+/// closes as one `.heard`: on the final, or on the last partial once
+/// `commitGrace` has passed since the key came up, whichever lands first. The
+/// turn counter is what makes the second arrival inert.
 @MainActor
 public final class VoiceListener {
     public enum Mode: String, Sendable {
@@ -34,6 +41,11 @@ public final class VoiceListener {
     public enum Signal: Sendable {
         /// Input level, 0 to 1, for the ring.
         case level(Double)
+        /// What the recogniser thinks it has heard so far. Revised freely,
+        /// several times a second, and never something to act on: draw it, do
+        /// not send it. In wake mode the wake word is already stripped and
+        /// nothing is shown until it has been said.
+        case partial(String)
         /// A complete utterance, wake word already stripped.
         case heard(String)
         /// Recognition state changed.
@@ -65,8 +77,58 @@ public final class VoiceListener {
     /// morning and again after lunch is two requests, not a repeat.
     private var lastFiredAt = Date.distantPast
     private var silenceTimer: Timer?
+    /// The wait after a key release before the last partial is committed. See
+    /// `commitGrace`.
+    private var commitTimer: Timer?
     /// Backstop for a final transcript that never arrives after a key release.
     private var finalTimeout: Timer?
+
+    /// Bumped whenever a recognition task is torn down. Every callback and
+    /// timer for a turn captures the value it started with and drops itself on
+    /// a mismatch, so a final that arrives after the commit timer already sent
+    /// the last partial, or after the person cancelled, cannot reach `fire`.
+    /// `fire`'s repeat check only catches an identical string; a final that
+    /// differed from the last partial by one word used to be a second request.
+    private var turn = 0
+    /// The newest partial of the open turn, so a key release can commit what
+    /// was heard without waiting for a final the recogniser is slow to send.
+    private var latestPartial = ""
+    /// When the key came up, so the final's lag can be logged and
+    /// `commitGrace` moved from a research band to a measurement.
+    private var releasedAt: Date?
+    /// The key is down. Read only by `beginPush`'s permission callback: on the
+    /// first press of a session the two permission hops can finish after the
+    /// key has already come up, and opening the microphone then leaves it open
+    /// with nothing to close it, which is the one thing this mode promises
+    /// never happens.
+    private var pushHeld = false
+    /// Both permissions landed once this session. `authorize` is two async hops
+    /// through system queues before `start()` can open the microphone, and no
+    /// partial can land before the microphone does. Not measured; cheap to
+    /// skip.
+    private var authorized = false
+
+    /// How long after the key comes up the last partial is committed as the
+    /// transcript if the final has not landed. The on-device recogniser's final
+    /// lags the last audio buffer, and it revises partials in that gap,
+    /// capitalisation and proper nouns most of all ("text sara" becomes "text
+    /// Sarah"), so waiting is what buys the corrected name. 0.4 is the middle
+    /// of the 300 to 500ms band the research brief for this change gives for
+    /// the wait; guessed, never measured on this machine. Every push-to-talk
+    /// turn logs a `voice.final` line with its release-to-commit lag and which
+    /// side won; `log stream` filtered on subsystem `bob.hud` shows them. If
+    /// `source=grace` shows up in more than one turn in ten, raise this to the
+    /// logged p90 of `source=final`; a 300ms longer wait is invisible against
+    /// a 70s run and a wrong name is not.
+    var commitGrace: TimeInterval = 0.4
+
+    /// The floor under a turn that produced no partial at all: nothing to
+    /// commit at the grace, so wait for a final, and past this give up so the
+    /// task is cleared and the next press is not silently dead. 3s: guessed,
+    /// never measured.
+    private static let finalFloor: TimeInterval = 3
+
+    private static let log = Logger(subsystem: "bob.hud", category: "voice")
 
     public init() {}
 
@@ -131,10 +193,15 @@ public final class VoiceListener {
     /// Held key went down. Only meaningful in push-to-talk.
     public func beginPush() {
         guard mode == .pushToTalk else { return }
-        authorize { ok in if ok { self.start() } }
+        pushHeld = true
+        if authorized { start(); return }
+        authorize { ok in
+            self.authorized = ok
+            if ok, self.pushHeld { self.start() }
+        }
     }
 
-    /// Held key came up. Close the microphone, then wait for the transcript.
+    /// Held key came up. Close the microphone, then commit the turn.
     ///
     /// The two halves have to happen in that order and they are not the same
     /// event. Releasing the key ends the person's turn, so the microphone shuts
@@ -142,25 +209,35 @@ public final class VoiceListener {
     /// up, which is the promise the mode makes. But the recogniser has not
     /// produced its final transcript yet, and `stop()` cancels the task, which
     /// throws it away. Calling both here is why releasing the key used to lose
-    /// the whole utterance once the silence timer stopped firing for it.
+    /// the whole utterance once the silence timer stopped firing for it. So the
+    /// task is left alive and two timers close the turn instead: the grace
+    /// commits the last partial if the final is slow, and the floor gives up if
+    /// there was nothing to commit.
+    ///
+    /// A release with no microphone open (the recogniser closed the turn on its
+    /// own under the held key, or the permission hops have not finished) has
+    /// nothing to close and arms nothing.
     public func endPush() {
         guard mode == .pushToTalk else { return }
+        pushHeld = false
+        guard engine.isRunning else { return }
         silenceTimer?.invalidate()
         silenceTimer = nil
         closeMicrophone()
         request?.endAudio()
+        releasedAt = Date()
+        armCommit()
+        armFinalFloor()
+    }
 
-        // And a floor under it. If the final result never lands, the task stays
-        // non-nil, `start()` returns early on its `task == nil` guard, and every
-        // later press is silently dead with the mode still reading as on.
-        finalTimeout?.invalidate()
-        finalTimeout = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { _ in
-            Task { @MainActor in
-                guard self.task != nil else { return }
-                self.onSignal?(.failed("Did not catch that"))
-                self.stop()
-            }
-        }
+    /// The person took the press back: Escape, or the X on the pill, while the
+    /// microphone is open or the turn is still draining. `stop()` bumps `turn`,
+    /// so a final that lands after this is dropped, which is what a cancel
+    /// needs. In wake mode the utterance is dropped the same way but the
+    /// listener reopens, because the mode was not what was cancelled.
+    public func cancelPush() {
+        pushHeld = false
+        if mode == .wake { restartIfWaking() } else { stop() }
     }
 
     /// Shut the microphone without touching the recognition task.
@@ -179,8 +256,18 @@ public final class VoiceListener {
             onSignal?(.failed("Speech recogniser unavailable"))
             return
         }
+        latestPartial = ""
+        releasedAt = nil
 
-        let request = SFSpeechAudioBufferRecognitionRequest()
+        // `nonisolated(unsafe)`: the tap below captures this and calls
+        // `append` on the audio thread, and the class is not Sendable, so
+        // Swift 6 flags the capture. The crossing is the one the API is built
+        // for: Apple's live-audio sample appends from exactly this tap and
+        // calls `endAudio` from the main thread, which is all this class does
+        // with it. Narrower than the `@preconcurrency import` the compiler
+        // suggests, which would also silence the result object the callback
+        // below is careful not to send.
+        nonisolated(unsafe) let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         // On-device or not at all. `requiresOnDeviceRecognition` is a request
         // rather than a guarantee on older hardware, so it is paired with the
@@ -211,10 +298,13 @@ public final class VoiceListener {
         }
         onSignal?(.listening(true))
 
+        // Captured once, here, so every result the task ever delivers carries
+        // the turn it belongs to, whatever `turn` reads by the time it runs.
+        let turn = self.turn
         task = recognizer.recognitionTask(with: request) {
             @Sendable [weak self] result, error in
             // Read what is needed here, on the callback's own thread, and send
-            // only the two values across. `SFSpeechRecognitionResult` is not
+            // only scalars across. `SFSpeechRecognitionResult` is not
             // Sendable, so handing the object itself to the main actor is a
             // data race the compiler refuses, and reaching back into it from
             // the other side would be one it cannot see.
@@ -222,29 +312,127 @@ public final class VoiceListener {
             let text = result?.bestTranscription.formattedString
             let isFinal = result?.isFinal ?? false
             Task { @MainActor in
-                guard let self else { return }
-                if failed {
-                    self.restartIfWaking()
-                    return
-                }
-                guard let text else { return }
-                if isFinal {
-                    self.fire(text)
-                    self.restartIfWaking()
-                } else {
-                    // Speech has no full stops. A pause is the only end-of-turn
-                    // signal there is, so the timer is the turn-taking model:
-                    // reset it on every partial, and when it finally fires the
-                    // person has stopped talking.
-                    self.armSilence(text)
-                }
+                self?.received(text: text, isFinal: isFinal, failed: failed, turn: turn)
             }
         }
     }
 
+    /// Every recognition result lands here, on the main actor, as scalars.
+    private func received(text: String?, isFinal: Bool, failed: Bool, turn: Int) {
+        // A cancelled task reports an error, and this is where that error, and
+        // every late result from a torn-down turn, is dropped on the floor.
+        guard turn == self.turn else { return }
+        if failed {
+            if mode == .wake { restartIfWaking(); return }
+            // Push to talk: the task is dead either way, and a partial in hand
+            // is worth more than an error nobody can act on.
+            if latestPartial.isEmpty {
+                onSignal?(.failed("Did not catch that"))
+                stop()
+            } else {
+                commit(latestPartial)
+            }
+            return
+        }
+        guard let text else { return }
+        if isFinal {
+            if mode == .wake {
+                fire(text)
+                restartIfWaking()
+            } else {
+                if let lag = lagSinceRelease {
+                    Self.log.info("voice.final lag_ms=\(lag) source=final")
+                } else {
+                    // The recogniser ended the turn under the held key. The
+                    // microphone closes with the key still down, which reads
+                    // as "it stopped listening to me", so it is worth knowing
+                    // how often it happens.
+                    Self.log.info("voice.final source=held")
+                }
+                commit(text)
+            }
+            return
+        }
+        latestPartial = text
+        // In wake mode the room's conversation is a partial too. Show only what
+        // follows the wake word, or the glass narrates other people's sentences.
+        if mode == .wake {
+            if let addressed = strippingWakeWord(from: text) { onSignal?(.partial(addressed)) }
+        } else {
+            onSignal?(.partial(text))
+        }
+        // Speech has no full stops. A pause is the only end-of-turn signal
+        // there is, so the timer is the turn-taking model: reset it on every
+        // partial, and when it finally fires the person has stopped talking.
+        armSilence(text)
+    }
+
+    /// Close the turn on this text. The final and the grace timer both come
+    /// here, and `stop()` bumping `turn` is what makes the second arrival
+    /// inert. The app sees `.heard` and then `.listening(false)`, in that
+    /// order, and main.swift leans on it to hold the transcript through the
+    /// not-listening that follows.
+    private func commit(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            onSignal?(.failed("Did not catch that"))
+        } else {
+            fire(trimmed)
+        }
+        stop()
+    }
+
+    private func armCommit() {
+        let turn = self.turn
+        commitTimer?.invalidate()
+        commitTimer = Timer.scheduledTimer(withTimeInterval: commitGrace, repeats: false) {
+            @Sendable _ in
+            Task { @MainActor in self.commitLatestPartial(turn: turn) }
+        }
+    }
+
+    /// The grace timer's body: commit what was heard, unless the turn has
+    /// already closed or never produced a partial.
+    private func commitLatestPartial(turn: Int) {
+        guard turn == self.turn, !latestPartial.isEmpty else { return }
+        if let lag = lagSinceRelease {
+            Self.log.info("voice.final lag_ms=\(lag) source=grace")
+        }
+        commit(latestPartial)
+    }
+
+    /// See `finalFloor`. Armed beside the grace rather than instead of it: a
+    /// turn with no partial has nothing for the grace to commit and is still
+    /// waiting on a final, and this is what ends that wait.
+    private func armFinalFloor() {
+        let turn = self.turn
+        finalTimeout?.invalidate()
+        finalTimeout = Timer.scheduledTimer(withTimeInterval: Self.finalFloor, repeats: false) {
+            @Sendable _ in
+            Task { @MainActor in
+                guard self.turn == turn, self.task != nil else { return }
+                self.onSignal?(.failed("Did not catch that"))
+                self.stop()
+            }
+        }
+    }
+
+    /// Milliseconds since the key came up, or nil while it is still down.
+    private var lagSinceRelease: Int? {
+        releasedAt.map { Int(Date().timeIntervalSince($0) * 1000) }
+    }
+
     private func stop(quiet: Bool = false) {
+        // First, so every callback and timer still in flight for this turn
+        // finds a mismatch and drops itself, including the error the cancel
+        // below sends back through the recognition callback.
+        turn += 1
+        latestPartial = ""
+        releasedAt = nil
         silenceTimer?.invalidate()
         silenceTimer = nil
+        commitTimer?.invalidate()
+        commitTimer = nil
         finalTimeout?.invalidate()
         finalTimeout = nil
         task?.cancel()
@@ -291,14 +479,10 @@ public final class VoiceListener {
     private func armSilence(_ text: String) {
         guard mode == .wake else { return }
         silenceTimer?.invalidate()
-        silenceTimer = Timer.scheduledTimer(withTimeInterval: 1.1, repeats: false) { _ in
+        silenceTimer = Timer.scheduledTimer(withTimeInterval: 1.1, repeats: false) {
+            @Sendable _ in
             Task { @MainActor in self.fire(text) }
         }
-    }
-
-    private func finishUtterance() {
-        silenceTimer?.invalidate()
-        request?.endAudio()
     }
 
     /// How long the same words count as one utterance being refined rather than
@@ -326,14 +510,32 @@ public final class VoiceListener {
 
     // MARK: Seams for tests
     //
-    // The recogniser cannot be driven from a test, so the two pieces of logic
-    // worth testing are reachable directly: what counts as a repeat, and what
-    // the wake word strips.
+    // The recogniser cannot be driven from a test, so the pieces of logic worth
+    // testing are reachable directly: what counts as a repeat, what the wake
+    // word strips, and what one turn does with its partials, its final and its
+    // grace timer.
 
     func fireForTesting(_ text: String) { fire(text) }
 
     func expireRepeatWindowForTesting() {
         lastFiredAt = lastFiredAt.addingTimeInterval(-Self.repeatWindow - 1)
+    }
+
+    /// What the recognition callback does with this result. Returns the turn it
+    /// was delivered to, which a test hands back to play the late arrivals a
+    /// real turn produces: a final after the grace already committed, a partial
+    /// after a cancel.
+    @discardableResult
+    func receivedForTesting(_ text: String?, isFinal: Bool, turn: Int? = nil) -> Int {
+        let turn = turn ?? self.turn
+        received(text: text, isFinal: isFinal, failed: false, turn: turn)
+        return turn
+    }
+
+    /// Runs the commit timer's body now rather than waiting on the run loop,
+    /// for the turn it would have been armed in.
+    func fireCommitForTesting(turn: Int? = nil) {
+        commitLatestPartial(turn: turn ?? self.turn)
     }
 
     /// Remove the wake word and everything before it, or return nil if it was
