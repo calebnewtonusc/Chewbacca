@@ -296,7 +296,9 @@ sends `h "what they said"` back up the socket.
 
 What they said is drawn on the pill at the bottom of the screen first, in
 quotes, and held there for a second before `h` goes up, so pressing the key
-again takes it back instead of sending it.
+again takes it back instead of sending it. Two quick presses of the globe key
+are the way out: the panel, the microphone, a run in flight, the voice and the
+glass all go, and `x` comes up the socket so `hud listen` stops talking.
 
 `hud listen` is the loop: it holds a connection open, and when something is said
 it asks a model to answer by drawing. Run it in the background of a session where

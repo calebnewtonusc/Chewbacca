@@ -18,6 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var commandBar: CommandBarWindow?
     /// The conversation, as a window. See `ChatWindow`.
     private var chat: ChatWindow?
+    /// Two globe presses in a row, which is the way out. See `DoubleTap`.
+    private var taps = DoubleTap()
     /// Which app was in front when the bar opened, so it can be given back.
     private var previousApp: NSRunningApplication?
     private var hotKeyMonitor: Any?
@@ -409,7 +411,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // trace at all and there was no way to know which.
         Self.keys.notice("voice.key down=\(down) mode=\(self.voice.mode.rawValue, privacy: .public)")
         guard voice.mode == .pushToTalk else { return }
-        if down { voice.beginPush() } else { voice.endPush() }
+        if down {
+            // The same key twice, quickly, is out rather than in.
+            if taps.press() {
+                Self.keys.notice("voice.key double")
+                leave()
+                return
+            }
+            voice.beginPush()
+        } else {
+            taps.release()
+            voice.endPush()
+        }
+    }
+
+    /// Two globe presses: out, whatever is up. The panel, the microphone, a
+    /// run in flight, the voice and the glass, in one gesture. The
+    /// conversation is kept for the next time the panel opens; forgetting
+    /// it is the menu's job.
+    private func leave() {
+        if model.chatOpen { model.closeChat() }
+        // The first of the two presses opened the microphone. Drop that
+        // turn before its grace timer commits a stray syllable as a request.
+        voice.cancelPush()
+        switch model.pill.phase {
+        case .hearing, .heard: model.cancelRun()
+        default: break
+        }
+        dismissAll(forgetting: false, always: true)
     }
 
     private static let keys = Logger(subsystem: "bob.hud", category: "keys")
@@ -553,17 +582,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func dismissAll() {
-        guard !model.isEmpty else { return }
+    /// Take everything down. `forgetting` also drops the conversation;
+    /// `always` goes ahead with an empty glass, for the band and the voice,
+    /// which are not on it.
+    private func dismissAll(forgetting: Bool = true, always: Bool = false) {
+        guard always || !model.isEmpty else { return }
         // A run in flight is stopped rather than hidden, with the same
         // `e stop run` line the X on the pill sends. The bridge answers with
         // `p failed`; what was drawn goes with the reset.
         if model.pill.phase == .working {
             model.onEvent?(.action(name: "stop", component: "run", payload: [:]))
         }
+        // `x`: the bridge hushes the voice on it and shows nothing after.
         model.onEvent?(.dismissed)
         model.reset()
-        model.clearChat()
+        if forgetting { model.clearChat() }
     }
 
     private func setUpMenuBar() {

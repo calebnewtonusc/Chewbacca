@@ -10,7 +10,7 @@ uniforms.
 
     python3 build-tuner.py [path/to/PresenceFieldShader.swift]
 
-Defaults to the checkout at ~/dev/bob-the-builder.
+Defaults to the hud directory of this repo.
 """
 
 import json
@@ -19,9 +19,7 @@ import re
 import sys
 
 HERE = pathlib.Path(__file__).parent
-DEFAULT_SOURCE = pathlib.Path.home() / (
-    "dev/bob-the-builder/hud/Sources/BobHUDKit/PresenceFieldShader.swift"
-)
+DEFAULT_SOURCE = HERE.parents[2] / "hud/Sources/BobHUDKit/PresenceFieldShader.swift"
 
 # Every constant the tuner lifts into a uniform, as it appears in the Metal.
 # Name, the Metal declaration to delete, the GLSL uniform it becomes.

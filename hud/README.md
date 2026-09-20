@@ -92,7 +92,8 @@ point of it. Not Command-Space, which is Spotlight, and not Option-Command-Space
 which hides the glass.
 
 **The globe key**, held, listens. Recognition is on-device and the microphone is
-off until you turn it on from the menu bar.
+off until you turn it on from the menu bar. Pressed twice quickly, it is the way
+out: the panel, the microphone, a run in flight and the glass all go.
 
 Either way the display sends `h "what they asked for"` up the socket. It holds no
 model and no key: something else has to be listening and answer by drawing.
