@@ -401,6 +401,9 @@ def test_prompt_prefix(m) -> None:
           "looking at: Safari" in prompt and "region (1, 2, 3, 4)" in prompt)
     check("the stop is told once", listener.cancelled is None)
     check("the next prompt carries no prefix", "was stopped" not in listener.prompt_for(req, ""))
+    plain = listener.prompt_for(req, "")
+    check("the pill is the whole answer", "it is the whole answer" in plain and "Do not draw anything" in plain)
+    check("and nothing asks for a panel", "hud skill" not in plain and "drawing on their display" not in plain)
     listener.cancelled, listener.cancelled_drawn = stopped, []
     check("nothing drawn says none", "reached their screen: none." in listener.prompt_for(req, ""))
     listener.cancelled = req
