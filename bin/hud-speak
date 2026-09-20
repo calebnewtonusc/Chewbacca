@@ -135,7 +135,10 @@ class Player:
     """
 
     def __init__(self, emit=None, volume: float = 1.0) -> None:
-        self.queue: Queue[tuple[str | None, int, list[float]]] = Queue()
+        # (path, generation, envelope, sentence). A None path is the end of
+        # one say; the sentence rides along so the display can be told
+        # which words are starting to play.
+        self.queue: Queue[tuple[str | None, int, list[float], str]] = Queue()
         self.generation = 0
         self.current: subprocess.Popen[bytes] | None = None
         self.lock = threading.Lock()
@@ -145,7 +148,7 @@ class Player:
 
     def _loop(self) -> None:
         while True:
-            path, generation, levels = self.queue.get()
+            path, generation, levels, sentence = self.queue.get()
             try:
                 if generation != self.generation:
                     continue
@@ -155,6 +158,10 @@ class Player:
                 with self.lock:
                     if generation != self.generation:
                         continue
+                    # The words about to be heard, for the subtitle, sent
+                    # before the sound starts so the pill is never behind
+                    # the voice.
+                    self.emit({"saying": sentence})
                     self.current = subprocess.Popen(
                         ["afplay", "-v", str(self.volume), path],
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -193,6 +200,17 @@ class Player:
 
 
 class Speaker:
+    """Makes the sound, on one worker, in the order it was asked for.
+
+    A reply used to arrive whole and be split here. Now hud-listen hands it
+    over a sentence at a time as the model writes it (`say` for the first,
+    `add` for the rest, `end` when the reply is complete), so the first
+    sentence of a long answer is heard while the last is still being
+    written. One worker thread rather than a thread per message, because
+    two threads synthesising two sentences race for the player's queue and
+    the second sentence can land first.
+    """
+
     def __init__(self, voice: str, speed: float, emit=None, volume: float = 1.0) -> None:
         from mlx_audio.tts.utils import load_model
 
@@ -201,7 +219,11 @@ class Speaker:
         self.model = load_model(MODEL)
         self.player = Player(emit, volume)
         self.tmp = Path(tempfile.mkdtemp(prefix="hud-speak-"))
-        self.busy = threading.Lock()
+        # (kind, generation, text): "text" to synthesise and queue, "end"
+        # to mark the end of the say. A job whose generation has passed is
+        # dropped: a hush arrived after it was queued.
+        self.jobs: Queue[tuple[str, int, str]] = Queue()
+        threading.Thread(target=self._work, daemon=True).start()
 
     def synthesize(self, text: str) -> tuple[str, list[float]]:
         import numpy as np
@@ -222,15 +244,38 @@ class Speaker:
         # line land in under half a second.
         Path(self.synthesize("Ready.")[0]).unlink(missing_ok=True)
 
-    def say(self, text: str) -> None:
+    def say(self, text: str, more: bool = False) -> None:
+        """A reply, cutting off what was playing. Whole, quiet follows it on
+        its own; with `more` to come, quiet waits for `end`."""
         generation = self.player.hush()
-        with self.busy:
-            for sentence in sentences(text):
+        self.jobs.put(("text", generation, text))
+        if not more:
+            self.jobs.put(("end", generation, ""))
+
+    def add(self, text: str) -> None:
+        """More of the reply being said. Queued behind what is already there."""
+        self.jobs.put(("text", self.player.generation, text))
+
+    def end(self) -> None:
+        """The reply is complete: quiet follows the last sentence."""
+        self.jobs.put(("end", self.player.generation, ""))
+
+    def _work(self) -> None:
+        while True:
+            kind, generation, text = self.jobs.get()
+            try:
                 if generation != self.player.generation:
-                    return
-                path, levels = self.synthesize(sentence)
-                self.player.queue.put((path, generation, levels))
-            self.player.queue.put((None, generation, []))
+                    continue
+                if kind == "end":
+                    self.player.queue.put((None, generation, [], ""))
+                    continue
+                for sentence in sentences(text):
+                    if generation != self.player.generation:
+                        break
+                    path, levels = self.synthesize(sentence)
+                    self.player.queue.put((path, generation, levels, sentence))
+            finally:
+                self.jobs.task_done()
 
 
 def main() -> int:
@@ -254,8 +299,9 @@ def main() -> int:
         speaker = Speaker(args.voice, args.speed, volume=args.volume)
         speaker.warm()
         speaker.say(args.say)
-        # Every sentence is queued by the time `say` returns; wait for the
-        # last one to finish playing rather than exiting mid-sentence.
+        # Wait for the worker to make every sentence, then for the last one
+        # to finish playing, rather than exiting mid-sentence.
+        speaker.jobs.join()
         speaker.player.queue.join()
         return 0
 
@@ -288,11 +334,17 @@ def main() -> int:
         if message.get("hush"):
             speaker.player.hush()
             continue
+        if message.get("end"):
+            speaker.end()
+            continue
+        # Both only queue a job; the worker makes the sound, so a hush on
+        # the next line is read while this one is still being made.
         text = str(message.get("say") or "").strip()
         if text:
-            # On its own thread so a hush on the next line is read while
-            # this one is still being made.
-            threading.Thread(target=speaker.say, args=(text,), daemon=True).start()
+            speaker.say(text, more=bool(message.get("more")))
+        more = str(message.get("add") or "").strip()
+        if more:
+            speaker.add(more)
     return 0
 
 

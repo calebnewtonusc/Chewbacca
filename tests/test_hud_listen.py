@@ -115,10 +115,10 @@ def test_draw_lines(m) -> None:
 
 def test_subtitle(m) -> None:
     """The reply cap lives here and nowhere else."""
-    recorded = "Building ship-ready work today.\n\nIt's Saturday, September 19, 2026."
+    recorded = "Paris is the capital.\n\nIt has been since the tenth century. Before that, Laon."
     check(
-        "the session opener is dropped",
-        m.subtitle(recorded) == "It's Saturday, September 19, 2026.",
+        "the first paragraph is the lead and is kept",
+        m.subtitle(recorded) == "Paris is the capital. It has been since the tenth century.",
         f"got {m.subtitle(recorded)!r}",
     )
     check("one paragraph is kept whole", m.subtitle("Sent.") == "Sent.")
@@ -175,20 +175,26 @@ def test_translate_recorded_stream(m) -> None:
     first_crumb = index('s "Display current date and time"')
     acting = index("p acting")
     second_crumb = index('s "Display OS type"')
-    reply = index('s "It\'s Saturday, September 19, 2026."')
+    reply = index('s "Building ship-ready work today. It\'s Saturday, September 19, 2026."')
     check("the first tool call is its description", first_crumb >= 0, f"got {lines}")
     check("acting follows the first breadcrumb", 0 <= first_crumb < acting, f"got {lines}")
     check("the second tool call follows", acting < second_crumb, f"got {lines}")
-    check("the final text block is the reply, opener dropped", second_crumb < reply, f"got {lines}")
+    check("the final text block is the reply", second_crumb < reply, f"got {lines}")
     check("thinking is pulsed before any tool runs",
           "p thinking" in lines[:first_crumb], f"got {lines[:first_crumb]}")
-    check("nothing after the reply", lines[-1] == 's "It\'s Saturday, September 19, 2026."', f"got {lines[-1:]}")
+    check("nothing after the reply",
+          lines[-1] == 's "Building ship-ready work today. It\'s Saturday, September 19, 2026."', f"got {lines[-1:]}")
     check("no line is bare words",
-          all(line.startswith(("p ", 's "')) for line in lines), f"got {lines}")
+          all(line.startswith(("p ", 's "', 'w "')) for line in lines), f"got {lines}")
+    check("the answer is written for the panel before it is said on the pill",
+          lines[-2] == 'w "Building ship-ready work today.\\n\\nIt\'s Saturday, September 19, 2026."',
+          f"got {lines[-2:]}")
     check("the result is kept", run.ok and run.text.endswith("September 19, 2026."), f"got {run.text!r}")
-    check("subtitle(run.text) drops the opener",
-          m.subtitle(run.text) == "It's Saturday, September 19, 2026.", f"got {m.subtitle(run.text)!r}")
-    check("the last phrase said is remembered", run.said == "It's Saturday, September 19, 2026.")
+    check("subtitle(run.text) is its first two sentences",
+          m.subtitle(run.text) == "Building ship-ready work today. It's Saturday, September 19, 2026.",
+          f"got {m.subtitle(run.text)!r}")
+    check("the last phrase said is remembered",
+          run.said == "Building ship-ready work today. It's Saturday, September 19, 2026.")
 
     # The throttle, the dedupe, and the subagent filter, each in one event.
     run = m.Run()
@@ -464,7 +470,13 @@ def test_prompt_prefix(m) -> None:
     check("the stop is told once", listener.cancelled is None)
     check("the next prompt carries no prefix", "was stopped" not in listener.prompt_for(req, ""))
     plain = listener.prompt_for(req, "")
-    check("the pill is the whole answer", "it is the whole answer" in plain and "Do not draw anything" in plain)
+    check("a full answer is asked for, and nothing drawn",
+          "Never stop short" in plain and "read aloud to them a sentence at a time" in plain
+          and "Do not draw anything" in plain, f"got {plain!r}")
+    typed = listener.prompt_for(m.Request(said="why", spoken_at=0.0, pointed=None, typed=True), "")
+    check("a typed request is answered in writing",
+          "typed this into the conversation panel" in typed and "Reply in writing" in typed
+          and "read aloud to them a sentence" not in typed, f"got {typed!r}")
     check("and nothing asks for a panel", "hud skill" not in plain and "drawing on their display" not in plain)
     listener.cancelled, listener.cancelled_drawn = stopped, []
     check("nothing drawn says none", "reached their screen: none." in listener.prompt_for(req, ""))
@@ -499,6 +511,116 @@ def test_pointing(m) -> None:
     check("a stale region is forgotten", listener.pointing() is None)
     listener.handle("g not numbers here")
     check("a malformed region is ignored", listener.pointing() is None)
+
+
+def test_translate_deltas(m) -> None:
+    """Text arrives as deltas: sentences go to the voice as they complete,
+    the answer goes to the panel at each one, and the block event closes it."""
+
+    def delta(text: str) -> dict:
+        return {"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                "delta": {"type": "text_delta", "text": text}}}
+
+    start = {"type": "stream_event", "event": {"type": "content_block_start", "index": 0,
+             "content_block": {"type": "text", "text": ""}}}
+    stop = {"type": "stream_event", "event": {"type": "content_block_stop", "index": 0}}
+    full = "Paris is the capital. It has been since **987**, more or less.\n\n- one thing\n- and another one"
+    run = m.Run()
+    run.subtitles = False
+    lines = run.translate(start, 0.0)
+    lines += run.translate(delta("Paris is the "), 0.1)
+    check("half a sentence says nothing", lines == [] and run.take_voice() == [], f"got {lines}")
+    lines += run.translate(delta("capital. It has been since **987**, "), 0.2)
+    check("a finished sentence goes to the voice", run.take_voice() == ["Paris is the capital."])
+    check("and the answer so far goes to the panel",
+          lines == ['w "Paris is the capital. It has been since **987**,"'], f"got {lines}")
+    lines = run.translate(delta("more or less.\n\n- one thing\n- and another one"), 0.3)
+    voice = run.take_voice()
+    check("markdown is not read aloud, and a short line waits for the next",
+          voice == ["It has been since 987, more or less.", "one thing and another one"]
+          or voice == ["It has been since 987, more or less.", "one thing"], f"got {voice}")
+    lines += run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": full}]}}, 0.4)
+    lines += run.translate(stop, 0.5)
+    check("the block event closes the answer without a subtitle",
+          lines[-1] == "w " + json.dumps(full) and not any(l.startswith("s ") for l in lines), f"got {lines}")
+    check("nothing is said twice", run.take_voice() in ([], ["and another one"]))
+    check("the answer is the block", run.answer() == full)
+
+    # No deltas at all: a model command that does not stream partial messages.
+    run = m.Run()
+    lines = run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": "Sent. Sagar has it."}]}}, 1.0)
+    check("a whole block is spoken and written and subtitled",
+          run.take_voice() == ["Sent. Sagar has it."] and lines == ['w "Sent. Sagar has it."', 's "Sent. Sagar has it."'],
+          f"got {lines}")
+    # Two blocks around a tool call are two paragraphs of one answer.
+    run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": "Also booked."}]}}, 2.0)
+    check("blocks join as paragraphs", run.answer() == "Sent. Sagar has it.\n\nAlso booked.")
+
+
+def test_spoken(m) -> None:
+    """What the voice gets: the words, not the markup."""
+    check("emphasis and code marks go", m.spoken("It is **bold**, *soft*, and `code`.") == "It is bold, soft, and code.")
+    check("headings and list markers go", m.spoken("## Plan\n1. first\n- second") == "Plan first second")
+    check("a link is its text", m.spoken("see [the docs](https://x.y) now") == "see the docs now")
+    check("a rule is nothing", m.spoken("---") == "")
+    check("a table is its cells", m.spoken("| a | b |\n|---|---|\n| 1 | 2 |") == "a, b 1, 2")
+    check("an asterisk in arithmetic stays", m.spoken("3 * 4 is 12") == "3 * 4 is 12")
+
+
+def test_typed_request(m) -> None:
+    """`h "<text>" via=typed` is a typed request; the string alone is spoken."""
+    listener = m.Listener("claude -p", False, False)
+    asked: list[tuple[str, bool]] = []
+    listener.ask = lambda said, typed=False: asked.append((said, typed))
+    listener.handle('h "what is due"')
+    listener.handle('h "and next week" via=typed')
+    listener.handle('h 42')
+    check("the flag is read after the string",
+          asked == [("what is due", False), ("and next week", True)], f"got {asked}")
+
+
+def test_voice_in_parts(m) -> None:
+    """A reply goes to hud-speak a sentence at a time, and its captions
+    come back as subtitles."""
+
+    class FakePipe:
+        def __init__(self) -> None:
+            self.lines: list[str] = []
+
+        def write(self, line: str) -> None:
+            self.lines.append(line)
+
+        def flush(self) -> None:
+            pass
+
+    class FakeSpeaker:
+        def __init__(self) -> None:
+            self.stdin = FakePipe()
+
+        def poll(self):
+            return None
+
+    class FakeSock:
+        def __init__(self) -> None:
+            self.lines: list[str] = []
+
+        def sendall(self, data: bytes) -> None:
+            self.lines.append(data.decode().rstrip("\n"))
+
+    listener = m.Listener("claude -p", False, False)
+    listener.voice = "af_heart"
+    listener.speaker = speaker = FakeSpeaker()
+    listener.sock = sock = FakeSock()
+    check("the first part cuts in and holds the quiet",
+          listener.speak_part("Paris.", first=True) and speaker.stdin.lines == ['{"say": "Paris.", "more": true}\n'],
+          f"got {speaker.stdin.lines}")
+    check("the rest queue behind it",
+          listener.speak_part("It is old.", first=False) and speaker.stdin.lines[-1] == '{"add": "It is old."}\n')
+    check("the voice is counted as active before a level arrives", listener.voiced)
+    listener.heard_speaker({"saying": "Paris."})
+    check("a caption is the subtitle", sock.lines == ['s "Paris."'], f"got {sock.lines}")
+    check("nothing goes to a missing speaker",
+          not m.Listener("claude -p", False, False).speak_part("x", first=True))
 
 
 def test_end_to_end() -> None:
@@ -715,6 +837,8 @@ def test_one_model_process() -> None:
     lines = [line for _, line in received]
     check("both requests were answered by the model",
           's "Here is first"' in lines and 's "Here is second"' in lines, f"got {lines}")
+    check("and written for the panel, closed",
+          'w "Here is first" done=true' in lines and 'w "Here is second" done=true' in lines, f"got {lines}")
     count = len(Path(launches).read_text().splitlines()) if os.path.exists(launches) else 0
     check("and it was one process for the warm-up and both", count == 1, f"launched {count} times")
     check("every turn went through thinking", lines.count("p thinking") >= 2, f"got {lines}")

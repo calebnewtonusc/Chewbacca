@@ -56,6 +56,7 @@ d /pointer <json>
 r <id>
 - <surface>
 s "<text>"                         say one line on the pill under the panels
+w "<text>" [done=true]             the written answer, whole, for the conversation panel
 q <n>                              how many requests are waiting
 listen                             ask to receive events on this connection
 ```
@@ -448,6 +449,13 @@ it costs one line:
 | `p attention` | you are blocked on them | white, thick, two pulses |
 | `p dormant` | nothing in flight | nothing at all |
 | `p speaking amp=0.6` | the voice is playing; hud-listen sends this itself, twenty times a second, from the level of what it is saying | white, thickness moving with the voice, the same as while they talk |
+
+The pill opens into the conversation panel when clicked: every request and
+answer of the session, selectable, with a field to type the next one. A typed
+request comes up the socket as `h "<text>" via=typed` and is answered in
+writing. `w "<text>"` is the answer so far for that panel, the whole text each
+time rather than a delta, and `w "<text>" done=true` closes it; hud-listen
+sends these itself from what the model writes, one per sentence.
 
 Send `p acting` before the thing that takes time, not after. A state that
 arrives once the work is finished is a state nobody ever saw, and the colour
