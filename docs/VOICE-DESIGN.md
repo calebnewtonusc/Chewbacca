@@ -51,6 +51,29 @@ people, sorts confirmations four ways and the prompt follows it:
 Gavin's own earlier rule stands with it: no cancel window on a spoken request.
 Release the key, think, reply, act.
 
+## Long answers go to the hyper bar
+
+The floating pill is "the hyper bar" to the person. A spoken answer is up to
+three sentences or three things. A summary, a recap, an explanation, a
+comparison or a longer list is written for the panel behind the hyper bar and
+not read out; the voice says one sentence that names the topic and points
+there: "All the info on the Civil War is ready for you in the hyper bar." Then
+a blank line, then the whole answer, written to be read, so headings and lists
+are fine there.
+
+The bridge makes the pointer mean it: a spoken sentence that names the hyper
+bar ends the spoken part of that block, and a long block that never pointed is
+cut at `SPOKEN_CAP` words with "The rest is in the hyper bar." said after it.
+The glass holds twenty seconds rather than ten after such a reply, for the
+click that opens it.
+
+Why: speech cannot be skimmed, so every extra spoken sentence is time the
+person cannot get back, and Google's VUI brevity principle and Alexa's
+one-breath test both say the same thing from the other side. Asked for by
+Gavin on 2026-09-20: "when the user asks questions with large summaries that
+require a lot of speaking for the assistant, it just says something along the
+lines of 'all info on x topic is ready for you in the hyper bar'".
+
 ## Sounding like a person
 
 From the same guide, OpenAI's Realtime prompting guide, and Sesame's work on
