@@ -89,6 +89,26 @@ SHORT_CHUNK = 3
 # session SIGKILLed six seconds in, mid tool call, left this file on disk and
 # `--resume` on it answered coherently with exit 0.
 SESSIONS = Path.home() / ".claude" / "projects" / str(Path.home()).replace("/", "-")
+# The system prompt the answering agent runs with under the lean profile:
+# who it is, how to speak, and the `mac` usage it used to spend the warm-up
+# turn reading. Next to this script, through the symlink.
+AGENT_PROMPT = Path(__file__).resolve().parent / "hud-agent.md"
+# The person's own Claude Code settings. The lean profile drops every
+# settings source (their hooks were the bulk of a turn, see `agent_flags`),
+# so the permission posture they chose there is carried across by hand.
+USER_SETTINGS = Path.home() / ".claude" / "settings.json"
+# What `claude --permission-mode` accepts on 2.1.278. Anything else in the
+# person's settings is left off rather than passed on to fail the spawn.
+PERMISSION_MODES = {"acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"}
+# A session is retired, and the next one opened and warmed, once it has run
+# this many turns or its cached prefix has passed this many tokens. Guessed,
+# never measured: a lean session starts at about 12k tokens (measured
+# 2026-09-20 on 2.1.278) and each turn adds what was said and done, so 60k
+# is on the order of fifty short turns. Until the `turn:` lines in the log
+# show what a day of use actually reaches, these are the ceiling and not
+# the target.
+RETIRE_TURNS = 50
+RETIRE_TOKENS = 60_000
 
 # The whole utterance, lowercased, punctuation stripped, must equal one of
 # these. A closed list and no NLU: a cancel must be an explicit gesture, and a
@@ -153,6 +173,86 @@ def later(delay: float, fn) -> threading.Timer:
     timer.daemon = True
     timer.start()
     return timer
+
+
+def turn_line(
+    wait: float | None,
+    first_text: float | None,
+    first_audio: float | None,
+    api_ms: int | None,
+    usage: dict,
+    tools: int,
+    turns: int,
+) -> str:
+    """One line per turn saying where the time and the tokens went.
+
+    Fixed field order, so the log can be grepped and two days compared:
+    `wait` is the queue (final transcript in to prompt written), `text` the
+    prompt to the first words of the reply, `audio` the prompt to the first
+    sound of it, then the API's own clock, the tool calls, and the token
+    counts from the result event. `-` is a value that never arrived: no
+    result event, no voice, a reply with no words.
+    """
+
+    def secs(value: float | None) -> str:
+        return "-" if value is None else f"{value:.1f}s"
+
+    def count(key: str) -> str:
+        value = usage.get(key)
+        return "-" if value is None else str(value)
+
+    return (
+        f"turn: wait={secs(wait)} text={secs(first_text)} audio={secs(first_audio)} "
+        f"api={'-' if api_ms is None else f'{api_ms}ms'} tools={tools} "
+        f"input={count('input_tokens')} cache_read={count('cache_read_input_tokens')} "
+        f"cache_create={count('cache_creation_input_tokens')} "
+        f"output={count('output_tokens')} session_turns={turns}"
+    )
+
+
+def agent_flags(profile: str, settings: dict) -> list[str]:
+    """The Claude Code flags that make the answering agent lean.
+
+    Measured 2026-09-20 on Claude Code 2.1.278, one spoken request each:
+    the default profile read 77k to 158k tokens a turn and its API time
+    ran 1.1 to 7.6s; with the person's settings dropped, one tool, and a
+    short system prompt of its own it read 6k to 12k and answered in 0.9
+    to 1.8s. On a subscription every token of that is the monthly window,
+    so this is the difference between an assistant that is used all day
+    and one that is rationed.
+
+    `--setting-sources local` is most of it: the user settings carry the
+    hooks that inject a session briefing into every turn (75k of the
+    tokens above), and this agent needs none of it. It also drops the
+    permission mode and deny list the person set there, so those two are
+    read from the same file and passed back by hand: the agent keeps
+    exactly the posture they chose for every Claude Code session, nothing
+    looser and nothing new. A mode this build does not know is left off.
+    """
+    if profile != "lean":
+        return []
+    flags = [
+        "--setting-sources", "local",
+        "--tools=Bash",
+        "--system-prompt-file", str(AGENT_PROMPT),
+    ]
+    permissions = settings.get("permissions") or {}
+    mode = permissions.get("defaultMode")
+    if mode in PERMISSION_MODES:
+        flags += ["--permission-mode", str(mode)]
+    deny = [rule for rule in permissions.get("deny") or [] if isinstance(rule, str)]
+    if deny:
+        flags += ["--settings", json.dumps({"permissions": {"deny": deny}})]
+    return flags
+
+
+def user_settings() -> dict:
+    """The person's Claude Code settings, or nothing if unreadable."""
+    try:
+        loaded = json.loads(USER_SETTINGS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def instructions() -> str:
@@ -320,6 +420,14 @@ class Run:
         self.ok = False
         self.text = ""
         self.last_pulse = 0.0
+        # From the turn's result event, for the `turn:` line: the API's own
+        # clock and the token counts. None and empty until it arrives.
+        self.api_ms: int | None = None
+        self.usage: dict = {}
+        self.tools = 0
+        # When the first words of the reply arrived, on the clock `translate`
+        # is handed. None until they do.
+        self.first_text_at: float | None = None
         # Surfaces this run has put on the glass: the names declared in every
         # `hud draw` whose tool_result came back without is_error, minus the
         # ones closed since. A stop reads this to tell the next prompt what
@@ -452,6 +560,8 @@ class Run:
             elif etype == "content_block_delta":
                 delta = inner.get("delta") or {}
                 if delta.get("type") == "text_delta":
+                    if self.first_text_at is None and delta.get("text"):
+                        self.first_text_at = now
                     self.block += str(delta.get("text", ""))
                     out += self.flush(final=False)
             elif etype == "content_block_stop" and self.block:
@@ -468,6 +578,8 @@ class Run:
                     # has not had goes to it now.
                     if not text.startswith(self.block):
                         self.spoken_upto, self.hold = 0, ""
+                    if self.first_text_at is None and text:
+                        self.first_text_at = now
                     self.block = text
                     out += self.close_block()
                     phrase = subtitle(text)
@@ -477,6 +589,7 @@ class Run:
                         out += self.say(phrase)
                 elif btype == "tool_use":
                     self.state = "acting"
+                    self.tools += 1
                     self.note_draw(block)
                     out += self.say(breadcrumb(block), step=True)
                     out += self.pulse(now, force=True)
@@ -495,6 +608,10 @@ class Run:
         elif kind == "result":
             self.ok = not event.get("is_error", False)
             self.text = event.get("result", "") or ""
+            api_ms = event.get("duration_api_ms")
+            self.api_ms = int(api_ms) if isinstance(api_ms, (int, float)) else None
+            usage = event.get("usage")
+            self.usage = usage if isinstance(usage, dict) else {}
         return out
 
 
@@ -524,10 +641,24 @@ def looking_at() -> str:
 
 class Listener:
     def __init__(
-        self, model_cmd: str, verbose: bool, bare: bool, voice: str | None = None
+        self,
+        model_cmd: str,
+        verbose: bool,
+        bare: bool,
+        voice: str | None = None,
+        profile: str = "lean",
     ) -> None:
         self.model_cmd = model_cmd
         self.verbose = verbose
+        # `lean` gives Claude Code its own short system prompt, one tool and
+        # none of the person's settings (see `agent_flags`); `full` runs it
+        # the way `claude -p` runs at a terminal, for comparison.
+        self.lean = profile == "lean"
+        self.flags = agent_flags(profile, user_settings())
+        # Turns run in the current session, for the `turn:` line and for
+        # `retire`.
+        self.turns = 0
+        self.last_usage: dict = {}
         # `bare` means the model command has no tools and no skills, so it has
         # to be handed the vocabulary and can only answer in lines.
         self.bare = bare
@@ -576,6 +707,12 @@ class Listener:
         # line sent that was not the voice's, for `heard_speaker` to restore.
         self.talking = False
         self.shown: str | None = None
+        # When hud-speak's first level line of the current reply arrived,
+        # and the `turn:` line waiting for it. A turn is logged once its
+        # first sound is heard, or at the start of the next turn if it
+        # never was.
+        self.first_level_at: float | None = None
+        self.turn_report: dict | None = None
         # A reply handed to hud-speak that has not yet reported quiet. Set
         # before the first level arrives, because synthesis takes most of a
         # second and the leave timer must not start in that gap.
@@ -885,6 +1022,9 @@ class Listener:
             except (TypeError, ValueError):
                 return
             self.talking = True
+            if self.first_level_at is None:
+                self.first_level_at = time.monotonic()
+                self.report_turn()
             self.send(f"p speaking amp={level:.2f}")
         elif "saying" in message:
             # The sentence that just started playing. On the pill as the
@@ -900,6 +1040,49 @@ class Listener:
             self.talking = False
             if self.shown:
                 self.send(self.shown)
+
+    def report_turn(self) -> None:
+        """Log the turn waiting on its first sound, now that it has one, or
+        with `audio=-` if the next turn is starting without it."""
+        with self.state:
+            report, self.turn_report = self.turn_report, None
+        if report is None:
+            return
+        audio = None
+        if self.first_level_at is not None and report["started"] <= self.first_level_at:
+            audio = self.first_level_at - report["started"]
+        self.log(turn_line(
+            report["wait"], report["text"], audio, report["api_ms"],
+            report["usage"], report["tools"], report["turns"],
+        ))
+
+    def retire(self) -> None:
+        """Close the session and open the next one, warm, before it is needed.
+
+        Called by the worker after a reply's hold, never mid-turn, so the
+        next request finds a primed process rather than paying the cold
+        start `spawn` exists to avoid. The conversation so far is gone
+        with it: a follow-up to something said fifty turns ago starts
+        over, which is the trade for a session that never grows past the
+        point where every turn slows and every turn costs.
+        """
+        proc = self.model
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+        self.model = None
+        self.log(f"retired the session after {self.turns} turns")
+        self.session = str(uuid.uuid4())
+        self.started = False
+        self.turns = 0
+        self.last_usage = {}
+        self.prime()
+
+    def should_retire(self) -> bool:
+        if not self.lean or not self.started:
+            return False
+        read = self.last_usage.get("cache_read_input_tokens")
+        cached = read if isinstance(read, (int, float)) else 0
+        return self.turns >= RETIRE_TURNS or cached >= RETIRE_TOKENS
 
     def voice_active(self) -> bool:
         """Whether a reply is being said, or is about to be."""
@@ -1003,8 +1186,14 @@ class Listener:
         if Path(argv[0]).name != "claude":
             return
         started = time.monotonic()
+        # Under the lean profile the usage is in the system prompt already,
+        # so the warm-up is only the process start and the cache, and the
+        # turn is one word each way.
         prompt = (
             "Warm-up for this session, before the first spoken request arrives. "
+            "Reply with only the word: ready\n"
+            if self.lean
+            else "Warm-up for this session, before the first spoken request arrives. "
             "Read the usage of these commands, each with --help: mac calendar "
             "add, mac calendar list, mac messages send, mac messages chats, "
             "mac messages history, mac contacts find. Do not draw anything, do "
@@ -1150,6 +1339,11 @@ class Listener:
                 time.sleep(self.NEXT_HOLD_DONE if state == "done" else self.NEXT_HOLD_FAILED)
             else:
                 self.settle(state, hold)
+                # The quiet moment after a reply, with nothing queued, is
+                # when a session that has grown past its ceiling is swapped
+                # for a fresh, warm one.
+                if self.should_retire():
+                    self.retire()
             with self.state:
                 self.current = self.queue.popleft() if self.queue else None
                 more = self.current is not None
@@ -1171,7 +1365,8 @@ class Listener:
         return self.region
 
     def command(self) -> list[str]:
-        """The model command, with continuity flags if it understands them.
+        """The model command, with the profile and continuity flags if it
+        understands them.
 
         Only Claude Code is given the flags, and only because they were checked
         against the real binary rather than assumed. Any other command is run
@@ -1182,6 +1377,7 @@ class Listener:
         argv = shlex.split(self.model_cmd)
         if not argv or Path(argv[0]).name != "claude":
             return argv
+        argv = argv + self.flags
         if self.started:
             return argv + ["--resume", self.session]
         return argv + ["--session-id", self.session]
@@ -1231,7 +1427,9 @@ class Listener:
         first: str | None = None
         voiced = False
         if Path(argv[0]).name == "claude":
-            ok, out, said, first, answer, voiced = self.run_streamed(argv, prompt, typed=req.typed)
+            ok, out, said, first, answer, voiced = self.run_streamed(
+                argv, prompt, typed=req.typed, asked_at=req.spoken_at
+            )
         else:
             ok, out, said = self.run_plain(argv, prompt)
             answer = prose(out).strip()
@@ -1328,18 +1526,30 @@ class Listener:
             else "Everything you write is read aloud to them a sentence at a time "
             "as you write it, and shown in full in the conversation panel. "
         )
+        pointed = (
+            f"They are pointing at the region {req.pointed} on screen "
+            "(x, y, width, height, in points, top-left origin). If the "
+            "request says 'this' or 'that', it means whatever is there. "
+            "Look at it before answering.\n\n"
+            if req.pointed
+            else ""
+        )
+        if self.lean:
+            # The standing rules are the system prompt's (hud-agent.md);
+            # only what changed since the last turn is repeated, because
+            # every word here stays in the session for every turn after.
+            return (
+                prefix
+                + asked
+                + (f"They are looking at: {seen}\n\n" if seen else "")
+                + pointed
+                + ("Reply in writing: nothing is read aloud for a typed request.\n" if req.typed else "")
+            )
         return (
             prefix
             + asked
             + (f"They are looking at: {seen}\n\n" if seen else "")
-            + (
-                f"They are pointing at the region {req.pointed} on screen "
-                "(x, y, width, height, in points, top-left origin). If the "
-                "request says 'this' or 'that', it means whatever is there. "
-                "Look at it before answering.\n\n"
-                if req.pointed
-                else ""
-            )
+            + pointed
             + "Answer the way a good assistant answers in a chat: in full when "
             "the question deserves it, in a sentence when a sentence is enough, "
             "on any subject. Never stop short and never trail off; if the answer "
@@ -1350,9 +1560,9 @@ class Listener:
             + "Write plain prose in short paragraphs: no headings, no tables, "
             "and no code unless they asked for code; a short list is fine. "
             "Before any tool call, write one short sentence saying what you "
-            "are about to do. Do what they asked with the mac CLI whose usage "
-            "you read at the start of this session; do not read it again "
-            "unless a command fails. Look up whatever real data the answer "
+            "are about to do. Do what they asked with the mac CLI you already "
+            "know; read its help only when a command fails. Look up whatever "
+            "real data the answer "
             "needs. Do not invent a number. Do not draw anything on the "
             "display: no panels, no cards, no marks, no hud draw. Do not "
             "write a session opener; this is a conversation, not a session, "
@@ -1414,7 +1624,11 @@ class Listener:
         self.send("p dormant")
 
     def run_streamed(
-        self, argv: list[str], prompt: str, typed: bool = False
+        self,
+        argv: list[str],
+        prompt: str,
+        typed: bool = False,
+        asked_at: float | None = None,
     ) -> tuple[bool, str, str | None, str | None, str, bool]:
         """Run Claude Code and put what it is actually doing on the glass.
 
@@ -1449,6 +1663,10 @@ class Listener:
         and leaves the process running for the next. A stop kills it, and
         the next request starts another that resumes the session.
         """
+        # The turn before this one is still waiting on a first sound that
+        # is not coming now: the new request hushed it.
+        self.report_turn()
+        self.first_level_at = None
         proc = self.model_process()
         if proc is None:
             return False, "", None, None, "", False
@@ -1522,6 +1740,25 @@ class Listener:
         # A process that is gone before its result was read was stopped or
         # timed out, whatever text got through first.
         ok = run.ok and proc.poll() is None
+        if ok:
+            self.turns += 1
+            self.last_usage = run.usage
+        report = {
+            "started": started,
+            "wait": None if asked_at is None else max(0.0, started - asked_at),
+            "text": None if run.first_text_at is None else max(0.0, run.first_text_at - started),
+            "api_ms": run.api_ms,
+            "usage": run.usage,
+            "tools": run.tools,
+            "turns": self.turns,
+        }
+        with self.state:
+            self.turn_report = report
+        # Logged now if the voice has started or is not coming; a one
+        # sentence reply usually ends its turn before its first sound, and
+        # then `heard_speaker` logs it on that sound.
+        if self.first_level_at is not None or not voiced:
+            self.report_turn()
         return ok, run.text, run.said, run.first_text, run.answer(), voiced
 
 
@@ -1554,9 +1791,18 @@ def main() -> int:
         default=os.environ.get("HUD_VOICE", "af_heart"),
         help="who reads each reply aloud: a Kokoro voice like af_heart, a macOS voice like Samantha, or 'off'",
     )
+    parser.add_argument(
+        "--profile",
+        choices=["lean", "full"],
+        default=os.environ.get("HUD_AGENT_PROFILE", "lean"),
+        help="lean: Claude Code with its own short system prompt and one tool (see agent_flags); "
+        "full: as claude -p runs at a terminal",
+    )
     args = parser.parse_args()
     voice = None if args.voice.lower() in {"off", "none", ""} else args.voice
-    return Listener(args.model_cmd, args.verbose, args.bare, voice=voice).run()
+    return Listener(
+        args.model_cmd, args.verbose, args.bare, voice=voice, profile=args.profile
+    ).run()
 
 
 if __name__ == "__main__":

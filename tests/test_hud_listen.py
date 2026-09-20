@@ -190,6 +190,12 @@ def test_translate_recorded_stream(m) -> None:
           lines[-2] == 'w "Building ship-ready work today.\\n\\nIt\'s Saturday, September 19, 2026."',
           f"got {lines[-2:]}")
     check("the result is kept", run.ok and run.text.endswith("September 19, 2026."), f"got {run.text!r}")
+    check("the API's clock is kept from the result", run.api_ms == 10947, f"got {run.api_ms}")
+    check("the token counts are kept from the result",
+          run.usage.get("cache_read_input_tokens") == 65612
+          and run.usage.get("cache_creation_input_tokens") == 38801, f"got {run.usage}")
+    check("both tool calls were counted", run.tools == 2, f"got {run.tools}")
+    check("the first words were timed", run.first_text_at is not None)
     check("subtitle(run.text) is its first two sentences",
           m.subtitle(run.text) == "Building ship-ready work today. It's Saturday, September 19, 2026.",
           f"got {m.subtitle(run.text)!r}")
@@ -484,8 +490,14 @@ def test_prompt_prefix(m) -> None:
           "looking at: Safari" in prompt and "region (1, 2, 3, 4)" in prompt)
     check("the stop is told once", listener.cancelled is None)
     check("the next prompt carries no prefix", "was stopped" not in listener.prompt_for(req, ""))
-    plain = listener.prompt_for(req, "")
+    # The standing rules: in the system prompt under the lean profile, in
+    # every request under the full one.
+    standing = m.AGENT_PROMPT.read_text(encoding="utf-8")
     check("a full answer is asked for, and nothing drawn",
+          "Never stop short" in standing and "read aloud to them one sentence at a time" in standing
+          and "Do not draw on the display" in standing)
+    plain = m.Listener("claude -p", False, False, profile="full").prompt_for(req, "")
+    check("and the full profile still asks in the prompt",
           "Never stop short" in plain and "read aloud to them a sentence at a time" in plain
           and "Do not draw anything" in plain, f"got {plain!r}")
     typed = listener.prompt_for(m.Request(said="why", spoken_at=0.0, pointed=None, typed=True), "")
@@ -515,6 +527,57 @@ def test_session_flags(m) -> None:
     other = m.Listener("llm -m gpt-5", False, False)
     other.started = True
     check("a non-claude command is left alone", other.command() == ["llm", "-m", "gpt-5"])
+
+
+def test_turn_line(m) -> None:
+    """One line, fixed order, `-` for what never arrived."""
+    usage = {"input_tokens": 4, "cache_read_input_tokens": 11799,
+             "cache_creation_input_tokens": 0, "output_tokens": 31}
+    line = m.turn_line(0.02, 1.34, 1.61, 1970, usage, 1, 7)
+    check("every field in its place",
+          line == "turn: wait=0.0s text=1.3s audio=1.6s api=1970ms tools=1 "
+                  "input=4 cache_read=11799 cache_create=0 output=31 session_turns=7",
+          f"got {line!r}")
+    bare = m.turn_line(None, None, None, None, {}, 0, 1)
+    check("a value that never arrived is a dash",
+          bare == "turn: wait=- text=- audio=- api=- tools=0 "
+                  "input=- cache_read=- cache_create=- output=- session_turns=1",
+          f"got {bare!r}")
+
+
+def test_agent_flags(m) -> None:
+    """The lean profile carries the person's permission posture across."""
+    settings = {"permissions": {"defaultMode": "auto", "deny": ["Bash(rm -rf /)", 7, "Bash(curl* | sh)"]}}
+    flags = m.agent_flags("lean", settings)
+    check("the person's settings are dropped", flags[:2] == ["--setting-sources", "local"], f"got {flags}")
+    check("one tool", "--tools=Bash" in flags)
+    check("its own system prompt", "--system-prompt-file" in flags
+          and flags[flags.index("--system-prompt-file") + 1].endswith("hud-agent.md"), f"got {flags}")
+    check("their permission mode is passed back",
+          flags[flags.index("--permission-mode") + 1] == "auto", f"got {flags}")
+    passed = json.loads(flags[flags.index("--settings") + 1])
+    check("their deny list is passed back, strings only",
+          passed == {"permissions": {"deny": ["Bash(rm -rf /)", "Bash(curl* | sh)"]}}, f"got {passed}")
+    odd = m.agent_flags("lean", {"permissions": {"defaultMode": "yolo"}})
+    check("a mode this build does not know is left off",
+          "--permission-mode" not in odd and "--settings" not in odd, f"got {odd}")
+    check("no settings at all still leans", "--tools=Bash" in m.agent_flags("lean", {}))
+    check("the full profile adds nothing", m.agent_flags("full", settings) == [])
+
+
+def test_lean_prompt(m) -> None:
+    """The lean per-request prompt repeats only what changed."""
+    listener = m.Listener("claude -p", False, False)
+    req = m.Request(said="what is on tomorrow", spoken_at=0.0, pointed=None, typed=False)
+    prompt = listener.prompt_for(req, "")
+    check("the request is in it", "what is on tomorrow" in prompt)
+    check("the standing rules are not", "Answer the way a good assistant" not in prompt, f"got {prompt!r}")
+    typed = listener.prompt_for(m.Request(said="hi", spoken_at=0.0, pointed=None, typed=True), "")
+    check("a typed request says so", "nothing is read aloud" in typed, f"got {typed!r}")
+    full = m.Listener("claude -p", False, False, profile="full")
+    check("the full profile keeps the rules in the prompt",
+          "Answer the way a good assistant" in full.prompt_for(req, ""))
+    check("the system prompt file exists", m.AGENT_PROMPT.is_file(), str(m.AGENT_PROMPT))
 
 
 def test_pointing(m) -> None:
@@ -963,6 +1026,11 @@ def main() -> int:
     test_prompt_prefix(module)
     print("session continuity")
     test_session_flags(module)
+    print("the turn line")
+    test_turn_line(module)
+    print("the lean profile")
+    test_agent_flags(module)
+    test_lean_prompt(module)
     print("pointing")
     test_pointing(module)
     print("end to end")
