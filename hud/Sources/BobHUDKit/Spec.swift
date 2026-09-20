@@ -234,4 +234,24 @@ public enum Op: Sendable, Equatable {
     case write(text: String, done: Bool)
     /// How many requests are waiting behind the one in flight.
     case queued(Int)
+    /// The strip under the pill: what the remembered Claude Code tab is
+    /// doing. See docs/superpowers/specs/2026-09-20-terminal-loop-design.md.
+    case terminal(text: String, state: TerminalState)
+    /// Take the strip down: the tab is idle or gone.
+    case terminalOff
+}
+
+/// The three things a terminal strip can say. Colours follow the ring:
+/// running and done are `acting`/`done` green, waiting is `attention` amber.
+public enum TerminalState: String, Sendable, Equatable {
+    case running, waiting, done
+}
+
+public struct TerminalStrip: Equatable, Sendable {
+    public var text: String
+    public var state: TerminalState
+    public init(text: String, state: TerminalState) {
+        self.text = text
+        self.state = state
+    }
 }

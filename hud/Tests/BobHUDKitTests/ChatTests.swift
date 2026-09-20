@@ -76,6 +76,20 @@ struct ChatTests {
         #expect(model.turns[1].text == "Stopped.")
     }
 
+    @Test("the terminal strip is held, taken down, and its click reaches the bridge")
+    func terminalStrip() {
+        let model = OverlayModel()
+        var sent: [String] = []
+        model.onEvent = { sent.append($0.line) }
+        #expect(model.terminal == nil)
+        model.apply(.terminal(text: "npm test", state: .running))
+        #expect(model.terminal == TerminalStrip(text: "npm test", state: .running))
+        model.focusTerminal()
+        #expect(sent == ["e terminal focus"])
+        model.apply(.terminalOff)
+        #expect(model.terminal == nil)
+    }
+
     @Test("a write with nothing open opens an answer")
     func writeAlone() {
         let model = OverlayModel()
