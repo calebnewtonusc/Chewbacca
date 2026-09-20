@@ -27,7 +27,10 @@ struct PresenceFieldStyle: Equatable {
     /// that holds still. Distinct from the two-beat pulse in `PresenceFrame`:
     /// that one fires twice and stops, this one runs while the state is up.
     var pulse: Double
-    /// Redraw rate while this state is up.
+    /// Redraw rate while this state is up and settled. Never handed to the
+    /// view mid-transition, and a still state's one frame a second is never
+    /// handed to it at all: the view parks instead. See
+    /// `PresenceFieldRenderer.rate`.
     var fps: Int
     /// False means one frame and then stop. A layer that redraws forever is a
     /// battery bug, which is the objection `PresenceRing` raises about itself.
@@ -315,7 +318,12 @@ private final class PresenceFieldView: MTKView {
         super.setFrameSize(newSize)
         let scale = PresenceFieldRenderer.renderScale
         let size = CGSize(width: newSize.width * scale, height: newSize.height * scale)
-        if drawableSize != size { drawableSize = size }
+        if drawableSize != size {
+            drawableSize = size
+            // A parked band stretched to a new display size stays stretched
+            // until something else wakes it. One frame, then it parks again.
+            isPaused = false
+        }
     }
 }
 
@@ -343,13 +351,13 @@ private struct PresenceFieldSurface: NSViewRepresentable {
     }
 
     func updateNSView(_ view: MTKView, context: Context) {
-        context.coordinator.frame = frame
-        // The departure is a fast, one-off move and it plays under `dormant`,
-        // whose own rate is one frame a second. Pacing it at the destination
-        // state's rate would draw it in four frames. Only written when it
-        // changes: the setter reconfigures the view's clock, and a value
-        // re-set on every update is a clock that keeps restarting.
-        let fps = frame.closingAt == nil ? frame.style.fps : 60
+        // This runs on every re-render of the overlay, not only when the
+        // field changed: a pill line landing, a transcript closing, a level
+        // from the voice. Only a changed frame may touch the clock, because
+        // the rate setter restarts it, and a restart at a still state's one
+        // frame a second is a stall (see `easeInterval`). The renderer
+        // decides what the change means and answers with a rate or nothing.
+        guard let fps = context.coordinator.receive(frame: frame, paused: paused) else { return }
         if view.preferredFramesPerSecond != fps { view.preferredFramesPerSecond = fps }
         // Stopping is a thing the renderer does to itself once it has a
         // frame on the screen, not a thing set from here. A `draw()` called
@@ -358,11 +366,11 @@ private struct PresenceFieldSurface: NSViewRepresentable {
         // nothing: the last lit frame stays up and `dormant` leaves a band
         // round the screen for good. Letting the clock run one more frame and
         // parking it from inside `draw` is the version that cannot miss.
-        context.coordinator.parkWhenDrawn = paused
+        //
         // Every change starts the clock, including one into a still state:
-        // `done` now eases in from `acting` over a third of a second, and the
-        // pointer can part a parked band. The renderer parks it again from
-        // inside `draw` once nothing on screen is still moving.
+        // `done` eases in from `acting` rather than landing, and the pointer
+        // can part a parked band. The renderer parks it again from inside
+        // `draw` once nothing on screen is still moving.
         view.isPaused = false
     }
 }
@@ -464,6 +472,61 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
     var frame = PresenceFrame(
         style: Presence.dormant.field, awokeAt: nil, closingAt: nil, heard: 0, alpha: 1)
 
+    /// One SwiftUI update. The rate to run the clock at, or nil when nothing
+    /// about the field changed and the clock is to be left exactly as it is.
+    ///
+    /// A new frame is by definition not settled, so it is paced as a
+    /// transition: at least thirty, sixty for the exit. `draw` brings the
+    /// rate down to the state's own once the ease has run.
+    @MainActor
+    func receive(frame next: PresenceFrame, paused: Bool) -> Int? {
+        let changed = next != frame || paused != parkWhenDrawn
+        frame = next
+        parkWhenDrawn = paused
+        guard changed else { return nil }
+        return Self.rate(
+            for: next.style, closing: next.closingAt != nil, settled: false, parting: false)
+    }
+
+    /// The one rule for the clock, shared by the SwiftUI update and the draw
+    /// loop so the two can never disagree about it.
+    ///
+    /// A still state's own rate is one frame a second, and that number is
+    /// never given to the view while anything is moving. Measured 2026-09-20
+    /// on an `MTKView` probe: setting the rate to 1 on a running view puts
+    /// its next frame exactly 1000ms out, every time, and a view unpaused at
+    /// 1 draws its first frame 1.0 to 1.6s later, against 22ms for one
+    /// unpaused at 60. `updateNSView` used to set the state's own rate on
+    /// every entry into `done`, so every finished task froze the band mid-
+    /// motion for a second, twice when the pill re-rendered during the ease,
+    /// and then jumped. Reported the same day as "stops pulsating, freezes
+    /// for 2 seconds, then operates the exit animation".
+    ///
+    /// Thirty is the slowest rate a transition reads as continuous at, and a
+    /// hole following the hand wants the full sixty. Once settled, a live
+    /// state runs at its own pace; a still one parks instead.
+    nonisolated static func rate(
+        for style: PresenceFieldStyle, closing: Bool, settled: Bool, parting: Bool
+    ) -> Int {
+        if closing || parting { return 60 }
+        if !settled { return max(style.fps, 30) }
+        return style.fps
+    }
+
+    /// How much clock one frame gets to ease across.
+    ///
+    /// A gap longer than a quarter of a second is a parked view waking up,
+    /// or a stalled one, not a slow frame: the slowest live rate is fifty
+    /// milliseconds apart. Easing across the real gap moved every chase
+    /// most of the way in one frame (the old cap of half a second is 76% of
+    /// a 0.35s chase), which is the pop that followed the stall above. One
+    /// frame's worth, at the rate the view is running, starts the ease
+    /// smoothly from wherever it was parked. Zero stays zero: the first
+    /// frame ever has no clock and snaps.
+    nonisolated static func easeInterval(gap: TimeInterval, rate: Int) -> TimeInterval {
+        gap > 0.25 ? 1.0 / Double(max(rate, 30)) : gap
+    }
+
     /// How long the shader's arrival ramps run, in seconds: the number the
     /// exit is played back over. Matches the 0.70 in the stretch ramp, the
     /// longer of the two in `presenceFragment`; the two have to move together.
@@ -562,11 +625,9 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
         // the four live rates in this file run from 20 to 60fps, and a fixed
         // step per frame would make the same transition take three times
         // longer in one state than in another.
-        // A gap longer than this is a parked view waking up, not a slow frame,
-        // and easing across it would replay the whole transition on the first
-        // frame after a hover. Half a second is well over the slowest live
-        // rate's 50ms and well under any pause.
-        let dt = min(lastDrawn.map { now.timeIntervalSince($0) } ?? 0, 0.5)
+        let dt = Self.easeInterval(
+            gap: lastDrawn.map { now.timeIntervalSince($0) } ?? 0,
+            rate: view.preferredFramesPerSecond)
         lastDrawn = now
         // Frozen while going away, along with `rest` below: `dormant` has no
         // depth and no colour, and easing toward it under the reversed ramp
@@ -620,13 +681,13 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
             } ?? true)
             && simd_length(shownTint - tintTarget) < 0.002
             && frame.closingAt == nil
-        if !settled && frame.closingAt == nil {
-            // A still state's own rate is one frame a second, which would
-            // draw its arrival in three steps. Thirty is the slowest rate a
-            // transition reads as continuous at, and a hole following the
-            // hand wants the full sixty. Written only on change, for the
-            // reason given in `updateNSView`.
-            let fps = part.shown > 0.001 ? 60 : max(style.fps, 30)
+        // Written only on change: the setter restarts the clock. A view about
+        // to park keeps its live rate, so the pointer or the next state can
+        // wake it into a frame within thirty milliseconds rather than a
+        // second; the rate of a parked view costs nothing.
+        if frame.closingAt == nil && !(settled && parkWhenDrawn) {
+            let fps = Self.rate(
+                for: style, closing: false, settled: settled, parting: part.shown > 0.001)
             if view.preferredFramesPerSecond != fps { view.preferredFramesPerSecond = fps }
         }
 
