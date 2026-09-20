@@ -76,6 +76,43 @@ bash Chewbacca/start.sh --full-send
 Anyone who would not run a script without reading it should take that path, and
 the README should say so more loudly than it does.
 
+## What appears on your screen, and what listens
+
+Added 2026-09-19, after someone installed this and a browser window opened on
+his computer by itself. His conclusion was that the kit is dangerous. That is
+the right conclusion to draw about software that opens windows unannounced, so
+the answer is not to explain it away, it is to stop doing it and then say
+plainly what is left.
+
+**The install opens nothing.** No browser tab, no window, no tray icon. There is
+a test that fails the build if a line that opens one is ever added to
+`setup.sh`, `start.sh` or `bin/bootstrap.sh`.
+
+**One bundled tool used to.** Serena, a code-navigation plugin, starts a web
+dashboard and opens a browser tab on its first run. That is Serena's upstream
+default, not a choice made here, but shipping it unchanged made it this kit's
+problem. `bin/lib/seed-serena-config.sh` now writes Serena's config before
+Serena's first run with the dashboard and the tab off. If you already had a
+Serena config, it is edited in place and everything else in it is left alone.
+
+**What listens on a port, and only when you start it:**
+
+| Tool | Port | Bound to | Opens a browser |
+| --- | --- | --- | --- |
+| `people dashboard` | 7373, `--port` to change | `127.0.0.1` | no, `--no-open` |
+
+`127.0.0.1` means the loopback interface: other machines on your wifi cannot
+reach it. Nothing here binds `0.0.0.0`, and nothing starts on boot unless you
+ask for it by installing the launch agent yourself.
+
+**What runs without you asking:** the hooks in `~/.claude/settings.json`, which
+run on session start, on tool use, and on session end. They are shell scripts in
+`~/.claude/hooks/`, they are readable, and removing one is deleting a line from
+a JSON file.
+
+If you find something in this kit that opens a window, binds a port, or phones
+home and is not in this section, that is a bug worth reporting.
+
 ## Driving a browser you are signed in to
 
 `chrome-js` runs JavaScript in a real Chrome that is logged in to real accounts,
