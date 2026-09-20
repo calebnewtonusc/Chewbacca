@@ -42,6 +42,8 @@ SUMMARY_CHARS = 80
 # own. Guessed, never measured: nothing has timed how long a person takes to
 # answer; the hook's registered timeout of 45 leaves room above it.
 ASK_WAIT_S = 30.0
+# Guessed, never measured: fast enough that an answer lands within a quarter
+# second of being written, slow enough that 30 s of polling is 120 stats.
 ASK_POLL_S = 0.25
 # One System Events call takes well under a second on this machine.
 FRONT_TIMEOUT_S = 2.0
