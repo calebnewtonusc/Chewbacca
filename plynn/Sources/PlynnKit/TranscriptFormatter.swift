@@ -123,7 +123,7 @@ public actor TranscriptFormatter {
         do {
             try await llm.ensureLoaded()
         } catch {
-            NSLog(
+            plog(
                 "plynn: POLISH UNAVAILABLE — could not load %@: %@. "
                     + "Dictation will paste the raw transcript. "
                     + "If this is a 401, check `hf auth list` for an expired token.",

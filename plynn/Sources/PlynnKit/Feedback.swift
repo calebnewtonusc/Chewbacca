@@ -142,7 +142,7 @@ private final class ChimePlayer {
         if !engine.isRunning {
             engine.prepare()
             do { try engine.start() } catch {
-                NSLog("plynn: cue engine unavailable \(error)")
+                plog("plynn: cue engine unavailable \(error)")
                 return false
             }
         }
