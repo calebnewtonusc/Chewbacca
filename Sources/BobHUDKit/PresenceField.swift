@@ -143,12 +143,10 @@ struct PresenceFrame: Equatable {
     /// When it came up out of `dormant`, or nil while it is down. A date and
     /// not an elapsed time: the view redraws on its own clock and this struct
     /// only changes when the state does, so a number here would sit still for
-    /// the whole 0.62s of a rupture and freeze it at its first frame.
+    /// the whole 0.70s of a departure and freeze it at its first frame.
     var awokeAt: Date?
-    /// When the rupture started, or nil for "not going anywhere".
+    /// When it started going away, or nil for "not going anywhere".
     var closingAt: Date?
-    /// Where the rupture opens, in unit coordinates.
-    var popAt: CGPoint
     /// Thickness on top of `style.rest`, from the voice. Only in `hearing`.
     var heard: Double
     /// Scales the whole layer's alpha, for the two states that pulse.
@@ -209,15 +207,14 @@ struct PresenceField: View {
     @State private var awokeAt: Date?
     /// When it started going away. Nil while it is up.
     @State private var closingAt: Date?
-    /// Where the rupture opens. Picked once per closing so it is not the same
-    /// spot every time, and held for all of it so the hole does not jump.
-    @State private var popAt = CGPoint(x: 0.5, y: 0.5)
     /// How far through its two pulses `attention` and `failed` are.
     @State private var pulses = 0
 
-    /// How long the rupture runs. The hole opens at a constant rate and has to
-    /// clear the far corner; past this there is nothing left to draw.
-    static let closeDuration: Double = 0.62
+    /// How long the arrival takes, and so how long going away takes, since
+    /// the one is the other played backwards. 0.70 is the longer of the two
+    /// ramps the shader runs off `act`: the depth reaches rest at 0.45 and
+    /// the stretch settles at 0.70.
+    static let closeDuration: Double = PresenceFieldRenderer.arrival
 
     var body: some View {
         Group {
@@ -232,7 +229,7 @@ struct PresenceField: View {
             } else {
                 // A close still has to play out even though `dormant` itself is
                 // a still frame. Pausing the instant the state flips freezes
-                // the rupture half open and leaves that on the screen for good.
+                // the band half gone and leaves that on the screen for good.
                 PresenceFieldSurface(
                     frame: frame,
                     paused: (!frame.style.animating || reduceMotion) && closingAt == nil)
@@ -255,7 +252,6 @@ struct PresenceField: View {
             style: style,
             awokeAt: awokeAt,
             closingAt: closingAt,
-            popAt: popAt,
             heard: presence.voiced ? min(max(amplitude, 0), 1) : 0,
             alpha: pulsing && pulses < 2 ? 0.55 : 1.0,
             pointer: pointer)
@@ -286,7 +282,6 @@ struct PresenceField: View {
         }
 
         guard awokeAt != nil, closingAt == nil else { return }
-        popAt = CGPoint(x: .random(in: 0.18...0.82), y: .random(in: 0.18...0.82))
         closingAt = Date()
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(Self.closeDuration))
@@ -368,11 +363,10 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
         /// that renders in the wrong colour with no error anywhere.
         var tint: SIMD4<Float>
         var size: SIMD2<Float>
-        var popAt: SIMD2<Float>
         var pointer: SIMD2<Float>
         var time: Float
+        /// Seconds into the arrival, or, going away, seconds left of it.
         var act: Float
-        var closing: Float
         var rest: Float
         /// How far the contour field has travelled, integrated from the
         /// eased drift, so a change of speed never moves the pattern.
@@ -451,8 +445,12 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
     static let partFade: Float = 0.10
 
     var frame = PresenceFrame(
-        style: Presence.dormant.field, awokeAt: nil, closingAt: nil,
-        popAt: CGPoint(x: 0.5, y: 0.5), heard: 0, alpha: 1)
+        style: Presence.dormant.field, awokeAt: nil, closingAt: nil, heard: 0, alpha: 1)
+
+    /// How long the shader's arrival ramps run, in seconds: the number the
+    /// exit is played back over. Matches the 0.70 in the stretch ramp, the
+    /// longer of the two in `presenceFragment`; the two have to move together.
+    static let arrival: Double = 0.70
 
     override init() {
         device = MTLCreateSystemDefaultDevice()
@@ -505,8 +503,15 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
         // shader an epoch: by the afternoon the noise stops moving.
         let now = Date()
         let time = now.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 86_400)
-        let act: Double = frame.awokeAt.map { max(now.timeIntervalSince($0), 0) } ?? 0
-        let closing: Double = frame.closingAt.map { now.timeIntervalSince($0) } ?? -1
+        // The arrival clock, and going away it is the same clock run down
+        // from wherever it had got to: a band that was still coming in when
+        // it was told to leave turns round from there, not from full.
+        var act: Double = frame.awokeAt.map { max(now.timeIntervalSince($0), 0) } ?? 0
+        let closing = frame.closingAt != nil
+        if let closingAt = frame.closingAt, let awokeAt = frame.awokeAt {
+            let reached = min(closingAt.timeIntervalSince(awokeAt), Self.arrival)
+            act = max(reached - now.timeIntervalSince(closingAt), 0)
+        }
         // Exponential, off real elapsed time rather than a per-frame constant:
         // the four live rates in this file run from 20 to 60fps, and a fixed
         // step per frame would make the same transition take three times
@@ -517,7 +522,10 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
         // rate's 50ms and well under any pause.
         let dt = min(lastDrawn.map { now.timeIntervalSince($0) } ?? 0, 0.5)
         lastDrawn = now
-        let tintTarget = frame.style.tint
+        // Frozen while going away, along with `rest` below: `dormant` has no
+        // depth and no colour, and easing toward it under the reversed ramp
+        // would make the exit faster and greyer than the arrival it mirrors.
+        let tintTarget = closing ? shownTint : frame.style.tint
         if dt <= 0 {
             shownTint = tintTarget
         } else {
@@ -543,7 +551,7 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
         // Release slower than attack, or the band shakes between syllables.
         heard.tau = heardTarget > heard.shown ? 0.04 : 0.16
 
-        rest.step(toward: Float(style.rest), dt: dt)
+        rest.step(toward: closing ? rest.shown : Float(style.rest), dt: dt)
         drift.step(toward: Float(style.drift), dt: dt)
         pulseRate.step(toward: Float(style.pulse), dt: dt)
         pulseDepth.step(toward: style.pulse > 0 ? 1 : 0, dt: dt)
@@ -581,11 +589,9 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
         var uniforms = Uniforms(
             tint: shownTint,
             size: SIMD2(Float(size.width), Float(size.height)),
-            popAt: SIMD2(Float(frame.popAt.x), Float(frame.popAt.y)),
             pointer: SIMD2(pointerX.shown, pointerY.shown),
             time: Float(time),
             act: Float(act),
-            closing: Float(closing),
             rest: rest.shown + 0.08 * heard.shown,
             travel: Float(travel),
             pulse: pulseDepth.shown,

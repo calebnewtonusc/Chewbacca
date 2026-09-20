@@ -33,7 +33,6 @@ using namespace metal;
 // `colorEffect` is one pass with no render targets. The tonemap is folded in
 // below. The glow is not, and the field is a little flatter for it.
 
-static inline float hash11(float p) { return fract(sin(p * 127.1) * 43758.5453); }
 
 static inline float hash21(float2 p) {
     return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453);
@@ -56,7 +55,6 @@ static inline float fbm(float2 p) {
     return s;
 }
 
-static inline float stage(float t, float a, float b) { return clamp((t - a) / (b - a), 0.0, 1.0); }
 
 /// Belcour and Barla's pre-integrated spectral response, verbatim from
 /// KHR_materials_iridescence. Only the shimmer is taken off it now, but it is
@@ -118,12 +116,11 @@ struct Uniforms {
     /// rgb is what the body is multiplied by, a is how much of it to take.
     float4 tint;
     float2 size;
-    float2 popAt;
     /// Unit coordinates, top-left origin. Off screen when there is no pointer.
     float2 pointer;
     float time;
+    /// Seconds into the arrival, or, on the way out, seconds left of it.
     float act;
-    float closing;
     float rest;
     /// How far the contour field has travelled, already integrated on the
     /// Swift side from an eased drift. Multiplying `time` by a drift that had
@@ -153,8 +150,7 @@ vertex float4 presenceVertex(uint vid [[vertex_id]]) {
 fragment half4 presenceFragment(float4 fragPos [[position]],
                                 constant Uniforms &U [[buffer(0)]]) {
     float2 size = U.size;
-    float time = U.time, act = U.act, closing = U.closing;
-    float2 popAt = U.popAt;
+    float time = U.time, act = U.act;
     float rest = U.rest, pulse = U.pulse;
     float2 uv = float2(fragPos.x / size.x, fragPos.y / size.y);
     float t = act;
@@ -427,53 +423,12 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     c += env * exp(-pow((v - 0.220) / 0.050, 2.0)) * 0.30 * mix(float3(1.0), sheen, 0.45) * born *
          lit;
 
-    // --- going away ------------------------------------------------------
-    // Nothing here is eased either. A rupturing film does not decelerate: the
-    // hole opens at the speed where surface tension balances the film's own
-    // inertia, and high speed footage shows that speed holding from the first
-    // frame to the last. Straight in, straight out, and nothing in this file
-    // eases any more: the last easing function went with the arrival wobble.
-    if (closing >= 0.0) {
-        float k = closing;
-        float2 dp = (uv - popAt) * float2(W, 1.0);
-        float rr = length(dp), ang = atan2(dp.y, dp.x);
-
-        // It thins where it is about to go. In a real bubble this is the black
-        // spot: the two surfaces come within a wavelength of each other and
-        // their reflections cancel, so the last thing you see before it bursts
-        // is darkness opening in a place that still has film in it.
-        c *= 1.0 - 0.9 * exp(-rr * 13.0) * stage(k, 0.0, 0.10);
-
-        float R = max(k - 0.10, 0.0) * 7.0;
-
-        // Smooth while the rim is thin, then shear against the still air tears
-        // indentations into it. They appear past a critical radius, which is
-        // why a pop ends in a scatter instead of starting as one.
-        float tear = smoothstep(0.30, 0.95, R);
-        float edge = R * (1.0 + 0.10 * tear * sin(ang * 13.0 + 1.7));
-
-        c *= smoothstep(edge - 0.02, edge + 0.01, rr);
-
-        // The film the hole swallowed has to go somewhere and it collects in
-        // the rim. That is why the edge of a bursting bubble is brighter than
-        // the film was, and why fading one out looks nothing like one.
-        float ring = exp(-pow((rr - edge) / 0.014, 2.0)) * (0.35 + R * 1.1) * (1.0 - tear * 0.5);
-        c += ring * mix(float3(1.0), sheen, 0.55);
-
-        // Drops thrown out of the indentations, flying a little ahead of the
-        // rim that threw them.
-        float b = floor((ang + 3.14159265) * 15.0 / 6.2831853);
-        float sd = hash11(b * 7.31);
-        float detach = 0.30 + sd * 0.55;
-        if (R > detach) {
-            float dr = detach + (R - detach) * 1.45;
-            float da = (b + 0.5) / 15.0 * 6.2831853 - 3.14159265 + (sd - 0.5) * 0.26;
-            c += exp(-pow(length(dp - float2(cos(da), sin(da)) * dr) / 0.011, 2.0)) * 1.5 *
-                 exp(-(R - detach) * 1.7);
-        }
-
-        c *= 1.0 - stage(k, 0.44, 0.60);
-    }
+    // Going away is arriving, backwards. The Swift side runs `act` down from
+    // wherever it was to zero at the same rate it came up, so the band draws
+    // back into the edge along the exact path it came in on. It used to
+    // burst: a rupture opening at a random point, a bright rim, drops thrown
+    // off the tears. Reviewed on 2026-09-19 as "the same but reversed as the
+    // intro animation, get rid of the pop".
 
     // Reinhard, folded in. The browser version tonemapped in a separate pass
     // over a half-float target; there is one pass here and no target, so it
