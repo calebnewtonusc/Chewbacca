@@ -222,4 +222,8 @@ public enum Op: Sendable, Equatable {
     case mark(id: String, rect: CGRect, label: String, tone: String?, life: Double?)
     /// Take a mark off, or all of them when the id is empty.
     case unmark(id: String)
+    /// One line on the pill: a breadcrumb while working, the answer after.
+    case say(String)
+    /// How many requests are waiting behind the one in flight.
+    case queued(Int)
 }

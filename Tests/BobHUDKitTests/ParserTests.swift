@@ -90,6 +90,28 @@ struct LineParserTests {
         #expect(throws: LineParseError.self) { try LineParser.parse("d not a pointer") }
         #expect(throws: LineParseError.self) { try LineParser.parse("x nope") }
     }
+
+    /// The pill's two verbs. A subtitle is one JSON string, like `h` going the
+    /// other way, because it has spaces in it; a depth is one whole number.
+    @Test("a subtitle is one JSON string")
+    func say() throws {
+        #expect(try LineParser.parse(#"s "reading your calendar""#) == .say("reading your calendar"))
+    }
+
+    @Test("a subtitle with nothing to say is a mistake, not an empty line")
+    func sayNothing() {
+        #expect(throws: LineParseError.self) { try LineParser.parse("s") }
+    }
+
+    @Test("queue depth is one whole number")
+    func queued() throws {
+        #expect(try LineParser.parse("q 2") == .queued(2))
+    }
+
+    @Test("a queue depth spelled out is a mistake")
+    func queuedWord() {
+        #expect(throws: LineParseError.self) { try LineParser.parse("q two") }
+    }
 }
 
 @Suite("Line buffering")
@@ -495,6 +517,113 @@ struct VoiceTests {
     func wakeWordAloneIsNothing() {
         let voice = VoiceListener()
         #expect(voice.strippingWakeWord(from: "chewy") == nil)
+    }
+
+    // One push-to-talk turn, driven through the seams the recogniser would
+    // drive. Signal is not Equatable, so each test collects the cases it is
+    // about. `receivedForTesting` returns the turn a result landed in, and
+    // handing that turn back is how a test plays the late arrivals a real
+    // turn produces.
+
+    @Test("partials are drawn, never sent")
+    @MainActor
+    func partialsAreDrawnNotSent() {
+        let voice = VoiceListener()
+        voice.setMode(.pushToTalk)
+        var partials: [String] = []
+        var heard: [String] = []
+        voice.onSignal = { signal in
+            switch signal {
+            case .partial(let text): partials.append(text)
+            case .heard(let text): heard.append(text)
+            default: break
+            }
+        }
+        voice.receivedForTesting("text sar", isFinal: false)
+        #expect(partials == ["text sar"])
+        #expect(heard.isEmpty)
+    }
+
+    @Test("a final inside the grace is sent once, and the grace is then inert")
+    @MainActor
+    func finalBeforeGraceDispatchesOnce() {
+        let voice = VoiceListener()
+        voice.setMode(.pushToTalk)
+        var heard: [String] = []
+        var order: [String] = []
+        voice.onSignal = { signal in
+            switch signal {
+            case .heard(let text):
+                heard.append(text)
+                order.append("heard")
+            case .listening(false):
+                order.append("off")
+            default: break
+            }
+        }
+        let turn = voice.receivedForTesting("text sarah", isFinal: false)
+        voice.receivedForTesting("Text Sarah", isFinal: true, turn: turn)
+        voice.fireCommitForTesting(turn: turn)
+        #expect(heard == ["Text Sarah"])
+        // main.swift holds the transcript on `.heard` and ignores the
+        // `.listening(false)` that `stop()` sends right after it, so the order
+        // is part of the contract.
+        #expect(order == ["heard", "off"])
+    }
+
+    @Test("the grace beats a slow final: the last partial is sent, the final is dropped")
+    @MainActor
+    func graceBeforeFinalDispatchesPartialOnce() {
+        // The documented trade: a final that lands after the grace can carry
+        // the corrected name, and it is lost. `commitGrace` is what buys it
+        // time, and the `voice.final` log line is how that number gets set.
+        let voice = VoiceListener()
+        voice.setMode(.pushToTalk)
+        var heard: [String] = []
+        voice.onSignal = { signal in
+            if case .heard(let text) = signal { heard.append(text) }
+        }
+        let turn = voice.receivedForTesting("text sarah", isFinal: false)
+        voice.fireCommitForTesting(turn: turn)
+        voice.receivedForTesting("Text Sarah I am late", isFinal: true, turn: turn)
+        #expect(heard == ["text sarah"])
+    }
+
+    @Test("a partial from a closed turn is not drawn")
+    @MainActor
+    func staleTurnIsDropped() {
+        let voice = VoiceListener()
+        voice.setMode(.pushToTalk)
+        var partials: [String] = []
+        voice.onSignal = { signal in
+            if case .partial(let text) = signal { partials.append(text) }
+        }
+        let turn = voice.receivedForTesting("text", isFinal: false)
+        voice.fireCommitForTesting(turn: turn)
+        voice.receivedForTesting("text sarah", isFinal: false, turn: turn)
+        #expect(partials == ["text"])
+    }
+
+    @Test("cancelling the press drops everything the turn still had to say")
+    @MainActor
+    func cancelDropsTheTurn() {
+        let voice = VoiceListener()
+        voice.setMode(.pushToTalk)
+        var partials: [String] = []
+        var heard: [String] = []
+        voice.onSignal = { signal in
+            switch signal {
+            case .partial(let text): partials.append(text)
+            case .heard(let text): heard.append(text)
+            default: break
+            }
+        }
+        let turn = voice.receivedForTesting("text sarah", isFinal: false)
+        voice.cancelPush()
+        voice.receivedForTesting("Text Sarah", isFinal: true, turn: turn)
+        voice.fireCommitForTesting(turn: turn)
+        #expect(heard.isEmpty)
+        #expect(partials == ["text sarah"])
     }
 }
 

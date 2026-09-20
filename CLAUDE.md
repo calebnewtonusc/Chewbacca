@@ -19,6 +19,8 @@ c <id> <Type> prop=value ...                               create a component
 d /pointer <json>                                          set data
 r <id>                                                     name the root, which paints
 - <surface>                                                close a surface
+s "<text>"                                                 say one line on the pill (subtitle)
+q <n>                                                      how many requests are waiting
 ```
 
 Nothing appears until `r`. Send `c` and `>` in any order: a child may arrive
@@ -85,6 +87,24 @@ h "show me my week"
 Stay connected to receive it. Answer by drawing, not by writing prose back down
 the socket: nothing reads prose there.
 
+What they said is drawn on the pill at the bottom of the screen first, in
+quotes, and held there for a second before `h` goes up, so pressing the key
+again takes it back instead of sending it.
+
+The pill is also where you speak. `s "<text>"` puts one line under the panels:
+a breadcrumb while you work, the answer when you are done.
+
+```
+s "Reading your calendar"
+s "Friday 3pm is free. Sagar has been texted."
+```
+
+A spoken reply is one to two sentences and at most 140 characters, because the
+pill holds two lines of 13 point text at 440 points wide and a panel has less
+room than an ear. Lead with the answer; the panel carries the rest. `q <n>` is
+how many requests are waiting behind the one in flight, shown as a badge on the
+pill, and `q 0` clears it.
+
 ## Pointing
 
 Holding Option-Command and dragging outlines a region, and on release the
@@ -110,7 +130,7 @@ immediately, and after that anything you send that it could not use comes back
 as a problem:
 
 ```
-v! "bobhud/1 verbs=c,>,d,r,@,-,p,m,u,listen"
+v! "bobhud/1 verbs=c,>,d,r,@,-,p,s,q,m,u,listen"
 ! "`c` needs an id and a type"
 ```
 

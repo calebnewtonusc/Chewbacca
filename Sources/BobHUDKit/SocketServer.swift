@@ -74,7 +74,7 @@ public final class SocketServer: @unchecked Sendable {
     /// There was no version anywhere in the protocol, so a newer client talking
     /// to an older display failed one silent line at a time with no way to tell
     /// that was what was happening.
-    public static let version = "bobhud/1 verbs=c,>,d,r,@,-,p,m,u,listen"
+    public static let version = "bobhud/1 verbs=c,>,d,r,@,-,p,s,q,m,u,listen"
 
     public static var defaultPath: String {
         if let override = ProcessInfo.processInfo.environment["BOB_HUD_SOCKET"] {

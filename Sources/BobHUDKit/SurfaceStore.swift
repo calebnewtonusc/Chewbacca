@@ -150,10 +150,11 @@ public final class SurfaceStore {
 
     private func applyOne(_ op: Op) {
         switch op {
-        case .surface, .close, .presence, .mark, .unmark:
+        case .surface, .close, .presence, .mark, .unmark, .say, .queued:
             // Routed by the overlay, which owns which surface is current and
-            // what the ring is doing. A store knows about one surface's
-            // contents and deliberately nothing about the glass around it.
+            // what the ring and the pill are doing. A store knows about one
+            // surface's contents and deliberately nothing about the glass
+            // around it.
             return
 
         case .component(let node):
@@ -187,11 +188,6 @@ public final class SurfaceStore {
         case .root(let id):
             guard isValidID(id) else { return }
             spec.root = id
-
-        case .surface, .close:
-            // Placement is the overlay's business, not a surface's. A store that
-            // could move itself would be a store that can fight the layout.
-            break
         }
     }
 

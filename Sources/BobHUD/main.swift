@@ -32,6 +32,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Whether the push-to-talk key is currently down, so a flags change that
     /// does not involve it is ignored.
     private var pushing = false
+    /// A heard sentence that has not gone up the socket yet: the task that
+    /// sends it once `cancelWindow` has passed. Nil once it is sent or taken
+    /// back.
+    private var pending: Task<Void, Never>?
+
+    /// How long a heard sentence sits on the pill before it is sent, so a
+    /// wrong transcript can be taken back with Escape, the X, or the next
+    /// press. 1.0s: guessed, never measured.
+    private static let cancelWindow: TimeInterval = 1.0
+    /// How long a missed utterance stays on the pill. The person just let go
+    /// of the key, so they are looking. 3s: guessed, never measured.
+    private static let missedHold: TimeInterval = 3
+    /// How long "nothing is listening" stays on the pill. It replaces a card
+    /// that stayed 9s at 460 wide; this is twelve words. 6s: guessed, never
+    /// measured.
+    private static let nobodyHold: TimeInterval = 6
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let overlay = OverlayWindow(content: OverlayView(model: model))
@@ -70,6 +86,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // did the visible half of its job.
                 break
             }
+        }
+        // The X on the pill, or Escape, while the sentence is still the
+        // person's: stop the microphone and drop anything in its cancel
+        // window. A cancel while working goes up the socket from the model.
+        model.onPillCancel = { [weak self] _ in
+            guard let self else { return }
+            self.cancelPending()
+            self.voice.cancelPush()
         }
         setUpVoice()
 
@@ -166,7 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         escMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard event.keyCode == 53 else { return } // escape
-            Task { @MainActor in self?.dismissAll() }
+            Task { @MainActor in self?.escape() }
         }
 
         // Follow the pointer so the glass only becomes solid over a surface.
@@ -200,10 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onSubmit: { [weak self] asked in
                 Task { @MainActor in
                     guard let self else { return }
-                    self.model.setPresence(.thinking, amplitude: 0)
-                    // The same event a spoken request produces, so there is one
-                    // path from asking to drawing rather than two that drift.
-                    self.model.onEvent?(.heard(asked))
+                    self.dispatch(asked)
                     self.restoreFocus()
                 }
             },
@@ -216,19 +237,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///
     /// Drawn by the display itself, which is the only thing in this system that
     /// can still speak when the other end is gone. It expires on its own,
-    /// because the panel is a notice rather than something to dismiss.
+    /// because the pill is a notice rather than something to dismiss, and the
+    /// ring stays red after it.
     private func reportNobodyListening() {
         model.setPresence(.failed, amplitude: 0)
-        for line in [
-            "@ nolistener at=top w=460 urgency=alert life=9",
-            #"c s Screen title="NOBODY IS LISTENING""#,
-            #"c t Text value="The display received your request and there is nothing connected to answer it." tone=muted"#,
-            #"c h Text value="Start the loop:  hud listen" "#,
-            "> s t h",
-            "r s",
-        ] {
-            if let op = try? LineParser.parse(line) { model.apply(op) }
-        }
+        model.fail("Nothing is listening. Run: hud listen", hold: Self.nobodyHold)
     }
 
     /// Give the app back the focus the bar took.
@@ -255,14 +268,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `attentive`, a raised level is `hearing`, and a finished sentence is
     /// `thinking`, because from the person's side the request is now in flight
     /// whether or not anything is actually listening on the other end of the
-    /// socket.
+    /// socket. The words themselves go on the pill: every partial as it is
+    /// revised, and the sentence for `cancelWindow` before it is sent.
     private func setUpVoice() {
         voice.onSignal = { [weak self] signal in
             Task { @MainActor in
                 guard let self else { return }
                 switch signal {
                 case .listening(let on):
+                    // Voice.swift sends `.heard` and then `.listening(false)`,
+                    // and `.failed` and then `.listening(false)`, in that
+                    // order. A sentence in its cancel window or a failure on
+                    // its hold keeps the ring where it is: the model takes a
+                    // failed pill down on any return to dormant.
+                    if !on, self.pending != nil || self.model.pill.phase == .failed { return }
                     self.model.setPresence(on ? .attentive : .dormant, amplitude: 0)
+                    if on && self.voice.mode == .pushToTalk { self.model.beginHearing() }
 
                 case .level(let level):
                     // Only claim to be hearing something above the noise floor.
@@ -273,13 +294,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         self.model.setPresence(.attentive, amplitude: 0)
                     }
 
+                case .partial(let text):
+                    self.model.hear(partial: text)
+
                 case .heard(let text):
-                    self.model.setPresence(.thinking, amplitude: 0)
-                    self.model.onEvent?(.heard(text))
+                    // On the pill before anything is sent, then held for the
+                    // cancel window.
+                    self.model.heard(text)
+                    self.hold(text)
 
                 case .failed(let message):
-                    self.model.warn(message)
+                    // The pill is the notice. `warn` would draw it a second
+                    // time, inside whatever panel happens to be open.
                     self.model.setPresence(.failed, amplitude: 0)
+                    self.model.fail(message, hold: Self.missedHold)
                 }
             }
         }
@@ -297,6 +325,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self, self.voice.mode == .pushToTalk else { return }
                 if down && !self.pushing {
                     self.pushing = true
+                    // A press inside the cancel window takes the last sentence
+                    // back: the person is about to say it again.
+                    self.cancelPending()
                     self.voice.beginPush()
                 } else if !down && self.pushing {
                     self.pushing = false
@@ -304,6 +335,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+    }
+
+    /// Keep a heard sentence on the pill for the cancel window, then send it.
+    private func hold(_ text: String) {
+        cancelPending()
+        pending = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.cancelWindow))
+            guard !Task.isCancelled, let self else { return }
+            self.pending = nil
+            self.dispatch(text)
+        }
+    }
+
+    /// Take back a sentence that has not been sent yet.
+    private func cancelPending() {
+        pending?.cancel()
+        pending = nil
+    }
+
+    /// Send a request up the socket. The microphone and the typed bar both
+    /// come here, so there is one path from asking to drawing rather than two
+    /// that drift.
+    private func dispatch(_ text: String) {
+        model.setPresence(.thinking, amplitude: 0)
+        model.onEvent?(.heard(text))
     }
 
     /// Point at something and it becomes the subject.
@@ -401,8 +457,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if overlay.isVisible { overlay.orderOut(nil) } else { overlay.show() }
     }
 
+    /// Escape. What it takes back depends on where the request is.
+    private func escape() {
+        switch model.pill.phase {
+        case .hearing, .heard:
+            // Still the person's sentence. `cancelRun` goes through
+            // `onPillCancel`, which stops the microphone and drops a sentence
+            // in its cancel window, and then takes the pill down.
+            model.cancelRun()
+        default:
+            cancelPending()
+            dismissAll()
+        }
+    }
+
     private func dismissAll() {
         guard !model.isEmpty else { return }
+        // A run in flight is stopped rather than hidden, with the same
+        // `e stop run` line the X on the pill sends. The bridge answers with
+        // `p failed`; what was drawn goes with the reset.
+        if model.pill.phase == .working {
+            model.onEvent?(.action(name: "stop", component: "run", payload: [:]))
+        }
         model.onEvent?(.dismissed)
         model.reset()
     }

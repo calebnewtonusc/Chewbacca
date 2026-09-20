@@ -71,6 +71,15 @@ extension Presence {
     /// looked at, so they are separated on rate first and thickness second.
     /// Reading the word takes a glance; noticing that the edge started moving
     /// does not.
+    ///
+    /// Every `rest` below is four fifths of what it was. The first version of
+    /// this table drawn as visible depth was reviewed on screen on 2026-09-19
+    /// and the ask was "decrease the frame we have now slightly, its a bit
+    /// too big", so the whole table moved together and the ratios between
+    /// states are untouched: attentive 0.049 to 0.039, hearing 0.022 to
+    /// 0.018, thinking 0.029 to 0.023, acting 0.061 to 0.049, done 0.038 to
+    /// 0.030, attention 0.094 to 0.075, failed 0.072 to 0.058. Dormant is
+    /// still zero, because zero is the one value that draws nothing.
     var field: PresenceFieldStyle {
         switch self {
         case .dormant:
@@ -80,21 +89,21 @@ extension Presence {
                 rest: 0, drift: 0, tint: FieldTint.steel, pulse: 0, fps: 1, animating: false)
         case .attentive:
             return .init(
-                rest: 0.049, drift: 0.5, tint: FieldTint.steel, pulse: 0, fps: 20,
+                rest: 0.039, drift: 0.5, tint: FieldTint.steel, pulse: 0, fps: 20,
                 animating: true)
         case .hearing:
             // The one state driven from outside. `rest` here is a floor and
             // the voice adds to it, so 60fps is not decoration: it is the rate
             // the amplitude arrives at.
             return .init(
-                rest: 0.022, drift: 0.35, tint: FieldTint.steel, pulse: 0, fps: 60,
+                rest: 0.018, drift: 0.35, tint: FieldTint.steel, pulse: 0, fps: 60,
                 animating: true)
         case .thinking:
             // Thin and fast. Work reads as travel round the edge rather than
             // as weight on it, and it is still white: nothing has been done to
             // the machine yet.
             return .init(
-                rest: 0.029, drift: 3.2, tint: FieldTint.steel, pulse: 0, fps: 30,
+                rest: 0.023, drift: 3.2, tint: FieldTint.steel, pulse: 0, fps: 30,
                 animating: true)
         case .acting:
             // Green and breathing, and the only state that breathes on its own
@@ -102,7 +111,7 @@ extension Presence {
             // and that is the one thing in this vocabulary worth a colour they
             // cannot miss.
             return .init(
-                rest: 0.061, drift: 1.1, tint: FieldTint.green, pulse: 0.8, fps: 30,
+                rest: 0.049, drift: 1.1, tint: FieldTint.green, pulse: 0.8, fps: 30,
                 animating: true)
         case .done:
             // Darker green, still, one frame. It is the same hue as `acting`
@@ -110,18 +119,18 @@ extension Presence {
             // darker and stops moving because there is nothing left to wait
             // for.
             return .init(
-                rest: 0.038, drift: 0.1, tint: FieldTint.deepGreen, pulse: 0, fps: 1,
+                rest: 0.030, drift: 0.1, tint: FieldTint.deepGreen, pulse: 0, fps: 1,
                 animating: false)
         case .attention:
             // The thickest, because this is the one that has to be noticed. It
             // stays white: green and red are spoken for, and a third hue here
             // would make the palette decoration again.
             return .init(
-                rest: 0.094, drift: 0.9, tint: FieldTint.steel, pulse: 0, fps: 30,
+                rest: 0.075, drift: 0.9, tint: FieldTint.steel, pulse: 0, fps: 30,
                 animating: true)
         case .failed:
             return .init(
-                rest: 0.072, drift: 0.3, tint: FieldTint.red, pulse: 0, fps: 20,
+                rest: 0.058, drift: 0.3, tint: FieldTint.red, pulse: 0, fps: 20,
                 animating: true)
         }
     }

@@ -14,6 +14,8 @@ import Foundation
 ///                                        open a surface, or re-address one
 ///     - [<surface>]                      close one, or clear the glass
 ///     p <state> [amp=0.4]                presence: what it is doing
+///     s "<text>"                         say one line on the pill (subtitle)
+///     q <n>                              how many requests are waiting
 ///     m <id> <x> <y> <w> <h> [label=]    mark a region of the screen
 ///     u [<id>]                           unmark one, or all of them
 ///
@@ -281,6 +283,26 @@ public enum LineParser {
                 if key == "amp" { amplitude = Double(raw) }
             }
             return .presence(presence, amplitude: amplitude)
+
+        case "s":
+            // `s "reading your calendar"`. A JSON string, like `h` going the
+            // other way, because a subtitle has spaces in it and a listener
+            // splitting on whitespace would take the first word and drop the
+            // sentence. Bare words are accepted on the way in; the string form
+            // is the one to write.
+            let rest = trimmed.dropFirst(1).trimmingCharacters(in: .whitespaces)
+            guard !rest.isEmpty else {
+                throw LineParseError.malformed("`s` needs text", line: trimmed)
+            }
+            if case .string(let text)? = JSONDecoding.parse(rest) { return .say(text) }
+            return .say(rest.trimmingCharacters(in: CharacterSet(charactersIn: "\"")))
+
+        case "q":
+            // `q 2`. Depth only: the pill shows one number, not the queue.
+            guard tokens.count == 2, let count = Int(tokens[1]), count >= 0 else {
+                throw LineParseError.malformed("`q` takes one whole number", line: trimmed)
+            }
+            return .queued(count)
 
         case "r":
             guard tokens.count == 2 else {

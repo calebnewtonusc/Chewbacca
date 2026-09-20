@@ -61,7 +61,39 @@ public struct OverlayView: View {
                 // always on screen in the one place it could never be seen.
                 .padding(.trailing, 22)
                 .padding(.bottom, Self.bottomInset + 14)
+                // One presence object at a time. The pill carries the same
+                // ring at its leading edge, and a spinner in the corner doing
+                // the same dance as the one in the pill reads as a bug.
+                .opacity(model.pill.phase == .hidden ? 1 : 0)
                 .zIndex(9999)
+
+            // The pill, bottom centre, where every subtitle on every screen
+            // the person has ever watched lives. Above every surface, under
+            // the ring.
+            if model.pill.phase != .hidden {
+                PillView(
+                    state: model.pill, presence: model.presence, amplitude: model.amplitude,
+                    clock: model.clock, onCancel: { model.cancelRun() })
+                    .background {
+                        // Measured on the glass itself, inside the width cap,
+                        // so the hit rectangle is the capsule and not the
+                        // 440pt frame around it.
+                        GeometryReader { proxy in
+                            Color.clear.onChange(of: proxy.size, initial: true) { _, size in
+                                model.report(pillSize: size)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: PillView.maxWidth)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .padding(.bottom, Self.bottomInset + PillView.pillLift)
+                    .transition(.asymmetric(
+                        insertion: .modifier(
+                            active: SurfaceEntrance(progress: 0, from: .bottom),
+                            identity: SurfaceEntrance(progress: 1, from: .bottom)),
+                        removal: .opacity.combined(with: .scale(scale: 0.96))))
+                    .zIndex(9998)
+            }
 
             ForEach(model.surfaces) { surface in
                 SurfaceCard(
@@ -415,6 +447,9 @@ struct Brackets: View {
 /// material reads close enough under the same rim light and sheen.
 struct LiquidGlass: ViewModifier {
     let shape: RoundedRectangle
+    /// The capsule's own number. A light surface passes white at the same
+    /// opacity; the default keeps every dark call site as it was.
+    var tint: Color = .black.opacity(0.18)
 
     func body(content: Content) -> some View {
         // Compiled out below the macOS 26 SDK, not merely skipped at runtime.
@@ -425,7 +460,7 @@ struct LiquidGlass: ViewModifier {
         #if compiler(>=6.2)
         if #available(macOS 26, *) {
             content.glassEffect(
-                .regular.tint(.black.opacity(0.18)),
+                .regular.tint(tint),
                 in: shape)
         } else {
             content
@@ -500,6 +535,9 @@ public enum HUD {
 
 struct CloseButton: View {
     let action: () -> Void
+    /// What the X does here. A card is dismissed; the pill discards a
+    /// transcript or stops a run, and the tooltip should say which.
+    var help: String = "Dismiss"
     @State private var hovering = false
 
     public var body: some View {
@@ -513,8 +551,8 @@ struct CloseButton: View {
         .buttonStyle(.plain)
         .opacity(hovering ? 1 : 0.75)
         .onHover { hovering = $0 }
-        .help("Dismiss")
-        .accessibilityLabel("Dismiss")
+        .help(help)
+        .accessibilityLabel(help)
     }
 }
 
@@ -543,6 +581,10 @@ extension EnvironmentValues {
 struct VisualEffect: View {
     let material: NSVisualEffectView.Material
     let blending: NSVisualEffectView.BlendingMode
+    /// Dark unless asked otherwise. The offscreen stand-in ignores this and
+    /// follows the SwiftUI colour scheme instead, which is what a light
+    /// surface sets alongside it.
+    var appearance: NSAppearance.Name = .darkAqua
 
     @Environment(\.hudOffscreen) private var offscreen
 
@@ -550,7 +592,7 @@ struct VisualEffect: View {
         if offscreen {
             Rectangle().fill(.ultraThinMaterial)
         } else {
-            Vibrancy(material: material, blending: blending)
+            Vibrancy(material: material, blending: blending, appearance: appearance)
         }
     }
 }
@@ -559,13 +601,14 @@ struct VisualEffect: View {
 private struct Vibrancy: NSViewRepresentable {
     let material: NSVisualEffectView.Material
     let blending: NSVisualEffectView.BlendingMode
+    var appearance: NSAppearance.Name = .darkAqua
 
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        // Pin the material to dark. `.environment(\.colorScheme, .dark)` governs
+        // Pin the material. `.environment(\.colorScheme, .dark)` governs
         // SwiftUI only; an AppKit view keeps following the system appearance and
         // turns the glass white for anyone not in dark mode.
-        view.appearance = NSAppearance(named: .darkAqua)
+        view.appearance = NSAppearance(named: appearance)
         view.material = material
         view.blendingMode = blending
         view.state = .active
@@ -573,6 +616,7 @@ private struct Vibrancy: NSViewRepresentable {
     }
 
     func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.appearance = NSAppearance(named: appearance)
         view.material = material
         view.blendingMode = blending
     }
