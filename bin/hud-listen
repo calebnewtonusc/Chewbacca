@@ -129,6 +129,11 @@ USER_SETTINGS = Path.home() / ".claude" / "settings.json"
 # run. See bin/superassistant and superassistant/README.md.
 PROMPT_OUT = Path.home() / ".bob" / "agent-prompt.md"
 SUPERASSISTANT = Path(__file__).resolve().parent / "superassistant"
+# The music player, loaded the same way. "Play X" is read here and played
+# here, without the model: a request that took a model turn (2 to 8 s
+# measured on 2026-09-20) to reach `hud-music` now reaches it in the time
+# one search and one AppleScript take.
+MUSIC = Path(__file__).resolve().parent / "hud-music"
 _superassistant: object = None
 
 
@@ -145,11 +150,33 @@ def superassistant():
             loader = importlib.machinery.SourceFileLoader("superassistant", str(SUPERASSISTANT))
             spec = importlib.util.spec_from_loader("superassistant", loader)
             module = importlib.util.module_from_spec(spec)
+            sys.modules["superassistant"] = module
             loader.exec_module(module)
             _superassistant = module
         except Exception:  # noqa: BLE001
             _superassistant = False
     return _superassistant or None
+_music: object = None
+
+
+def music():
+    """The `hud-music` module next to this script, loaded once, or None."""
+    global _music
+    if _music is None:
+        try:
+            loader = importlib.machinery.SourceFileLoader("hud_music", str(MUSIC))
+            spec = importlib.util.spec_from_loader("hud_music", loader)
+            module = importlib.util.module_from_spec(spec)
+            # A dataclass cannot be built in a module that is not in
+            # sys.modules (dataclasses._is_type reads it back by name).
+            sys.modules["hud_music"] = module
+            loader.exec_module(module)
+            _music = module
+        except Exception:  # noqa: BLE001
+            _music = False
+    return _music or None
+
+
 # What `claude --permission-mode` accepts on 2.1.278. Anything else in the
 # person's settings is left off rather than passed on to fail the spawn.
 PERMISSION_MODES = {"acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"}
@@ -966,6 +993,10 @@ class Listener:
         # The model process in flight, so a stop from the glass has something
         # to signal. None between requests.
         self.proc: subprocess.Popen[str] | None = None
+        # One player command at a time. "Play Y" spoken while X is still
+        # being looked up waits for X to land, so that X's late start cannot
+        # kill Y and Y's stop cannot kill X.
+        self.music_lock = threading.Lock()
         # The one Claude Code process for the session, kept between requests
         # and fed each one as a stream-json turn. See `spawn`. Dead or None
         # means the next request starts another and resumes the session.
@@ -1637,7 +1668,12 @@ class Listener:
         self.hush()
         words = normalise(said)
         if words in STOP_WORDS or (words in BARGE_WORDS and self.in_flight()):
+            # "Stop" with nothing running and music playing is the music.
+            if not self.in_flight() and self.music_request(said, typed, bare_stop=True):
+                return
             self.stop()
+            return
+        if not relayed and self.music_request(said, typed):
             return
         req = Request(
             said=said, spoken_at=time.monotonic(), pointed=self.pointing(),
@@ -1659,6 +1695,87 @@ class Listener:
         # a system before deciding it did not hear them and saying it again.
         self.send(f"q {depth}")
         req.seen = looking_at()
+
+    def music_request(self, said: str, typed: bool, bare_stop: bool = False) -> bool:
+        """Play, pause, skip or ask what is on, without the model.
+
+        True when the words were about music and are being acted on: the
+        answer is spoken, written to the panel and kept in the log, and the
+        model never sees the request. False hands the words on as usual.
+        `bare_stop` is a stop word on its own: a pause, and only if
+        something is playing, since with nothing on the word means the
+        bridge.
+
+        Asked for on 2026-09-20: "tell the assistant to play a song or artist
+        and it plays almost instantly". A model turn is the slow part, so the
+        words are read here and the player driven here; `hud-music` keeps the
+        vocabulary, in one place for the bridge and the command line.
+        """
+        module = music()
+        if module is None:
+            return False
+        try:
+            if bare_stop:
+                if module.active_player() is None:
+                    return False
+                command = module.Command("pause")
+            else:
+                command = module.parse(said)
+        except Exception:  # noqa: BLE001
+            return False
+        if command is None:
+            return False
+        if self.in_flight():
+            # They want the music now, not the rest of a reply.
+            self.stop()
+        req = Request(said=said, spoken_at=time.monotonic(), pointed=None, typed=typed)
+        with self.state:
+            self.current = req
+            self.queue.clear()
+        threading.Thread(target=self._play, args=(req, command), daemon=True).start()
+        return True
+
+    def _play(self, req: Request, command) -> None:
+        """The music worker: drive the player, say how it went, take the next."""
+        module = music()
+        started = time.monotonic()
+        with self.music_lock:
+            with self.state:
+                self.running = req
+            try:
+                outcome = module.perform(command)
+            except Exception as err:  # noqa: BLE001
+                self.log("music failed:", err)
+                outcome = module.Outcome(False, "The player didn't answer.")
+            with self.state:
+                self.running = None
+                stopped = self.cancelled is req
+                if stopped:
+                    self.cancelled = None
+                # Another request took the glass while this one was looked
+                # up; its own outcome is the one that lands.
+                superseded = self.current is not req
+            if stopped and outcome.ok and command.verb in ("play", "resume"):
+                # "Play X" and then "stop" before X was found: the stop wins.
+                try:
+                    module.perform(module.Command("stop"))
+                except Exception:  # noqa: BLE001
+                    pass
+                outcome = module.Outcome(True, "Stopped.")
+        self.log(f"music: [{time.monotonic() - started:.1f}s] {command.verb}:", outcome.line)
+        self.remember(req, outcome.line, outcome.ok, "cancelled" if stopped else "done" if outcome.ok else "failed")
+        if superseded:
+            return
+        self.send("w " + json.dumps(outcome.line) + " done=true")
+        self.send("s " + json.dumps(outcome.line))
+        if not req.typed and not stopped:
+            self.speak(outcome.line)
+        self.settle("done" if outcome.ok else "failed", self.LEAVE_AFTER)
+        with self.state:
+            self.current = self.queue.popleft() if self.queue else None
+            has_next = self.current is not None
+        if has_next:
+            self._drain()
 
     def _drain(self) -> None:
         """The one worker: run `current`, show how it went, take the next."""

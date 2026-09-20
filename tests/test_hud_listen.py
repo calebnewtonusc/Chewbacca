@@ -760,6 +760,91 @@ def test_guide_hit(m) -> None:
           prompt[:120])
 
 
+def test_music_fast_path(m) -> None:
+    """"Play X" never reaches the model: the bridge reads the words, drives the
+    player, and says how it went. A bare stop word pauses the music when it is
+    the only thing running."""
+    import types
+    played: list[str] = []
+    state = {"player": None}
+
+    class Command:
+        def __init__(self, verb: str, what: str = "") -> None:
+            self.verb, self.what = verb, what
+
+    class Outcome:
+        def __init__(self, ok: bool, line: str) -> None:
+            self.ok, self.line = ok, line
+
+    def parse(said: str):
+        words = said.lower().rstrip(".!")
+        if words.startswith("play "):
+            return Command("play", words[5:])
+        if words == "pause":
+            return Command("pause")
+        return None
+
+    def perform(command):
+        played.append(command.verb + (":" + command.what if command.what else ""))
+        if command.verb == "play":
+            state["player"] = "spotify"
+            return Outcome(True, f"Playing {command.what.title()}.")
+        if command.verb == "pause":
+            state["player"] = None
+            return Outcome(True, "Paused.")
+        return Outcome(False, "Nothing's playing.")
+
+    fake = types.SimpleNamespace(parse=parse, perform=perform, Command=Command, Outcome=Outcome,
+                                 active_player=lambda: state["player"])
+    kept = m._music
+    m._music = fake
+    try:
+        listener = m.Listener("claude -p", False, False)
+        sent: list[str] = []
+        listener.send = sent.append
+        spoken: list[str] = []
+        listener.speak = spoken.append
+        remembered: list[tuple[str, str, str]] = []
+        listener.remember = lambda req, answer, ok, outcome: remembered.append((req.said, answer, outcome))
+        listener.settle = lambda state, hold: None
+        drained: list[str] = []
+        listener._drain = lambda: drained.append("drain")
+        stops: list[str] = []
+        listener.stop = lambda: stops.append("stop")
+
+        listener.ask("Play blinding lights.")
+        deadline = time.monotonic() + 3
+        while listener.current is not None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        check("the player was driven, not the model", played == ["play:blinding lights"] and drained == [], f"{played} {drained}")
+        check("the answer went to the panel and the pill",
+              'w "Playing Blinding Lights." done=true' in sent and 's "Playing Blinding Lights."' in sent, str(sent))
+        check("and was spoken", spoken == ["Playing Blinding Lights."], str(spoken))
+        check("and kept in the log", remembered == [("Play blinding lights.", "Playing Blinding Lights.", "done")], str(remembered))
+        check("the glass is free again", listener.current is None and listener.running is None)
+
+        listener.ask("Stop.")
+        deadline = time.monotonic() + 3
+        while listener.current is not None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        check("a bare stop with music on pauses the music and does not stop the bridge",
+              played[-1] == "pause" and stops == [] and spoken[-1] == "Paused.", f"{played} {stops} {spoken}")
+        listener.ask("Stop.")
+        check("a bare stop with nothing on is the bridge's stop", stops == ["stop"] and played[-1] == "pause", f"{stops} {played}")
+
+        listener.ask("What is due this week?")
+        check("anything else goes to the model", listener.current is not None and listener.current.said == "What is due this week?"
+              and drained == ["drain"], f"{listener.current} {drained}")
+        listener.current = None
+        listener.ask("Play something.", typed=True)
+        deadline = time.monotonic() + 3
+        while listener.current is not None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        check("a typed request is written, not spoken", played[-1] == "play:something" and spoken[-1] == "Paused.", f"{played} {spoken}")
+    finally:
+        m._music = kept
+
+
 def test_remember(m) -> None:
     """Every request and its answer reach the superassistant log, and the
     prompt the agent is given carries the brain digest."""
@@ -1294,6 +1379,8 @@ def main() -> int:
     test_read_aloud_skips_the_pointer(module)
     print("a click on a guide")
     test_guide_hit(module)
+    print("music without the model")
+    test_music_fast_path(module)
     print("the superassistant log")
     test_remember(module)
     print("the lean profile")

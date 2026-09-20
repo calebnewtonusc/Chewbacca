@@ -242,6 +242,27 @@ person following along wants the next step, not a trail. The voice's rules
 for guiding, one step, their words, their hands, are in `bin/hud-agent.md`
 under "Showing them where".
 
+## Playing music
+
+"Play Blinding Lights", "play some Drake", "pause", "skip", "what's playing",
+"turn it up": the bridge reads these itself and drives the player, so nothing
+waits on the model. `bin/hud-music` is the same code as a command:
+
+```bash
+hud-music play "fred again"      # Spotify by name, or YouTube audio without keys
+hud-music pause | resume | next | previous | again | stop
+hud-music volume up              # or down, or a number
+hud-music now                    # what is on, in a sentence
+hud-music status                 # which players are ready, and why not
+```
+
+Spotify plays by name once its keys are in `~/.bob/spotify.json`
+(`hud-music setup <client id> <client secret>`, from a free developer app at
+developer.spotify.com/dashboard; no Premium, no login). Without them, YouTube's
+first result plays through `ffplay` with no window, a few seconds in. "Stop"
+on its own pauses the music when the voice is idle; "stop the music" always
+does.
+
 ## Panels that take themselves down
 
 `@ toast at=top life=6` closes after six seconds. Use it for something the person
