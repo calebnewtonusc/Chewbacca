@@ -23,6 +23,7 @@ trap 'rm -rf "$TMP"' EXIT
 export PEOPLE_DIR="$TMP/people"
 export COURSEWORK_DIR="$TMP/coursework"
 export CHEWBACCA_LOG_DIR="$TMP/logs"
+export SUPERASSISTANT_DIR="$TMP/superassistant"
 
 group() { CURRENT="$1"; [ -n "$ONLY" ] && [ "$ONLY" != "$1" ] && return 1
           echo -e "\n${BLD}$1${NC}"; return 0; }
@@ -362,6 +363,10 @@ if group "hud"; then
   # lines, which is what "Done." costs after the first time.
   check  "hud-speak splits and caches" python3 "$ROOT/tests/test_hud_speak.py"
   check  "hud-context parses" python3 -m py_compile "$ROOT/bin/hud-context"
+  check  "superassistant parses" python3 -m py_compile "$ROOT/bin/superassistant"
+  # The voice's memory both ways: the brain digest it is given, and the log
+  # of what it was asked. Hermetic: a temp brain and a temp log.
+  check  "superassistant keeps questions and digests the brain" python3 "$ROOT/tests/test_superassistant.py"
   check  "hud-watch parses"   python3 -m py_compile "$ROOT/bin/hud-watch"
   # The budget is the whole design. A proactive thing that interrupts whenever
   # it has an opinion gets muted within a day, and a muted assistant is worth

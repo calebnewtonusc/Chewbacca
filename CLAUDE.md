@@ -284,6 +284,26 @@ The `mac` JSON contract and its limits: [docs/MACOS-APP-CONTROL.md](docs/MACOS-A
 
 ---
 
+## THE VOICE ASSISTANT SHARES THE BRAIN, BOTH WAYS
+
+`hud-listen`, the voice behind the hyper bar, reads the second brain (YOU.md,
+NOW.md, PEOPLE.md, the memory index) into its prompt and rebuilds that prompt
+whenever those files change, so keeping NOW.md current is what keeps the voice
+current. Every question asked of it, and its written answer, lands in
+`superassistant/questions.jsonl` in the Chewbacca checkout, and the session
+briefing carries the last few into every session here.
+
+| Question                            | Command                     |
+| ----------------------------------- | --------------------------- |
+| What has he asked the voice lately? | `superassistant recent 10`  |
+| Did he ask about X?                 | `superassistant search "X"` |
+| What does the voice know about him? | `superassistant context`    |
+
+The log is personal and gitignored. Never commit it, and never quote it into
+anything that leaves the machine. See `superassistant/README.md`.
+
+---
+
 ## CLASSES AND LIFE: READ THE LEDGER, NEVER GUESS A DATE
 
 If a coursework ledger exists (`~/coursework`, or `$COURSEWORK_DIR`), it is the

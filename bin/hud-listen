@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import argparse
 import collections
+import importlib.machinery
+import importlib.util
 import json
 import os
 import re
@@ -122,6 +124,32 @@ AGENT_PROMPT = Path(__file__).resolve().parent / "hud-agent.md"
 # settings source (their hooks were the bulk of a turn, see `agent_flags`),
 # so the permission posture they chose there is carried across by hand.
 USER_SETTINGS = Path.home() / ".claude" / "settings.json"
+# The prompt the agent is actually given: hud-agent.md with a digest of the
+# person's second brain appended by `superassistant`, rebuilt before every
+# run. See bin/superassistant and superassistant/README.md.
+PROMPT_OUT = Path.home() / ".bob" / "agent-prompt.md"
+SUPERASSISTANT = Path(__file__).resolve().parent / "superassistant"
+_superassistant: object = None
+
+
+def superassistant():
+    """The `superassistant` module next to this script, loaded once, or None.
+
+    Loaded by path because, like this file, it has no `.py` suffix. None
+    when it is missing or broken, and the bridge then answers without the
+    brain and keeps no log rather than not answering.
+    """
+    global _superassistant
+    if _superassistant is None:
+        try:
+            loader = importlib.machinery.SourceFileLoader("superassistant", str(SUPERASSISTANT))
+            spec = importlib.util.spec_from_loader("superassistant", loader)
+            module = importlib.util.module_from_spec(spec)
+            loader.exec_module(module)
+            _superassistant = module
+        except Exception:  # noqa: BLE001
+            _superassistant = False
+    return _superassistant or None
 # What `claude --permission-mode` accepts on 2.1.278. Anything else in the
 # person's settings is left off rather than passed on to fail the spawn.
 PERMISSION_MODES = {"acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"}
@@ -340,7 +368,7 @@ def turn_line(
     )
 
 
-def agent_flags(profile: str, settings: dict) -> list[str]:
+def agent_flags(profile: str, settings: dict, prompt: Path = AGENT_PROMPT) -> list[str]:
     """The Claude Code flags that make the answering agent lean.
 
     Measured 2026-09-20 on Claude Code 2.1.278, one spoken request each:
@@ -364,7 +392,7 @@ def agent_flags(profile: str, settings: dict) -> list[str]:
     flags = [
         "--setting-sources", "local",
         "--tools=Bash",
-        "--system-prompt-file", str(AGENT_PROMPT),
+        "--system-prompt-file", str(prompt),
     ]
     permissions = settings.get("permissions") or {}
     mode = permissions.get("defaultMode")
@@ -844,7 +872,8 @@ class Listener:
         # none of the person's settings (see `agent_flags`); `full` runs it
         # the way `claude -p` runs at a terminal, for comparison.
         self.lean = profile == "lean"
-        self.flags = agent_flags(profile, user_settings())
+        self.prompt_path = self.refresh_prompt()
+        self.flags = agent_flags(profile, user_settings(), self.prompt_path)
         # Turns run in the current session, for the `turn:` line and for
         # `retire`.
         self.turns = 0
@@ -947,6 +976,54 @@ class Listener:
     def log(self, *args) -> None:
         if self.verbose:
             print(*args, file=sys.stderr, flush=True)
+
+    def refresh_prompt(self) -> Path:
+        """The system prompt file, with the person's brain digest appended.
+
+        Rebuilt before every run and rewritten only when its inputs changed,
+        so a NOW.md edited a minute ago reaches the next request and an
+        unchanged prompt keeps its cache. Once the bare prompt has been
+        chosen it stays: the flags carry the path, and they are set once.
+        """
+        if getattr(self, "prompt_path", None) == AGENT_PROMPT:
+            return AGENT_PROMPT
+        module = superassistant()
+        if module is None:
+            return AGENT_PROMPT
+        try:
+            return module.agent_prompt(AGENT_PROMPT, PROMPT_OUT)
+        except Exception as err:  # noqa: BLE001
+            self.log("prompt not refreshed:", err)
+            return AGENT_PROMPT
+
+    def remember(self, req: Request, answer: str, ok: bool, outcome: str) -> None:
+        """Keep the request and its answer in the superassistant log.
+
+        The other half of `refresh_prompt`: the voice reads the person's
+        brain, and every Claude Code session reads what was asked out loud,
+        through the session-context hook. Never raises; a log that cannot be
+        written must not cost a reply.
+        """
+        module = superassistant()
+        if module is None:
+            return
+        entry = {
+            "said": req.said,
+            "typed": req.typed,
+            "answer": answer or "",
+            "aside": self.aside,
+            "outcome": outcome,
+            "ok": ok,
+            "seconds": round(time.monotonic() - req.spoken_at, 1),
+            "session": self.session,
+            "turn": self.turns,
+            "usage": self.last_usage,
+        }
+        try:
+            if module.record(entry):
+                self.log("remembered:", req.said[:60])
+        except Exception as err:  # noqa: BLE001
+            self.log("not remembered:", err)
 
     def prefer(self, rest: str) -> None:
         """`voice long=written|spoken`, from the panel's switch."""
@@ -1607,6 +1684,7 @@ class Listener:
         argv = shlex.split(self.model_cmd)
         if not argv or Path(argv[0]).name != "claude":
             return argv
+        self.refresh_prompt()
         argv = argv + self.flags
         if self.started:
             return argv + ["--resume", self.session]
@@ -1665,6 +1743,7 @@ class Listener:
             answer = prose(out).strip()
         with self.state:
             if self.cancelled is req:
+                self.remember(req, answer, False, "cancelled")
                 return "cancelled"
         # An agent with tools draws for itself and answers in prose, so
         # stray lines here are the exception rather than the payload.
@@ -1696,6 +1775,7 @@ class Listener:
         # the tell of a machine.
         if ok and not req.typed and not voiced and reply != first:
             self.speak(reply or said or "")
+        self.remember(req, answer, ok, "done" if ok else "failed")
         return "done" if ok else "failed"
 
     def prompt_for(self, req: Request, seen: str) -> str:
