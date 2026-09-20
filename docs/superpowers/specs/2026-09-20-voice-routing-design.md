@@ -133,14 +133,25 @@ the draft are collapsed to spaces so the input holds one paragraph. Prints
 
 **`submit [--tty TTY]`**: selects the tab if it is not already selected, brings
 Terminal front if it is not, presses Return through System Events `key code 36`.
-This is the only thing that runs a prompt, and only a person triggers it.
+This is the only thing that runs a prompt, and only a person triggers it. It
+refuses with exit 3 unless `CHEWIE_TERMINAL_SUBMIT=1` is in its environment:
+`hud-listen`'s draft-word path is the only caller that sets it, and only in
+answer to a person saying "send it" with a draft outstanding. `bin/hud-agent.md`
+still tells the model never to run it, but the gate is what actually stops it.
 
 **`clear [--tty TTY]`**: same focus dance, then Control-U to clear the input.
 Used by "scrap that" and by the "no, to you" correction after a draft.
 
-Secure Input: `draft` and `clear` synthesize a paste and a keystroke, so
-`chewie type`'s existing Secure Input check runs first and the assistant says
-which app holds it if it is on.
+`submit` and `clear`, called from `hud-listen`'s draft-word path, act on the
+tty `draft` recorded in `draft.json`, not on whatever tab is
+front-and-selected at the moment: that can move between the draft landing and
+the person reading it, and "send it" pressing Return in an unreviewed tab is
+the exact failure this whole design exists to prevent.
+
+Secure Input: `draft`, `submit` and `clear` all synthesize input to
+Terminal, a paste or a keystroke, so `chewie type`'s existing Secure Input
+check runs first on all three and the assistant says which app holds it if it
+is on.
 
 ### Voice words the bridge handles itself
 
@@ -211,11 +222,15 @@ sentences, not the file.
 
 ## Feedback in the pill
 
-The pill already carries one line and six phases. On a route decision it shows
-`to terminal` or `to chrome: <query>` for 1.2 seconds. While a draft is
-outstanding it shows `draft in terminal, say send` and stays there until the
-draft is submitted, cleared, or five minutes pass. Assistant-bound sentences
-show nothing new.
+The pill already carries one line and six phases. A terminal decision shows
+`to terminal`; a browser decision shows the label `browser_url` built,
+`chrome: <query>` (no "to", since the label already names the destination).
+Once a terminal turn is done, if a draft is still outstanding the pill adds
+`draft in terminal, say send`. That line holds for as long as the turn's own
+`done`/`failed` state does, the ordinary `settle()` hold (`LEAVE_AFTER`, ten
+seconds guessed) rather than a separate five-minute timer: the draft itself
+is visible in the terminal the whole time it is outstanding, so the pill only
+needs to say so once. Assistant-bound sentences show nothing new.
 
 ## Changes by file
 
@@ -243,8 +258,10 @@ show nothing new.
   `reason: "classifier timeout"`.
 - Memory unwritable: log and continue; routing degrades to rules plus
   frontmost app, which is most of the value anyway.
-- Secure Input on: `draft` and `clear` refuse with exit 2 and name the holder;
-  `ensure` is unaffected because `do script` is not a keystroke.
+- Secure Input on: `draft`, `submit` and `clear` refuse with exit 2 and name
+  the holder; `ensure` is unaffected because `do script` is not a keystroke.
+- `submit` run without `CHEWIE_TERMINAL_SUBMIT=1`: refuses with exit 3 and
+  presses nothing. Only `hud-listen`'s draft-word path sets it.
 
 ## Constants, and what set them
 
