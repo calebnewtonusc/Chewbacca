@@ -456,7 +456,12 @@ def subtitle(text: str, limit: int = SUBTITLE_LIMIT) -> str:
     if not paragraphs:
         return ""
     flat = " ".join(" ".join(p.split()) for p in paragraphs)
-    line = " ".join(SENTENCE_END.split(flat)[:2])
+    sentences = SENTENCE_END.split(flat)[:2]
+    # A sentence that points at the hyper bar is the whole line, as it is
+    # the whole spoken reply: the write-up behind it is not a subtitle.
+    if HYPER_BAR.search(sentences[0]):
+        sentences = sentences[:1]
+    line = " ".join(sentences)
     if len(line) <= limit:
         return line
     cut = line.rfind(" ", 0, limit)
