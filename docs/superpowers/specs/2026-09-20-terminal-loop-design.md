@@ -102,8 +102,9 @@ hud-listen can.
 
 ### The watcher
 
-A daemon thread tails `terminal-events.jsonl` by byte offset, polling every
-0.5 s, and folds events into one `terminal` state on the Listener:
+A daemon thread tails `terminal-events.jsonl` from an `(inode, offset)`
+cursor, polling every 0.5 s, and folds events into one `terminal` state on
+the Listener:
 
 | Event | State |
 | --- | --- |
@@ -118,6 +119,12 @@ Every state change sends the strip line to the HUD (below). Waiting also
 sends `p attention` when nothing of the assistant's own is in flight, which
 is the existing blocked-on-you state; no new presence state is added. Done
 sends `p done` under the same condition.
+
+An entry more than five seconds old is history, not news: the strip line
+still goes out, so a restart or a rotation recovers the state and a hold
+that is genuinely still open can still be answered by voice, but nothing is
+spoken and no presence is sent. Without that, every restart read the whole
+file aloud, re-asking permission questions answered hours ago.
 
 ### Announcements
 
@@ -200,16 +207,23 @@ strip and nothing else.
 ## Testing
 
 - `tests/test_terminal_events.py`: the `hook` verb's filter (no file, wrong cwd, realpath
-  match), summaries per tool, the cap, the ask protocol with a fake front
-  check and a temp memory dir: answer within time, answer with stop,
-  expiry, Terminal in front skips the hold.
+  match), summaries per tool, the append-only log and its rotation, the ask
+  protocol with a fake front check and a temp memory dir: answer within
+  time, answer with stop, expiry, Terminal in front skips the hold, a stale
+  ask cleared, a torn answer file.
+- `tests/test_terminal_state.py`: the fold, and `tail` across a rotation
+  driven by the real `append`, which is where every entry has to arrive
+  exactly once.
+- `tests/test_setup_hooks.py`: the installer's settings block, extracted and
+  run twice under a temp HOME, registering each hook once.
 - `tests/test_terminal.py`: the `answer`, `interrupt`, and `focus` verbs
   through the existing osascript stub, and the Secure Input refusals.
 - `tests/test_hud_listen.py`: the watcher folds a fixture events file into
-  states and sends the `t` lines; the answer words write the answer file
-  while waiting and route normally otherwise; the expired path calls the
-  stub terminal command with `answer`; "stop the terminal" with and without
-  a held ask.
+  states and sends the `t` lines; a file that is already non-empty at
+  startup folds silently; the answer words write the answer file while
+  waiting and route normally otherwise; an answer nobody consumes says the
+  terminal stopped waiting; the expired path calls the stub terminal command
+  with `answer`; "stop the terminal" with and without a held ask.
 - `hud/Tests`: the `t` line parses, `t off` hides, the model holds the
   state.
 - `tests/live/terminal-loop.sh`: opt-in, never run by `tests/run.sh`, opens
