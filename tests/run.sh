@@ -367,6 +367,19 @@ if group "hud"; then
   # real app, no microphone, no tokens. It is the only test that covers what
   # happens between hearing something and drawing it.
   check  "the listen loop works end to end" python3 "$ROOT/tests/test_hud_listen.py"
+  # The same file has a pytest-only path (the fixtures at its top) that no
+  # runner ever exercised: none of the python3 interpreters on the dev Macs,
+  # 3.12 through 3.14 and /usr/bin, has pytest, so a bare `python3 -m pytest`
+  # dies before collecting anything. uv fetches pytest into a throwaway env.
+  # CI's macos-latest ships neither, so it skips there and the script-mode
+  # check above is what CI proves.
+  if python3 -c 'import pytest' 2>/dev/null; then
+    check "the suite collects under pytest" python3 -m pytest "$ROOT/tests" -q
+  elif command -v uv >/dev/null 2>&1; then
+    check "the suite collects under pytest" uv run --no-project --with pytest python -m pytest "$ROOT/tests" -q
+  else
+    skip "the suite collects under pytest" "no pytest and no uv"
+  fi
   expect "the skill teaches the wire format" "Bob Lines" cat "$ROOT/skills/hud/SKILL.md"
 fi
 
