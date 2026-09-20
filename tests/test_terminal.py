@@ -73,5 +73,88 @@ check("newlines collapse to one space", t.collapse("build a\nsignaler\n\nfor AAP
 check("runs of spaces collapse", t.collapse("a   b\t c") == "a b c")
 check("ends trimmed", t.collapse("  hi \n") == "hi")
 
-print(f"\n{PASSED} passed, {FAILED} failed")
-sys.exit(1 if FAILED else 0)
+# ── actions, with osascript and peekaboo replaced ────────────────────────────
+import json as _json
+import os as _os
+import tempfile as _tempfile
+
+calls: list = []
+
+
+def fake_osascript(script, *args):
+    calls.append(("osascript", script.strip().splitlines()[0], args))
+    if "processes of t" in script:
+        return RAW
+    if "do script" in script:
+        return "/dev/ttys004"
+    return "ok"
+
+
+def fake_run(argv):
+    calls.append(("run", tuple(argv)))
+    class R:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+    return R()
+
+
+t.osascript = fake_osascript
+t.run = fake_run
+t.secure_input_holder = lambda: None
+mem = pathlib.Path(_tempfile.mkdtemp())
+t.MEMORY, t.DRAFT, t.PROJECT = mem, mem / "draft.json", mem / "project.json"
+
+calls.clear()
+out = t.draft("build a\nsignaler", None)
+check("draft chose the first candidate", out["tty"] == "/dev/ttys002", str(out))
+check("draft collapsed the text", out["chars"] == len("build a signaler"))
+check("draft focused the tab before pasting",
+      [c[0] for c in calls] == ["osascript", "osascript", "run"], str(calls))
+check("draft pasted through peekaboo, text as an argument",
+      calls[-1][1][:3] == ("peekaboo", "paste", "--text") and calls[-1][1][3] == "build a signaler")
+check("no Return was pressed", not any("key code 36" in str(c) for c in calls))
+saved = _json.loads((mem / "draft.json").read_text())
+check("draft.json holds the tty and text", saved["tty"] == "/dev/ttys002" and saved["text"] == "build a signaler")
+check("project.json got last_sent", "last_sent" in _json.loads((mem / "project.json").read_text()))
+
+calls.clear()
+t.submit("/dev/ttys002")
+check("submit focuses then presses Return",
+      any("key code 36" in str(c) for c in calls) and calls[0][0] == "osascript")
+check("submit removes the draft", not (mem / "draft.json").exists())
+
+t.draft("again", "/dev/ttys003")
+calls.clear()
+t.clear("/dev/ttys003")
+check("clear presses Control-U", any("key code 32" in str(c) and "control down" in str(c) for c in calls))
+check("clear removes the draft", not (mem / "draft.json").exists())
+
+t.secure_input_holder = lambda: "loginwindow"
+try:
+    t.draft("x", None)
+    check("draft refuses under Secure Input", False)
+except SystemExit as e:
+    check("draft refuses under Secure Input with exit 2", e.code == 2)
+t.secure_input_holder = lambda: None
+
+no_tabs = t.parse_tabs("")
+check("choose on no tabs is None", t.choose(no_tabs, None) is None)
+try:
+    t.osascript = lambda s, *a: ""
+    t.draft("x", None)
+    check("draft with no claude tab fails", False)
+except SystemExit as e:
+    check("draft with no claude tab exits 1", e.code == 1)
+t.osascript = fake_osascript
+
+# ensure: an existing candidate is returned without opening anything
+calls.clear()
+got = t.ensure(None, timeout=0.1)
+check("ensure returns the existing candidate", got["tty"] == "/dev/ttys002")
+check("ensure did not run do script", not any("do script" in str(c) for c in calls))
+check("project.json remembers the tty", _json.loads((mem / "project.json").read_text())["tty"] == "/dev/ttys002")
+
+if __name__ == "__main__":
+    print(f"\n{PASSED} passed, {FAILED} failed")
+    sys.exit(1 if FAILED else 0)
