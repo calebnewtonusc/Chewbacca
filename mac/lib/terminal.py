@@ -7,7 +7,7 @@ said "send it" or "run it" (bin/hud-listen). A prompt that Chewbacca typed and
 Chewbacca also submitted is a prompt nobody read.
 
     chewie terminal tabs                    every tab: tty, selected, front, processes
-    chewie terminal ensure [--cwd DIR]      a tab running claude, opened if needed
+    chewie terminal ensure [--cwd DIR] [--fresh]  a tab running claude, opened if needed (--fresh: always opened)
     chewie terminal draft "<text>" [--tty]  paste into the claude tab, no Return
     chewie terminal submit [--tty]          press Return in that tab
     chewie terminal clear [--tty]           Control-U in that tab
@@ -44,13 +44,18 @@ SECURE_INPUT = Path(__file__).resolve().parent / "secure-input.sh"
 TABS_SCRIPT = '''
 set AppleScript's text item delimiters to ","
 set out to ""
+-- Inside `tell application "Terminal"` the word `tab` is Terminal's tab
+-- class and coerces to the text "tab": the first live run on 2026-09-20
+-- produced "/dev/ttys004tabtruetab..." and no tab ever parsed. The
+-- separator is bound here, outside the tell block, by character code.
+set sep to string id 9
 if application "Terminal" is running then
   tell application "Terminal"
     set wi to 0
     repeat with w in windows
       set wi to wi + 1
       repeat with t in tabs of w
-        set out to out & (tty of t) & tab & (selected of t) & tab & (wi = 1) & tab & ((processes of t) as text) & linefeed
+        set out to out & (tty of t) & sep & (selected of t) & sep & (wi = 1) & sep & ((processes of t) as text) & linefeed
       end repeat
     end repeat
   end tell
@@ -78,7 +83,11 @@ def parse_tabs(raw: str) -> list[dict]:
 
 
 def is_candidate(tab: dict) -> bool:
-    return "claude" in tab["processes"]
+    # On 2026-09-20 Terminal listed the same process as "claude" while
+    # `ps -o ucomm` named it "claude.exe" (the homebrew npm link's target).
+    # Both spellings are accepted rather than betting on which one a later
+    # macOS or install path reports.
+    return any(p == "claude" or p.startswith("claude.") for p in tab["processes"])
 
 
 def choose(tabs: list[dict], remembered: str | None) -> dict | None:
@@ -265,14 +274,19 @@ def remember(tab: dict) -> dict:
     return merge_json(PROJECT, patch)
 
 
-def ensure(cwd: str | None, timeout: float = 10.0) -> dict:
+def ensure(cwd: str | None, timeout: float = 10.0, fresh: bool = False) -> dict:
     """A tab running claude, opened if there is none.
 
     Ten seconds: claude on this machine shows its prompt in about two, and
     a cold start with a big project has been seen take five. Guessed above
     that.
+
+    `fresh` skips the existing tabs and always opens one. It exists for the
+    live check: on 2026-09-20 the check let ensure choose, ensure preferred
+    the front tab, which was a real Claude Code session, and the check
+    drafted and submitted its test prompt into that session.
     """
-    tab = choose(tabs(), read_json(PROJECT).get("tty"))
+    tab = None if fresh else choose(tabs(), read_json(PROJECT).get("tty"))
     if tab is not None:
         project = remember(tab)
         return {"tty": tab["tty"], "cwd": project.get("cwd", ""), "opened": False}
@@ -292,7 +306,12 @@ def ensure(cwd: str | None, timeout: float = 10.0) -> dict:
                 })
                 return {"tty": tty, "cwd": project["cwd"], "opened": True}
         time.sleep(ENSURE_POLL_INTERVAL)
-    print(f"terminal: opened {tty} but claude did not start within {timeout:.0f}s", file=sys.stderr)
+    seen = [t["processes"] for t in tabs() if t["tty"] == tty]
+    print(
+        f"terminal: opened {tty} but no claude process showed within {timeout:.0f}s"
+        f" (saw {seen[0] if seen else 'no such tab'})",
+        file=sys.stderr,
+    )
     raise SystemExit(1)
 
 
@@ -357,7 +376,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true")
     sub = parser.add_subparsers(dest="verb", required=True)
     sub.add_parser("tabs")
-    p = sub.add_parser("ensure"); p.add_argument("--cwd")
+    p = sub.add_parser("ensure"); p.add_argument("--cwd"); p.add_argument("--fresh", action="store_true")
     p = sub.add_parser("draft"); p.add_argument("text"); p.add_argument("--tty")
     p = sub.add_parser("submit"); p.add_argument("--tty")
     p = sub.add_parser("clear"); p.add_argument("--tty")
@@ -366,7 +385,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.verb == "tabs":
         out = tabs()
     elif args.verb == "ensure":
-        out = ensure(args.cwd)
+        out = ensure(args.cwd, fresh=args.fresh)
     elif args.verb == "draft":
         out = draft(args.text, args.tty)
     elif args.verb == "submit":
