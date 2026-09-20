@@ -11,6 +11,9 @@ Chewbacca also submitted is a prompt nobody read.
     chewie terminal draft "<text>" [--tty]  paste into the claude tab, no Return
     chewie terminal submit [--tty]          press Return in that tab
     chewie terminal clear [--tty]           Control-U in that tab
+    chewie terminal answer yes|no [--tty]   Return or Escape on the permission dialog
+    chewie terminal interrupt [--tty]       Escape: stop the run in that tab
+    chewie terminal focus [--tty]           bring that tab to the front
     chewie terminal hook                    a Claude Code hook: event JSON on stdin (see terminal_events.py)
 
 Memory (`~/.bob/memory/`, or BOB_MEMORY_DIR): `draft.json` is the outstanding
@@ -235,6 +238,11 @@ end run
 
 KEY_RETURN = 'tell application "System Events" to key code 36'
 KEY_CONTROL_U = 'tell application "System Events" to key code 32 using control down'
+# Escape. Claude Code reads it as "interrupt" during a run and as "no" on a
+# permission dialog; Return takes the dialog's highlighted first option,
+# which is "Yes". Observed in Claude Code 2.1.278, and the live check
+# tests/live/terminal-loop.sh is what proves it on a new version.
+KEY_ESCAPE = 'tell application "System Events" to key code 53'
 
 
 def pick(tty: str | None) -> dict:
@@ -372,6 +380,33 @@ def clear(tty: str | None) -> dict:
     return {"tty": tab["tty"], "cleared": True}
 
 
+def answer(choice: str, tty: str | None) -> dict:
+    """Yes or no to the permission dialog the tab is showing. Only ever run
+    by hud-listen while its terminal state is waiting and the hook has
+    already given the prompt back to the tab, so the Return never lands on
+    an input holding a draft."""
+    refuse_under_secure_input()
+    tab = pick(tty)
+    focus(tab["tty"])
+    osascript(KEY_RETURN if choice == "yes" else KEY_ESCAPE)
+    return {"tty": tab["tty"], "answer": choice}
+
+
+def interrupt(tty: str | None) -> dict:
+    """Escape in the tab: Claude Code stops what it is doing."""
+    refuse_under_secure_input()
+    tab = pick(tty)
+    focus(tab["tty"])
+    osascript(KEY_ESCAPE)
+    return {"tty": tab["tty"], "interrupted": True}
+
+
+def focus_tab(tty: str | None) -> dict:
+    tab = pick(tty)
+    focus(tab["tty"])
+    return {"tty": tab["tty"], "focused": True}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="chewie terminal")
     parser.add_argument("--json", action="store_true")
@@ -381,6 +416,9 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("draft"); p.add_argument("text"); p.add_argument("--tty")
     p = sub.add_parser("submit"); p.add_argument("--tty")
     p = sub.add_parser("clear"); p.add_argument("--tty")
+    p = sub.add_parser("answer"); p.add_argument("choice", choices=["yes", "no"]); p.add_argument("--tty")
+    p = sub.add_parser("interrupt"); p.add_argument("--tty")
+    p = sub.add_parser("focus"); p.add_argument("--tty")
     sub.add_parser("hook")
     args = parser.parse_args(argv)
 
@@ -403,6 +441,12 @@ def main(argv: list[str] | None = None) -> int:
         out = draft(args.text, args.tty)
     elif args.verb == "submit":
         out = submit(args.tty)
+    elif args.verb == "answer":
+        out = answer(args.choice, args.tty)
+    elif args.verb == "interrupt":
+        out = interrupt(args.tty)
+    elif args.verb == "focus":
+        out = focus_tab(args.tty)
     else:
         out = clear(args.tty)
 

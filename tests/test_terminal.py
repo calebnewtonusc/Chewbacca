@@ -206,6 +206,42 @@ def main() -> int:
     check("ensure --fresh ran do script", any("do script" in str(c) for c in calls))
     t.osascript = fake_osascript
 
+    # answer / interrupt / focus: focus first, then one key. The key lines
+    # are single-line scripts, so their first line is the whole script.
+    t.osascript = fake_osascript
+    calls.clear()
+    got = t.answer("yes", "/dev/ttys002")
+    keys = [c[1] for c in calls if c[0] == "osascript" and "key code" in c[1]]
+    check("answer yes presses Return", keys == ['tell application "System Events" to key code 36'], str(keys))
+    focus_idx = next(i for i, c in enumerate(calls) if c[2] == ("/dev/ttys002",))
+    key_idx = next(i for i, c in enumerate(calls) if "key code" in c[1])
+    check("answer focused the tab first", focus_idx < key_idx, str(calls))
+    check("answer reports", got == {"tty": "/dev/ttys002", "answer": "yes"}, str(got))
+    calls.clear()
+    t.answer("no", "/dev/ttys002")
+    keys = [c[1] for c in calls if "key code" in c[1]]
+    check("answer no presses Escape", keys == ['tell application "System Events" to key code 53'], str(keys))
+    calls.clear()
+    t.interrupt("/dev/ttys002")
+    keys = [c[1] for c in calls if "key code" in c[1]]
+    check("interrupt presses Escape", keys == ['tell application "System Events" to key code 53'], str(keys))
+    calls.clear()
+    got = t.focus_tab("/dev/ttys002")
+    check("focus presses nothing", not any("key code" in c[1] for c in calls), str(calls))
+    check("focus reports", got == {"tty": "/dev/ttys002", "focused": True}, str(got))
+    t.secure_input_holder = lambda: "loginwindow"
+    try:
+        t.answer("yes", "/dev/ttys002")
+        check("answer under Secure Input refuses", False)
+    except SystemExit as e:
+        check("answer under Secure Input exits 2", e.code == 2)
+    try:
+        t.interrupt("/dev/ttys002")
+        check("interrupt under Secure Input refuses", False)
+    except SystemExit as e:
+        check("interrupt under Secure Input exits 2", e.code == 2)
+    t.secure_input_holder = lambda: None
+
     # hook: stdin in, stdout out, exit 0 always, nothing else printed. The
     # events module is loaded lazily so this test file's stub-loaded
     # terminal.py does not need mac/lib on sys.path at import.
