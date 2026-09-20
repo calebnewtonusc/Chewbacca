@@ -469,6 +469,20 @@ else
     warn "mac missing, no Calendar/Contacts/Messages/Notes access"
   fi
 
+  # "Play X" by voice plays whatever Spotify's own search puts at the top,
+  # read off its web player by Playwright's headless Chromium. Without it
+  # hud-music falls back to Deezer, Wikidata and MusicBrainz, which miss a
+  # misheard name.
+  if python3 -c "import playwright" 2>/dev/null; then
+    if ls -d "$HOME/Library/Caches/ms-playwright"/chromium_headless_shell-* >/dev/null 2>&1; then
+      ok "playwright present with a headless Chromium (hud-music reads Spotify's top result)"
+    else
+      warn "playwright installed but no headless Chromium (playwright install chromium-headless-shell)"
+    fi
+  else
+    warn "playwright missing, hud-music cannot read Spotify's search (pip3 install playwright && playwright install chromium-headless-shell)"
+  fi
+
   # The cask drops Cap.app in /Applications and leaves the CLI buried at
   # Contents/MacOS/cap-cli, so "installed" and "usable" are two different
   # questions here. A registered MCP server pointing at a `cap` that is not on

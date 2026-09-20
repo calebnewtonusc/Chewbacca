@@ -174,6 +174,12 @@ def music():
         stamp = 0.0
     if _music is None or stamp != _music_stamp:
         _music_stamp = stamp
+        if _music:
+            # The old copy's browser would otherwise outlive it.
+            try:
+                _music.shutdown()
+            except Exception:  # noqa: BLE001
+                pass
         try:
             loader = importlib.machinery.SourceFileLoader("hud_music", str(MUSIC))
             spec = importlib.util.spec_from_loader("hud_music", loader)
@@ -1711,11 +1717,12 @@ class Listener:
         req.seen = looking_at()
 
     # What the model is told when the quick path understood "music" but not
-    # which. "Give it reasoning": a name the recogniser mangled, or words
-    # that describe rather than name, take knowing, and the model knows.
+    # which: Spotify's search page could not be read and the open sources
+    # were not sure of the name. "Give it reasoning": a name the recogniser
+    # mangled takes knowing, and the model knows.
     MUSIC_HINT = (
-        "This is a music request the quick lookup could not settle: the words describe "
-        "rather than name, or speech may have misheard a name (it hears 'Fred again..' as "
+        "This is a music request the quick lookup could not settle: Spotify's search page "
+        "could not be read, and speech may have misheard a name (it hears 'Fred again..' as "
         "'freddie again'). Work out what they most likely mean, then run exactly one "
         "command: hud-music play --anyway \"<song> by <artist>\", or \"<artist>\", or "
         "\"the album <album> by <artist>\". Say its first line and nothing more. Do not "
@@ -1764,10 +1771,6 @@ class Listener:
         with self.state:
             self.current = req
             self.queue.clear()
-        if getattr(command, "fuzzy", False):
-            self.log("music: described, not named; to the model:", said)
-            threading.Thread(target=self.to_model, args=(req,), daemon=True).start()
-            return True
         command.quiet_miss = True
         threading.Thread(target=self._play, args=(req, command), daemon=True).start()
         return True

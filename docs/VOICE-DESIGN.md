@@ -150,43 +150,59 @@ when the request is wrapped in something else, and so a person can from a
 shell.
 
 The players. Where they said ("on YouTube", "in Music") wins. Otherwise
-Spotify, when it is installed: with its keys in `~/.bob/spotify.json`, one
-client-credentials search for the URI, then the desktop app told to play
-it, under a second. The search needs a Spotify developer app's client id
-and secret, which any Spotify account can create; no login and no Premium.
-Without the keys, the open sources stand in: Deezer's search reads the
-name the way a person says it; Wikidata (which carries Spotify's own IDs
-for well-known songs, albums and artists) or MusicBrainz (which links
-most artists to their Spotify page) gives the URI; and for a song Wikidata
-has no entry for, Spotify's own public embed page for the artist lists
-their top ten, and the album's page the rest, with URIs. Measured
-2026-09-20: 0.2 to 1.5 s to the URI, thirteen of fifteen names found, the
-misses a deep cut off an EP Wikidata does not hold and a name nobody has.
-A miss opens the app with the search on screen, one tap from playing, and
-the panel says how to do the setup. A tie between a song and an artist of the
-same name goes to the artist only with a following ("blinding lights" is
-also a Deezer artist with twelve fans). That replaced two earlier
-versions in one afternoon: the first fell through to YouTube ("play some
-Mac DeMarco on Spotify" got an invisible stream, "I can't even find the
-tab to turn it off"), the second opened the search ("why is it making me
-tap the top result, it should just play automatically"). Music.app's
-library when Spotify is not installed. YouTube when neither is there and `yt-dlp` and `ffplay` are:
-the first result's audio with no window, a few seconds in, no next or
-previous, and the panel says how to stop it. Each player is told to stop
-before another starts.
+Spotify, when it is installed, and what plays is whatever Spotify's own
+search puts at the top for the words. "If the user doesn't speak the
+correct name for the song, or the assistant mishears, just play whatever
+the top choice is that Spotify pops up when you search it, it's been right
+every time" (2026-09-20). With its keys in `~/.bob/spotify.json` that is
+one client-credentials search for the URI, then the desktop app told to
+play it, under a second; the keys are a Spotify developer app's client id
+and secret, which any account can create, no login and no Premium. Without
+keys, and that is the normal case, a headless browser (Playwright's
+Chromium) loads `open.spotify.com/search/<words>`, which Spotify renders
+for anyone, and reads the "Top result" card: the same card the desktop app
+shows. Measured 2026-09-20: 1.5 s to start the browser, 1.4 to 2.2 s a
+search after that, and the browser is kept for fifteen minutes so the next
+request pays only the search. "Freddie again" (the recogniser's hearing of
+Fred again..) is Fred again.. to it, "bye-bye by Mac DeMarco" is Baby Bye
+Bye, "that song from Barbie" is a Barbie podcast episode, so a podcast at
+the top of a music request gives way to the first song row, unless the
+words asked for a podcast. Albums are searched with the word on the end,
+because "album After Hours by The Weeknd" is the song to Spotify and
+"After Hours The Weeknd album" the album. A result is cached a week.
 
-The model is the reasoning behind it, and only when reasoning is needed.
-"Give it reasoning, I don't want to have to list the exact name of songs
-and spell them out" (2026-09-20). Two cases go to it, with a hint in the
-prompt saying what the quick path found and what to run: words that
-describe rather than name ("something chill", "the new Kendrick", "that
-song from Barbie"), which nothing looks up because knowing what they mean
-is the whole job; and a guess the open sources were not sure of, below
-0.75, which is what the recogniser's "freddie again" for Fred again..
-produced (Begin Again by Freddie And The Scenarios, at 0.6). The model
-works out the name and runs `hud-music play --anyway` with it, one Bash
-call, so the turn is a few seconds rather than the 175 s expedition the
-first "play Fred again" took. A clear name never waits on the model.
+When the page cannot be read (no Playwright, no network), the open sources
+stand in: Deezer's search reads the name the way a person says it;
+Wikidata (which carries Spotify's own IDs for well-known songs, albums and
+artists) or MusicBrainz (which links most artists to their Spotify page)
+gives the URI; and for a song Wikidata has no entry for, Spotify's public
+embed page for the artist lists their top ten, and the album's page the
+rest. Measured 2026-09-20: 0.2 to 1.5 s to the URI, thirteen of fifteen
+names found. A tie between a song and an artist of the same name goes to
+the artist only with a following ("blinding lights" is also a Deezer
+artist with twelve fans). A name nobody has opens the app with the search
+on screen, one tap from playing, and the panel says how to do the setup.
+That is the fourth version in one afternoon: the first fell through to
+YouTube ("play some Mac DeMarco on Spotify" got an invisible stream, "I
+can't even find the tab to turn it off"), the second opened the search
+("why is it making me tap the top result, it should just play
+automatically"), the third guessed from the open sources and sent
+anything it was not sure of to the model. Music.app's library when
+Spotify is not installed. YouTube when neither is there and `yt-dlp` and
+`ffplay` are: the first result's audio with no window, a few seconds in,
+no next or previous, and the panel says how to stop it. Each player is
+told to stop before another starts.
+
+The model is the last resort, not the reasoning. "Give it reasoning, I
+don't want to have to list the exact name of songs and spell them out"
+(2026-09-20) was answered for one version by sending described words and
+unsure guesses to the model with a hint; the next message made the point
+that Spotify's own search already does that reasoning, faster. So only a
+request the page could not be read for, and the open sources were not sure
+of (below 0.75, which is where "freddie again" came out as Begin Again by
+Freddie And The Scenarios), goes to the model, with a hint saying what to
+run: `hud-music play --anyway` with the name it works out, one Bash call.
+A name never waits on the model when Spotify can be asked.
 
 "Stop" is a stop word, and with the model idle and music playing it is the
 music that stops. With a run in flight it is still the run: what they most

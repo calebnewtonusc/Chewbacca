@@ -95,7 +95,7 @@ hud-music play "<song, artist or album>"   |  hud-music pause | resume | next | 
 hud-music volume [<0-100> | up | down]     |  hud-music now  |  hud-music status
 ```
 
-"Play X", "pause", "skip" and "what's playing" are normally handled before they reach you. One reaches you when the words describe rather than name ("something chill", "the new Kendrick") or the quick lookup was not sure what they meant (speech hears "Fred again.." as "freddie again"): work out the song, artist or album they mean, then run `hud-music play --anyway "<song> by <artist>"` (or the artist, or `the album <album> by <artist>`), one command, and say its first line; the rest of its output is for the panel. Never script Spotify yourself or search the web for it. Without Spotify keys it plays anything well known through open sources, and `hud-music status` explains the one-time setup.
+"Play X", "pause", "skip" and "what's playing" are normally handled before they reach you: whatever Spotify's own search puts at the top for the words is played, misheard names included. One reaches you only when Spotify's search page could not be read and the open sources were not sure what they meant (speech hears "Fred again.." as "freddie again"): work out the song, artist or album they mean, then run `hud-music play --anyway "<song> by <artist>"` (or the artist, or `the album <album> by <artist>`), one command, and say its first line; the rest of its output is for the panel. Never script Spotify yourself or search the web for it. `hud-music status` says which players are ready and why not.
 
 # Showing them where
 
