@@ -89,7 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let missing = Self.missingPrerequisites(
             engineReady: engineManager.activeEngineReady)
         if let missing {
-            plog("plynn: not ready — %@", missing)
+            plog("plynn: not ready, %@", missing)
             showError(missing)
         }
         if !engineManager.activeEngineReady {
@@ -166,7 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         secureWatcher.start()
 
         if !hotkey.start() {
-            plog("plynn: NO ACCESSIBILITY PERMISSION — grant in System Settings, then relaunch")
+            plog("plynn: NO ACCESSIBILITY PERMISSION. Grant it in System Settings, then relaunch")
         }
         if !chewieHotkey.start() {
             plog("plynn: could not tap the Option key; Chewie will not answer")
@@ -288,7 +288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // A reconfiguring device (FaceTime/Zoom grabbing the mic) can
                 // fail the first open; one retry after a beat usually catches
                 // the settled format.
-                plog("plynn: mic error \(error) — retrying")
+                plog("plynn: mic error \(error), retrying")
                 usleep(250_000)
                 do {
                     try r.start()
@@ -425,7 +425,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             // Cmd-V replaces the still-active selection.
                             self.dispatch(.transcriptReady(transformed))
                         } else {
-                            plog("plynn: command transform failed — selection untouched")
+                            plog("plynn: command transform failed, selection untouched")
                             Feedback.play(.failure)
                             self.dispatch(.transcriptReady(""))
                         }
@@ -901,7 +901,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(for: Self.transcribeDeadline)
             guard !Task.isCancelled, let self, self.session.state == .transcribing
             else { return }
-            plog("plynn: transcription stalled past %@ — resetting session",
+            plog("plynn: transcription stalled past %@, resetting session",
                   "\(Self.transcribeDeadline)")
             dispatch(.escape)  // .transcribing → .cancelled
             dispatch(.transcriptionFailed("Transcription timed out"))  // .cancelled → .idle
