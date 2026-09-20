@@ -108,6 +108,14 @@ jobs:
           # did not, the committed checksums are already lying.
           python3 tools/checksums.py --check
 
+      - name: Checksums describe the COMMITTED tree
+        run: |
+          # The check above hashes the working tree, so it passes while the
+          # commit already publishes a hash for content nobody committed.
+          # That shipped, and curl | bash refused to install on main until it
+          # was found by hand. This is the check that sees it.
+          python3 tools/committed_checksums.py
+
       - name: README counts match the tree
         run: |
           # The README said 42 skills, the tree had 21, and doctor reported 79.
