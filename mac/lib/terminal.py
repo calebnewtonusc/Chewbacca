@@ -16,6 +16,12 @@ Memory (`~/.bob/memory/`, or BOB_MEMORY_DIR): `draft.json` is the outstanding
 draft, written by `draft`, removed by `submit` and `clear`. `project.json`
 gets `tty`, `cwd`, `name`, `last_sent`, `updated` from here; `summary` is
 written by hud-listen and left alone.
+
+`submit` refuses with exit 3 unless `CHEWIE_TERMINAL_SUBMIT=1` is in its
+environment. That is the mechanism, not the doctrine in `bin/hud-agent.md`:
+`bin/hud-listen`'s draft-word path is the only caller that sets it, only when
+a person said "send it" (or similar) with a draft outstanding, so a model
+that decides on its own to run `chewie terminal submit` presses nothing.
 """
 import argparse
 import json
@@ -132,10 +138,18 @@ def run(argv: list[str], timeout: float = RUN_TIMEOUT) -> subprocess.CompletedPr
 
 def secure_input_holder() -> str | None:
     """The process name holding Secure Input, or None. Synthetic keystrokes
-    and pastes are dropped with no error while it is on."""
+    and pastes are dropped with no error while it is on.
+
+    Fails open on purpose: if the check script itself cannot run, a missing
+    check must not block every draft on a machine where secure-input.sh
+    happens to be absent. But a silent fail-open is indistinguishable from
+    "Secure Input is off", so it says so on stderr instead of just returning
+    None.
+    """
     try:
         result = run([str(SECURE_INPUT)], timeout=SECURE_INPUT_TIMEOUT)
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired) as err:
+        print(f"terminal: could not check Secure Input ({err}); assuming it is off", file=sys.stderr)
         return None
     if result.returncode == 0:
         return None
@@ -143,6 +157,16 @@ def secure_input_holder() -> str | None:
         if "held_by" in line:
             return line.split()[-1]
     return "unknown"
+
+
+def refuse_under_secure_input() -> None:
+    """Exit 2 if Secure Input is on. `draft`'s paste, `submit`'s Return and
+    `clear`'s Control-U are all synthetic input to Terminal, and Secure Input
+    drops all three with no error, so all three must check before running."""
+    holder = secure_input_holder()
+    if holder:
+        print(f"terminal: Secure Input is on, held by {holder}; the input would be dropped", file=sys.stderr)
+        raise SystemExit(2)
 
 
 def now_iso() -> str:
@@ -273,10 +297,7 @@ def ensure(cwd: str | None, timeout: float = 10.0) -> dict:
 
 
 def draft(text: str, tty: str | None) -> dict:
-    holder = secure_input_holder()
-    if holder:
-        print(f"terminal: Secure Input is on, held by {holder}; the paste would be dropped", file=sys.stderr)
-        raise SystemExit(2)
+    refuse_under_secure_input()
     tab = pick(tty)
     body = collapse(text)
     focus(tab["tty"])
@@ -301,6 +322,20 @@ def _forget_draft() -> None:
 
 
 def submit(tty: str | None) -> dict:
+    # The mechanism, not the doctrine: bin/hud-agent.md tells the model never
+    # to run this on its own, and that instruction is the only thing that
+    # used to stop it. hud-listen's draft-word path is the only caller that
+    # sets this, and only after a person said "send it" with a draft
+    # outstanding, so anything else that runs `chewie terminal submit`
+    # presses nothing.
+    if os.environ.get("CHEWIE_TERMINAL_SUBMIT") != "1":
+        print(
+            "terminal: submit refused; CHEWIE_TERMINAL_SUBMIT=1 is set only by "
+            "hud-listen's draft-word path, in response to a person saying send it",
+            file=sys.stderr,
+        )
+        raise SystemExit(3)
+    refuse_under_secure_input()
     tab = pick(tty)
     focus(tab["tty"])
     osascript(KEY_RETURN)
@@ -309,10 +344,7 @@ def submit(tty: str | None) -> dict:
 
 
 def clear(tty: str | None) -> dict:
-    holder = secure_input_holder()
-    if holder:
-        print(f"terminal: Secure Input is on, held by {holder}", file=sys.stderr)
-        raise SystemExit(2)
+    refuse_under_secure_input()
     tab = pick(tty)
     focus(tab["tty"])
     osascript(KEY_CONTROL_U)

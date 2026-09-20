@@ -135,7 +135,7 @@ RETIRE_TOKENS = 60_000
 # The names the display's recogniser is told to expect (Vocabulary in
 # BobHUDKit reads this): whoever the person has been texting, then whoever
 # is in Contacts. Written once per start, in the background.
-NAMES = Path.home() / ".bob" / "names.txt"
+NAMES = Path(os.environ.get("BOB_NAMES", str(Path.home() / ".bob" / "names.txt")))
 NAMES_CHATS = 60
 # `mac contacts find` needs a query and has no list-all; six vowels reach
 # almost every name there is.
@@ -1606,11 +1606,29 @@ class Listener:
         except OSError as err:
             self.log("memory unwritable:", err)
 
-    def terminal(self, verb: str) -> bool:
+    def terminal(self, verb: str, tty: str | None = None) -> bool:
+        """Run `chewie terminal <verb>`, pinned to `tty` when one is given.
+
+        `tty` is the tty `draft()` recorded for the draft being acted on, not
+        whatever tab happens to be front-and-selected when the person says
+        "send it": that can move between the draft landing and the person
+        reading it, and without `--tty` a second claude tab is enough to
+        submit or clear the wrong one.
+        """
+        argv = TERMINAL_CMD + [verb]
+        if tty:
+            argv = argv + ["--tty", tty]
+        env = os.environ
+        if verb == "submit":
+            # The only caller allowed to press Return: `chewie terminal
+            # submit` refuses without this, so the gate is enforced by
+            # terminal.py itself, not by this call being the only one that
+            # exists.
+            env = {**os.environ, "CHEWIE_TERMINAL_SUBMIT": "1"}
         try:
             result = subprocess.run(
-                TERMINAL_CMD + [verb], capture_output=True, text=True,
-                timeout=self.TERMINAL_TIMEOUT_S,
+                argv, capture_output=True, text=True,
+                timeout=self.TERMINAL_TIMEOUT_S, env=env,
             )
         except (OSError, subprocess.TimeoutExpired) as err:
             self.log("terminal", verb, "failed:", err)
@@ -1618,6 +1636,24 @@ class Listener:
         if result.returncode != 0:
             self.log("terminal", verb, "failed:", result.stderr.strip())
         return result.returncode == 0
+
+    def settle_unless_running(self, state: str, hold: float) -> None:
+        """`settle()`, unless a `_drain` run is in flight.
+
+        `_drain`'s own `settle()` at the end of a run owns the pill while
+        `self.current` is set: it returns early the moment a new request is
+        queued (see the `if self.queue:` check in `settle()` below), which
+        is what makes it safe for one worker to hold the glass.
+        `handle_draft_word`'s `work()` runs on its own
+        thread outside that discipline, so a second settle here while one is
+        already active raced it: the person saying "send it" moments after a
+        draft appeared landed inside the drafting turn's own settle, and two
+        independent `p dormant` sends stomped each other's exit animation
+        and, once, the worker's own "sent" report.
+        """
+        if self.in_flight():
+            return
+        self.settle(state, hold)
 
     def handle_draft_word(self, said: str) -> bool:
         """"send it", "scrap that", "no, to you" while a draft is outstanding.
@@ -1635,11 +1671,15 @@ class Listener:
         draft = voice_memory.draft(time.time())
         if draft is None:
             return False
+        tty = draft.get("tty")
 
         def work() -> None:
             self.send("p acting")
             if action == "submit":
-                ok = self.terminal("submit")
+                # Pinned to the tty `draft()` recorded, not whatever tab is
+                # front-and-selected now: that can move between the draft
+                # landing and the person reading it.
+                ok = self.terminal("submit", tty)
                 self.send("s " + json.dumps("sent" if ok else "couldn't send, the tab is gone"))
                 try:
                     voice_memory.append({
@@ -1650,15 +1690,25 @@ class Listener:
                     })
                 except OSError as err:
                     self.log("memory unwritable:", err)
-                self.settle("done" if ok else "failed", self.LEAVE_AFTER)
+                self.settle_unless_running("done" if ok else "failed", self.LEAVE_AFTER)
                 return
-            ok = self.terminal("clear")
+            ok = self.terminal("clear", tty)
             if action == "clear":
                 self.send("s " + json.dumps("cleared" if ok else "couldn't clear it"))
-                self.settle("done" if ok else "failed", self.STOP_HOLD)
+                self.settle_unless_running("done" if ok else "failed", self.STOP_HOLD)
                 return
-            self.send("s " + json.dumps("okay, to me"))
-            self.ask(draft.get("text", ""), dest="assistant")
+            # "no, to you" / "not the terminal": clear the draft and hand the
+            # assistant what the person actually said, not the paragraph the
+            # model drafted from it. `draft["text"]` is that paragraph; the
+            # transcript's own terminal-bound line for this turn carries the
+            # original sentence.
+            last = voice_memory.recent(1, "terminal")
+            original = last[0]["text"] if last else draft.get("text", "")
+            if ok:
+                self.send("s " + json.dumps("okay, to me"))
+            else:
+                self.send("s " + json.dumps("couldn't clear the draft, to me"))
+            self.ask(original, dest="assistant")
 
         threading.Thread(target=work, daemon=True).start()
         return True
@@ -1736,8 +1786,11 @@ class Listener:
             # A correction: the previous sentence goes where they said, and
             # the correction itself is not a request. A draft in the terminal
             # is cleared first, because that is where a wrong route lands.
-            if voice_memory.draft(time.time()):
-                self.terminal("clear")
+            # Pinned to the tty the draft recorded, same as the draft-word
+            # path above: the front-and-selected tab can have moved since.
+            pending = voice_memory.draft(time.time())
+            if pending and not self.terminal("clear", pending.get("tty")):
+                self.log("correction: couldn't clear the outstanding draft")
             req.said = decision.reroute
         if decision.dest == "browser":
             label, opened = self.open_browser(req.said)
