@@ -290,11 +290,12 @@ hud-music status                 # which players are ready, and why not
 ```
 
 Spotify plays by name once its keys are in `~/.bob/spotify.json`
-(`hud-music setup <client id> <client secret>`, from a free developer app at
-developer.spotify.com/dashboard; no Premium, no login). Without them, YouTube's
-first result plays through `ffplay` with no window, a few seconds in. "Stop"
-on its own pauses the music when the voice is idle; "stop the music" always
-does.
+(`hud-music setup`, which asks for the client id and secret of a free
+developer app from developer.spotify.com/dashboard; no Premium, no login).
+Without them, Spotify opens with the search on screen, one tap from playing.
+"On YouTube" plays the first result through `ffplay` with no window, a few
+seconds in, and so does any request when Spotify is not installed. "Stop" on
+its own pauses the music when the voice is idle; "stop the music" always does.
 
 ## Panels that take themselves down
 

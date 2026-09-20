@@ -149,14 +149,20 @@ The same file is a command, `hud-music`, so the model can still play music
 when the request is wrapped in something else, and so a person can from a
 shell.
 
-The players, in the order tried. Spotify when its keys are in
-`~/.bob/spotify.json`: one client-credentials search for the URI, then the
-desktop app told to play it, under a second. The search needs a Spotify
-developer app's client id and secret, which any Spotify account can create;
-no login and no Premium. Music.app when it is already running: its own
-library. YouTube whenever `yt-dlp` and `ffplay` are installed: the first
-result's audio with no window, a few seconds in, with no next or previous.
-Each player is told to stop before another starts.
+The players. Where they said ("on YouTube", "in Music") wins. Otherwise
+Spotify, when it is installed: with its keys in `~/.bob/spotify.json`, one
+client-credentials search for the URI, then the desktop app told to play
+it, under a second. The search needs a Spotify developer app's client id
+and secret, which any Spotify account can create; no login and no Premium.
+Without the keys the app opens with the search for it on screen, one tap
+from playing, and the panel says how to do the setup. That replaced the
+first version, which fell through to YouTube: "play some Mac DeMarco on
+Spotify" got an invisible stream from somewhere else, and "I can't even
+find the tab to turn it off". Music.app's library when Spotify is not
+installed. YouTube when neither is there and `yt-dlp` and `ffplay` are:
+the first result's audio with no window, a few seconds in, no next or
+previous, and the panel says how to stop it. Each player is told to stop
+before another starts.
 
 "Stop" is a stop word, and with the model idle and music playing it is the
 music that stops. With a run in flight it is still the run: what they most
