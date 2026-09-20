@@ -46,7 +46,8 @@ def track(name: str, artist: str, uri: str) -> dict:
 def results(tracks=(), artists=(), albums=()) -> dict:
     return {
         "tracks": {"items": list(tracks)},
-        "artists": {"items": [{"name": n, "uri": u} for n, u in artists]},
+        # Drake and the Weeknd have a following; an artist called Blinding Lights does not.
+        "artists": {"items": [{"name": n, "uri": u, "followers": {"total": 0 if n == "Blinding Lights" else 5_000_000}} for n, u in artists]},
         "albums": {"items": [{"name": n, "uri": u, "artists": [{"name": a}]} for n, u, a in albums]},
     }
 
@@ -119,20 +120,20 @@ def main() -> int:
         print("choosing")
         found = results(
             tracks=[track("Blinding Lights", "The Weeknd", "spotify:track:bl"), track("Drake", "Someone Else", "spotify:track:dr")],
-            artists=[("The Weeknd", "spotify:artist:tw"), ("Drake", "spotify:artist:dk")],
+            artists=[("The Weeknd", "spotify:artist:tw"), ("Drake", "spotify:artist:dk"), ("Blinding Lights", "spotify:artist:bl")],
             albums=[("After Hours", "spotify:album:ah", "The Weeknd")],
         )
         pick = music.choose("blinding lights", found)
-        check("a song title is the song", pick and pick.uri == "spotify:track:bl" and pick.title == "Blinding Lights by The Weeknd", str(pick))
+        check("a song title is the song, even with an unknown artist of that name", pick and pick.uri == "spotify:track:bl" and pick.title == "Blinding Lights by The Weeknd", str(pick))
         pick = music.choose("drake", found)
         check("an artist's name is the artist, even with a song of that name", pick and pick.uri == "spotify:artist:dk", str(pick))
         pick = music.choose("weeknd", found)
         check("the artist without its the", pick and pick.uri == "spotify:artist:tw", str(pick))
         pick = music.choose("blinding lights the weeknd", found)
         check("song and artist together is the song", pick and pick.kind == "track", str(pick))
-        pick = music.choose("anything", found, want="album")
+        pick = music.choose("after hours", found, want="album")
         check("album when asked", pick and pick.uri == "spotify:album:ah" and pick.title.startswith("the album After Hours"), str(pick))
-        pick = music.choose("anything", found, want="artist")
+        pick = music.choose("weeknd", found, want="artist")
         check("artist when asked", pick and pick.uri == "spotify:artist:tw", str(pick))
         check("nothing from nothing", music.choose("x", results()) is None)
         check("a youtube title reads as song by artist",
@@ -158,10 +159,62 @@ def main() -> int:
         music.system_volume = lambda: 63
         music.SPOTIFY_APP = Path(tmp) / "Spotify.app"
         music.spotify_open_search = lambda what: (calls.append(f"open spotify search {what}"), music.Outcome(True, f"Opened {what} in Spotify. Tap the top result to play it.", music.SETUP_NOTE))[1]
+        # The open sources, stubbed: Deezer names the thing, Wikidata or
+        # MusicBrainz knows its Spotify ID.
+        deezer = {
+            "blinding lights": ([{"title": "Blinding Lights", "artist": {"name": "The Weeknd"}}], [{"name": "Blinding Lights", "nb_fan": 12}]),
+            "mac demarco": ([{"title": "Chamber Of Reflection", "artist": {"name": "Mac DeMarco"}}], [{"name": "Mac DeMarco", "nb_fan": 900_000}]),
+            "fred again": ([{"title": "Marea", "artist": {"name": "Fred again.."}}], [{"name": "Fred again..", "nb_fan": 400_000}]),
+            "marea fred again": ([{"title": "Marea (We've Lost Dancing)", "artist": {"name": "Fred again.."}}], [{"name": "Fred again..", "nb_fan": 400_000}]),
+            "quarterly report": ([], []),
+            "hotel california": ([{"title": "Hotel California (2013 Remaster)", "artist": {"name": "Eagles"}, "album": {"title": "Hotel California"}}], [{"name": "Eagles", "nb_fan": 3_000_000}]),
+            "wasted times": ([{"title": "Wasted Times", "artist": {"name": "The Weeknd"}, "album": {"title": "My Dear Melancholy,"}}], []),
+        }
+        music.deezer_tracks = lambda q: (calls.append(f"deezer tracks {q}"), deezer.get(q, ([], []))[0])[1]
+        music.deezer_artists = lambda q: (calls.append(f"deezer artists {q}"), deezer.get(q, ([], []))[1])[1]
+        wikidata = {("Blinding Lights", "P2207"): "0VjIjW4GlUZAMYd2vXMi3b", ("Mac DeMarco", "P1902"): "3Sz7ZnJQBIHsXLUSo0OQtM",
+                    ("Marea", "P2207"): "marea22", ("Eagles", "P1902"): "0ECwFtbIWEVNwjlrfc6xoL", ("The Weeknd", "P1902"): "1Xyo4u8uXC1ZmMpatF05PJ",
+                    ("My Dear Melancholy,", "P2205"): "mdm"}
+        embeds = {("artist", "0ECwFtbIWEVNwjlrfc6xoL"): [("Take It Easy - 2013 Remaster", "spotify:track:tie"), ("Hotel California - 2013 Remaster", "spotify:track:hc")],
+                  ("artist", "1Xyo4u8uXC1ZmMpatF05PJ"): [("Blinding Lights", "spotify:track:0VjIjW4GlUZAMYd2vXMi3b")],
+                  ("album", "mdm"): [("Call Out My Name", "spotify:track:comn"), ("Wasted Times", "spotify:track:wt")]}
+        music.spotify_embed_tracks = lambda kind, sid: (calls.append(f"embed {kind} {sid}"), embeds.get((kind, sid), []))[1]
+        music.wikidata_spotify_id = lambda text, prop, mention="": (calls.append(f"wikidata {prop} {text}"), wikidata.get((text, prop)))[1]
+        music.musicbrainz_artist_spotify_id = lambda name: (calls.append(f"musicbrainz {name}"), {"Fred again..": "4oLeXFyACqeem2VImYeBFe"}.get(name))[1]
 
+        out = music.perform(music.parse("play marea fred again"))
+        check("a title with a parenthetical is looked up bare as well",
+              out.ok and out.line == "Playing Marea (We've Lost Dancing) by Fred again.." and "wikidata P2207 Marea" in calls
+              and 'spotify play track "spotify:track:marea22"' in calls, f"{out} {calls}")
+        calls.clear()
+        out = music.perform(music.parse("play hotel california"))
+        check("a song Wikidata lacks is found on the artist's own page",
+              out.ok and out.line == "Playing Hotel California - 2013 Remaster by Eagles." and 'spotify play track "spotify:track:hc"' in calls
+              and "embed artist 0ECwFtbIWEVNwjlrfc6xoL" in calls, f"{out} {calls}")
+        calls.clear()
+        out = music.perform(music.parse("play wasted times"))
+        check("a song off the top ten is found on its album's page",
+              out.ok and out.line == "Playing Wasted Times by The Weeknd." and 'spotify play track "spotify:track:wt"' in calls
+              and "embed album mdm" in calls, f"{out} {calls}")
+        calls.clear()
         out = music.perform(music.parse("play blinding lights"))
-        check("no keys: Spotify opens with the search, and the note says how to set it up",
-              out.ok and out.line == "Opened blinding lights in Spotify. Tap the top result to play it." and calls == ["open spotify search blinding lights"]
+        check("no keys: a song is found through Deezer and Wikidata and plays on Spotify",
+              out.ok and out.line == "Playing Blinding Lights by The Weeknd." and 'spotify play track "spotify:track:0VjIjW4GlUZAMYd2vXMi3b"' in calls
+              and "wikidata P2207 Blinding Lights" in calls, f"{out} {calls}")
+        calls.clear()
+        out = music.perform(music.parse("play some mac demarco on spotify"))
+        check("no keys: an artist plays the artist", out.ok and out.line == "Playing Mac DeMarco." and 'spotify play track "spotify:artist:3Sz7ZnJQBIHsXLUSo0OQtM"' in calls, f"{out} {calls}")
+        calls.clear()
+        out = music.perform(music.parse("play fred again"))
+        check("no keys: MusicBrainz when Wikidata has no ID", out.ok and out.line == "Playing Fred again.." and 'spotify play track "spotify:artist:4oLeXFyACqeem2VImYeBFe"' in calls
+              and "musicbrainz Fred again.." in calls, f"{out} {calls}")
+        calls.clear()
+        out = music.perform(music.parse("play mac demarco"))
+        check("the second time is from the cache, no lookups", out.ok and out.line == "Playing Mac DeMarco." and not any(c.startswith(("deezer", "wikidata", "musicbrainz")) for c in calls), str(calls))
+        calls.clear()
+        out = music.perform(music.parse("play quarterly report"))
+        check("no keys, never heard of it: Spotify opens with the search, and the note says how to set it up",
+              out.ok and out.line.endswith("Opened quarterly report in Spotify. Tap the top result to play it.") and "open spotify search quarterly report" in calls
               and "hud-music setup" in out.note, f"{out} {calls}")
         calls.clear()
         out = music.perform(music.parse("play blinding lights on youtube"))
@@ -176,6 +229,7 @@ def main() -> int:
         state["apps"] = {"Spotify"}
         calls.clear()
         state["keys"] = {"client_id": "id", "client_secret": "secret"}
+        music.deezer_tracks = lambda q: (_ for _ in ()).throw(AssertionError("Deezer asked with keys in place"))
         out = music.perform(music.parse("play blinding lights by the weeknd"))
         check("with keys: Spotify searches once and plays the URI",
               out.ok and out.line == "Playing Blinding Lights by The Weeknd." and calls == ["search blinding lights the weeknd", "stop youtube", 'spotify play track "spotify:track:bl"'],

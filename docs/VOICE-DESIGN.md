@@ -154,12 +154,23 @@ Spotify, when it is installed: with its keys in `~/.bob/spotify.json`, one
 client-credentials search for the URI, then the desktop app told to play
 it, under a second. The search needs a Spotify developer app's client id
 and secret, which any Spotify account can create; no login and no Premium.
-Without the keys the app opens with the search for it on screen, one tap
-from playing, and the panel says how to do the setup. That replaced the
-first version, which fell through to YouTube: "play some Mac DeMarco on
-Spotify" got an invisible stream from somewhere else, and "I can't even
-find the tab to turn it off". Music.app's library when Spotify is not
-installed. YouTube when neither is there and `yt-dlp` and `ffplay` are:
+Without the keys, the open sources stand in: Deezer's search reads the
+name the way a person says it; Wikidata (which carries Spotify's own IDs
+for well-known songs, albums and artists) or MusicBrainz (which links
+most artists to their Spotify page) gives the URI; and for a song Wikidata
+has no entry for, Spotify's own public embed page for the artist lists
+their top ten, and the album's page the rest, with URIs. Measured
+2026-09-20: 0.2 to 1.5 s to the URI, thirteen of fifteen names found, the
+misses a deep cut off an EP Wikidata does not hold and a name nobody has.
+A miss opens the app with the search on screen, one tap from playing, and
+the panel says how to do the setup. A tie between a song and an artist of the
+same name goes to the artist only with a following ("blinding lights" is
+also a Deezer artist with twelve fans). That replaced two earlier
+versions in one afternoon: the first fell through to YouTube ("play some
+Mac DeMarco on Spotify" got an invisible stream, "I can't even find the
+tab to turn it off"), the second opened the search ("why is it making me
+tap the top result, it should just play automatically"). Music.app's
+library when Spotify is not installed. YouTube when neither is there and `yt-dlp` and `ffplay` are:
 the first result's audio with no window, a few seconds in, no next or
 previous, and the panel says how to stop it. Each player is told to stop
 before another starts.
