@@ -1068,14 +1068,25 @@ def test_routing(m) -> None:
     req = m.Request(said="look up rust traits", spoken_at=time.monotonic(), pointed=None)
     decision = listener.decide(req, "Terminal · ~/dev/x")
     check("a lookup routes to the browser", decision.dest == "browser", str(decision))
-    label = listener.open_browser(req.said)
+    label, opened_ok = listener.open_browser(req.said)
     check("open_browser runs HUD_OPEN_CMD with the url",
           Path(opened).exists() and "google.com/search?q=rust+traits" in Path(opened).read_text())
     check("the label names chrome", label == "chrome: rust traits")
+    check("a successful open is reported ok", opened_ok is True)
     listener.record(req, decision, None, "done")
     entry = m.voice_memory.last()
     check("the transcript has the line", entry["text"] == "look up rust traits" and entry["dest"] == "browser")
     check("via is voice", entry["via"] == "voice")
+
+    # A launch that exits non-zero must not be recorded as done: the
+    # outcome is the tuning data for the router.
+    m.OPEN_CMD = shlex.split("sh -c 'exit 1'")
+    failed_label, failed_ok = listener.open_browser(req.said)
+    check("a failed open is reported not ok", failed_ok is False, f"got {failed_label!r}, {failed_ok!r}")
+    listener.record(req, decision, None, "done" if failed_ok else "failed")
+    check("a failed open is recorded as failed, not done",
+          m.voice_memory.last()["outcome"] == "failed")
+    m.OPEN_CMD = shlex.split(f"sh -c 'echo \"$0\" >> {opened}'")
 
     req = m.Request(said="text caleb hi", spoken_at=time.monotonic(), pointed=None)
     check("a text is the assistant's", listener.decide(req, "Google Chrome · Docs").dest == "assistant")
