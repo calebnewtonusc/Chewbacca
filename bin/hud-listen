@@ -1537,7 +1537,8 @@ class Listener:
         """Is any Terminal tab running claude? One AppleScript through chewie."""
         try:
             result = subprocess.run(
-                TERMINAL_CMD + ["tabs"], capture_output=True, text=True, timeout=4
+                TERMINAL_CMD + ["tabs"], capture_output=True, text=True,
+                timeout=self.CLAUDE_TAB_TIMEOUT_S,
             )
             tabs = json.loads(result.stdout or "[]")
         except (OSError, subprocess.TimeoutExpired, ValueError):
@@ -1562,13 +1563,24 @@ class Listener:
         self.log("route:", decision.dest, f"{decision.confidence:.2f}", decision.reason)
         return decision
 
-    def open_browser(self, said: str) -> str:
+    def open_browser(self, said: str) -> tuple[str, bool]:
+        """Open the URL; the label, and whether the open actually happened.
+
+        `ok` is False on a launch that never ran or exited non-zero, so a
+        failed Chrome open is recorded as a failed request rather than a
+        done one: the outcome is the tuning data for the router.
+        """
         url, label = route.browser_url(said)
+        ok = False
         try:
-            subprocess.run(OPEN_CMD + [url], capture_output=True, text=True, timeout=10)
+            result = subprocess.run(
+                OPEN_CMD + [url], capture_output=True, text=True,
+                timeout=self.OPEN_BROWSER_TIMEOUT_S,
+            )
+            ok = result.returncode == 0
         except (OSError, subprocess.TimeoutExpired) as err:
             self.log("open failed:", err)
-        return label
+        return label, ok
 
     def record(self, req: Request, decision: "route.Decision", reply: str | None, outcome: str) -> None:
         if not ROUTE:
@@ -1594,13 +1606,27 @@ class Listener:
 
     def terminal(self, verb: str) -> bool:
         try:
-            result = subprocess.run(TERMINAL_CMD + [verb], capture_output=True, text=True, timeout=15)
+            result = subprocess.run(
+                TERMINAL_CMD + [verb], capture_output=True, text=True,
+                timeout=self.TERMINAL_TIMEOUT_S,
+            )
         except (OSError, subprocess.TimeoutExpired) as err:
             self.log("terminal", verb, "failed:", err)
             return False
         if result.returncode != 0:
             self.log("terminal", verb, "failed:", result.stderr.strip())
         return result.returncode == 0
+
+    # `looking_at` already spends up to 3 s on one AppleScript through
+    # hud-context; `claude_tab_open` is one more chewie AppleScript call, so
+    # the same ballpark.
+    CLAUDE_TAB_TIMEOUT_S = 4.0
+    # Guessed, never measured: `open -a "Google Chrome" <url>` returns once
+    # the app has launched, not once the page has loaded.
+    OPEN_BROWSER_TIMEOUT_S = 10.0
+    # Guessed, never measured: a `chewie terminal` AppleScript call that also
+    # types or clears a draft, longer than the plain `tabs` read above.
+    TERMINAL_TIMEOUT_S = 15.0
 
     # Every tenth terminal-bound sentence, one haiku call rewrites the
     # project summary in the background. Ten: the summary is one line and
@@ -1668,10 +1694,11 @@ class Listener:
                 self.terminal("clear")
             req.said = decision.reroute
         if decision.dest == "browser":
-            label = self.open_browser(req.said)
+            label, opened = self.open_browser(req.said)
             self.send("s " + json.dumps(label))
-            self.record(req, decision, None, "done")
-            return "done"
+            outcome = "done" if opened else "failed"
+            self.record(req, decision, None, outcome)
+            return outcome
         if decision.dest == "terminal":
             self.send("s " + json.dumps("to terminal"))
         prompt = self.prompt_for(req, seen)
