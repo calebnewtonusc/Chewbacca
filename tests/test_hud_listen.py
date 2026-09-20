@@ -1079,14 +1079,22 @@ def test_routing(m) -> None:
     check("via is voice", entry["via"] == "voice")
 
     # A launch that exits non-zero must not be recorded as done: the
-    # outcome is the tuning data for the router.
+    # outcome is the tuning data for the router. Exercised through the real
+    # `_run`, not just `open_browser`/`record` in isolation, because the bug
+    # this guards against was in `_run`'s own outcome computation: it used to
+    # hardcode "done" for the browser branch regardless of whether the open
+    # actually happened.
     m.OPEN_CMD = shlex.split("sh -c 'exit 1'")
     failed_label, failed_ok = listener.open_browser(req.said)
     check("a failed open is reported not ok", failed_ok is False, f"got {failed_label!r}, {failed_ok!r}")
-    listener.record(req, decision, None, "done" if failed_ok else "failed")
-    check("a failed open is recorded as failed, not done",
-          m.voice_memory.last()["outcome"] == "failed")
     m.OPEN_CMD = shlex.split(f"sh -c 'echo \"$0\" >> {opened}'")
+
+    listener.open_browser = lambda said: ("chrome: test", False)  # type: ignore[method-assign]
+    run_req = m.Request(said="look up rust traits", spoken_at=time.monotonic(), pointed=None)
+    outcome = listener._run(run_req)
+    check("_run reports a failed open as failed", outcome == "failed", f"got {outcome!r}")
+    check("a failed open is recorded as failed, not done",
+          m.voice_memory.last()["outcome"] == "failed" and m.voice_memory.last()["dest"] == "browser")
 
     req = m.Request(said="text caleb hi", spoken_at=time.monotonic(), pointed=None)
     check("a text is the assistant's", listener.decide(req, "Google Chrome · Docs").dest == "assistant")
