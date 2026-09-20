@@ -248,6 +248,42 @@ def test_stop(m) -> None:
           asked == ["The user pressed press on send. Respond by updating the display."], f"got {asked}")
 
 
+def test_speak(m) -> None:
+    """A finished reply is read aloud; the next request or a stop cuts it off."""
+
+    launched: list[list[str]] = []
+
+    class FakeSay:
+        def __init__(self, argv, **_kw) -> None:
+            launched.append(argv)
+            self.alive = True
+
+        def poll(self):
+            return None if self.alive else 0
+
+        def terminate(self) -> None:
+            self.alive = False
+
+    real = m.subprocess.Popen
+    m.subprocess.Popen = FakeSay
+    try:
+        listener = m.Listener("claude -p", False, False, voice="Samantha")
+        listener.speak("Booked. Call with Caleb tomorrow at three.")
+        check("the reply goes to say with the chosen voice",
+              launched == [["say", "-v", "Samantha", "Booked. Call with Caleb tomorrow at three."]],
+              f"got {launched}")
+        first = listener.saying
+        listener.speak("Second answer")
+        check("a new reply cuts the old one off", not first.alive and listener.saying is not first)
+        listener.hush()
+        check("hush stops it and forgets it", listener.saying is None and not launched[-1] is None)
+        quiet = m.Listener("claude -p", False, False)
+        quiet.speak("nothing")
+        check("no voice means no say", len(launched) == 2)
+    finally:
+        m.subprocess.Popen = real
+
+
 def test_stop_words(m) -> None:
     """The whole utterance is the gesture; a sentence that starts with it is not."""
     check("case and punctuation are ignored", m.normalise("Stop!") == "stop")
