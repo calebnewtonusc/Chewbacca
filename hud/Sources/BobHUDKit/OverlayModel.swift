@@ -78,6 +78,8 @@ public final class OverlayModel {
 
     /// The pill: the transcript, the breadcrumbs, the answer, and the bar.
     public private(set) var pill = PillState()
+    /// The strip under the pill, or nil when the terminal is idle.
+    public private(set) var terminal: TerminalStrip?
     /// How long a run takes on this machine, for the pill's fill.
     public private(set) var clock = RunClock.load()
     /// The pill's laid-out size, reported by the view, so its hit rectangle
@@ -206,6 +208,14 @@ public final class OverlayModel {
 
         case .queued(let count):
             queued(count)
+
+        case .terminal(let text, let state):
+            terminal = TerminalStrip(text: text, state: state)
+            revision += 1
+
+        case .terminalOff:
+            terminal = nil
+            revision += 1
 
         default:
             surface(current).store.apply([op])
@@ -614,6 +624,11 @@ public final class OverlayModel {
             break
         }
         revision += 1
+    }
+
+    /// A click on the strip: the bridge brings the tab to the front.
+    public func focusTerminal() {
+        onEvent?(.action(name: "terminal", component: "focus", payload: [:]))
     }
 
     private func hide(after seconds: TimeInterval, ifStill phase: PillState.Phase) -> Task<Void, Never> {
