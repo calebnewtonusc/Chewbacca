@@ -6,6 +6,7 @@ import io
 import os
 import pathlib
 import signal
+import subprocess
 import sys
 import tempfile
 import time
@@ -88,14 +89,42 @@ class GatewayTests(unittest.TestCase):
         self.assertIn("It's valid JSON", result['stdout'])
 
     def test_timeout_kills_children(self):
+        # The margins here were 0.1s of timeout against a 0.4s child and a 0.5s
+        # wait, which is 100ms of slack. That is enough on an idle machine and
+        # not enough inside the full suite, where this runs alongside real
+        # installs: the timeout fired before `printf started` had been read and
+        # the assertion on stdout failed on a gateway that was working
+        # correctly. The suite now gates an unattended push, so a test that
+        # fails under load blocks real work. Same assertions, real slack.
         with tempfile.TemporaryDirectory() as directory:
             marker = pathlib.Path(directory) / 'escaped'
-            command = f'(sleep 0.4; touch {marker}) & printf started; wait'
-            result = gateway.run_shell(command, directory, .1)
+            command = f'(sleep 2; touch {marker}) & printf started; wait'
+            result = gateway.run_shell(command, directory, .5)
             self.assertTrue(result['timeout'])
             self.assertEqual(result['stdout'], 'started')
-            time.sleep(.5)
+            # Outlast the child: if the process group survived the timeout, the
+            # marker appears within its 2 seconds and this catches it.
+            time.sleep(2.5)
             self.assertFalse(marker.exists())
+
+    def test_stop_process_never_signals_a_reaped_pid(self):
+        """The pid belongs to the OS again the moment the child is reaped.
+
+        run_shell calls stop_process from the timeout, except and finally
+        paths, so it runs up to three times on one process. Every call after
+        the first was doing killpg on a number that could already have been
+        handed to an unrelated process. It surfaced as an intermittent
+        PermissionError when the recycled pid landed on a process this user
+        does not own; the same race on a pid this user does own sends SIGKILL
+        to somebody else's process group.
+        """
+        process = subprocess.Popen(['/bin/sh', '-c', 'exit 0'], start_new_session=True)
+        process.wait()
+        self.assertIsNotNone(process.returncode)
+        with patch.object(gateway.os, 'killpg') as killpg:
+            gateway.stop_process(process)
+            gateway.stop_process(process)
+            killpg.assert_not_called()
 
     def test_interrupt_kills_children(self):
         with patch.object(gateway.selectors.DefaultSelector, 'select', side_effect=KeyboardInterrupt), patch.object(gateway, 'stop_process', wraps=gateway.stop_process) as stop:

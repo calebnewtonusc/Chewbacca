@@ -324,6 +324,19 @@ if group "installer"; then
   # enforcing where the work happens.
   check  "every section is guarded by --only" python3 "$ROOT/tests/check_sections.py" "$ROOT/setup.sh"
 
+  # A rule with no `paths:` frontmatter is always-on. design-system.md opens by
+  # saying it costs ~4,000 tokens on every session with no use for a line of it,
+  # and that it was moved out of CLAUDE.md for that reason, but nothing ever
+  # scoped it, so every install kept paying. Only one machine had the scoping,
+  # added by hand, and a reinstall overwrote it.
+  check  "rules that claim to load on demand carry paths frontmatter" bash -c '
+    missing=""
+    for f in "$1"/.claude/rules/*.md; do
+      head -20 "$f" | grep -qiE "^loads (when|before)|load when the work|Applies to" || continue
+      head -1 "$f" | grep -q -- "---" || missing="$missing $(basename "$f")"
+    done
+    [ -z "$missing" ] || { echo "always-on despite claiming otherwise:$missing"; exit 1; }' _ "$ROOT"
+
   # Everything below was found by watching two people install this on their own
   # machines on 2026-09-19. Each one is a thing they hit, not a thing imagined.
 

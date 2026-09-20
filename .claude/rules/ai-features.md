@@ -1,3 +1,10 @@
+---
+paths:
+  - "**/*{ai,llm,agent,eval,prompt,chat}*.{ts,tsx,js,jsx,py}"
+  - "**/{ai,llm,agents,evals,prompts}/**/*"
+  - "**/*.{ts,tsx,js,py}"
+---
+
 # AI features
 
 Loads when the work involves an LLM: an agent, a chat surface, a generation

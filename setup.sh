@@ -348,9 +348,34 @@ install_backend_launchers() {
   log "Chewbacca backend launchers refreshed in ~/.local/bin"
 }
 
-install_agent_instructions() {
+# agent-neutral.md is written for the OTHER agent. Its own text says so: "The
+# detailed standards live in .claude/rules/ and in the user's global
+# instructions, both of which already load for the primary agent. Nothing here
+# restates them." Claude was loading all 1,176 tokens of it in every session
+# anyway, because a rule with no `paths:` frontmatter is always-on, and the
+# source file has none on purpose: it is also the source for AGENTS.md, where
+# Claude-specific frontmatter would be noise.
+#
+# So the scoping is added here, on the way into ~/.claude/rules, and the source
+# stays agent-neutral. The rule now loads when the work is actually about
+# another agent, and Codex's export is unchanged.
+install_agent_neutral_rule() {
+  local dst="$HOME/.claude/rules/agent-neutral.md"
   mkdir -p "$HOME/.claude/rules"
-  cp "$SCRIPT_DIR/instructions/agent-neutral.md" "$HOME/.claude/rules/agent-neutral.md"
+  {
+    printf '%s\n' '---'
+    printf '%s\n' 'paths:'
+    printf '%s\n' '  - "**/AGENTS.md"'
+    printf '%s\n' '  - "**/.codex/**"'
+    printf '%s\n' '  - "**/*codex*"'
+    printf '%s\n' '  - "**/instructions/agent-neutral.md"'
+    printf '%s\n' '---'
+    cat "$SCRIPT_DIR/instructions/agent-neutral.md"
+  } > "$dst"
+}
+
+install_agent_instructions() {
+  install_agent_neutral_rule
   python3 "$SCRIPT_DIR/tools/agents_md.py"
   initialize_personal_context
   python3 "$SCRIPT_DIR/tools/codex_context.py" install --brain-dir "$PC_DIR" --both
@@ -1368,7 +1393,7 @@ mkdir -p "$GLOBAL_CLAUDE/commands" "$GLOBAL_CLAUDE/rules"
 
 cp "$SCRIPT_DIR/.claude/commands/"*.md "$GLOBAL_CLAUDE/commands/" 2>/dev/null || true
 cp "$SCRIPT_DIR/.claude/rules/"*.md    "$GLOBAL_CLAUDE/rules/"    2>/dev/null || true
-cp "$SCRIPT_DIR/instructions/agent-neutral.md" "$GLOBAL_CLAUDE/rules/agent-neutral.md"
+install_agent_neutral_rule
 mkdir -p "$GLOBAL_CLAUDE/agents"
 cp "$SCRIPT_DIR/.claude/agents/"*.md   "$GLOBAL_CLAUDE/agents/"   2>/dev/null || true
 

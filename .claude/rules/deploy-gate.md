@@ -1,3 +1,11 @@
+---
+paths:
+  - "**/vercel.{json,ts}"
+  - "**/{Dockerfile,docker-compose.yml,fly.toml,railway.json,netlify.toml}"
+  - "**/.github/workflows/**"
+  - "**/{next,vite,astro,nuxt}.config.*"
+---
+
 # Deploy gate
 
 Loads before a production deploy and when `/ship` runs. A checklist that matters

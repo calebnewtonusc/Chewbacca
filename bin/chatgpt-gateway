@@ -254,9 +254,28 @@ class OutputBuffer:
 
 
 def stop_process(process):
+    """Kill the process group, at most once, and never a recycled pid.
+
+    run_shell calls this from the timeout path, the except path and the finally
+    path, so it runs up to three times on the same object. The first call reaps
+    the child with wait(), and from that moment its pid belongs to the OS again
+    and can be handed to any new process. Every later call was still doing
+    killpg on that number.
+
+    It showed up as an intermittent `PermissionError: Operation not permitted`,
+    which is the lucky version: the recycled pid happened to land on a process
+    this user does not own, so the kill was refused. The unlucky version is the
+    same race landing on a pid this user does own, and SIGKILL going to a
+    process group that has nothing to do with this gateway.
+
+    returncode is None only while the child has not been reaped, so it is the
+    exact condition for "there is still something of ours to kill".
+    """
+    if process.returncode is not None:
+        return
     try:
         os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         pass
     process.wait()
 
