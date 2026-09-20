@@ -333,6 +333,12 @@ if group "installer"; then
   # start.sh and start.ps1 both refuse to install when the download does not
   # match SHA256SUMS.txt, so a manifest that does not describe its own commit
   # breaks every fresh install. The working-tree check cannot see it.
+  # The install must not reach for Claude on a machine that already has an
+  # agent. Sagar runs Codex, hit a Claude credits purchase on the last screen
+  # of a kit sold as model agnostic, and stopped. He has still not onboarded.
+  check  "the install uses the agent already on the machine" \
+    bash "$ROOT/tests/agent_agnostic.sh" "$ROOT"
+
   check  "committed checksums describe the committed tree" \
     python3 "$ROOT/tools/committed_checksums.py"
 

@@ -1566,14 +1566,33 @@ no-ai-slop|https://github.com/petergyang/no-ai-slop|skills/no-ai-slop|MIT|peterg
 youtube-transcripts|https://github.com/calebnewtonusc/claude-youtube-transcripts|skills/youtube-transcripts|MIT|calebnewtonusc
 UPSTREAM_SKILLS
 
-# A missing claude CLI used to drop every plugin with one warning. The
-# installer already needs node, so install the CLI rather than skip the
-# largest single piece of what this kit is.
-if ! command -v claude &>/dev/null && command -v npm &>/dev/null; then
-  log "claude CLI not found, installing it"
+# INSTALL AN AGENT ONLY IF THEY HAVE NONE.
+#
+# This used to install Claude Code whenever `claude` was missing, full
+# stop. On 2026-09-19 that put Sagar, who runs Codex, in front of a
+# Claude credits purchase during the install of a kit sold as model
+# agnostic. He said so and stopped: "how is this model agnostic? i
+# don't want to add claude credits." Karthik seconded it. Neither has
+# onboarded since. Installing a second paid subscription nobody asked
+# for is not a missing-dependency fix, it is the product contradicting
+# its own claim on the last screen.
+#
+# If any supported agent is already here, use it and install nothing.
+# The plugins that genuinely need Claude warn on their own.
+KIT_AGENT=""
+for a in claude codex gemini; do
+  if command -v "$a" &>/dev/null; then KIT_AGENT="$a"; break; fi
+done
+
+if [ -n "$KIT_AGENT" ]; then
+  log "using the agent already installed: $KIT_AGENT"
+elif command -v npm &>/dev/null; then
+  log "no coding agent found, installing Claude Code (the free tier works)"
   npm install -g @anthropic-ai/claude-code &>/dev/null \
-    && log "claude CLI installed" \
-    || warn "could not install the claude CLI: npm install -g @anthropic-ai/claude-code"
+    && { KIT_AGENT="claude"; log "claude CLI installed"; } \
+    || warn "could not install an agent: npm install -g @anthropic-ai/claude-code"
+else
+  warn "no coding agent and no npm. Install Claude Code, Codex or Gemini CLI first."
 fi
 
 # `command -v claude` only proves a binary is on PATH. It does not prove

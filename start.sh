@@ -346,19 +346,58 @@ else
   FAST_TAIL=""
 fi
 
+# WHICH AGENT THIS PERSON ACTUALLY HAS.
+#
+# This screen used to say "Claude" three times and then exec claude, on a
+# machine that might not have it. Sagar hit exactly that on 2026-09-19: the
+# install finished, told him to type `claude`, and Claude Code asked him to buy
+# credits. His reply was "how is this model agnostic? i don't want to add
+# claude credits", and he stopped there. Karthik seconded it. That is the whole
+# product claim failing on the last screen of the install.
+#
+# The kit already runs on Codex: tools/codex_context.py and tools/codex_hooks.py
+# install its context and native lifecycle hooks, and the suite covers both. The
+# installer simply never asked what was on the machine.
+#
+# Order is by how much of this kit each one can actually drive, and the first
+# one present wins. Nothing here installs an agent or asks anyone to pay.
+AGENT_CMD=""
+AGENT_NAME=""
+for candidate in "claude:Claude Code" "codex:Codex" "gemini:Gemini CLI"; do
+  cmd="${candidate%%:*}"
+  if command -v "$cmd" >/dev/null 2>&1; then
+    AGENT_CMD="$cmd"
+    AGENT_NAME="${candidate#*:}"
+    break
+  fi
+done
+
+if [ -n "$AGENT_CMD" ]; then
+  START_LINE="  To start it any time: open Terminal and type ${B}${AGENT_CMD}${N}"
+  SUBJECT="$AGENT_NAME"
+else
+  # No agent on the machine. Saying "type claude" here is how someone ends up
+  # at a paywall they never asked for, so say what is true instead: the kit is
+  # installed and works with whichever one they already use.
+  START_LINE="  No coding agent found on this Mac yet. Chewbacca works with
+  Claude Code, Codex or Gemini CLI: install whichever you already pay for and
+  it will pick it up. Nothing here needs a second subscription."
+  SUBJECT="Your agent"
+fi
+
 cat <<DONE
 
   ${G}${B}Done.${N}
 
-  Claude can now read your calendar and contacts, send texts, see your screen,
-  summarize any video or article, and remember what matters to you.
+  ${SUBJECT} can now read your calendar and contacts, send texts, see your
+  screen, summarize any video or article, and remember what matters to you.
 
   Try asking it:
     "what's on my calendar tomorrow"
     "text <someone> that I'm running late"
     "what did this video actually say" and paste a link
 
-  To start it any time: open Terminal and type ${B}claude${N}
+${START_LINE}
   If something looks wrong:  ${B}chewbacca doctor${N}
   To remove everything:      ${B}chewbacca uninstall${N}
 ${FAST_TAIL}
@@ -368,10 +407,10 @@ DONE
 # ends at a shell prompt, which is the single highest-abandonment moment in the
 # whole flow: ten minutes of work and then a blinking cursor. Needs a real
 # terminal, so this is skipped when the output is piped somewhere.
-if command -v claude &>/dev/null && [ -t 0 ] && [ -t 1 ]; then
-  say "Starting Claude..."
+if [ -n "$AGENT_CMD" ] && [ -t 0 ] && [ -t 1 ]; then
+  say "Starting $AGENT_NAME..."
   sleep 1
-  exec claude "Introduce yourself to $FIRST_NAME in three sentences. You were just
+  exec "$AGENT_CMD" "Introduce yourself to $FIRST_NAME in three sentences. You were just
 installed on their Mac. Say what you can now do that you could not before,
 using their actual calendar or contacts as the example rather than describing
 it abstractly. Then ask them one question about what they want help with, and
