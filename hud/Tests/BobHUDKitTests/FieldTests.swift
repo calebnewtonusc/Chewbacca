@@ -1,7 +1,42 @@
+import AppKit
 import CoreGraphics
+import MetalKit
+import SwiftUI
 import Testing
 
 @testable import BobHUDKit
+
+/// The field's inputs, owned by the test and read by the view.
+@Observable
+@MainActor
+final class FieldHost {
+    var presence: Presence = .dormant
+    var amplitude: Double = 0
+}
+
+struct FieldHostView: View {
+    let host: FieldHost
+    var body: some View {
+        PresenceField(presence: host.presence, amplitude: host.amplitude)
+            .frame(width: 320, height: 200)
+    }
+}
+
+/// Frames, collected from the renderer's trace on whatever thread it draws.
+final class Frames: @unchecked Sendable {
+    private let lock = NSLock()
+    private var frames: [PresenceFieldRenderer.Trace] = []
+    func add(_ frame: PresenceFieldRenderer.Trace) {
+        lock.lock()
+        frames.append(frame)
+        lock.unlock()
+    }
+    var all: [PresenceFieldRenderer.Trace] {
+        lock.lock()
+        defer { lock.unlock() }
+        return frames
+    }
+}
 
 /// The presence field's easing, which is the difference between a state
 /// change and a jump. Everything the shader is told now follows its target
@@ -109,6 +144,109 @@ struct FieldTests {
             style: Presence.dormant.field, awokeAt: done.awokeAt, closingAt: .now, heard: 0,
             alpha: 1)
         #expect(renderer.receive(frame: leaving, paused: false) == 60)
+    }
+
+    @Test("the band never sits on one frame while it is up")
+    @MainActor
+    func staysAlive() async throws {
+        // The real path, SwiftUI update to Metal frame, in a window nobody
+        // can see: no alpha, no clicks, under the desktop. Every other test
+        // of the field checks a number; this one checks what a person
+        // watching the edge of the screen would have seen.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.alphaValue = 0
+        window.ignoresMouseEvents = true
+        window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) - 1)
+        let host = FieldHost()
+        window.contentView = NSHostingView(rootView: FieldHostView(host: host))
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+
+        func metal(in view: NSView) -> MTKView? {
+            if let m = view as? MTKView { return m }
+            for child in view.subviews { if let m = metal(in: child) { return m } }
+            return nil
+        }
+        let frames = Frames()
+        PresenceFieldRenderer.trace = { frames.add($0) }
+        defer { PresenceFieldRenderer.trace = nil }
+        // Suspending rather than spinning the run loop, so that the main
+        // actor keeps running: the field's own exit cleanup is a sleeping
+        // task, and under `RunLoop.run(until:)` it never came back.
+        func pump(_ seconds: Double) async {
+            try? await Task.sleep(for: .seconds(seconds))
+        }
+
+        // A short errand: listen, think, act, say the result, hold, leave.
+        host.presence = .attentive
+        await pump(0.8)
+        // MTKView's own clock never starts in a test process, even with the
+        // app finished launching (tried 2026-09-20): it wants `NSApp.run`.
+        // Driven by hand at sixty instead, skipping frames while the view is
+        // parked, which is the one thing the clock does that matters here.
+        let mtk = try #require(window.contentView.flatMap(metal(in:)), "no Metal view was made")
+        let driver = Task { @MainActor in
+            while !Task.isCancelled {
+                if !mtk.isPaused { mtk.draw() }
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+        }
+        defer { driver.cancel() }
+        host.presence = .thinking
+        await pump(0.5)
+        host.presence = .acting
+        await pump(0.8)
+        for i in 0..<40 {
+            host.amplitude = 0.3 + 0.3 * sin(Double(i) / 3)
+            host.presence = .speaking
+            await pump(0.03)
+        }
+        let doneAt = Date()
+        host.presence = .done
+        // The bridge holds `done` for ten seconds after the voice stops.
+        await pump(8.0)
+        let leftAt = Date()
+        host.presence = .dormant
+        await pump(4.0)
+
+        let drawn = frames.all
+        try #require(drawn.count > 20, "the hidden window never drew")
+        // The timeline, for a failure to be read rather than guessed at.
+        let t0 = drawn[0].at
+        var last: PresenceFieldRenderer.Trace?
+        for frame in drawn {
+            if let last, frame.rate == last.rate, frame.paused == last.paused,
+               frame.at.timeIntervalSince(last.at) < 0.5, abs(frame.drift - last.drift) < 0.05 {
+                continue
+            }
+            print(String(
+                format: "field %6.2fs rate=%d rest=%.3f drift=%.2f act=%.2f%@%@",
+                frame.at.timeIntervalSince(t0), frame.rate, frame.rest, frame.drift, frame.act,
+                frame.closing ? " closing" : "", frame.paused ? " parked" : ""))
+            last = frame
+        }
+        print(String(format: "field done at %.2fs, left at %.2fs", doneAt.timeIntervalSince(t0), leftAt.timeIntervalSince(t0)))
+
+        // While the band is up, nothing longer than a fifth of a second
+        // passes between two frames: at that gap the liquid reads as
+        // stopped. From the first frame to the exit's start.
+        let up = drawn.filter { $0.at < leftAt }
+        var longest = 0.0
+        for (a, b) in zip(up, up.dropFirst()) {
+            longest = max(longest, b.at.timeIntervalSince(a.at))
+        }
+        let held = up.filter { $0.at > doneAt }
+        let still = held.last.map { leftAt.timeIntervalSince($0.at) } ?? 0
+        #expect(longest < 0.2, "the band sat still for \(longest)s")
+        #expect(still < 0.2, "the band sat on its last frame for \(still)s before leaving")
+
+        // And once gone, it stops drawing: the battery half of the bargain.
+        // The exit is 0.7s and the chases take about 2.3s more to settle to
+        // nothing.
+        let after = drawn.filter { $0.at > leftAt.addingTimeInterval(3.5) }
+        #expect(after.isEmpty || after.allSatisfy { $0.paused }, "still drawing after leaving")
     }
 
     @Test("a pointer that has not really moved does not wake the model")

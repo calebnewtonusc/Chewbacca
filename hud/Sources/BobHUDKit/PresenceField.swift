@@ -125,13 +125,26 @@ extension Presence {
                 rest: 0.049, drift: 1.1, tint: FieldTint.green, pulse: 0.8, fps: 30,
                 animating: true)
         case .done:
-            // Darker green, still, one frame. It is the same hue as `acting`
-            // on purpose, because it is the end of that same errand, and it is
-            // darker and stops moving because there is nothing left to wait
+            // Darker green, calm, and still alive. The same hue as `acting`
+            // on purpose, because it is the end of that same errand, darker
+            // and without the breath because there is nothing left to wait
             // for.
+            //
+            // It used to be "still, one frame": drift 0.1, one frame a
+            // second, parked once eased in. Parked means the shader's clock
+            // stops too, so the surface, which wobbles off wall time in every
+            // other state, sat on one frame. Traced 2026-09-20 on the real
+            // view: eased in over 3.9s, parked at 6.5s, and held that frame
+            // for the rest of the bridge's ten-second hold, about six
+            // seconds. Reported twice that day as a glitch: "freezes for 2
+            // seconds, then operates the exit animation" and, after the
+            // clock stall was fixed, "still freezing before it disappears
+            // for multiple seconds". A held state is still a state of a
+            // living instrument. Slower than `attentive`'s 0.5 so it reads
+            // as settled rather than waiting, at its rate.
             return .init(
-                rest: 0.030, drift: 0.1, tint: FieldTint.deepGreen, pulse: 0, fps: 1,
-                animating: false)
+                rest: 0.030, drift: 0.35, tint: FieldTint.deepGreen, pulse: 0, fps: 20,
+                animating: true)
         case .attention:
             // The thickest, because this is the one that has to be noticed. It
             // stays white: green and red are spoken for, and a third hue here
@@ -416,6 +429,23 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
     private var broken = false
     /// Stop the clock at the end of the next frame. See `updateNSView`.
     var parkWhenDrawn = false
+
+    /// What one frame put on the screen, for a test that watches the real
+    /// view run. `paused` is the clock's state after the frame's own park
+    /// decision, so a trace that ends in `paused` is a band holding still.
+    struct Trace: Sendable {
+        var at: Date
+        var rate: Int
+        var rest: Float
+        var drift: Float
+        var paused: Bool
+        /// Seconds into the arrival, or left of the exit.
+        var act: Float
+        var closing: Bool
+    }
+    /// Called at the end of every `draw` while set. Nil in the app: a test
+    /// sets it to read the timeline the person would have seen.
+    nonisolated(unsafe) static var trace: (@Sendable (Trace) -> Void)?
 
     /// The tint actually on screen, which chases the state's tint rather than
     /// jumping to it.
@@ -722,6 +752,9 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
         // the first frame of `done` would freeze the ease from `acting` at
         // its first step, which is the jump this file was rewritten to remove.
         if parkWhenDrawn && settled { view.isPaused = true }
+        Self.trace?(Trace(
+            at: now, rate: view.preferredFramesPerSecond, rest: rest.shown, drift: drift.shown,
+            paused: view.isPaused, act: Float(act), closing: closing))
     }
 
     /// How far the band should part for a pointer at `pointer`.
