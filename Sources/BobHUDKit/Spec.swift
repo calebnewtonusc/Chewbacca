@@ -224,6 +224,10 @@ public enum Op: Sendable, Equatable {
     case unmark(id: String)
     /// One line on the pill: a breadcrumb while working, the answer after.
     case say(String)
+    /// The written answer for the conversation panel: the whole text so
+    /// far, replacing what was there, and `done` once it is complete. The
+    /// pill holds two lines; this is where the rest of a full answer goes.
+    case write(text: String, done: Bool)
     /// How many requests are waiting behind the one in flight.
     case queued(Int)
 }

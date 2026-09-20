@@ -103,6 +103,23 @@ struct LineParserTests {
         #expect(throws: LineParseError.self) { try LineParser.parse("s") }
     }
 
+    /// The written answer. The whole text so far as one JSON string, so a
+    /// paragraph break and a quote inside it survive, and `done` after it.
+    @Test("a written answer is one JSON string with a done flag after it")
+    func write() throws {
+        #expect(try LineParser.parse(#"w "Paris.""#) == .write(text: "Paris.", done: false))
+        #expect(
+            try LineParser.parse(#"w "Paris.\n\nIt has been since 987." done=true"#)
+                == .write(text: "Paris.\n\nIt has been since 987.", done: true))
+        #expect(try LineParser.parse(#"w "say \"hi\" now""#) == .write(text: #"say "hi" now"#, done: false))
+    }
+
+    @Test("a written answer must be a string")
+    func writeNotAString() {
+        #expect(throws: LineParseError.self) { try LineParser.parse("w") }
+        #expect(throws: LineParseError.self) { try LineParser.parse("w bare words here") }
+    }
+
     @Test("queue depth is one whole number")
     func queued() throws {
         #expect(try LineParser.parse("q 2") == .queued(2))

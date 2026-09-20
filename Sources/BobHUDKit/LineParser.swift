@@ -297,6 +297,26 @@ public enum LineParser {
             if case .string(let text)? = JSONDecoding.parse(rest) { return .say(text) }
             return .say(rest.trimmingCharacters(in: CharacterSet(charactersIn: "\"")))
 
+        case "w":
+            // `w "<the answer so far>"`, `w "<the answer>" done=true`. One
+            // JSON string like `s`, because an answer has newlines and quotes
+            // in it, then the one flag. The string is the whole text so far
+            // rather than a delta: a replace cannot be applied twice or out
+            // of order, and the answers are a few kilobytes at most.
+            var rest = trimmed.dropFirst(1).trimmingCharacters(in: .whitespaces)
+            var done = false
+            if rest.hasSuffix(" done=true") {
+                done = true
+                rest = String(rest.dropLast(" done=true".count))
+            }
+            guard !rest.isEmpty else {
+                throw LineParseError.malformed("`w` needs text", line: trimmed)
+            }
+            guard case .string(let text)? = JSONDecoding.parse(rest) else {
+                throw LineParseError.malformed("`w` takes one JSON string", line: trimmed)
+            }
+            return .write(text: text, done: done)
+
         case "q":
             // `q 2`. Depth only: the pill shows one number, not the queue.
             guard tokens.count == 2, let count = Int(tokens[1]), count >= 0 else {

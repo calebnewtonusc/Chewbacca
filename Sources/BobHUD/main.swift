@@ -16,10 +16,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var voiceMenu: NSMenu?
     private var commandBar: CommandBarWindow?
+    /// The conversation, as a window. See `ChatWindow`.
+    private var chat: ChatWindow?
     /// Which app was in front when the bar opened, so it can be given back.
     private var previousApp: NSRunningApplication?
     private var hotKeyMonitor: Any?
     private var escMonitor: Any?
+    private var localEscMonitor: Any?
     private var mouseMonitor: Any?
     private var localMouseMonitor: Any?
     private var localFlagsMonitor: Any?
@@ -54,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay.show()
 
         setUpCommandBar()
+        setUpChat()
         setUpReticle()
         setUpMenuBar()
         setUpKeys()
@@ -77,7 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let delivered = server?.send(event.line) ?? false
             guard !delivered else { return }
             switch event {
-            case .heard:
+            case .heard, .typed:
                 Task { @MainActor in self?.reportNobodyListening() }
             default:
                 // A click on a panel nobody is listening to is not worth a
@@ -106,7 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         server?.stop()
         voice.setMode(.off)
         let monitors = [
-            hotKeyMonitor, escMonitor, mouseMonitor,
+            hotKeyMonitor, escMonitor, localEscMonitor, mouseMonitor,
             localMouseMonitor, flagsMonitor, localFlagsMonitor, barMonitor,
             reticleDown, reticleDrag, reticleUp,
         ]
@@ -190,6 +194,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard event.keyCode == 53 else { return } // escape
             Task { @MainActor in self?.escape() }
         }
+        // The conversation panel makes this app active while it is open, and
+        // an active app sees its own keys locally, not through the global
+        // monitor above. Escape there closes the panel and nothing else.
+        localEscMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53, let self, self.model.chatOpen else { return event }
+            Task { @MainActor in self.model.closeChat() }
+            return nil
+        }
 
         // Follow the pointer so the glass only becomes solid over a surface.
         // Without this the overlay swallows every scroll on the display.
@@ -228,13 +240,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onSubmit: { [weak self] asked in
                 Task { @MainActor in
                     guard let self else { return }
-                    self.dispatch(asked)
+                    self.dispatch(asked, typed: true)
                     self.restoreFocus()
                 }
             },
             onDismiss: { [weak self] in
                 Task { @MainActor in self?.restoreFocus() }
             })
+    }
+
+    /// The conversation panel, and the pill's other half.
+    ///
+    /// Built at launch like the command bar, for the same reason: a click
+    /// on the pill has to open something at once, and constructing a panel
+    /// under the click is not at once.
+    private func setUpChat() {
+        chat = ChatWindow(
+            model: model,
+            onSubmit: { [weak self] asked in
+                Task { @MainActor in self?.dispatch(asked, typed: true) }
+            },
+            onStop: { [weak self] in
+                Task { @MainActor in self?.model.cancelRun() }
+            },
+            onDismiss: { [weak self] in
+                Task { @MainActor in self?.model.closeChat() }
+            })
+        model.onChatOpen = { [weak self] in
+            guard let self else { return }
+            self.previousApp = NSWorkspace.shared.frontmostApplication
+            self.overlay?.show()
+            self.chat?.present()
+        }
+        model.onChatClose = { [weak self] in
+            guard let self, let chat = self.chat else { return }
+            if chat.isVisible { chat.orderOut(nil) }
+            self.restoreFocus()
+        }
     }
 
     /// Say that the request went nowhere.
@@ -312,7 +354,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     // for 2026-09-19: "release the button, think, reply,
                     // execute task as quickly as possible."
                     self.model.heard(text)
-                    self.dispatch(text)
+                    self.dispatch(text, typed: false)
 
                 case .failed(let message):
                     // The pill is the notice. `warn` would draw it a second
@@ -364,12 +406,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private static let keys = Logger(subsystem: "bob.hud", category: "keys")
 
-    /// Send a request up the socket. The microphone and the typed bar both
-    /// come here, so there is one path from asking to drawing rather than two
-    /// that drift.
-    private func dispatch(_ text: String) {
+    /// Send a request up the socket. The microphone, the typed bar and the
+    /// conversation panel all come here, so there is one path from asking
+    /// to drawing rather than three that drift. `typed` goes up with the
+    /// request, so the bridge can answer a typed question in writing rather
+    /// than out loud.
+    private func dispatch(_ text: String, typed: Bool) {
         model.setPresence(.thinking, amplitude: 0)
-        model.onEvent?(.heard(text))
+        model.asked(text, typed: typed)
+        model.onEvent?(typed ? .typed(text) : .heard(text))
     }
 
     /// Point at something and it becomes the subject.
@@ -483,6 +528,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Escape. What it takes back depends on where the request is.
     private func escape() {
+        // The panel first. Escape with the conversation up puts it back
+        // into the pill; it does not also clear the glass under it.
+        if model.chatOpen {
+            model.closeChat()
+            return
+        }
         switch model.pill.phase {
         case .hearing, .heard:
             // Still the person's sentence. `cancelRun` goes through
@@ -504,6 +555,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         model.onEvent?(.dismissed)
         model.reset()
+        model.clearChat()
     }
 
     private func setUpMenuBar() {
@@ -525,6 +577,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         askItem.keyEquivalentModifierMask = [.option]
         askItem.target = self
         menu.addItem(askItem)
+
+        let chatItem = NSMenuItem(
+            title: "Open the conversation", action: #selector(chatFromMenu), keyEquivalent: "")
+        chatItem.target = self
+        menu.addItem(chatItem)
 
         let clearItem = NSMenuItem(
             title: "Clear everything", action: #selector(clearFromMenu), keyEquivalent: "\u{1b}")
@@ -595,6 +652,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func askFromMenu() { showCommandBar() }
+    @objc private func chatFromMenu() { model.openChat() }
     @objc private func toggleFromMenu() { toggle() }
     @objc private func clearFromMenu() { dismissAll() }
 

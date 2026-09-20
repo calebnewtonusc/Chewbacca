@@ -89,6 +89,23 @@ public final class OverlayModel {
     /// Takes a failure or a stopped run off the pill after its hold.
     @ObservationIgnored private var pillHideTask: Task<Void, Never>?
 
+    /// The conversation: every request and every written answer of the
+    /// session, in order. The pill shows two lines of it at a time; the
+    /// conversation panel shows all of it, and is where an answer can be
+    /// copied from or a request typed. Asked for on 2026-09-19: "if click,
+    /// have it expand into its own chat window so a user can copy and
+    /// paste information or type their own requests if they dont want to
+    /// speak".
+    public private(set) var turns: [ChatTurn] = []
+    /// Whether the conversation panel is up. The pill hides while it is.
+    public private(set) var chatOpen = false
+    /// What main.swift does when the panel opens or closes: the panel is a
+    /// window of its own, because a text field has to be able to take key
+    /// and the glass must never.
+    public var onChatOpen: (() -> Void)?
+    public var onChatClose: (() -> Void)?
+    private var nextTurn = 0
+
     public init() {}
 
     /// Includes the pill, so Escape can reach a run with nothing drawn yet.
@@ -138,6 +155,9 @@ public final class OverlayModel {
 
         case .say(let text):
             say(text)
+
+        case .write(let text, let done):
+            write(text, done: done)
 
         case .queued(let count):
             queued(count)
@@ -219,11 +239,15 @@ public final class OverlayModel {
                 pill.phase = .saying
             }
             pill.startedAt = nil
+            // A bridge that never wrote the answer (an older one, or a
+            // one-line reply) still said it: the pill's line is the answer.
+            settleAnswer(fallback: pill.saying)
 
         case .failed:
             pill.phase = .failed
             pill.startedAt = nil
-            if pill.saying.isEmpty { pill.saying = "Did not finish" }
+            if pill.saying.isEmpty { pill.saying = PillState.unfinished }
+            settleAnswer(fallback: pill.saying)
 
         case .attentive, .dormant:
             // Only the phases that have said their piece go away. main.swift
@@ -327,6 +351,92 @@ public final class OverlayModel {
         heights = [:]
         current = "main"
         nextDepth = 0
+        // The conversation survives. Escape takes the glass back; it does
+        // not forget what was said, because the bridge's session has not
+        // forgotten either, and a panel that opens empty over a model that
+        // remembers the last exchange is lying about one of them.
+        // `clearChat` is the deliberate version.
+        closeChat()
+        revision += 1
+    }
+
+    // MARK: The conversation
+
+    /// A request went up the socket, spoken or typed. It goes into the
+    /// conversation at once with an empty answer after it, so the panel
+    /// shows the question while the answer is still being written.
+    public func asked(_ text: String, typed: Bool) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        turns.append(ChatTurn(id: take(), role: .person, text: trimmed, done: true, typed: typed))
+        turns.append(ChatTurn(id: take(), role: .assistant, text: "", done: false, typed: typed))
+        trimTurns()
+        revision += 1
+    }
+
+    /// The answer so far, replacing what was there; `done` closes it. With
+    /// no answer open (a `w` sent by hand, or after a stop), it opens one.
+    public func write(_ text: String, done: Bool) {
+        if let index = turns.lastIndex(where: { $0.role == .assistant && !$0.done }) {
+            turns[index].text = text
+            turns[index].done = done
+        } else {
+            turns.append(ChatTurn(id: take(), role: .assistant, text: text, done: done, typed: false))
+            trimTurns()
+        }
+        revision += 1
+    }
+
+    /// Close every open answer. One with nothing written takes `fallback`,
+    /// which is the pill's last line: for a one-sentence reply that is the
+    /// whole answer, and for a failure it is what went wrong.
+    private func settleAnswer(fallback: String) {
+        var changed = false
+        for index in turns.indices where turns[index].role == .assistant && !turns[index].done {
+            if turns[index].text.isEmpty { turns[index].text = fallback }
+            turns[index].done = true
+            changed = true
+        }
+        if changed { revision += 1 }
+    }
+
+    /// The most turns kept. Two hundred: a long evening of asking, and far
+    /// under what a `LazyVStack` minds. Guessed, never measured.
+    public static let maxTurns = 200
+
+    private func trimTurns() {
+        if turns.count > Self.maxTurns {
+            turns.removeFirst(turns.count - Self.maxTurns)
+        }
+    }
+
+    private func take() -> Int {
+        nextTurn += 1
+        return nextTurn
+    }
+
+    public func openChat() {
+        guard !chatOpen else { return }
+        chatOpen = true
+        revision += 1
+        onChatOpen?()
+    }
+
+    public func closeChat() {
+        guard chatOpen else { return }
+        chatOpen = false
+        revision += 1
+        onChatClose?()
+    }
+
+    public func toggleChat() {
+        if chatOpen { closeChat() } else { openChat() }
+    }
+
+    /// Forget the conversation. The panel's own button, and "Clear
+    /// everything" in the menu; nothing else.
+    public func clearChat() {
+        turns = []
         revision += 1
     }
 
@@ -373,6 +483,13 @@ public final class OverlayModel {
         pill.phase = .failed
         pill.saying = message
         pill.startedAt = nil
+        settleAnswer(fallback: message)
+        // `p failed` may have closed the answer with the placeholder a
+        // moment ago; the message is the better version of it.
+        if let index = turns.lastIndex(where: { $0.role == .assistant }),
+           turns[index].text.isEmpty || turns[index].text == PillState.unfinished {
+            turns[index].text = message
+        }
         revision += 1
         pillHideTask?.cancel()
         pillHideTask = hide(after: hold, ifStill: .failed)
@@ -396,6 +513,7 @@ public final class OverlayModel {
             pill.phase = .saying
             pill.saying = "Stopped. What was drawn stays."
             pill.startedAt = nil
+            settleAnswer(fallback: "Stopped.")
             // The bridge answers a stop with `p failed` and its own hold. If
             // nothing is listening to answer, do not sit here forever. Three
             // seconds is guessed, never measured.

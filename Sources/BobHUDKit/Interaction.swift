@@ -11,6 +11,7 @@ import Foundation
 ///     v <pointer> <json>                           a bound value changed
 ///     x                                            the panel was dismissed
 ///     h <json string>                              something was said to it
+///     h <json string> via=typed                    something was typed to it
 ///     g <x> <y> <w> <h>                            a region was pointed at
 ///     ! <json string>                              something you sent was wrong
 ///     v! <json string>                             the display's version
@@ -25,6 +26,11 @@ public enum OutboundEvent: Sendable, Equatable {
     /// never bare: an utterance has spaces in it and a listener splitting on
     /// whitespace would otherwise take the first word and drop the sentence.
     case heard(String)
+    /// A request typed into the conversation panel rather than spoken. The
+    /// same `h` line with `via=typed` after the string, so a listener that
+    /// reads the string alone still gets the request, and one that reads
+    /// the flag can answer in writing instead of out loud.
+    case typed(String)
     /// A region of the screen the person pointed at, in points with a top-left
     /// origin. Deixis: this is what makes "what is this" mean something.
     case region(CGRect)
@@ -56,6 +62,9 @@ public enum OutboundEvent: Sendable, Equatable {
 
         case .heard(let text):
             return "h \(OutboundEvent.jsonString(text))"
+
+        case .typed(let text):
+            return "h \(OutboundEvent.jsonString(text)) via=typed"
 
         case .problem(let text):
             return "! \(OutboundEvent.jsonString(text))"
