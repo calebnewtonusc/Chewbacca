@@ -221,7 +221,14 @@ if [ -f "$CLAUDE_DIR/d1-config.sh" ]; then
   ok "d1-config.sh present"
   for pair in "PERSONAL_CONTEXT_DIR:${PERSONAL_CONTEXT_DIR:-}" "PUBLIC_CONTEXT_DIR:${PUBLIC_CONTEXT_DIR:-}"; do
     name="${pair%%:*}"; dir="${pair#*:}"
-    if [ -z "$dir" ]; then
+    # One store is a supported setup, not a broken one. The two-repo split was
+    # deliberately collapsed into a single personal store, and d1-config.sh says
+    # so in a comment, but this kept warning about the empty one on every run.
+    # A warning nobody can act on is a warning people learn to scroll past, and
+    # then they scroll past the real ones too.
+    if [ -z "$dir" ] && [ "$name" = "PUBLIC_CONTEXT_DIR" ]; then
+      ok "$name unset, single-store setup"
+    elif [ -z "$dir" ]; then
       warn "$name not set"
     elif [ -d "$dir/.git" ]; then
       ok "$name is a git repo"
@@ -774,6 +781,36 @@ if [ -d "$SK_SRC" ]; then
     warn "$(echo $SK_COPY | wc -w | tr -d ' ') skill(s) are copies, not symlinks, so repo fixes will not reach them"
   else
     ok "all $SK_WANT skills installed, as symlinks"
+  fi
+
+  # A skill renamed in the repo leaves the old copy behind in ~/.claude/skills,
+  # where it keeps loading its description into every session and competes with
+  # the new one for triggering. nova-brief and nova-runtime survived the rename
+  # to mac-* for fifteen days that way, telling the agent to run `mac brief`, a
+  # command that no longer exists. Nothing looked, because every check here
+  # asked whether what the repo has is installed, and never the reverse.
+  #
+  # Skills from elsewhere are not orphans: a symlink is ours, a .source file
+  # marks an upstream clone, and a directory with no SKILL.md is not a skill.
+  SK_ORPHAN=""
+  for d in "$CLAUDE_DIR"/skills/*/; do
+    [ -d "$d" ] || continue
+    n="$(basename "$d")"
+    [ -L "${d%/}" ] && continue
+    [ -f "$d/.source" ] && continue
+    [ -f "$d/SKILL.md" ] || continue
+    [ -e "$REPO_DIR_EARLY/skills/$n" ] && continue
+    # Only flag one that looks like a leftover of something the repo still has
+    # under a different prefix, rather than every skill from another kit.
+    base="${n#nova-}"; base="${base#mac-}"
+    if [ "$base" != "$n" ] && [ -e "$REPO_DIR_EARLY/skills/mac-$base" ]; then
+      SK_ORPHAN="$SK_ORPHAN $n"
+    fi
+  done
+  if [ -n "$SK_ORPHAN" ]; then
+    warn "orphaned skill(s) from a rename still installed:$SK_ORPHAN"
+    [ "$QUIET" -eq 1 ] || echo "          they load into every session and compete for triggering"
+    [ "$QUIET" -eq 1 ] || echo "          remove them from $CLAUDE_DIR/skills/"
   fi
 fi
 
