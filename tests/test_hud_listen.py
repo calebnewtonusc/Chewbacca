@@ -580,6 +580,21 @@ def test_lean_prompt(m) -> None:
     check("the system prompt file exists", m.AGENT_PROMPT.is_file(), str(m.AGENT_PROMPT))
 
 
+def test_pick_names(m) -> None:
+    chats = [
+        {"name": "Caleb Newton", "isGroup": False},
+        {"name": "+1 555 010 0000", "isGroup": False},
+        {"name": "someone@example.com", "isGroup": False},
+        {"name": "The Group", "isGroup": True},
+        "not a row",
+    ]
+    contacts = [{"name": "caleb newton"}, {"name": " Sarah Chen "}, {"name": ""}, {"organization": "Acme"}]
+    names = m.pick_names(chats, contacts)
+    check("chats first, then contacts, once each, handles and groups left out",
+          names == ["Caleb Newton", "Sarah Chen"], f"got {names}")
+    check("nothing in, nothing out", m.pick_names([], []) == [])
+
+
 def test_pointing(m) -> None:
     listener = m.Listener("claude -p", False, False)
     check("no region to start", listener.pointing() is None)
@@ -753,7 +768,7 @@ def test_end_to_end() -> None:
         )
     os.chmod(fake, 0o755)
 
-    env = dict(os.environ, BOB_HUD_SOCKET=path)
+    env = dict(os.environ, BOB_HUD_SOCKET=path, HUD_NAMES="off")
     process = subprocess.Popen(
         [sys.executable, str(BIN), "--model-cmd", fake],
         env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -833,7 +848,7 @@ def run_against(model: str, say: list, until, timeout: float = 40.0, name: str =
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
-    env = dict(os.environ, BOB_HUD_SOCKET=path)
+    env = dict(os.environ, BOB_HUD_SOCKET=path, HUD_NAMES="off")
     process = subprocess.Popen(
         [sys.executable, str(BIN), "--model-cmd", fake],
         env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -968,7 +983,7 @@ def test_reconnects() -> None:
         handle.write("#!/bin/sh\ncat > /dev/null\necho 'r s'\n")
     os.chmod(fake, 0o755)
 
-    env = dict(os.environ, BOB_HUD_SOCKET=path)
+    env = dict(os.environ, BOB_HUD_SOCKET=path, HUD_NAMES="off")
     process = subprocess.Popen(
         [sys.executable, str(BIN), "--model-cmd", fake],
         env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -1026,6 +1041,8 @@ def main() -> int:
     test_prompt_prefix(module)
     print("session continuity")
     test_session_flags(module)
+    print("names for the recogniser")
+    test_pick_names(module)
     print("the turn line")
     test_turn_line(module)
     print("the lean profile")

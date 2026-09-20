@@ -109,6 +109,14 @@ PERMISSION_MODES = {"acceptEdits", "auto", "bypassPermissions", "manual", "dontA
 # the target.
 RETIRE_TURNS = 50
 RETIRE_TOKENS = 60_000
+# The names the display's recogniser is told to expect (Vocabulary in
+# BobHUDKit reads this): whoever the person has been texting, then whoever
+# is in Contacts. Written once per start, in the background.
+NAMES = Path.home() / ".bob" / "names.txt"
+NAMES_CHATS = 60
+# `mac contacts find` needs a query and has no list-all; six vowels reach
+# almost every name there is.
+NAMES_QUERIES = ("a", "e", "i", "o", "u", "y")
 
 # The whole utterance, lowercased, punctuation stripped, must equal one of
 # these. A closed list and no NLU: a cancel must be an explicit gesture, and a
@@ -173,6 +181,70 @@ def later(delay: float, fn) -> threading.Timer:
     timer.daemon = True
     timer.start()
     return timer
+
+
+def pick_names(chats: list, contacts: list) -> list[str]:
+    """One name per line for the recogniser, the recent chats first.
+
+    A chat with no contact behind it is named by its handle, a number or an
+    address, which is nothing anyone says out loud; those are left out, and
+    so are group chats, which are named by whoever made them up.
+    """
+    names: list[str] = []
+    seen: set[str] = set()
+
+    def add(row: object) -> None:
+        if not isinstance(row, dict) or row.get("isGroup"):
+            return
+        name = str(row.get("name") or "").strip()
+        if not name or "@" in name or any(ch.isdigit() for ch in name):
+            return
+        if name.lower() in seen:
+            return
+        seen.add(name.lower())
+        names.append(name)
+
+    for row in chats:
+        add(row)
+    for row in contacts:
+        add(row)
+    return names
+
+
+def mac_json(args: list[str]) -> list:
+    """One `mac` command's JSON rows, or nothing: no binary, no grant, no
+    rows and a bad row all read the same to the caller, which only wants
+    names it can have."""
+    try:
+        done = subprocess.run(
+            ["mac", *args, "--json"], capture_output=True, text=True, timeout=30
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if done.returncode != 0:
+        return []
+    try:
+        rows = json.loads(done.stdout)
+    except ValueError:
+        return []
+    return rows if isinstance(rows, list) else []
+
+
+def write_names() -> int:
+    """Write `NAMES` from Messages and Contacts; the count written."""
+    chats = mac_json(["messages", "chats", "--limit", str(NAMES_CHATS)])
+    contacts: list = []
+    for query in NAMES_QUERIES:
+        contacts += mac_json(["contacts", "find", query])
+    names = pick_names(chats, contacts)
+    if not names:
+        return 0
+    try:
+        NAMES.parent.mkdir(parents=True, exist_ok=True)
+        NAMES.write_text("\n".join(names) + "\n", encoding="utf-8")
+    except OSError:
+        return 0
+    return len(names)
 
 
 def turn_line(
@@ -1800,6 +1872,15 @@ def main() -> int:
     )
     args = parser.parse_args()
     voice = None if args.voice.lower() in {"off", "none", ""} else args.voice
+    if os.environ.get("HUD_NAMES", "").lower() != "off":
+        # Six `mac` calls, a few seconds; the recogniser reads the file on
+        # every press, so it lands whenever it lands.
+        def names() -> None:
+            count = write_names()
+            if count and args.verbose:
+                print(f"names: {count} written to {NAMES}", file=sys.stderr, flush=True)
+
+        threading.Thread(target=names, daemon=True).start()
     return Listener(
         args.model_cmd, args.verbose, args.bare, voice=voice, profile=args.profile
     ).run()
