@@ -310,6 +310,12 @@ writes one `turn:` line to the log with where the time and the tokens went.
 The reply is read by `hud-speak` (Python) or, with `HUD_SPEAKER=hud-voice`,
 by the Swift server in `voice/`, which needs nothing installed.
 
+How the voice is meant to sound, and where each rule came from, is in
+`docs/VOICE-DESIGN.md`: a tone on the press, the model's restate-then-acknowledge
+first sentence ("Texting Caleb you're running ten late. On it."), and a
+context-shaped filler from the bridge only when nothing has been said for two
+seconds. Change `bin/hud-agent.md` with that doc open.
+
 `hud listen` is the loop: it holds a connection open, and when something is said
 it asks a model to answer by drawing. Run it in the background of a session where
 you want the screen to be answerable out loud.

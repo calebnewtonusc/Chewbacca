@@ -155,6 +155,39 @@ SURFACE = re.compile(r"(?m)^\s*@\s+(\S+)")
 CLOSED = re.compile(r"(?m)hud close\s+(\S+)|^\s*-\s+(\S+)")
 
 
+# When the model has said nothing yet, the bridge says something small so
+# the gap is not silence. The literature on fillers (Duplex's "um"s, the
+# 2021 to 2025 virtual-agent studies) agrees on two things: a filler helps
+# once the wait passes about two seconds and is noise under that, and a
+# filler shaped to what was asked beats a generic one. Under the lean
+# profile the first words came at 1.0 to 1.7s on 2026-09-20, so 2.0s is
+# just past the turns that need nothing; guessed from that, never
+# measured against a listener. HUD_FILLER_AFTER overrides it, for tuning
+# against a real listener without an edit.
+FILLER_AFTER = float(os.environ.get("HUD_FILLER_AFTER", "2.0"))
+# A question gets a looking filler, a task gets an okay. The model's own
+# acknowledgement is "On it." and its kin (hud-agent.md), so neither set
+# repeats those: "Okay. Texting Caleb you're late. On it." reads as a
+# person, "On it. On it." does not.
+QUESTION_WORDS = frozenset({
+    "what", "whats", "when", "whens", "who", "whos", "where", "wheres", "why",
+    "how", "hows", "is", "are", "am", "was", "were", "do", "does", "did",
+    "can", "could", "will", "would", "should", "which", "any", "have", "has",
+})
+QUESTION_FILLERS = ("Let me see.", "One sec.", "Let me look.")
+TASK_FILLERS = ("Okay.", "Sure.", "Yep.")
+
+
+def pick_filler(said: str, last: str | None = None) -> str:
+    """The filler for `said`, never the one used last time."""
+    words = normalise(said).split()
+    asking = said.rstrip().endswith("?") or (bool(words) and words[0] in QUESTION_WORDS)
+    options = QUESTION_FILLERS if asking else TASK_FILLERS
+    if last in options:
+        return options[(options.index(last) + 1) % len(options)]
+    return options[0]
+
+
 def normalise(said: str) -> str:
     """An utterance as the stop-word list sees it: lowercase, letters only."""
     return " ".join(re.sub(r"[^a-z ]", "", said.lower()).split())
@@ -795,6 +828,8 @@ class Listener:
         # never was.
         self.first_level_at: float | None = None
         self.turn_report: dict | None = None
+        # The last silence filler said, so the next one is different.
+        self.last_filler: str | None = None
         # A reply handed to hud-speak that has not yet reported quiet. Set
         # before the first level arrives, because synthesis takes most of a
         # second and the leave timer must not start in that gap.
@@ -1519,7 +1554,7 @@ class Listener:
         voiced = False
         if Path(argv[0]).name == "claude":
             ok, out, said, first, answer, voiced = self.run_streamed(
-                argv, prompt, typed=req.typed, asked_at=req.spoken_at
+                argv, prompt, typed=req.typed, asked_at=req.spoken_at, said=req.said
             )
         else:
             ok, out, said = self.run_plain(argv, prompt)
@@ -1720,6 +1755,7 @@ class Listener:
         prompt: str,
         typed: bool = False,
         asked_at: float | None = None,
+        said: str = "",
     ) -> tuple[bool, str, str | None, str | None, str, bool]:
         """Run Claude Code and put what it is actually doing on the glass.
 
@@ -1785,6 +1821,28 @@ class Listener:
         for line in run.pulse(started, force=True):
             self.send(line)
         stop = threading.Event()
+        # The silence filler and the first chunk race for the voice; the
+        # gate decides which one opens the reply (`say`) and which queues
+        # behind it (`add`). `spoke` is set by whichever got there first.
+        gate = threading.Lock()
+        spoke = threading.Event()
+        filled = threading.Event()
+
+        def fill() -> None:
+            if not streaming or proc.poll() is not None or stop.is_set():
+                return
+            with gate:
+                if spoke.is_set():
+                    return
+                spoke.set()
+                filled.set()
+            phrase = pick_filler(said, self.last_filler)
+            self.last_filler = phrase
+            if self.speak_part(phrase, first=True):
+                self.log(f"[+{time.monotonic() - started:.1f}s] filler:", phrase)
+
+        filler = threading.Timer(FILLER_AFTER, fill)
+        filler.start()
 
         def keepalive() -> None:
             # The read loop below is blocked on stdout for as long as a tool
@@ -1808,7 +1866,12 @@ class Listener:
                         self.log(f"[+{time.monotonic() - started:.1f}s]", line)
                     self.send(line)
                 for chunk in run.take_voice():
-                    if streaming and self.speak_part(chunk, first=not voiced):
+                    if not streaming:
+                        continue
+                    with gate:
+                        first = not voiced and not filled.is_set()
+                        spoke.set()
+                    if self.speak_part(chunk, first=first):
                         if not voiced:
                             self.log(f"[+{time.monotonic() - started:.1f}s] voice:", chunk[:80])
                         voiced = True
@@ -1822,7 +1885,8 @@ class Listener:
         finally:
             stop.set()
             killer.cancel()
-            if voiced:
+            filler.cancel()
+            if voiced or filled.is_set():
                 # Everything has been handed over; quiet follows the last
                 # sentence rather than the last chunk queued.
                 self.tell_speaker({"end": True})
