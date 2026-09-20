@@ -31,6 +31,40 @@ struct KeyTests {
         #expect(doubles([0, 2.1]) == [false, false])
     }
 
+    /// Polls rather than sleeping once: a fixed wait lost to the snapshot
+    /// tests rendering images in the same run.
+    @MainActor
+    private func eventually(within seconds: Double = 6, _ condition: () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return condition()
+    }
+
+    @Test("a press that heard nothing leaves after a moment, unless the key is used again")
+    @MainActor
+    func idlePressLeaves() async throws {
+        let model = OverlayModel()
+        model.setPresence(.attentive, amplitude: 0)
+        model.beginHearing()
+        model.pressHeardNothing(after: 0.05)
+        #expect(model.pill.phase == .hidden)
+        #expect(model.presence == .attentive)
+        #expect(await eventually { model.presence == .dormant })
+
+        // Pressed again inside the window: the band stays for the new turn.
+        model.setPresence(.attentive, amplitude: 0)
+        model.beginHearing()
+        model.pressHeardNothing(after: 0.05)
+        model.setPresence(.attentive, amplitude: 0)
+        model.beginHearing()
+        try await Task.sleep(for: .seconds(0.3))
+        #expect(model.presence == .attentive)
+        #expect(model.pill.phase == .hearing)
+    }
+
     @Test("another modifier changing under the held key is not a press")
     func modifierUnderHold() {
         var taps = DoubleTap(interval: 0.5)

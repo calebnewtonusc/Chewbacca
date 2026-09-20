@@ -88,6 +88,13 @@ public final class OverlayModel {
     public var onPillCancel: ((PillState.Phase) -> Void)?
     /// Takes a failure or a stopped run off the pill after its hold.
     @ObservationIgnored private var pillHideTask: Task<Void, Never>?
+    /// Takes the band down after a press that heard nothing. See
+    /// `pressHeardNothing`.
+    @ObservationIgnored private var leaveTask: Task<Void, Never>?
+    /// How many times the presence has been set, whatever it was set to.
+    /// A leave scheduled against one count does nothing once the count has
+    /// moved: whatever moved it is the newer intent.
+    @ObservationIgnored private var presenceSets = 0
 
     /// The conversation: every request and every written answer of the
     /// session, in order. The pill shows two lines of it at a time; the
@@ -215,6 +222,7 @@ public final class OverlayModel {
     /// `p done` and `p failed` at exactly the moments the pill needs.
     public func setPresence(_ next: Presence, amplitude: Double?) {
         presence = next
+        presenceSets += 1
         if let amplitude { self.amplitude = amplitude }
         revision += 1
 
@@ -457,6 +465,30 @@ public final class OverlayModel {
         pill.heard = ""
         pillHideTask?.cancel()
         revision += 1
+    }
+
+    /// How long the band stays after a press that heard nothing, in case
+    /// the press was meant and the next one is coming. Three seconds, from
+    /// the ask on 2026-09-20: "make the boundary auto disappear after 3
+    /// seconds of non use if it was accidentally clicked", and only "at
+    /// the beginning of a new chat", never once words were spoken.
+    public static let idleLeave: TimeInterval = 3
+
+    /// The key came up with nothing said into it. The pill goes now, the
+    /// band after `idleLeave` unless the key is used again first: a new
+    /// press sets the presence, which is what the wait checks for.
+    public func pressHeardNothing(after delay: TimeInterval = idleLeave) {
+        pill = PillState(queued: pill.queued)
+        pillHideTask?.cancel()
+        pillHideTask = nil
+        revision += 1
+        let mark = presenceSets
+        leaveTask?.cancel()
+        leaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self, self.presenceSets == mark else { return }
+            self.setPresence(.dormant, amplitude: 0)
+        }
     }
 
     /// The recogniser's current guess at the sentence so far.

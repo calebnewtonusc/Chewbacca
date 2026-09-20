@@ -292,6 +292,15 @@ public final class VoiceListener {
         if mode == .wake { restartIfWaking() } else { stop() }
     }
 
+    /// A press that heard nothing, dropped without a word: no final to wait
+    /// for, no "Did not catch that", and no `listening(false)`, because the
+    /// display decides what the band does next. Push-to-talk only.
+    public func dropPush() {
+        guard mode == .pushToTalk else { return }
+        pushHeld = false
+        stop(quiet: true)
+    }
+
     /// Shut the microphone without touching the recognition task.
     private func closeMicrophone() {
         guard engine.isRunning else { return }
