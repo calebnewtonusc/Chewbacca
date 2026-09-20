@@ -71,6 +71,16 @@ def check(name: str, condition: bool, detail: str = "") -> None:
         failures.append(name)
 
 
+def _last_answer(mem: str) -> dict:
+    """The answer fields of the last transcript line that carries one."""
+    lines = Path(mem, "transcript.jsonl").read_text().splitlines()
+    for raw in reversed([l for l in lines if l.strip()]):
+        entry = json.loads(raw)
+        if "answer" in entry:
+            return {"answer": entry["answer"], "delivered": entry.get("delivered")}
+    return {}
+
+
 def load():
     # The script has no .py extension, so the loader has to be named: without
     # one, spec_from_file_location returns None and the failure points at
@@ -1420,6 +1430,53 @@ def test_draft_words(m) -> None:
           asked == [("build me a signaler", "assistant")], str(asked))
 
 
+def test_terminal_replay(m) -> None:
+    """A listener starting up on a file that already has events folds all of
+    it in silence: the strip is recovered, nothing is spoken, no presence is
+    sent, and the front check is never run."""
+    import tempfile
+    mem = tempfile.mkdtemp()
+    m.voice_memory.MEMORY = Path(mem)
+    m.voice_memory.TRANSCRIPT = Path(mem) / "transcript.jsonl"
+    m.voice_memory.PROJECT = Path(mem) / "project.json"
+    m.voice_memory.DRAFT = Path(mem) / "draft.json"
+    m.NAMES = Path(mem) / "names.txt"
+    Path(mem, "project.json").write_text(json.dumps({"tty": "/dev/ttys002", "cwd": mem}))
+    m.ROUTE = True
+    fronts: list[str] = []
+
+    def looking() -> str:
+        fronts.append("asked")
+        return "Google Chrome · tab · 0 chars selected"
+
+    m.looking_at = looking
+    stale = time.time() - 60
+    with (Path(mem) / "terminal-events.jsonl").open("w") as f:
+        for e in [
+            {"t": stale - 2, "event": "PreToolUse", "tool": "Bash", "summary": "npm test",
+             "session": "s", "ask": "", "held": False},
+            {"t": stale, "event": "PermissionRequest", "tool": "Bash", "summary": "rm -rf build",
+             "session": "s", "ask": "a1b2c3d4", "held": True},
+        ]:
+            f.write(json.dumps(e) + "\n")
+    listener = m.Listener("claude -p", False, False)
+    sent: list[str] = []
+    listener.send = sent.append  # type: ignore[method-assign]
+    spoken: list[str] = []
+    listener.speak = spoken.append  # type: ignore[method-assign]
+    listener.poll_terminal()
+    state = listener.terminal_state
+    check("the held ask is recovered from the file",
+          state["state"] == "waiting" and state["held"] is True and state["ask"] == "a1b2c3d4", str(state))
+    check("the strip is sent so the HUD is right",
+          't "waiting on you: rm -rf build" state=waiting' in sent, str(sent))
+    check("history says nothing aloud", spoken == [], str(spoken))
+    check("history lights no presence", not any(l.startswith("p ") for l in sent), str(sent))
+    check("history never runs the front check", fronts == [], str(fronts))
+    check("a yes on the recovered hold is still consumed", listener.handle_terminal_word("yes"))
+    time.sleep(listener.ANSWER_CONFIRM_S + 0.5)
+
+
 def test_terminal_loop(m) -> None:
     """Hook events fold into the strip, the field, and the voice; yes and no
     answer a held ask by file and an expired one by keypress."""
@@ -1463,23 +1520,56 @@ def test_terminal_loop(m) -> None:
     check("running says nothing aloud", spoken == [])
     sent.clear()
 
-    emit(entry("PermissionRequest", tool="Bash", summary="rm -rf build", ask="a1", held=True))
+    emit(entry("PermissionRequest", tool="Bash", summary="rm -rf build", ask="a1b2c3d4", held=True))
     check("waiting drives the strip", 't "waiting on you: rm -rf build" state=waiting' in sent, str(sent))
     check("waiting with nothing in flight lights attention", "p attention" in sent, str(sent))
     check("waiting is announced when Terminal is not in front",
           spoken == ["The terminal wants to rm -rf build. Yes or no?"], str(spoken))
     sent.clear(); spoken.clear()
 
+    answer = Path(mem, "asks", "a1b2c3d4.answer")
+    consumed: list[str] = []
+
+    def play_the_hook() -> None:
+        """What the hook does with an answer: read it, then unlink it. That
+        unlink is the only evidence hud-listen has that the hold was still
+        open, so the test has to provide it."""
+        for _ in range(60):
+            if answer.exists():
+                consumed.append(answer.read_text().strip())
+                answer.unlink()
+                return
+            time.sleep(0.05)
+
+    hook = threading.Thread(target=play_the_hook, daemon=True)
+    hook.start()
     check("'yes' while a held ask waits is consumed", listener.handle_terminal_word("yes"))
-    time.sleep(0.3)
-    answer = Path(mem, "asks", "a1.answer")
-    check("'yes' wrote the allow answer file", answer.exists() and answer.read_text().strip() == "allow")
+    hook.join(3.0)
+    time.sleep(0.4)
+    check("'yes' wrote the allow answer file the hook then read", consumed == ["allow"], str(consumed))
     check("the pill said allowed", any(l.startswith('s "allowed') for l in sent), str(sent))
     check("nothing was pressed in the tab", not Path(log).exists())
-    answer.unlink()
-    emit(entry("ask_answered", ask="a1", summary="allow"))
+    emit(entry("ask_answered", ask="a1b2c3d4", summary="allow"))
     check("an answered ask is running again", listener.terminal_state["state"] == "running")
     check("'yes' with nothing waiting is not consumed", not listener.handle_terminal_word("yes"))
+    sent.clear()
+
+    # Nobody takes the answer: the hook stopped polling before it landed, so
+    # nothing was granted. Saying "allowed" there is worse than silence,
+    # because the person stops watching the tab.
+    emit(entry("PermissionRequest", tool="Bash", summary="rm -rf build", ask="a9b8c7d6", held=True))
+    sent.clear()
+    check("'yes' on a hold nobody is watching is still consumed", listener.handle_terminal_word("yes"))
+    time.sleep(listener.ANSWER_CONFIRM_S + 0.6)
+    check("the pill said the terminal stopped waiting",
+          any(l.startswith('s "the terminal stopped waiting') for l in sent), str(sent))
+    check("the unread answer file is cleaned up",
+          not Path(mem, "asks", "a9b8c7d6.answer").exists())
+    check("and nothing was pressed in the tab either", not Path(log).exists())
+    check("the transcript records the answer as undelivered",
+          _last_answer(mem) == {"answer": "allow", "delivered": False}, str(_last_answer(mem)))
+    emit(entry("ask_expired", ask="a9b8c7d6"))
+    emit(entry("PostToolUse", tool="Bash"))
     sent.clear()
 
     emit(entry("PermissionRequest", tool="Bash", summary="git push", ask="", held=False))
@@ -1491,13 +1581,13 @@ def test_terminal_loop(m) -> None:
     sent.clear(); spoken.clear()
 
     front["app"] = "Terminal · claude · 0 chars selected"
-    emit(entry("PermissionDenied", tool="Bash"), entry("PermissionRequest", tool="Bash", summary="ls", ask="a2", held=True))
+    emit(entry("PermissionDenied", tool="Bash"), entry("PermissionRequest", tool="Bash", summary="ls", ask="a2b2c3d4", held=True))
     check("waiting with Terminal in front is not announced", spoken == [], str(spoken))
     check("but the strip still shows it", any(l.startswith('t "waiting on you: ls"') for l in sent), str(sent))
     check("'stop the terminal' on a held ask is consumed", listener.handle_terminal_word("stop the terminal"))
     time.sleep(0.3)
-    check("it wrote deny stop", Path(mem, "asks", "a2.answer").read_text().strip() == "deny stop")
-    emit(entry("ask_answered", ask="a2", summary="deny stop"))
+    check("it wrote deny stop", Path(mem, "asks", "a2b2c3d4.answer").read_text().strip() == "deny stop")
+    emit(entry("ask_answered", ask="a2b2c3d4", summary="deny stop"))
     check("'stop the terminal' with nothing held is consumed", listener.handle_terminal_word("stop the terminal"))
     time.sleep(0.5)
     check("it pressed Escape through chewie", "interrupt --tty /dev/ttys002" in Path(log).read_text(), Path(log).read_text())
@@ -1527,6 +1617,8 @@ def main() -> int:
     test_routing(module)
     print("draft words")
     test_draft_words(module)
+    print("terminal replay")
+    test_terminal_replay(module)
     print("terminal loop")
     test_terminal_loop(module)
     print("breadcrumb")
