@@ -269,6 +269,9 @@ to anything that wants to act on it. Exit 0 clean, 1 warnings, 2 broken.
 
 ## For developers
 
+[CREDITS.md](CREDITS.md) lists every project this was built out of and who
+it belongs to, then the part that is not from anywhere else.
+
 Always-on standards for git, security, writing, naming and TypeScript. A
 stack-rules skill covering Next.js, React, Supabase and Vercel that loads only
 when the work touches it. Review, audit and deploy commands. Parallel subagents
