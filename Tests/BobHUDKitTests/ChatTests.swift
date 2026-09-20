@@ -107,11 +107,71 @@ struct ChatTests {
 
     @Test("prose splits into paragraphs and fenced code")
     func proseBlocks() {
-        let blocks = Prose.blocks("One.\n\nTwo\nstill two.\n```\nlet x = 1\n```\nThree.")
+        let blocks = Prose.blocks("One.\n\nTwo\nstill two.\n```swift\nlet x = 1\n```\nThree.")
         #expect(blocks == [
-            .paragraph("One."), .paragraph("Two\nstill two."), .code("let x = 1"), .paragraph("Three."),
+            .paragraph("One."), .paragraph("Two\nstill two."),
+            .code(language: "swift", text: "let x = 1"), .paragraph("Three."),
         ])
         #expect(Prose.blocks("").isEmpty)
-        #expect(Prose.blocks("```\nopen fence") == [.code("open fence")])
+        #expect(Prose.blocks("```\nopen fence") == [.code(language: "", text: "open fence")])
+    }
+
+    @Test("prose draws headings, lists, quotes, rules and tables as their own blocks")
+    func proseStructure() {
+        let text = """
+        ## Today
+
+        - one
+        - two
+        wraps
+        1. first
+        2) second
+        > a quote
+        ---
+        | a | b |
+        |---|---|
+        | 1 | 2 |
+        plain again
+        """
+        #expect(Prose.blocks(text) == [
+            .heading(level: 2, text: "Today"),
+            .bullets(["one", "two wraps"]),
+            .numbered(["first", "second"]),
+            .quote("a quote"),
+            .rule,
+            .table(header: ["a", "b"], rows: [["1", "2"]]),
+            .paragraph("plain again"),
+        ])
+        // A number in prose is not a list, and a lone dash is not a rule.
+        #expect(Prose.blocks("2024 was long.\n-") == [.paragraph("2024 was long.\n-")])
+    }
+
+    @Test("a step lands on the open answer and on the pill, and is not repeated")
+    func steps() {
+        let model = OverlayModel()
+        model.asked("what is due", typed: true)
+        model.apply(.step("Reading the ledger"))
+        model.apply(.step("Reading the ledger"))
+        model.apply(.step("Checking the calendar"))
+        #expect(model.turns.last?.steps == ["Reading the ledger", "Checking the calendar"])
+        #expect(model.pill.saying == "Checking the calendar")
+        #expect(model.pill.step)
+        model.apply(.say("Two things are due."))
+        #expect(!model.pill.step)
+        model.apply(.write(text: "Two things are due.", done: true))
+        #expect(model.turns.last?.endedAt != nil)
+        // A step with no answer open is just a line on the pill.
+        model.apply(.step("Late step"))
+        #expect(model.turns.last?.steps.count == 2)
+    }
+
+    @Test("opening counts, so the panel can animate each entrance")
+    func openings() {
+        let model = OverlayModel()
+        model.openChat()
+        model.openChat()
+        model.closeChat()
+        model.openChat()
+        #expect(model.chatOpenings == 2)
     }
 }

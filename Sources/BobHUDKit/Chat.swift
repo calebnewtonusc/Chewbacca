@@ -17,13 +17,26 @@ public struct ChatTurn: Identifiable, Equatable, Sendable {
     /// panel can say which, and so a written reply to a typed request is
     /// not read aloud by anything downstream.
     public var typed: Bool
+    /// What was done to get an answer, one line per tool call, in order.
+    /// Empty for a person's turn and for an answer that needed no tool.
+    public var steps: [String]
+    /// When the turn began, and when an answer closed. What the panel
+    /// shows as the time on hover and the seconds next to the steps.
+    public var startedAt: Date
+    public var endedAt: Date?
 
-    public init(id: Int, role: Role, text: String, done: Bool, typed: Bool) {
+    public init(
+        id: Int, role: Role, text: String, done: Bool, typed: Bool,
+        steps: [String] = [], startedAt: Date = Date(), endedAt: Date? = nil
+    ) {
         self.id = id
         self.role = role
         self.text = text
         self.done = done
         self.typed = typed
+        self.steps = steps
+        self.startedAt = startedAt
+        self.endedAt = endedAt
     }
 }
 
@@ -56,13 +69,22 @@ public final class ChatWindow: NSPanel {
         return min(600, max(320, visible * 0.55))
     }
 
+    /// The frame it was last left at, under this key in the defaults. A
+    /// panel that has been dragged beside the work should come back there.
+    public static let frameName = "chewbacca.chat"
+    /// Whether a saved frame was found at construction. Without one, the
+    /// panel opens where the pill was.
+    private let restoredFrame: Bool
+
     public init(
         model: OverlayModel,
         onSubmit: @escaping (String) -> Void,
+        onSpeak: @escaping (String) -> Void,
         onStop: @escaping () -> Void,
         onDismiss: @escaping () -> Void
     ) {
         self.onDismiss = onDismiss
+        self.restoredFrame = UserDefaults.standard.string(forKey: "NSWindow Frame " + Self.frameName) != nil
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: Self.width, height: Self.height(on: OverlayWindow.active)),
             styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel, .resizable],
@@ -92,8 +114,11 @@ public final class ChatWindow: NSPanel {
             rootView: ChatPanel(
                 model: model,
                 onSubmit: onSubmit,
+                onSpeak: onSpeak,
                 onStop: onStop,
                 onClose: { [weak self] in self?.dismiss() }))
+        if restoredFrame { setFrameUsingName(Self.frameName) }
+        setFrameAutosaveName(Self.frameName)
     }
 
     public override var canBecomeKey: Bool { true }
@@ -101,9 +126,10 @@ public final class ChatWindow: NSPanel {
 
     /// Where the pill was: bottom centre of the screen the pointer is on,
     /// the same lift above the Dock, so opening reads as the pill growing
-    /// rather than a second thing arriving elsewhere.
+    /// rather than a second thing arriving elsewhere. Once it has been
+    /// dragged somewhere it comes back to that place instead.
     public func present() {
-        if let screen = OverlayWindow.active {
+        if !restoredFrame, let screen = OverlayWindow.active {
             let visible = screen.visibleFrame
             let size = frame.size
             setFrameOrigin(
@@ -129,13 +155,27 @@ public final class ChatWindow: NSPanel {
 struct ChatPanel: View {
     let model: OverlayModel
     let onSubmit: (String) -> Void
+    let onSpeak: (String) -> Void
     let onStop: () -> Void
     let onClose: () -> Void
 
     @State private var draft = ""
+    @State private var shown = false
+    /// Whether the transcript follows the newest line. Off once the person
+    /// scrolls up to read, on again when they reach the bottom or ask.
+    @State private var following = true
+    @State private var atBottom = true
+    @State private var scrollMonitor: Any?
     @FocusState private var focused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.hudOffscreen) private var offscreen
+
+    /// What an empty panel offers, each one thing it can do from here.
+    static let suggestions = [
+        "What is on my calendar today?",
+        "Any texts I have not answered?",
+        "What am I looking at?",
+    ]
 
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: SurfaceChrome.radius, style: .continuous)
@@ -157,8 +197,22 @@ struct ChatPanel: View {
         // failure the cards' wash was tuned against.
         .modifier(SurfaceChrome(chrome: .card, lit: true))
         .environment(\.colorScheme, .dark)
+        // The pill growing into the panel: from the bottom, where the pill
+        // was, a hair smaller and clear, into place.
+        .scaleEffect(shown || offscreen ? 1 : 0.96, anchor: .bottom)
+        .opacity(shown || offscreen ? 1 : 0)
+        .onChange(of: model.chatOpenings, initial: true) { _, _ in enter() }
         .onAppear { focused = true }
         .onExitCommand { onClose() }
+    }
+
+    private func enter() {
+        guard !offscreen else { return }
+        shown = false
+        Task { @MainActor in
+            withAnimation(Motion.spring(0.38, 0.86, reduced: reduceMotion)) { shown = true }
+            focused = true
+        }
     }
 
     private var rule: some View {
@@ -175,6 +229,7 @@ struct ChatPanel: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(HUD.faint)
                 .lineLimit(1)
+                .modifier(Shimmer(on: busy && !reduceMotion))
                 .id(status)
                 .transition(.opacity)
             Spacer(minLength: 8)
@@ -193,92 +248,231 @@ struct ChatPanel: View {
                 // Not lazy: the conversation is capped at two hundred
                 // turns, and a lazy stack under a bottom anchor lays out
                 // from a scroll position it has not measured yet.
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 16) {
                     if model.turns.isEmpty {
                         empty
                     }
                     ForEach(model.turns) { turn in
-                        TurnView(turn: turn, status: pending(for: turn))
-                            .id(turn.id)
+                        TurnView(
+                            turn: turn,
+                            live: live(turn),
+                            status: pending(for: turn),
+                            isLast: turn.id == model.turns.last?.id,
+                            onSpeak: { onSpeak(turn.text) },
+                            onRegenerate: { regenerate(turn) },
+                            onEdit: { edit(turn) })
+                        .id(turn.id)
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .bottom).combined(with: .opacity),
+                            removal: .opacity))
                     }
-                    // Something to scroll to that is always last.
+                    // Something to scroll to that is always last, and that
+                    // says whether the bottom is in view.
                     Color.clear.frame(height: 1).id("end")
+                        .background {
+                            GeometryReader { geometry in
+                                Color.clear.preference(
+                                    key: EndVisible.self,
+                                    value: geometry.frame(in: .named("transcript")).maxY)
+                            }
+                        }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
+                .animation(Motion.spring(0.42, 0.85, reduced: reduceMotion), value: model.turns.count)
             }
+            .coordinateSpace(name: "transcript")
             .scrollIndicators(.automatic)
             .defaultScrollAnchor(.bottom)
+            .overlay(alignment: .bottom) {
+                if !following, !model.turns.isEmpty {
+                    Latest {
+                        following = true
+                        withAnimation(Motion.spring(0.35, 0.9, reduced: reduceMotion)) {
+                            proxy.scrollTo("end", anchor: .bottom)
+                        }
+                    }
+                    .padding(.bottom, 10)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(Motion.spring(0.32, 0.85, reduced: reduceMotion), value: following)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.onPreferenceChange(EndVisible.self) { maxY in
+                        // Within a line of the bottom counts as there.
+                        let near = maxY <= geometry.size.height + 24
+                        if near != atBottom { atBottom = near }
+                        if near { following = true }
+                    }
+                }
+            }
             // Follow the newest line as it is written. An answer that grows
-            // under the fold is one the person has to chase.
+            // under the fold is one the person has to chase, unless they
+            // scrolled up on purpose, in which case it waits.
             .onChange(of: model.revision) { _, _ in
+                guard following else { return }
                 proxy.scrollTo("end", anchor: .bottom)
             }
+            .onAppear { watchScrolling() }
+            .onDisappear { stopWatching() }
         }
+    }
+
+    /// The person scrolling up is the one signal that they want to read
+    /// rather than follow. The wheel says so directly; the bottom marker
+    /// alone cannot, because a growing answer pushes it out of view too.
+    private func watchScrolling() {
+        guard !offscreen, scrollMonitor == nil else { return }
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+            if event.window is ChatWindow, event.scrollingDeltaY > 0 {
+                Task { @MainActor in following = false }
+            }
+            return event
+        }
+    }
+
+    private func stopWatching() {
+        if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) }
+        scrollMonitor = nil
     }
 
     private var empty: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Nothing yet")
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundStyle(HUD.dim)
-            Text("Hold the globe key and speak, or type below.")
-                .font(.system(size: 12))
-                .foregroundStyle(HUD.faint)
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(greeting)
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .foregroundStyle(HUD.ink)
+                Text("Hold the globe key and speak, or type below. Anything on your Mac, or anything at all.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(HUD.faint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            FlowLayout(spacing: 8) {
+                ForEach(Self.suggestions, id: \.self) { suggestion in
+                    Chip(text: suggestion) { onSubmit(suggestion) }
+                }
+            }
         }
-        .padding(.vertical, 8)
-        .accessibilityElement(children: .combine)
+        .padding(.vertical, 10)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var greeting: String {
+        switch Calendar.current.component(.hour, from: Date()) {
+        case 5..<12: return "Good morning"
+        case 12..<17: return "Good afternoon"
+        case 17..<22: return "Good evening"
+        default: return "Still up"
+        }
     }
 
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: 10) {
-            if offscreen {
-                // `ImageRenderer` cannot draw an AppKit text field; it
-                // comes out as a prohibition sign on a yellow bar. The
-                // snapshot gets the field's own prompt in its place.
-                Text("Ask anything")
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .bottom, spacing: 10) {
+                if offscreen {
+                    // `ImageRenderer` cannot draw an AppKit text field; it
+                    // comes out as a prohibition sign on a yellow bar. The
+                    // snapshot gets the field's own prompt in its place.
+                    Text("Ask anything")
+                        .font(.system(size: 13))
+                        .foregroundStyle(HUD.faint)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    TextField(
+                        "", text: $draft, prompt: Text("Ask anything").foregroundStyle(HUD.faint),
+                        axis: .vertical
+                    )
+                    .textFieldStyle(.plain)
                     .font(.system(size: 13))
-                    .foregroundStyle(HUD.faint)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                TextField(
-                    "", text: $draft, prompt: Text("Ask anything").foregroundStyle(HUD.faint),
-                    axis: .vertical
-                )
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .foregroundStyle(HUD.ink)
-                .lineLimit(1...6)
-                .focused($focused)
-                .onSubmit(submit)
-                .accessibilityLabel("Ask anything")
-            }
+                    .foregroundStyle(HUD.ink)
+                    .lineLimit(1...6)
+                    .focused($focused)
+                    .onSubmit(submit)
+                    .accessibilityLabel("Ask anything")
+                }
 
-            if working {
-                IconButton(symbol: "stop.fill", help: "Stop", action: onStop)
-            } else {
-                IconButton(symbol: "arrow.up", help: "Send", prominent: true, action: submit)
-                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if working {
+                    IconButton(symbol: "stop.fill", help: "Stop", tint: HUD.bad, action: onStop)
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                } else {
+                    IconButton(symbol: "arrow.up", help: "Send", prominent: true, action: submit)
+                        .disabled(!canSend)
+                        .keyboardShortcut(.return, modifiers: .command)
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                }
             }
+            .animation(Motion.spring(0.30, 0.8, reduced: reduceMotion), value: working)
+            HStack(spacing: 6) {
+                Text(hint)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(HUD.faint.opacity(0.7))
+                    .lineLimit(1)
+                    .id(hint)
+                    .transition(.opacity)
+                Spacer()
+            }
+            .animation(Motion.fade(0.18, reduced: reduceMotion), value: hint)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+    }
+
+    private var canSend: Bool {
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var busy: Bool {
+        model.presence == .thinking || model.presence == .acting
+    }
+
+    private var hint: String {
+        if working {
+            return model.pill.queued > 0
+                ? "\(model.pill.queued) waiting. Return sends another, Escape closes."
+                : "Return sends another and it waits its turn. Escape closes."
+        }
+        return "Return sends. Option-Return for a new line. Typed requests are answered in writing."
     }
 
     private func submit() {
         let asked = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !asked.isEmpty else { return }
         draft = ""
+        following = true
         onSubmit(asked)
     }
 
-    /// The line under an answer still being written: the pill's breadcrumb,
-    /// which is what the assistant is doing right now.
+    /// Ask the same thing again: a fresh exchange under the old one, so the
+    /// first answer is still there to compare.
+    private func regenerate(_ turn: ChatTurn) {
+        guard let index = model.turns.firstIndex(where: { $0.id == turn.id }) else { return }
+        guard let person = model.turns[..<index].last(where: { $0.role == .person }) else { return }
+        following = true
+        onSubmit(person.text)
+    }
+
+    /// Put the person's words back in the field to change and send again.
+    private func edit(_ turn: ChatTurn) {
+        draft = turn.text
+        focused = true
+    }
+
+    /// Whether the answer's caret should blink: it is the open one.
+    private func live(_ turn: ChatTurn) -> Bool {
+        turn.role == .assistant && !turn.done && !turn.text.isEmpty
+    }
+
+    /// The line under an answer still being written: the step being taken
+    /// right now, or "Thinking" before any text; nothing once the text is
+    /// arriving and no tool is in use, because the caret says that.
     private func pending(for turn: ChatTurn) -> String? {
         guard turn.role == .assistant, !turn.done else { return nil }
         guard turn.id == model.turns.last(where: { $0.role == .assistant })?.id else { return nil }
-        let line = model.pill.saying
-        return line.isEmpty ? "Thinking" : line
+        if model.pill.step, !model.pill.saying.isEmpty { return model.pill.saying }
+        if turn.text.isEmpty { return model.pill.saying.isEmpty ? "Thinking" : model.pill.saying }
+        return nil
     }
 
     private var status: String {
@@ -296,227 +490,75 @@ struct ChatPanel: View {
     }
 }
 
-/// One turn drawn.
-///
-/// The person's words sit right, in a bubble the accent's colour at low
-/// opacity, because that is the shape every messaging app has taught. The
-/// answer sits left with no bubble at all: it is the longer text, and a
-/// bubble round three paragraphs is a box, not a message.
-struct TurnView: View {
-    let turn: ChatTurn
-    /// What is being done for this turn right now, while it is open.
-    let status: String?
-
-    @State private var hovering = false
-    @State private var copied = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        switch turn.role {
-        case .person:
-            HStack {
-                Spacer(minLength: 56)
-                Text(turn.text)
-                    .font(.system(size: 13))
-                    .foregroundStyle(HUD.ink)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(
-                        HUD.accent.opacity(0.20),
-                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(HUD.accent.opacity(0.25), lineWidth: 1)
-                    }
-            }
-            .accessibilityLabel((turn.typed ? "You typed " : "You said ") + turn.text)
-
-        case .assistant:
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(Prose.blocks(turn.text).enumerated()), id: \.offset) { _, block in
-                    ProseBlockView(block: block)
-                }
-                if let status {
-                    HStack(spacing: 6) {
-                        Working()
-                        Text(status)
-                            .font(.system(size: 12))
-                            .foregroundStyle(HUD.faint)
-                            .lineLimit(1)
-                            .id(status)
-                            .transition(.opacity)
-                    }
-                    .animation(Motion.fade(0.18, reduced: reduceMotion), value: status)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.trailing, 28)
-            .overlay(alignment: .topTrailing) {
-                if turn.done, !turn.text.isEmpty {
-                    IconButton(
-                        symbol: copied ? "checkmark" : "doc.on.doc",
-                        help: copied ? "Copied" : "Copy the answer",
-                        action: copy)
-                    .opacity(hovering || copied ? 1 : 0)
-                }
-            }
-            .onHover { hovering = $0 }
-            .animation(Motion.fade(0.14, reduced: reduceMotion), value: hovering)
-            .accessibilityElement(children: .combine)
-        }
-    }
-
-    private func copy() {
-        let board = NSPasteboard.general
-        board.clearContents()
-        board.setString(turn.text, forType: .string)
-        copied = true
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1.2))
-            copied = false
-        }
+/// Where the end of the transcript is, in the scroll view's space.
+private struct EndVisible: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
-/// Three dots that take turns. The one animation in the panel, and it stops
-/// the moment the answer closes.
-private struct Working: View {
-    @State private var on = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        HStack(spacing: 3) {
-            ForEach(0..<3, id: \.self) { index in
-                Circle()
-                    .fill(HUD.faint)
-                    .frame(width: 4, height: 4)
-                    .opacity(on ? 1 : 0.3)
-                    .animation(
-                        Motion.repeating(
-                            .easeInOut(duration: 0.6).repeatForever(autoreverses: true)
-                                .delay(Double(index) * 0.2),
-                            reduced: reduceMotion),
-                        value: on)
-            }
-        }
-        .onAppear { on = true }
-        .accessibilityHidden(true)
-    }
-}
-
-/// The answer's text, as paragraphs and code.
-///
-/// The model writes Markdown whether or not it is asked to, and a paragraph
-/// with `**` in it is a paragraph that was never edited. Inline emphasis,
-/// code and links are rendered; a fenced block is set in monospace on its
-/// own plate. Headings and tables are not drawn specially, because the
-/// prompt asks for neither and a heading that arrives anyway reads fine as
-/// a short line.
-enum Prose {
-    enum Block: Equatable {
-        case paragraph(String)
-        case code(String)
-    }
-
-    static func blocks(_ text: String) -> [Block] {
-        var out: [Block] = []
-        var paragraph: [String] = []
-        var code: [String]?
-        func flush() {
-            let joined = paragraph.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !joined.isEmpty { out.append(.paragraph(joined)) }
-            paragraph = []
-        }
-        for line in text.components(separatedBy: "\n") {
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                if let open = code {
-                    out.append(.code(open.joined(separator: "\n")))
-                    code = nil
-                } else {
-                    flush()
-                    code = []
-                }
-                continue
-            }
-            if code != nil {
-                code?.append(line)
-                continue
-            }
-            if line.trimmingCharacters(in: .whitespaces).isEmpty {
-                flush()
-            } else {
-                paragraph.append(line)
-            }
-        }
-        if let open = code { out.append(.code(open.joined(separator: "\n"))) }
-        flush()
-        return out
-    }
-}
-
-struct ProseBlockView: View {
-    let block: Prose.Block
-
-    var body: some View {
-        switch block {
-        case .paragraph(let text):
-            Text(styled(text))
-                .font(.system(size: 13))
-                .foregroundStyle(HUD.ink)
-                .lineSpacing(3)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-
-        case .code(let text):
-            Text(text)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(HUD.ink)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    .white.opacity(0.06),
-                    in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        }
-    }
-
-    /// Inline Markdown, line breaks kept. A paragraph that fails to parse
-    /// is shown as it came rather than not at all.
-    private func styled(_ text: String) -> AttributedString {
-        (try? AttributedString(
-            markdown: text,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(text)
-    }
-}
-
-/// A small round button with a symbol in it, the panel's one control shape.
-struct IconButton: View {
-    let symbol: String
-    let help: String
-    var prominent = false
+/// The way back down, for a transcript scrolled up while an answer grows.
+struct Latest: View {
     let action: () -> Void
-
     @State private var hovering = false
-    @Environment(\.isEnabled) private var enabled
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(prominent ? Color.black.opacity(0.85) : HUD.dim)
-                .frame(width: 24, height: 24)
-                .background(
-                    prominent ? HUD.accent.opacity(hovering ? 1 : 0.9) : .white.opacity(hovering ? 0.16 : 0.08),
-                    in: Circle())
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.down")
+                    .font(.system(size: 9, weight: .bold))
+                Text("Latest")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(HUD.ink)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 6)
+            .background(.black.opacity(hovering ? 0.62 : 0.5), in: Capsule())
+            .overlay { Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 1) }
+            .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
         }
-        .buttonStyle(.plain)
-        .opacity(enabled ? 1 : 0.35)
+        .buttonStyle(Press())
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovering)
-        .help(help)
-        .accessibilityLabel(help)
+        .help("Back to the newest line")
+    }
+}
+
+/// Chips on as many rows as they need. `HStack` would clip the third one
+/// at the panel's narrowest width.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        return place(in: width, subviews: subviews).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let placed = place(in: bounds.width, subviews: subviews)
+        for (subview, origin) in zip(subviews, placed.origins) {
+            subview.place(at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y), proposal: .unspecified)
+        }
+    }
+
+    private func place(in width: CGFloat, subviews: Subviews) -> (size: CGSize, origins: [CGPoint]) {
+        var origins: [CGPoint] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var widest: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            origins.append(CGPoint(x: x, y: y))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+            widest = max(widest, x - spacing)
+        }
+        return (CGSize(width: widest, height: y + rowHeight), origins)
     }
 }

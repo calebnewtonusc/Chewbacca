@@ -96,6 +96,8 @@ struct LineParserTests {
     @Test("a subtitle is one JSON string")
     func say() throws {
         #expect(try LineParser.parse(#"s "reading your calendar""#) == .say("reading your calendar"))
+        #expect(try LineParser.parse(#"s "reading your calendar" step=true"#) == .step("reading your calendar"))
+        #expect(try LineParser.parse(#"s bare words step=true"#) == .step("bare words"))
     }
 
     @Test("a subtitle with nothing to say is a mistake, not an empty line")

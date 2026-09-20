@@ -99,6 +99,9 @@ public final class OverlayModel {
     public private(set) var turns: [ChatTurn] = []
     /// Whether the conversation panel is up. The pill hides while it is.
     public private(set) var chatOpen = false
+    /// How many times it has opened. The panel's window is built once and
+    /// shown many times, so this is what its entrance animates on.
+    public private(set) var chatOpenings = 0
     /// What main.swift does when the panel opens or closes: the panel is a
     /// window of its own, because a text field has to be able to take key
     /// and the glass must never.
@@ -155,6 +158,9 @@ public final class OverlayModel {
 
         case .say(let text):
             say(text)
+
+        case .step(let text):
+            step(text)
 
         case .write(let text, let done):
             write(text, done: done)
@@ -380,6 +386,7 @@ public final class OverlayModel {
         if let index = turns.lastIndex(where: { $0.role == .assistant && !$0.done }) {
             turns[index].text = text
             turns[index].done = done
+            if done { turns[index].endedAt = Date() }
         } else {
             turns.append(ChatTurn(id: take(), role: .assistant, text: text, done: done, typed: false))
             trimTurns()
@@ -395,6 +402,7 @@ public final class OverlayModel {
         for index in turns.indices where turns[index].role == .assistant && !turns[index].done {
             if turns[index].text.isEmpty { turns[index].text = fallback }
             turns[index].done = true
+            turns[index].endedAt = Date()
             changed = true
         }
         if changed { revision += 1 }
@@ -418,6 +426,7 @@ public final class OverlayModel {
     public func openChat() {
         guard !chatOpen else { return }
         chatOpen = true
+        chatOpenings += 1
         revision += 1
         onChatOpen?()
     }
@@ -469,6 +478,19 @@ public final class OverlayModel {
     /// and that is what keeps the ring honest.
     public func say(_ text: String) {
         pill.saying = text
+        pill.step = false
+        revision += 1
+    }
+
+    /// A tool call, in words. On the pill, and on the open answer's list of
+    /// steps, so the panel can say what was done once the answer is in.
+    public func step(_ text: String) {
+        pill.saying = text
+        pill.step = true
+        if let index = turns.lastIndex(where: { $0.role == .assistant && !$0.done }),
+           turns[index].steps.last != text {
+            turns[index].steps.append(text)
+        }
         revision += 1
     }
 

@@ -25,6 +25,10 @@ public struct PillState: Equatable, Sendable {
     public var startedAt: Date?
     /// Requests waiting behind the one in flight.
     public var queued = 0
+    /// Whether `saying` is a tool step rather than a line of the answer.
+    /// The panel shows a step under the answer being written; an answer
+    /// line is already in the text.
+    public var step = false
 
     /// What a failure says when the bridge said nothing. Named so an answer
     /// closed with it can still take the real message when one follows.

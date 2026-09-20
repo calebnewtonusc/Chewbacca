@@ -224,6 +224,10 @@ public enum Op: Sendable, Equatable {
     case unmark(id: String)
     /// One line on the pill: a breadcrumb while working, the answer after.
     case say(String)
+    /// The same line, flagged as a step: one tool call, in words. On the
+    /// pill like `say`, and kept on the open answer in the conversation
+    /// panel as the list of what was done to get it.
+    case step(String)
     /// The written answer for the conversation panel: the whole text so
     /// far, replacing what was there, and `done` once it is complete. The
     /// pill holds two lines; this is where the rest of a full answer goes.

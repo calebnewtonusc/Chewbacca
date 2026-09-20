@@ -19,7 +19,7 @@ c <id> <Type> prop=value ...                               create a component
 d /pointer <json>                                          set data
 r <id>                                                     name the root, which paints
 - <surface>                                                close a surface
-s "<text>"                                                 say one line on the pill (subtitle)
+s "<text>" [step=true]                                     say one line on the pill (subtitle); a step is a tool call
 w "<text>" [done=true]                                     the written answer, for the conversation panel
 q <n>                                                      how many requests are waiting
 ```
@@ -116,8 +116,19 @@ The rest of a full answer goes to the conversation panel, which the pill opens
 when clicked: every request and every answer of the session, selectable, with a
 field to type the next request. `w "<text>"` is the answer so far, the whole
 text rather than a delta, and `w "<text>" done=true` closes it. Send it at each
-sentence as the answer is written, so the panel fills as the voice reads. Plain
-prose with inline Markdown; a fenced block is set in monospace.
+sentence as the answer is written, so the panel fills as the voice reads. Prose
+with Markdown: paragraphs, headings, bullet and numbered lists, quotes, rules,
+pipe tables, and fenced code with its language and a copy button.
+
+`s "<text>" step=true` is a tool call in words. It goes on the pill like any
+`s`, and the panel keeps it on the open answer: the live line under the answer
+while it is being done, with the clock, and afterwards a folded list of what
+was done and how long it took. A plain `s` is a line of the answer and is not
+kept, because the answer's text is already there.
+
+Each answer in the panel has copy, read aloud and ask-again buttons; a request
+has edit and copy. Read aloud goes up the socket as
+`e say turn text="<answer>"`, for whoever owns the voice to speak.
 
 ## Pointing
 
