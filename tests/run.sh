@@ -319,6 +319,23 @@ if group "installer"; then
   exits  "an unknown profile exits 2" 2 bash "$ROOT/setup.sh" --dry-run --profile nonsense --name CI
   check  "no read calls in the installer" bash -c "! grep -nE '^[[:space:]]*read (-[a-z]+ )*' '$ROOT/setup.sh'"
 
+  # start.sh and start.ps1 both refuse to install when the download does not
+  # match SHA256SUMS.txt, so a manifest that does not describe its own commit
+  # breaks every fresh install. The working-tree check cannot see it.
+  check  "committed checksums describe the committed tree" \
+    python3 "$ROOT/tools/committed_checksums.py"
+
+  # The negative control is real history, not a fixture. 8de1739 published a
+  # hash for .claude/hooks/kit-autopush.sh that its own committed hook did not
+  # have, and curl | bash refused on main until somebody looked. A checker
+  # that cannot fail on that commit is not checking anything.
+  if git -C "$ROOT" cat-file -e 8de1739^{commit} 2>/dev/null; then
+    exits "it fails on the commit that actually shipped broken" 1 \
+      python3 "$ROOT/tools/committed_checksums.py" 8de1739
+  else
+    skip "the known-broken commit" "shallow clone, 8de1739 not fetched"
+  fi
+
   # This check lived only in CI, so a header inserted in the wrong place passed
   # 206 local tests and failed after the push. A rule worth enforcing is worth
   # enforcing where the work happens.
@@ -550,7 +567,7 @@ if group "hooks"; then
     # push passes because the gates stopped it instead. Breaking the branch
     # check left that case green, which is how this was caught.
     mkdir -p tools bin
-    for f in tools/checksums.py tools/counts.py tools/frontmatter.py tools/evals.py bin/secret-scan; do
+    for f in tools/checksums.py tools/committed_checksums.py tools/counts.py tools/frontmatter.py tools/evals.py bin/secret-scan; do
       echo "import sys; sys.exit(0)" > "$f"
     done
     git add tools bin

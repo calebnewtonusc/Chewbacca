@@ -95,6 +95,10 @@ gate() {
 }
 
 gate checksums   python3 tools/checksums.py --check
+# The one above compares disk to disk, so it passes while the commit is
+# already lying. This compares what git would hand a stranger to what the
+# manifest claims, which is the comparison an installer actually makes.
+gate committed   python3 tools/committed_checksums.py
 gate counts      python3 tools/counts.py --check
 gate frontmatter python3 tools/frontmatter.py
 gate evals       python3 tools/evals.py
@@ -120,6 +124,7 @@ reasons = os.environ.get("REASONS", "").split()
 ahead = os.environ.get("AHEAD", "?")
 hint = {
     "checksums": "run: python3 tools/checksums.py",
+    "committed": "the committed SHA256SUMS.txt does not describe the committed tree, so an install would refuse. Commit everything, then: python3 tools/checksums.py and amend",
     "counts": "run: python3 tools/counts.py",
     "frontmatter": "a SKILL.md yaml block does not parse, so that skill is silently unregistered",
     "evals": "a skill has malformed or missing evals",
