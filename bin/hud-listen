@@ -157,12 +157,23 @@ def superassistant():
             _superassistant = False
     return _superassistant or None
 _music: object = None
+_music_stamp: float = 0.0
 
 
 def music():
-    """The `hud-music` module next to this script, loaded once, or None."""
-    global _music
-    if _music is None:
+    """The `hud-music` module next to this script, or None.
+
+    Loaded again whenever the file changes: the words and the players get
+    edited more often than the bridge, and a restart drops whatever the
+    person is in the middle of.
+    """
+    global _music, _music_stamp
+    try:
+        stamp = MUSIC.stat().st_mtime
+    except OSError:
+        stamp = 0.0
+    if _music is None or stamp != _music_stamp:
+        _music_stamp = stamp
         try:
             loader = importlib.machinery.SourceFileLoader("hud_music", str(MUSIC))
             spec = importlib.util.spec_from_loader("hud_music", loader)
@@ -1766,7 +1777,8 @@ class Listener:
         self.remember(req, outcome.line, outcome.ok, "cancelled" if stopped else "done" if outcome.ok else "failed")
         if superseded:
             return
-        self.send("w " + json.dumps(outcome.line) + " done=true")
+        note = getattr(outcome, "note", "")
+        self.send("w " + json.dumps(outcome.line + ("\n\n" + note if note else "")) + " done=true")
         self.send("s " + json.dumps(outcome.line))
         if not req.typed and not stopped:
             self.speak(outcome.line)

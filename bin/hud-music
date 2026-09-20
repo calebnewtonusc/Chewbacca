@@ -9,14 +9,15 @@
     hud-music setup <client id> <client secret>  the Spotify keys, once
     hud-music parse "<what they said>"           what the words mean, for the bridge
 
-The players, in the order tried:
+The players. Where they said ("on YouTube", "in Music") wins; otherwise:
 
-- Spotify, when it is installed and its keys are in ~/.bob/spotify.json: one
+- Spotify, when it is installed. With its keys in ~/.bob/spotify.json, one
   client-credentials search for the URI (no login, no Premium), then the
-  desktop app is told to play it through AppleScript. Under a second.
-- Music.app, when it is already running: its own library, through AppleScript.
-- YouTube, whenever yt-dlp and ffplay are installed: the first search result's
-  audio, played with no window. A few seconds, and there is no next or previous.
+  desktop app is told to play it through AppleScript: under a second. Without
+  keys, the app opens with the search for it on screen, one tap from playing.
+- Music.app, when it is running and Spotify is not installed: its own library.
+- YouTube, when neither is there and yt-dlp and ffplay are: the first search
+  result's audio, played with no window. A few seconds, and no next or previous.
 
 The bridge reads the words itself, so "play X" never waits on the model:
 parse() turns an utterance into a command, perform() runs it and answers in
@@ -90,6 +91,8 @@ class Command:
     want: str = ""
     # A number for `volume`, or "up" / "down".
     level: str = ""
+    # "spotify", "youtube" or "music" when they said where, else "".
+    platform: str = ""
 
     @property
     def query(self) -> str:
@@ -100,7 +103,10 @@ class Command:
 @dataclass
 class Outcome:
     ok: bool
+    # Said aloud and put on the pill: one short sentence.
     line: str
+    # Written under it in the panel, never spoken: how to stop, how to set up.
+    note: str = ""
 
 
 @dataclass
@@ -122,7 +128,7 @@ WRAPPED = re.compile(r"\band (?:then|tell|what|set|open|remind|text|send|check|s
 TRAIL = re.compile(
     r"\s+(?:please|for me|for us|now|thanks|thank you|while (?:we|i) work|while (?:we|i)'?re? (?:work|working)"
     r"|in the background|for a (?:bit|while|sec|second|minute)|real quick|right now)$")
-PLATFORM = re.compile(r"\s+(?:on|in|from|through) (?:spotify|youtube|apple music|music)$")
+PLATFORM = re.compile(r"\s+(?:on|in|from|through|off) (?P<platform>spotify|youtube|apple music|music)$")
 
 PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("pause", re.compile(r"pause(?: (?:the |this |that )?(?:music|song|it|that|this|playback))?|hold the music")),
@@ -176,12 +182,18 @@ def parse(said: str) -> Command | None:
             return Command("volume", level=direction)
         if verb != "play":
             return Command(verb)
-        what = PLATFORM.sub("", match.group("what")).strip()
+        what = match.group("what")
+        platform = ""
+        where = PLATFORM.search(what)
+        if where:
+            platform = {"apple music": "music"}.get(where.group("platform"), where.group("platform"))
+            what = what[:where.start()]
+        what = what.strip()
         if WRAPPED.search(what):
             return None
         what = re.sub(r"^(?:some |something |a bit of |a little |a little bit of )", "", what)
         if what in NOTHING_NAMED:
-            return Command("resume")
+            return Command("resume", platform=platform)
         want = ""
         album = re.fullmatch(r"(?:the |an? )?album (.+)", what)
         artist = re.fullmatch(r"(?:songs |music |stuff |tracks |anything |something )?(?:by|from) (.+)", what)
@@ -192,7 +204,7 @@ def parse(said: str) -> Command | None:
             what, want = artist.group(1), "artist"
         elif track:
             what = track.group(1)
-        return Command("play", what=what.strip(), want=want)
+        return Command("play", what=what.strip(), want=want, platform=platform)
     return None
 
 
@@ -392,6 +404,26 @@ def spotify_play(pick: Pick) -> str:
     return f"Playing {pick.title}."
 
 
+SETUP_NOTE = (
+    "Spotify plays by name after a two-minute setup, once: run `hud-music setup` in a terminal. "
+    "It asks for the client id and secret of a free app you create at developer.spotify.com/dashboard."
+)
+
+
+def spotify_open_search(what: str) -> Outcome:
+    """Spotify with the search for `what` on screen: one tap from playing.
+
+    What Spotify can do by name without keys. He said "play some Mac DeMarco
+    on Spotify" on 2026-09-20 and got an invisible YouTube stream instead;
+    the app with the result showing is the honest next best thing.
+    """
+    stop_youtube()
+    result = subprocess.run(["open", "spotify:search:" + urllib.parse.quote(what)], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise PlayerError("Spotify would not open")
+    return Outcome(True, f"Opened {what} in Spotify. Tap the top result to play it.", SETUP_NOTE)
+
+
 # ── Music.app ────────────────────────────────────────────────────────────────
 
 def music_state() -> str:
@@ -500,6 +532,9 @@ def stop_youtube() -> bool:
     return True
 
 
+YOUTUBE_NOTE = "No window for this one: say \"stop the music\", or run `hud-music stop`."
+
+
 def youtube_play(query: str) -> str:
     title, url = youtube_lookup(query)
     stop_youtube()
@@ -546,31 +581,49 @@ def play(command: Command) -> Outcome:
     if not command.what:
         return resume()
     reasons: list[str] = []
-    if spotify_ready():
-        try:
-            pick = choose(command.query, spotify_search(command.query), command.want)
-            if pick:
-                return Outcome(True, spotify_play(pick))
-            reasons.append(f"nothing on Spotify called {command.what}")
-        except PlayerError as error:
-            reasons.append(str(error))
-    elif spotify_keys() is None and (running("Spotify") or SPOTIFY_APP.exists()):
-        reasons.append("Spotify search is not set up, see hud-music status")
-    if running("Music"):
-        try:
-            line = music_play(command.query)
-            if line:
-                return Outcome(True, line)
-        except PlayerError as error:
-            reasons.append(f"Music said: {error}")
-    if youtube_ready():
-        try:
-            return Outcome(True, youtube_play(command.query))
-        except PlayerError as error:
-            reasons.append(str(error))
-    else:
-        reasons.append("no YouTube fallback without yt-dlp and ffplay")
-    return Outcome(False, f"Couldn't play {command.what}: {'; '.join(reasons) or 'no player is ready'}.")
+    has_spotify = running("Spotify") or SPOTIFY_APP.exists()
+    if command.platform == "youtube":
+        return play_youtube(command, reasons)
+    if command.platform == "music" or (not command.platform and running("Music") and not has_spotify):
+        line = music_play(command.query)
+        if line:
+            return Outcome(True, line)
+        if command.platform == "music":
+            return Outcome(False, f"Nothing in your Music library called {command.what}.")
+    if has_spotify:
+        if spotify_keys():
+            try:
+                pick = choose(command.query, spotify_search(command.query), command.want)
+                if pick:
+                    return Outcome(True, spotify_play(pick))
+                reasons.append(f"nothing on Spotify called {command.what}")
+            except PlayerError as error:
+                reasons.append(str(error))
+        else:
+            # Without keys Spotify still gets the request, on screen, rather
+            # than a stream from somewhere they did not ask for.
+            try:
+                return spotify_open_search(command.what)
+            except PlayerError as error:
+                reasons.append(str(error))
+        if command.platform == "spotify":
+            return Outcome(False, f"Couldn't play {command.what} on Spotify: {'; '.join(reasons)}.")
+    if not has_spotify and running("Music"):
+        line = music_play(command.query)
+        if line:
+            return Outcome(True, line)
+    return play_youtube(command, reasons)
+
+
+def play_youtube(command: Command, reasons: list[str]) -> Outcome:
+    if not youtube_ready():
+        reasons.append("no YouTube without yt-dlp and ffplay")
+        return Outcome(False, f"Couldn't play {command.what}: {'; '.join(reasons)}.")
+    try:
+        return Outcome(True, youtube_play(command.query), YOUTUBE_NOTE)
+    except PlayerError as error:
+        reasons.append(str(error))
+    return Outcome(False, f"Couldn't play {command.what}: {'; '.join(reasons)}.")
 
 
 def resume() -> Outcome:
@@ -733,6 +786,15 @@ def status() -> str:
 
 
 def setup(client_id: str, client_secret: str, market: str) -> str:
+    if not client_id or not client_secret:
+        import getpass
+        print("A free Spotify developer app gives the search its keys. Once:")
+        print("  1. developer.spotify.com/dashboard, Create app: any name, redirect URI http://127.0.0.1:8888/callback, tick Web API.")
+        print("  2. Open the app's Settings and copy the Client ID and Client secret.")
+        client_id = client_id or input("Client ID: ").strip()
+        client_secret = client_secret or getpass.getpass("Client secret (not shown): ").strip()
+        if not client_id or not client_secret:
+            return "Nothing saved: both the client id and the secret are needed."
     SPOTIFY_KEYS.parent.mkdir(parents=True, exist_ok=True)
     SPOTIFY_KEYS.write_text(json.dumps({
         "client_id": client_id.strip(), "client_secret": client_secret.strip(), "market": market,
@@ -755,9 +817,9 @@ def main(argv: list[str] | None = None) -> int:
         commands.add_parser(name)
     loud = commands.add_parser("volume")
     loud.add_argument("level", nargs="?", default="")
-    keys = commands.add_parser("setup", help="save the Spotify keys")
-    keys.add_argument("client_id")
-    keys.add_argument("client_secret")
+    keys = commands.add_parser("setup", help="save the Spotify keys; asks for them when not given")
+    keys.add_argument("client_id", nargs="?", default="")
+    keys.add_argument("client_secret", nargs="?", default="")
     keys.add_argument("--market", default="US")
     heard = commands.add_parser("parse", help="what the words mean")
     heard.add_argument("said")
@@ -787,7 +849,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         command = Command(args.command)
     outcome = perform(command)
-    print(outcome.line)
+    print(outcome.line + (f"\n{outcome.note}" if outcome.note else ""))
     return 0 if outcome.ok else 1
 
 

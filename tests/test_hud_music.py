@@ -67,6 +67,7 @@ def main() -> int:
             "hey can you put on some drake": ("play", "drake", ""),
             "play something by drake": ("play", "drake", "artist"),
             "play songs by the weeknd on spotify": ("play", "the weeknd", "artist"),
+            "Play some Mac DeMarco on Spotify while I work": ("play", "mac demarco", ""),
             "play the album blonde": ("play", "blonde", "album"),
             "play the song hotline bling": ("play", "hotline bling", ""),
             "i want to hear hotel california": ("play", "hotel california", ""),
@@ -110,6 +111,10 @@ def main() -> int:
             else:
                 check(f"{said!r} is not music", command is None, str(command))
         check("a query drops the by", music.Command("play", what="blinding lights by the weeknd").query == "blinding lights the weeknd")
+        for said, platform in {"play mac demarco on spotify": "spotify", "play hotel california on youtube": "youtube",
+                               "play hotel california in apple music": "music", "play hotel california": ""}.items():
+            command = music.parse(said)
+            check(f"{said!r} says where: {platform or 'nowhere'}", command is not None and command.platform == platform, str(command))
 
         print("choosing")
         found = results(
@@ -152,12 +157,23 @@ def main() -> int:
         music.youtube_ready = lambda: True
         music.system_volume = lambda: 63
         music.SPOTIFY_APP = Path(tmp) / "Spotify.app"
+        music.spotify_open_search = lambda what: (calls.append(f"open spotify search {what}"), music.Outcome(True, f"Opened {what} in Spotify. Tap the top result to play it.", music.SETUP_NOTE))[1]
 
         out = music.perform(music.parse("play blinding lights"))
-        check("no keys: YouTube plays it and says so",
-              out.ok and out.line == "Playing Blinding Lights by The Weeknd, from YouTube." and calls == ["youtube blinding lights", "stop youtube", "ffplay https://audio"],
-              f"{out} {calls}")
+        check("no keys: Spotify opens with the search, and the note says how to set it up",
+              out.ok and out.line == "Opened blinding lights in Spotify. Tap the top result to play it." and calls == ["open spotify search blinding lights"]
+              and "hud-music setup" in out.note, f"{out} {calls}")
+        calls.clear()
+        out = music.perform(music.parse("play blinding lights on youtube"))
+        check("asked for YouTube: YouTube plays it, and the note says how to stop it",
+              out.ok and out.line == "Playing Blinding Lights by The Weeknd, from YouTube." and calls == ["youtube blinding lights", "stop youtube", "ffplay https://audio"]
+              and "stop the music" in out.note, f"{out} {calls}")
         check("the YouTube player is remembered", json.loads((bob / "music-youtube.json").read_text())["pid"] == 4242)
+        calls.clear()
+        state["apps"] = set()
+        out = music.perform(music.parse("play blinding lights"))
+        check("no Spotify at all: YouTube", out.ok and "from YouTube" in out.line and calls[0] == "youtube blinding lights", f"{out} {calls}")
+        state["apps"] = {"Spotify"}
         calls.clear()
         state["keys"] = {"client_id": "id", "client_secret": "secret"}
         out = music.perform(music.parse("play blinding lights by the weeknd"))
@@ -171,6 +187,9 @@ def main() -> int:
         music.spotify_search = lambda query: results()
         out = music.perform(music.parse("play quarterly report"))
         check("nothing on Spotify falls through to YouTube", out.ok and "from YouTube" in out.line and "youtube quarterly report" in calls, f"{out} {calls}")
+        out = music.perform(music.parse("play quarterly report on spotify"))
+        check("nothing on Spotify, asked for Spotify: says so, no YouTube",
+              not out.ok and out.line == "Couldn't play quarterly report on Spotify: nothing on Spotify called quarterly report.", out.line)
         music.youtube_lookup = lambda query: (_ for _ in ()).throw(music.PlayerError(f"YouTube had nothing for {query}"))
         out = music.perform(music.parse("play quarterly report"))
         check("nothing anywhere is one sentence, not ok",

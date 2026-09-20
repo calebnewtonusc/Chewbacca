@@ -95,7 +95,7 @@ hud-music play "<song, artist or album>"   |  hud-music pause | resume | next | 
 hud-music volume [<0-100> | up | down]     |  hud-music now  |  hud-music status
 ```
 
-"Play X", "pause", "skip" and "what's playing" are normally handled before they reach you. When one does reach you, or the request is wrapped in something else ("play some jazz and tell me the time"), run `hud-music` rather than scripting Spotify yourself, and say what is playing. If it says Spotify has no keys, `hud-music status` explains the one-time setup; say so in a line and play what it could.
+"Play X", "pause", "skip" and "what's playing" are normally handled before they reach you. When one does reach you, or the request is wrapped in something else ("play some jazz and tell me the time"), run `hud-music` rather than scripting Spotify yourself, and say its first line; the rest of its output is for the panel. Without Spotify keys it opens the search in Spotify for them to tap, and `hud-music status` explains the one-time setup.
 
 # Showing them where
 
