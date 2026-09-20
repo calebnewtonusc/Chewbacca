@@ -7,6 +7,7 @@ remembered tab: idle, running, waiting on you, or done. Pure: no I/O except
 """
 import json
 import os
+import sys
 from pathlib import Path
 
 # Guessed, never measured: nothing has timed how long a tab sits quiet before
@@ -112,6 +113,12 @@ def tail(path: Path, cursor: tuple[int, int]) -> tuple[list[dict], tuple[int, in
             if same:
                 drained, _ = _read(rotated, offset)
                 out.extend(drained)
+            else:
+                # Two rotations between polls: the file this cursor knew is
+                # gone and a whole generation with it. Never silent, because
+                # silent loss was the defect this cursor replaced.
+                print("terminal events: missed a rotation, events since the "
+                      "last poll are lost", file=sys.stderr)
         if st is None:
             return out, START
         fresh, read = _read(path, 0)
