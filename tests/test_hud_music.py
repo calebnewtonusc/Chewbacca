@@ -112,6 +112,10 @@ def main() -> int:
             else:
                 check(f"{said!r} is not music", command is None, str(command))
         check("a query drops the by", music.Command("play", what="blinding lights by the weeknd").query == "blinding lights the weeknd")
+        for said, fuzzy in {"play something chill": True, "play the new kendrick": True, "play that song from barbie": True,
+                            "play some jazz": True, "play blinding lights": False, "play fred again": False, "play new order": True}.items():
+            command = music.parse(said)
+            check(f"{said!r} is {'described' if fuzzy else 'named'}", command is not None and command.fuzzy is fuzzy, str(command))
         for said, platform in {"play mac demarco on spotify": "spotify", "play hotel california on youtube": "youtube",
                                "play hotel california in apple music": "music", "play hotel california": ""}.items():
             command = music.parse(said)
@@ -167,12 +171,14 @@ def main() -> int:
             "fred again": ([{"title": "Marea", "artist": {"name": "Fred again.."}}], [{"name": "Fred again..", "nb_fan": 400_000}]),
             "marea fred again": ([{"title": "Marea (We've Lost Dancing)", "artist": {"name": "Fred again.."}}], [{"name": "Fred again..", "nb_fan": 400_000}]),
             "quarterly report": ([], []),
+            "freddie again": ([{"title": "Begin Again", "artist": {"name": "Freddie And The Scenarios"}}], [{"name": "Freddie Gibbs", "nb_fan": 90_000}]),
             "hotel california": ([{"title": "Hotel California (2013 Remaster)", "artist": {"name": "Eagles"}, "album": {"title": "Hotel California"}}], [{"name": "Eagles", "nb_fan": 3_000_000}]),
             "wasted times": ([{"title": "Wasted Times", "artist": {"name": "The Weeknd"}, "album": {"title": "My Dear Melancholy,"}}], []),
         }
         music.deezer_tracks = lambda q: (calls.append(f"deezer tracks {q}"), deezer.get(q, ([], []))[0])[1]
         music.deezer_artists = lambda q: (calls.append(f"deezer artists {q}"), deezer.get(q, ([], []))[1])[1]
         wikidata = {("Blinding Lights", "P2207"): "0VjIjW4GlUZAMYd2vXMi3b", ("Mac DeMarco", "P1902"): "3Sz7ZnJQBIHsXLUSo0OQtM",
+                    ("Begin Again", "P2207"): "ba22",
                     ("Marea", "P2207"): "marea22", ("Eagles", "P1902"): "0ECwFtbIWEVNwjlrfc6xoL", ("The Weeknd", "P1902"): "1Xyo4u8uXC1ZmMpatF05PJ",
                     ("My Dear Melancholy,", "P2205"): "mdm"}
         embeds = {("artist", "0ECwFtbIWEVNwjlrfc6xoL"): [("Take It Easy - 2013 Remaster", "spotify:track:tie"), ("Hotel California - 2013 Remaster", "spotify:track:hc")],
@@ -214,8 +220,19 @@ def main() -> int:
         calls.clear()
         out = music.perform(music.parse("play quarterly report"))
         check("no keys, never heard of it: Spotify opens with the search, and the note says how to set it up",
-              out.ok and out.line.endswith("Opened quarterly report in Spotify. Tap the top result to play it.") and "open spotify search quarterly report" in calls
+              out.ok and out.unsure and out.line.endswith("Opened quarterly report in Spotify. Tap the top result to play it.") and "open spotify search quarterly report" in calls
               and "hud-music setup" in out.note, f"{out} {calls}")
+        calls.clear()
+        command = music.parse("play freddie again")
+        command.quiet_miss = True
+        out = music.perform(command)
+        check("a weak guess is not pressed play on: unsure, nothing opened, nothing played",
+              not out.ok and out.unsure and out.line == "Not sure what freddie again is." and not any("spotify play" in c or "open spotify" in c for c in calls), f"{out} {calls}")
+        calls.clear()
+        command = music.parse("play freddie again")
+        command.anyway = True
+        out = music.perform(command)
+        check("--anyway plays the best guess", out.ok and out.line == "Playing Begin Again by Freddie And The Scenarios." and 'spotify play track "spotify:track:ba22"' in calls, f"{out} {calls}")
         calls.clear()
         out = music.perform(music.parse("play blinding lights on youtube"))
         check("asked for YouTube: YouTube plays it, and the note says how to stop it",

@@ -175,6 +175,19 @@ the first result's audio with no window, a few seconds in, no next or
 previous, and the panel says how to stop it. Each player is told to stop
 before another starts.
 
+The model is the reasoning behind it, and only when reasoning is needed.
+"Give it reasoning, I don't want to have to list the exact name of songs
+and spell them out" (2026-09-20). Two cases go to it, with a hint in the
+prompt saying what the quick path found and what to run: words that
+describe rather than name ("something chill", "the new Kendrick", "that
+song from Barbie"), which nothing looks up because knowing what they mean
+is the whole job; and a guess the open sources were not sure of, below
+0.75, which is what the recogniser's "freddie again" for Fred again..
+produced (Begin Again by Freddie And The Scenarios, at 0.6). The model
+works out the name and runs `hud-music play --anyway` with it, one Bash
+call, so the turn is a few seconds rather than the 175 s expedition the
+first "play Fred again" took. A clear name never waits on the model.
+
 "Stop" is a stop word, and with the model idle and music playing it is the
 music that stops. With a run in flight it is still the run: what they most
 recently asked for is what they most likely mean. "Stop the music" is always

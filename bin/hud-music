@@ -82,6 +82,12 @@ ARTIST_MATCH = 0.85
 # Spotify happened to rank. Guessed, never measured.
 WEAK_ARTIST_MATCH = 0.6
 WEAK_TRACK_MATCH = 0.5
+# Below this the open sources' best guess is not pressed play on: "freddie
+# again" (the recogniser's hearing of Fred again..) came back as Begin Again
+# by Freddie And The Scenarios at about 0.6 on 2026-09-20. The bridge hands
+# an unsure request to the model to work out; the command line opens the
+# search. Guessed from that one case, never measured further.
+SURE_MATCH = 0.75
 # A song title that is also somebody's artist name: "blinding lights" found
 # a Deezer artist called Blinding Lights on 2026-09-20 and would have played
 # them instead of the song. On a tie the artist wins only with a following.
@@ -107,6 +113,14 @@ class Command:
     level: str = ""
     # "spotify", "youtube" or "music" when they said where, else "".
     platform: str = ""
+    # The words describe rather than name ("something chill", "the new
+    # Kendrick", "that song from Barbie"): the model's to work out.
+    fuzzy: bool = False
+    # Play the best guess even when the open sources are not sure of it.
+    anyway: bool = False
+    # Report an unsure guess rather than opening the search on screen; the
+    # bridge sets this because it hands unsure requests to the model.
+    quiet_miss: bool = False
 
     @property
     def query(self) -> str:
@@ -121,6 +135,9 @@ class Outcome:
     line: str
     # Written under it in the panel, never spoken: how to stop, how to set up.
     note: str = ""
+    # The words were understood as music but not what music: nothing was
+    # played, and the model should work out what they meant.
+    unsure: bool = False
 
 
 @dataclass
@@ -128,6 +145,9 @@ class Pick:
     uri: str
     kind: str
     title: str
+    # How well the words matched what was found, 0 to 1. Spotify's own
+    # search is trusted outright, so its picks carry 1.
+    fit: float = 1.0
 
 
 # ── the words ────────────────────────────────────────────────────────────────
@@ -167,6 +187,14 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         r"|what am i listening to|name this song|what's the name of this song")),
     ("play", re.compile(r"(?:play|put on|throw on|start playing|queue up|listen to|i want to hear|let's hear|lets hear) (?P<what>.+)")),
 ]
+# Words that describe music rather than name it. Nothing here is looked
+# up: what "something chill" or "the new Kendrick" is takes knowing, and
+# the model knows.
+DESCRIPTIVE = re.compile(
+    r"\b(something|anything|some music|a song|songs|playlist|mix|vibes?|chill|relax(?:ing)?|focus|study|sleep|workout|gym"
+    r"|party|sad|happy|upbeat|mellow|calm|lofi|lo fi|jazz|classical|rock|pop|rap|hip hop|edm|house|techno|country|indie|r b"
+    r"|like|similar|from (?:the )?(?:movie|film|show|game)|soundtrack|new|newest|latest|top|hits|best of|radio|that song"
+    r"|the one|the song (?:that|from|where)|goes like|sounds like|remind me|remember|whatever|favorite|favourite)\b")
 # A named thing that means "whatever": these are a resume, not a search.
 NOTHING_NAMED = {"music", "something", "anything", "a song", "songs", "some music", "some songs", "it", "stuff", "some stuff"}
 
@@ -218,7 +246,7 @@ def parse(said: str) -> Command | None:
             what, want = artist.group(1), "artist"
         elif track:
             what = track.group(1)
-        return Command("play", what=what.strip(), want=want, platform=platform)
+        return Command("play", what=what.strip(), want=want, platform=platform, fuzzy=bool(DESCRIPTIVE.search(what)))
     return None
 
 
@@ -503,7 +531,7 @@ def cached_pick(key: str) -> Pick | None:
     except (OSError, ValueError, AttributeError):
         return None
     if isinstance(entry, dict) and entry.get("uri"):
-        return Pick(entry["uri"], entry.get("kind", ""), entry.get("title", ""))
+        return Pick(entry["uri"], entry.get("kind", ""), entry.get("title", ""), float(entry.get("fit", 1.0)))
     return None
 
 
@@ -514,7 +542,7 @@ def remember_pick(key: str, pick: Pick) -> None:
             cache = {}
     except (OSError, ValueError):
         cache = {}
-    cache[key] = {"uri": pick.uri, "kind": pick.kind, "title": pick.title}
+    cache[key] = {"uri": pick.uri, "kind": pick.kind, "title": pick.title, "fit": round(pick.fit, 3)}
     try:
         MUSIC_CACHE.parent.mkdir(parents=True, exist_ok=True)
         MUSIC_CACHE.write_text(json.dumps(cache, indent=1), encoding="utf-8")
@@ -544,7 +572,7 @@ def resolve_free(query: str, want: str = "") -> Pick | None:
         album_id = wikidata_spotify_id(title, "P2205", by)
         if not album_id:
             return None
-        pick = Pick(f"spotify:album:{album_id}", "album", f"the album {title} by {by}")
+        pick = Pick(f"spotify:album:{album_id}", "album", f"the album {title} by {by}", max(ratio(query, title), ratio(query, f"{title} {by}")))
         remember_pick(key, pick)
         return pick
 
@@ -590,7 +618,7 @@ def resolve_free(query: str, want: str = "") -> Pick | None:
         name = best_artist.get("name", "")
         artist_id = spotify_artist_id(name)
         if artist_id:
-            pick = Pick(f"spotify:artist:{artist_id}", "artist", name)
+            pick = Pick(f"spotify:artist:{artist_id}", "artist", name, artist_fit)
             remember_pick(key, pick)
             return pick
     if best_track:
@@ -600,7 +628,7 @@ def resolve_free(query: str, want: str = "") -> Pick | None:
         if not track_id and bare and bare != title:
             track_id = wikidata_spotify_id(bare, "P2207", by)
         if track_id:
-            pick = Pick(f"spotify:track:{track_id}", "track", f"{title} by {by}")
+            pick = Pick(f"spotify:track:{track_id}", "track", f"{title} by {by}", track_fit)
             remember_pick(key, pick)
             return pick
         # Wikidata has no entry for most songs (Hotel California, 2026-09-20).
@@ -610,6 +638,7 @@ def resolve_free(query: str, want: str = "") -> Pick | None:
             pick = track_from_embed("artist", artist_id, title)
             if pick:
                 pick.title = f"{pick.title} by {by}"
+                pick.fit = track_fit
                 remember_pick(key, pick)
                 return pick
         album_title = (best_track.get("album") or {}).get("title", "")
@@ -618,6 +647,7 @@ def resolve_free(query: str, want: str = "") -> Pick | None:
             pick = track_from_embed("album", album_id, title) if album_id else None
             if pick:
                 pick.title = f"{pick.title} by {by}"
+                pick.fit = track_fit
                 remember_pick(key, pick)
                 return pick
     return None
@@ -919,16 +949,23 @@ def play(command: Command) -> Outcome:
             # Without keys: the open sources for the URI, and failing that
             # the request on screen in Spotify, never a stream from
             # somewhere they did not ask for.
+            pick = None
             try:
                 pick = resolve_free(command.query, command.want)
-                if pick:
-                    return Outcome(True, spotify_play(pick))
-                reasons.append(f"the open sources have no Spotify entry for {command.what}")
             except PlayerError as error:
                 reasons.append(str(error))
+            if pick and (pick.fit >= SURE_MATCH or command.anyway):
+                return Outcome(True, spotify_play(pick))
+            if pick:
+                reasons.append(f"the closest the open sources had was {pick.title}")
+            else:
+                reasons.append(f"the open sources have no Spotify entry for {command.what}")
+            if command.quiet_miss:
+                return Outcome(False, f"Not sure what {command.what} is.", unsure=True)
             try:
                 outcome = spotify_open_search(command.what)
-                outcome.line = f"Couldn't find {command.what}'s Spotify ID without keys. " + outcome.line
+                outcome.line = f"Not sure what {command.what} is. " + outcome.line
+                outcome.unsure = True
                 return outcome
             except PlayerError as error:
                 reasons.append(str(error))
@@ -1139,6 +1176,7 @@ def main(argv: list[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     played = commands.add_parser("play", help="find it and play it")
     played.add_argument("what", nargs="*")
+    played.add_argument("--anyway", action="store_true", help="play the best guess even when the open sources are not sure of it")
     for name in ("pause", "resume", "next", "previous", "again", "stop", "now", "status"):
         commands.add_parser(name)
     loud = commands.add_parser("volume")
@@ -1165,6 +1203,7 @@ def main(argv: list[str] | None = None) -> int:
         command = parse("play " + " ".join(args.what)) if args.what else Command("resume")
         if command is None:
             command = Command("play", what=" ".join(args.what))
+        command.anyway = args.anyway
     elif args.command == "volume":
         if not args.level:
             player = active_player()
