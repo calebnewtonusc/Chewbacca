@@ -388,8 +388,8 @@ def main(argv: list[str] | None = None) -> int:
         # Lazy: the events module is a sibling file, and this script is also
         # loaded by tests through SourceFileLoader with no sys.path entry.
         sys.path.insert(0, str(Path(__file__).resolve().parent))
-        import terminal_events
         try:
+            import terminal_events
             sys.stdout.write(terminal_events.handle(sys.stdin.read()))
         except Exception as err:  # noqa: BLE001  a hook that crashes blocks the tab
             print(f"terminal hook: {err}", file=sys.stderr)
