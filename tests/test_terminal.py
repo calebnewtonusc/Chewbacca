@@ -75,6 +75,11 @@ def main() -> int:
 
     check("a tab running claude is a candidate", t.is_candidate(tabs[1]))
     check("a plain shell is not", not t.is_candidate(tabs[0]))
+    check("the tabs script never coerces Terminal's tab class to text", "& tab &" not in t.TABS_SCRIPT)
+    check(
+        "the homebrew claude.exe name is a candidate too",
+        t.is_candidate(t.parse_tabs("/dev/ttys009\tfalse\tfalse\tlogin,-zsh,claude.exe\n")[0]),
+    )
 
     check("the remembered tty wins", t.choose(tabs, "/dev/ttys003")["tty"] == "/dev/ttys003")
     check(
@@ -179,6 +184,25 @@ def main() -> int:
     check("ensure returns the existing candidate", got["tty"] == "/dev/ttys002")
     check("ensure did not run do script", not any("do script" in str(c) for c in calls))
     check("project.json remembers the tty", _json.loads((mem / "project.json").read_text())["tty"] == "/dev/ttys002")
+
+    # ensure --fresh never reuses a tab it did not open. On 2026-09-20 the
+    # live check let ensure choose, got the front tab (a real session), and
+    # submitted its test prompt there.
+    calls.clear()
+    opened = []
+    def fresh_osascript(script, *args):
+        calls.append(("osascript", script, args))
+        if "do script" in script:
+            opened.append("/dev/ttys004\tfalse\ttrue\tlogin,-zsh,claude\n")
+            return "/dev/ttys004"
+        if "processes of t" in script:
+            return RAW + "".join(opened)
+        return "ok"
+    t.osascript = fresh_osascript
+    got = t.ensure(str(mem / "fresh"), timeout=1, fresh=True)
+    check("ensure --fresh opens a new tab even with a candidate present", got["tty"] == "/dev/ttys004" and got["opened"], str(got))
+    check("ensure --fresh ran do script", any("do script" in str(c) for c in calls))
+    t.osascript = fake_osascript
 
     print(f"\n{PASSED} passed, {FAILED} failed")
     return 1 if FAILED else 0

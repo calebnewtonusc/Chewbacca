@@ -3,7 +3,8 @@
 # submits it; Control-U clears it. Opens a Terminal window and takes focus for
 # about twenty seconds, so this is never run by tests/run.sh. Run it when the
 # person says go, never on a live claude session: it opens its own in a temp
-# folder.
+# folder with --fresh, because without it ensure prefers an existing tab and
+# on 2026-09-20 submitted this prompt into the person's real session.
 source "$(dirname "${BASH_SOURCE[0]}")/harness.sh"
 need claude "npm i -g @anthropic-ai/claude-code"
 need peekaboo "run install.sh"
@@ -12,7 +13,7 @@ CH="$REPO/mac/bin/chewie"
 export BOB_MEMORY_DIR="$(mktemp -d)"
 DIR="$(mktemp -d)"
 
-TTY="$(bash "$CH" terminal ensure --cwd "$DIR" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["tty"])')"
+TTY="$(bash "$CH" terminal ensure --cwd "$DIR" --fresh --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["tty"])')"
 ok "ensure opened a claude tab" test -n "$TTY"
 sleep 2
 ok "draft pastes without submitting" bash "$CH" terminal draft "reply with exactly one word: chewbacca" --tty "$TTY"
@@ -22,7 +23,7 @@ ok "clear empties the input" bash "$CH" terminal clear --tty "$TTY"
 sleep 1
 ok "draft again" bash "$CH" terminal draft "reply with exactly one word: chewbacca" --tty "$TTY"
 sleep 1
-ok "submit presses Return" bash "$CH" terminal submit --tty "$TTY"
+ok "submit presses Return" env CHEWIE_TERMINAL_SUBMIT=1 bash "$CH" terminal submit --tty "$TTY"
 echo "  LOOK: claude should now answer 'chewbacca'. Close that window when done."
 
 # The mutant: an unknown verb must be rejected, or the dispatch is not
