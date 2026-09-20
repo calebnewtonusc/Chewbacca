@@ -729,6 +729,10 @@ def test_hyper_bar(m) -> None:
           voice == ["Checking Friday.", "Nothing on Friday, it's wide open.", "Saturday has the game at noon."], f"got {voice}")
     check("and nothing was written aside", not run.written_aside)
 
+    # The fallback subtitle, with no voice to caption the pill, stops at the pointer too.
+    check("the subtitle is the pointer alone",
+          m.subtitle(recap) == "All the info on the Civil War is ready for you in the hyper bar.", f"got {m.subtitle(recap)!r}")
+
     standing = m.AGENT_PROMPT.read_text(encoding="utf-8")
     check("the prompt teaches the hyper bar",
           "hyper bar" in standing and "All the info on the Civil War" in standing)
