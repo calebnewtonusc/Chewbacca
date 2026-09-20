@@ -1420,6 +1420,103 @@ def test_draft_words(m) -> None:
           asked == [("build me a signaler", "assistant")], str(asked))
 
 
+def test_terminal_loop(m) -> None:
+    """Hook events fold into the strip, the field, and the voice; yes and no
+    answer a held ask by file and an expired one by keypress."""
+    import tempfile
+    mem = tempfile.mkdtemp()
+    m.voice_memory.MEMORY = Path(mem)
+    m.voice_memory.TRANSCRIPT = Path(mem) / "transcript.jsonl"
+    m.voice_memory.PROJECT = Path(mem) / "project.json"
+    m.voice_memory.DRAFT = Path(mem) / "draft.json"
+    m.NAMES = Path(mem) / "names.txt"
+    Path(mem, "project.json").write_text(json.dumps({"tty": "/dev/ttys002", "cwd": mem}))
+    log = os.path.join(mem, "terminal.log")
+    m.TERMINAL_CMD = ["sh", "-c", f'echo "$0 $*" >> {log}']
+    m.ROUTE = True
+    front = {"app": "Google Chrome · tab · 0 chars selected"}
+    m.looking_at = lambda: front["app"]
+    listener = m.Listener("claude -p", False, False)
+    sent: list[str] = []
+    listener.send = sent.append  # type: ignore[method-assign]
+    spoken: list[str] = []
+    listener.speak = spoken.append  # type: ignore[method-assign]
+    listener._drain = lambda: None  # type: ignore[method-assign]
+    listener.settle_unless_running = lambda state, hold: sent.append(f"settle {state}")  # type: ignore[method-assign]
+
+    def entry(event: str, **kw) -> dict:
+        base = {"t": time.time(), "event": event, "tool": "", "summary": "", "session": "s", "ask": "", "held": False}
+        base.update(kw)
+        return base
+
+    events = Path(mem) / "terminal-events.jsonl"
+
+    def emit(*entries: dict) -> None:
+        with events.open("a") as f:
+            for e in entries:
+                f.write(json.dumps(e) + "\n")
+        listener.poll_terminal()
+
+    check("idle: nothing said to the strip yet", sent == [], str(sent))
+    emit(entry("PreToolUse", tool="Bash", summary="npm test"))
+    check("a tool call drives the strip", 't "npm test" state=running' in sent, str(sent))
+    check("running says nothing aloud", spoken == [])
+    sent.clear()
+
+    emit(entry("PermissionRequest", tool="Bash", summary="rm -rf build", ask="a1", held=True))
+    check("waiting drives the strip", 't "waiting on you: rm -rf build" state=waiting' in sent, str(sent))
+    check("waiting with nothing in flight lights attention", "p attention" in sent, str(sent))
+    check("waiting is announced when Terminal is not in front",
+          spoken == ["The terminal wants to rm -rf build. Yes or no?"], str(spoken))
+    sent.clear(); spoken.clear()
+
+    check("'yes' while a held ask waits is consumed", listener.handle_terminal_word("yes"))
+    time.sleep(0.3)
+    answer = Path(mem, "asks", "a1.answer")
+    check("'yes' wrote the allow answer file", answer.exists() and answer.read_text().strip() == "allow")
+    check("the pill said allowed", any(l.startswith('s "allowed') for l in sent), str(sent))
+    check("nothing was pressed in the tab", not Path(log).exists())
+    answer.unlink()
+    emit(entry("ask_answered", ask="a1", summary="allow"))
+    check("an answered ask is running again", listener.terminal_state["state"] == "running")
+    check("'yes' with nothing waiting is not consumed", not listener.handle_terminal_word("yes"))
+    sent.clear()
+
+    emit(entry("PermissionRequest", tool="Bash", summary="git push", ask="", held=False))
+    check("'no' on an expired ask is consumed", listener.handle_terminal_word("no"))
+    time.sleep(0.5)
+    check("'no' pressed Escape through chewie on the remembered tty",
+          Path(log).exists() and "answer no --tty /dev/ttys002" in Path(log).read_text(), Path(log).read_text() if Path(log).exists() else "")
+    Path(log).unlink()
+    sent.clear(); spoken.clear()
+
+    front["app"] = "Terminal · claude · 0 chars selected"
+    emit(entry("PermissionDenied", tool="Bash"), entry("PermissionRequest", tool="Bash", summary="ls", ask="a2", held=True))
+    check("waiting with Terminal in front is not announced", spoken == [], str(spoken))
+    check("but the strip still shows it", any(l.startswith('t "waiting on you: ls"') for l in sent), str(sent))
+    check("'stop the terminal' on a held ask is consumed", listener.handle_terminal_word("stop the terminal"))
+    time.sleep(0.3)
+    check("it wrote deny stop", Path(mem, "asks", "a2.answer").read_text().strip() == "deny stop")
+    emit(entry("ask_answered", ask="a2", summary="deny stop"))
+    check("'stop the terminal' with nothing held is consumed", listener.handle_terminal_word("stop the terminal"))
+    time.sleep(0.5)
+    check("it pressed Escape through chewie", "interrupt --tty /dev/ttys002" in Path(log).read_text(), Path(log).read_text())
+    sent.clear(); spoken.clear()
+
+    front["app"] = "Google Chrome · tab · 0 chars selected"
+    emit(entry("Stop", summary="All green."))
+    check("done drives the strip", 't "finished: All green." state=done' in sent, str(sent))
+    check("done lights the done state", "p done" in sent, str(sent))
+    check("done is announced", spoken == ["The terminal finished: All green."], str(spoken))
+    sent.clear()
+    emit(entry("SessionEnd"))
+    check("session end takes the strip down", "t off" in sent, str(sent))
+
+    listener.handle("e terminal focus")
+    time.sleep(0.5)
+    check("a strip click focuses the tab", "focus --tty /dev/ttys002" in Path(log).read_text(), Path(log).read_text())
+
+
 def main() -> int:
     module = load()
     print("draw_lines")
@@ -1430,6 +1527,8 @@ def main() -> int:
     test_routing(module)
     print("draft words")
     test_draft_words(module)
+    print("terminal loop")
+    test_terminal_loop(module)
     print("breadcrumb")
     test_breadcrumb(module)
     print("the recorded stream")

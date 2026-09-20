@@ -52,6 +52,16 @@ CLEAR_WORDS = frozenset({"scrap that", "scrap it", "clear it", "clear that", "ne
 REROUTE_WORDS = frozenset({"no to you", "not the terminal", "no not the terminal",
                            "not in the terminal", "to you"})
 
+# Answers to the terminal's permission dialog, only while hud-listen's
+# terminal state is waiting. "Always" is deliberately absent: a misheard
+# word costs one tool call, never a standing rule.
+ALLOW_WORDS = frozenset({"yes", "yeah", "yep", "go ahead", "allow", "allow it", "do it", "yes go ahead"})
+DENY_WORDS = frozenset({"no", "nope", "deny", "deny it", "don't", "dont", "do not"})
+TERMINAL_STOP_WORDS = frozenset({
+    "stop the terminal", "stop in the terminal", "terminal stop", "stop terminal",
+    "cancel the terminal", "stop it in the terminal",
+})
+
 
 @dataclass
 class Decision:
@@ -85,6 +95,19 @@ def draft_word(said: str) -> str | None:
     if words in REROUTE_WORDS:
         return "reroute"
     return None
+
+
+def answer_word(said: str) -> str | None:
+    words = _norm(said)
+    if words in ALLOW_WORDS:
+        return "allow"
+    if words in DENY_WORDS:
+        return "deny"
+    return None
+
+
+def terminal_stop_word(said: str) -> bool:
+    return _norm(said) in TERMINAL_STOP_WORDS
 
 
 def seen_app(seen: str) -> str:

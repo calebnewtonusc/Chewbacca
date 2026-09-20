@@ -169,6 +169,16 @@ def main() -> int:
     check("seen_app on nothing is empty", r.seen_app("") == "")
     check("seen_app on a cannot-see line is empty", r.seen_app("cannot see the screen (x)") == "")
 
+    # ── answer words ─────────────────────────────────────────────────────
+    print("answer words")
+    for said, want in [("yes", "allow"), ("Yeah.", "allow"), ("go ahead", "allow"), ("allow it", "allow"),
+                       ("no", "deny"), ("Nope", "deny"), ("deny it", "deny"), ("don't", "deny"),
+                       ("yes but only this once", None), ("open chrome", None)]:
+        check(f"answer_word({said!r}) is {want}", r.answer_word(said) == want, str(r.answer_word(said)))
+    for said, want in [("stop the terminal", True), ("Stop in the terminal.", True), ("terminal stop", True),
+                       ("cancel the terminal", True), ("stop", False), ("stop the music", False)]:
+        check(f"terminal_stop_word({said!r}) is {want}", r.terminal_stop_word(said) is want)
+
     print(f"\n{PASSED} passed, {FAILED} failed")
     return 1 if FAILED else 0
 
