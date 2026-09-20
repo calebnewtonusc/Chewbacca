@@ -20,6 +20,7 @@ d /pointer <json>                                          set data
 r <id>                                                     name the root, which paints
 - <surface>                                                close a surface
 s "<text>"                                                 say one line on the pill (subtitle)
+w "<text>" [done=true]                                     the written answer, for the conversation panel
 q <n>                                                      how many requests are waiting
 ```
 
@@ -78,11 +79,17 @@ Take something down with `- <surface>` when the person is done with it.
 ## How a request reaches you
 
 You do not poll. A person asks for something by pressing Option-Space and typing,
-or by holding the globe key and speaking, and the display sends it up the socket:
+by holding the globe key and speaking, or by typing into the conversation panel,
+and the display sends it up the socket:
 
 ```
 h "show me my week"
+h "show me my week" via=typed
 ```
+
+`via=typed` means they typed it. Answer a typed request in writing and do not
+read it aloud: they chose not to speak, usually because they cannot hear or be
+heard where they are.
 
 Stay connected to receive it. Answer by drawing, not by writing prose back down
 the socket: nothing reads prose there.
@@ -104,6 +111,13 @@ pill holds two lines of 13 point text at 440 points wide and a panel has less
 room than an ear. Lead with the answer; the panel carries the rest. `q <n>` is
 how many requests are waiting behind the one in flight, shown as a badge on the
 pill, and `q 0` clears it.
+
+The rest of a full answer goes to the conversation panel, which the pill opens
+when clicked: every request and every answer of the session, selectable, with a
+field to type the next request. `w "<text>"` is the answer so far, the whole
+text rather than a delta, and `w "<text>" done=true` closes it. Send it at each
+sentence as the answer is written, so the panel fills as the voice reads. Plain
+prose with inline Markdown; a fenced block is set in monospace.
 
 ## Pointing
 

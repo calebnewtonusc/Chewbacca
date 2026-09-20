@@ -375,6 +375,54 @@ struct SnapshotTests {
         #expect(drawn == 0, "a hidden pill still drew \(drawn)")
     }
 
+    @Test("the conversation panel draws with an exchange in it", arguments: Ground.allCases)
+    func chatDraws(ground: Ground) {
+        let model = OverlayModel()
+        model.asked("what is due this week", typed: false)
+        model.apply(.write(text: "Two things.\n\n**Origin Story** is due Tuesday and the *lab* Friday.", done: true))
+        model.asked("and next week", typed: true)
+        model.setPresence(.thinking, amplitude: 0)
+        model.say("Reading the ledger")
+        let drawn = coverage(
+            "chat", size: CGSize(width: 560, height: 420), ground: ground
+        ) {
+            ChatPanel(model: model, onSubmit: { _ in }, onStop: {}, onClose: {})
+                .frame(width: 520, height: 380)
+        }
+        // A 520 by 380 panel on a 560 by 420 frame is 84 percent of the
+        // area; the frost alone changes most of it.
+        #expect(drawn > 0.5, "the panel drew \(drawn) over \(ground)")
+    }
+
+    @Test("a turn draws as a bubble, and an answer as prose", arguments: Ground.allCases)
+    func turnsDraw(ground: Ground) {
+        // The panel's scroll view renders empty offscreen, so the turns are
+        // drawn on their own here: this is the check on the bubble, the
+        // Markdown and the copy button's row, not on the frost.
+        let person = ChatTurn(id: 1, role: .person, text: "what is due this week", done: true, typed: false)
+        let answer = ChatTurn(
+            id: 2, role: .assistant,
+            text: "Two things.\n\n**Origin Story** is due Tuesday and the *lab* Friday.\n```\ncoursework due --days 7\n```",
+            done: true, typed: false)
+        let drawn = coverage(
+            "turns", size: CGSize(width: 520, height: 220), ground: ground
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                TurnView(turn: person, status: nil)
+                TurnView(turn: answer, status: nil)
+                TurnView(
+                    turn: ChatTurn(id: 3, role: .assistant, text: "", done: false, typed: false),
+                    status: "Reading the ledger")
+            }
+            .padding(16)
+            .frame(width: 520, alignment: .leading)
+        }
+        // Measured 0.073 over the light ground and more over the dark: three
+        // lines of 13pt type, a bubble and a code plate on a 520 by 220
+        // frame. Half that is the floor; nothing drawn is zero.
+        #expect(drawn > 0.035, "the turns drew \(drawn) over \(ground)")
+    }
+
     @Test("the command bar draws")
     func commandBarDraws() {
         let drawn = coverage(

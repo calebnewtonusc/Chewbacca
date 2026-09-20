@@ -26,6 +26,10 @@ public struct PillState: Equatable, Sendable {
     /// Requests waiting behind the one in flight.
     public var queued = 0
 
+    /// What a failure says when the bridge said nothing. Named so an answer
+    /// closed with it can still take the real message when one follows.
+    public static let unfinished = "Did not finish"
+
     public init(
         phase: Phase = .hidden, heard: String = "", saying: String = "",
         startedAt: Date? = nil, queued: Int = 0
@@ -107,8 +111,13 @@ struct PillView: View {
     let amplitude: Double
     let clock: RunClock
     let onCancel: () -> Void
+    /// A click anywhere on the capsule but its X: the pill grows into the
+    /// conversation panel. The pill itself stays this size; what does not
+    /// fit two lines is read there.
+    var onExpand: () -> Void = {}
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
     /// Whether the completion sweep has faded. Flipped by the phase task, so
     /// the bar finishes in colour and then gets out from under the answer.
     @State private var sweepFaded = false
@@ -220,7 +229,9 @@ struct PillView: View {
             // where a lens thickens. 0.10, 0.30 and 0.14 are guessed against
             // the eye on 2026-09-19, never measured.
             ZStack {
-                Color.white.opacity(0.10)
+                // A touch brighter under the pointer: the one hint that the
+                // capsule opens. 0.16 against 0.10, guessed, never measured.
+                Color.white.opacity(hovering ? 0.16 : 0.10)
                 LinearGradient(
                     colors: [.white.opacity(0.30), .clear],
                     startPoint: .topLeading, endPoint: .center)
@@ -248,6 +259,15 @@ struct PillView: View {
         // Lifts a clear object off the screen, which nothing else on it can.
         // Guessed, never measured.
         .shadow(color: .black.opacity(0.24), radius: 16, y: 6)
+        // The whole capsule is the button. The X inside it is a Button of
+        // its own and wins the click, so this only fires on the glass.
+        .contentShape(shape)
+        .onTapGesture { onExpand() }
+        .onHover { over in
+            hovering = over
+            if over { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+        .animation(Motion.fade(0.14, reduced: reduceMotion), value: hovering)
         .animation(Motion.fade(0.18, reduced: reduceMotion), value: line)
         .environment(\.colorScheme, .dark)
         .task(id: state.phase) {
@@ -261,6 +281,7 @@ struct PillView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityText)
+        .accessibilityAction(named: "Open the conversation") { onExpand() }
     }
 
     /// The elapsed counter. This is the guarantee that something visible

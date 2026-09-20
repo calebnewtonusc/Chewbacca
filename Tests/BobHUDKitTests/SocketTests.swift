@@ -167,7 +167,7 @@ struct FeedbackTests {
         // A newer client talking to an older display used to fail one silent
         // line at a time with no way to tell that was what was happening.
         #expect(SocketServer.version.contains("bobhud/"))
-        for verb in ["c", "d", "r", "@", "p", "s", "q", "m", "u", "listen"] {
+        for verb in ["c", "d", "r", "@", "p", "s", "q", "w", "m", "u", "listen"] {
             #expect(SocketServer.version.contains(verb), "version omits \(verb)")
         }
     }
@@ -175,5 +175,13 @@ struct FeedbackTests {
     @Test("a problem and a request are different events")
     func problemIsNotHeard() {
         #expect(OutboundEvent.problem("x") != OutboundEvent.heard("x"))
+    }
+
+    @Test("a typed request is the same line with a flag after the string")
+    func typedIsFlagged() {
+        // A listener that reads only the string still gets the request;
+        // one that reads the flag can answer in writing.
+        #expect(OutboundEvent.typed("what is due").line == #"h "what is due" via=typed"#)
+        #expect(OutboundEvent.heard("what is due").line == #"h "what is due""#)
     }
 }

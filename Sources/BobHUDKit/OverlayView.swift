@@ -63,17 +63,20 @@ public struct OverlayView: View {
                 .padding(.bottom, Self.bottomInset + 14)
                 // One presence object at a time. The pill carries the same
                 // ring at its leading edge, and a spinner in the corner doing
-                // the same dance as the one in the pill reads as a bug.
-                .opacity(model.pill.phase == .hidden ? 1 : 0)
+                // the same dance as the one in the pill reads as a bug. The
+                // conversation panel carries it too.
+                .opacity(model.pill.phase == .hidden && !model.chatOpen ? 1 : 0)
                 .zIndex(9999)
 
             // The pill, bottom centre, where every subtitle on every screen
             // the person has ever watched lives. Above every surface, under
-            // the ring.
-            if model.pill.phase != .hidden {
+            // the ring. Gone while the conversation panel is up: the panel
+            // is the pill grown, and it stands where the pill stood.
+            if model.pill.phase != .hidden && !model.chatOpen {
                 PillView(
                     state: model.pill, presence: model.presence, amplitude: model.amplitude,
-                    clock: model.clock, onCancel: { model.cancelRun() })
+                    clock: model.clock, onCancel: { model.cancelRun() },
+                    onExpand: { model.openChat() })
                     .background {
                         // Measured on the glass itself, inside the width cap,
                         // so the hit rectangle is the capsule and not the

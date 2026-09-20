@@ -96,8 +96,15 @@ extension Presence {
             // the voice adds to it, so 60fps is not decoration: it is the rate
             // the amplitude arrives at. Its own voice draws the same as the
             // person's on purpose; see `Presence.speaking`.
+            //
+            // Drift was 0.35, a slow current under a band whose thickness
+            // did the talking. Asked for on 2026-09-19: "speed up the
+            // waviness when a user is talking and when the engine is
+            // responding". 2.4 is most of the way to thinking's 3.2, so the
+            // flow reads as fast while the two stay apart: a voice is thick
+            // and moving with the sound, thinking is thin and sprinting.
             return .init(
-                rest: 0.018, drift: 0.35, tint: FieldTint.steel, pulse: 0, fps: 60,
+                rest: 0.018, drift: 2.4, tint: FieldTint.steel, pulse: 0, fps: 60,
                 animating: true)
         case .thinking:
             // Thin and fast. Work reads as travel round the edge rather than
