@@ -58,6 +58,12 @@ done
 # Homebrew lands in different places on Apple Silicon and Intel, and it is not
 # on PATH in the shell that just installed it.
 brew_bin() {
+  # CHEWBACCA_NO_BREW exists so the bare-machine path can be tested on a machine
+  # that already has Homebrew. Every install this kit does starts on a Mac with
+  # nothing on it, and that path had never once been executed, because the only
+  # machines it ran on were already set up. An untested path is where the dead
+  # ends live.
+  [ -n "${CHEWBACCA_NO_BREW:-}" ] && return 1
   for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do
     [ -x "$b" ] && { echo "$b"; return 0; }
   done
@@ -124,7 +130,16 @@ install_brew_pkg() {
     return 0
   fi
   miss "$cmd missing"
-  if [ "$CHECK_ONLY" -eq 1 ] || [ -z "$BREW" ]; then
+  # "run: brew install node" on a machine with no Homebrew is a dead end, and
+  # it is the exact dead end the header of this file says was already fixed. It
+  # survived because the bare-machine path had never been executed: every
+  # machine this ran on already had brew, so the branch never printed. Say the
+  # thing that can actually be done next.
+  if [ -z "$BREW" ]; then
+    blocked "$cmd needs Homebrew. Install Homebrew first (the line above), then: brew install $pkg"
+    return 1
+  fi
+  if [ "$CHECK_ONLY" -eq 1 ]; then
     blocked "run: brew install $pkg"
     return 1
   fi
@@ -173,6 +188,11 @@ elif command -v npm &>/dev/null && [ "$CHECK_ONLY" -eq 0 ]; then
     blocked "run: npm install -g @anthropic-ai/claude-code"
     NEEDS_HUMAN=1
   fi
+elif ! command -v npm &>/dev/null; then
+  # Same dead end as brew above: npm does not exist on a machine that has no
+  # node, so telling someone to run it is telling them nothing.
+  blocked "the claude CLI needs node. Install node first (above), then: npm install -g @anthropic-ai/claude-code"
+  NEEDS_HUMAN=1
 else
   # Not optional. Without it setup.sh installs no plugins at all.
   blocked "run: npm install -g @anthropic-ai/claude-code"
