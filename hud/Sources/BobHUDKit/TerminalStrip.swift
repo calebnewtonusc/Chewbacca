@@ -10,6 +10,11 @@ struct TerminalStripView: View {
     let strip: TerminalStrip
     let onFocus: () -> Void
     @State private var hovering = false
+    /// Whether this view pushed the pointing hand. The strip disappears the
+    /// moment the terminal goes idle, which can happen with the pointer over
+    /// it: the `false` branch of `onHover` never runs then, and the push is
+    /// never popped, so the cursor stays a hand over the whole screen.
+    @State private var pushedCursor = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var tint: Color {
@@ -36,7 +41,19 @@ struct TerminalStripView: View {
         .onTapGesture { onFocus() }
         .onHover { over in
             hovering = over
-            if over { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            if over, !pushedCursor {
+                NSCursor.pointingHand.push()
+                pushedCursor = true
+            } else if !over, pushedCursor {
+                NSCursor.pop()
+                pushedCursor = false
+            }
+        }
+        .onDisappear {
+            if pushedCursor {
+                NSCursor.pop()
+                pushedCursor = false
+            }
         }
         .animation(Motion.fade(0.14, reduced: reduceMotion), value: hovering)
         .accessibilityLabel("Terminal: \(strip.text)")

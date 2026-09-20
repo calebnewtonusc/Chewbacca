@@ -119,6 +119,12 @@ struct LineParserTests {
         #expect(throws: LineParseError.self) { try LineParser.parse(#"t "npm test" state=asleep"#) }
     }
 
+    @Test("a strip needs a non-empty JSON string, not bare words")
+    func terminalStripNeedsText() {
+        #expect(throws: LineParseError.self) { try LineParser.parse(#"t "" state=running"#) }
+        #expect(throws: LineParseError.self) { try LineParser.parse("t bare state=running") }
+    }
+
     /// The written answer. The whole text so far as one JSON string, so a
     /// paragraph break and a quote inside it survive, and `done` after it.
     @Test("a written answer is one JSON string with a done flag after it")
