@@ -32,6 +32,19 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# The router and the memory live next to this script. bin/lib is not a
+# package, so the path is added rather than imported through.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import route  # noqa: E402
+import voice_memory  # noqa: E402
+
+# HUD_ROUTE=off: every sentence goes to the assistant and nothing is written
+# to ~/.bob/memory, which is how the fake-display test runs without a
+# classifier and how a person turns the feature off.
+ROUTE = os.environ.get("HUD_ROUTE", "on") != "off"
+OPEN_CMD = shlex.split(os.environ.get("HUD_OPEN_CMD", 'open -a "Google Chrome"'))
+TERMINAL_CMD = shlex.split(os.environ.get("HUD_TERMINAL_CMD", "chewie terminal"))
+
 SOCKET = os.environ.get("BOB_HUD_SOCKET", str(Path.home() / ".bob" / "hud.sock"))
 SKILL = Path(__file__).resolve().parent.parent / "skills" / "hud" / "SKILL.md"
 CONTEXT = Path(__file__).resolve().parent / "hud-context"
@@ -209,6 +222,11 @@ class Request:
     # writing: the person chose not to speak, and a reply read aloud to
     # someone who typed because they could not be heard is the wrong reply.
     typed: bool = False
+    # Where the router sent it. Preset by a correction or a re-route, in
+    # which case `decide` keeps it; otherwise filled in `_run`.
+    dest: str | None = None
+    reason: str = ""
+    confidence: float = 0.0
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:6])
 
 
@@ -752,6 +770,13 @@ def looking_at() -> str:
     if not seen or seen.startswith("cannot see"):
         return ""
     return seen
+
+
+def read_names() -> list[str]:
+    try:
+        return [n.strip() for n in NAMES.read_text(encoding="utf-8").splitlines() if n.strip()]
+    except OSError:
+        return []
 
 
 class Listener:
@@ -1508,6 +1533,92 @@ class Listener:
             return argv + ["--resume", self.session]
         return argv + ["--session-id", self.session]
 
+    def claude_tab_open(self) -> bool:
+        """Is any Terminal tab running claude? One AppleScript through chewie."""
+        try:
+            result = subprocess.run(
+                TERMINAL_CMD + ["tabs"], capture_output=True, text=True, timeout=4
+            )
+            tabs = json.loads(result.stdout or "[]")
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            return False
+        return any("claude" in t.get("processes", []) for t in tabs if isinstance(t, dict))
+
+    def decide(self, req: Request, seen: str) -> "route.Decision":
+        if req.dest:
+            return route.Decision(req.dest, req.confidence or 1.0, req.reason or "preset")
+        if not ROUTE:
+            return route.Decision("assistant", 1.0, "routing off")
+        app = route.seen_app(seen)
+        context = {"app": app, "claude_tab": app == "Terminal" and self.claude_tab_open()}
+        now = time.time()
+        memory = {
+            "last": voice_memory.last(),
+            "warm": voice_memory.warm(now),
+            "project": voice_memory.project(),
+            "recent": voice_memory.recent(5),
+        }
+        decision = route.route(req.said, context, memory, names=read_names(), now=now)
+        self.log("route:", decision.dest, f"{decision.confidence:.2f}", decision.reason)
+        return decision
+
+    def open_browser(self, said: str) -> str:
+        url, label = route.browser_url(said)
+        try:
+            subprocess.run(OPEN_CMD + [url], capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired) as err:
+            self.log("open failed:", err)
+        return label
+
+    def record(self, req: Request, decision: "route.Decision", reply: str | None, outcome: str) -> None:
+        if not ROUTE:
+            return
+        draft = voice_memory.draft(time.time())
+        project = voice_memory.project()
+        try:
+            voice_memory.append({
+                "t": voice_memory.now_iso(),
+                "via": "typed" if req.typed else "voice",
+                "text": req.said,
+                "dest": decision.dest,
+                "confidence": decision.confidence,
+                "reason": decision.reason,
+                "reply": reply,
+                "project": project.get("name"),
+                "draft": draft["text"] if draft and decision.dest == "terminal" else None,
+                "submitted": False if draft and decision.dest == "terminal" else None,
+                "outcome": outcome,
+            })
+        except OSError as err:
+            self.log("memory unwritable:", err)
+
+    def terminal(self, verb: str) -> bool:
+        try:
+            result = subprocess.run(TERMINAL_CMD + [verb], capture_output=True, text=True, timeout=15)
+        except (OSError, subprocess.TimeoutExpired) as err:
+            self.log("terminal", verb, "failed:", err)
+            return False
+        if result.returncode != 0:
+            self.log("terminal", verb, "failed:", result.stderr.strip())
+        return result.returncode == 0
+
+    # Every tenth terminal-bound sentence, one haiku call rewrites the
+    # project summary in the background. Ten: the summary is one line and
+    # a line does not change every sentence. Guessed.
+    SUMMARIZE_EVERY = 10
+
+    def maybe_summarize(self) -> None:
+        if voice_memory.terminal_count() % self.SUMMARIZE_EVERY != 0:
+            return
+
+        def work() -> None:
+            sentences = [e["text"] for e in voice_memory.recent(20, "terminal")]
+            line = route.summarize(sentences)
+            if line:
+                voice_memory.update_project({"summary": line})
+
+        threading.Thread(target=work, daemon=True).start()
+
     def _ask(self, req: Request) -> str:
         """Run one request to its outcome: "done", "failed" or "cancelled"."""
         with self.state:
@@ -1547,6 +1658,22 @@ class Listener:
                 # this request, so the next prompt has nothing to be told.
                 self.cancelled = None
                 return "cancelled"
+        decision = self.decide(req, seen)
+        req.dest, req.reason, req.confidence = decision.dest, decision.reason, decision.confidence
+        if decision.reroute:
+            # A correction: the previous sentence goes where they said, and
+            # the correction itself is not a request. A draft in the terminal
+            # is cleared first, because that is where a wrong route lands.
+            if voice_memory.draft(time.time()):
+                self.terminal("clear")
+            req.said = decision.reroute
+        if decision.dest == "browser":
+            label = self.open_browser(req.said)
+            self.send("s " + json.dumps(label))
+            self.record(req, decision, None, "done")
+            return "done"
+        if decision.dest == "terminal":
+            self.send("s " + json.dumps("to terminal"))
         prompt = self.prompt_for(req, seen)
         self.log("->", req.said, f"[{req.id}, spoken {time.monotonic() - req.spoken_at:.0f}s ago]")
         argv = self.command()
@@ -1592,6 +1719,11 @@ class Listener:
         # the tell of a machine.
         if ok and not req.typed and not voiced and reply != first:
             self.speak(reply or said or "")
+        self.record(req, decision, answer or None, "done" if ok else "failed")
+        if decision.dest == "terminal":
+            if voice_memory.draft(time.time()):
+                self.send("s " + json.dumps("draft in terminal, say send"))
+            self.maybe_summarize()
         return "done" if ok else "failed"
 
     def prompt_for(self, req: Request, seen: str) -> str:
@@ -1660,6 +1792,29 @@ class Listener:
             if req.pointed
             else ""
         )
+        project = voice_memory.project() if ROUTE else {}
+        building = (
+            f"They are building {project['summary']} in {project.get('name', 'the terminal')}"
+            + (f" ({project['cwd']})" if project.get("cwd") else "")
+            + "; the terminal is warm.\n\n"
+            if project.get("summary")
+            else ""
+        )
+        terminal = ""
+        if req.dest == "terminal":
+            terminal = (
+                "Route: this sentence is for the terminal. Say exactly one line first, "
+                "'On it, working in the terminal.' Then draft the prompt Claude Code should "
+                "receive: if what they said is already a specific instruction, use it as said; "
+                "if it is vague or large, write one paragraph saying what to build, where, and "
+                "the constraints they would state if asked. No headings, no code fences, one "
+                "paragraph. Place it with: chewie terminal draft \"<the prompt>\" (run "
+                "chewie terminal ensure first if draft says there is no claude tab). Then stop: "
+                "say nothing more, the draft is on their screen. Never run chewie terminal "
+                "submit; only they send it.\n\n"
+            )
+        elif self.turns > 0:
+            building = ""
         if self.lean:
             # The standing rules are the system prompt's (hud-agent.md);
             # only what changed since the last turn is repeated, because
@@ -1669,6 +1824,7 @@ class Listener:
                 + asked
                 + (f"They are looking at: {seen}\n\n" if seen else "")
                 + pointed
+                + building + terminal
                 + ("Reply in writing: nothing is read aloud for a typed request.\n" if req.typed else "")
             )
         return (
@@ -1676,6 +1832,7 @@ class Listener:
             + asked
             + (f"They are looking at: {seen}\n\n" if seen else "")
             + pointed
+            + building + terminal
             + "Answer the way a good assistant answers in a chat: in full when "
             "the question deserves it, in a sentence when a sentence is enough, "
             "on any subject. Never stop short and never trail off; if the answer "

@@ -22,6 +22,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shlex
 import socket
 import subprocess
 import sys
@@ -788,7 +789,7 @@ def test_end_to_end() -> None:
         )
     os.chmod(fake, 0o755)
 
-    env = dict(os.environ, BOB_HUD_SOCKET=path, HUD_NAMES="off")
+    env = dict(os.environ, BOB_HUD_SOCKET=path, HUD_NAMES="off", HUD_ROUTE="off")
     process = subprocess.Popen(
         [sys.executable, str(BIN), "--model-cmd", fake],
         env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -868,7 +869,7 @@ def run_against(model: str, say: list, until, timeout: float = 40.0, name: str =
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
-    env = dict(os.environ, BOB_HUD_SOCKET=path, HUD_NAMES="off")
+    env = dict(os.environ, BOB_HUD_SOCKET=path, HUD_NAMES="off", HUD_ROUTE="off")
     process = subprocess.Popen(
         [sys.executable, str(BIN), "--model-cmd", fake],
         env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -1003,7 +1004,7 @@ def test_reconnects() -> None:
         handle.write("#!/bin/sh\ncat > /dev/null\necho 'r s'\n")
     os.chmod(fake, 0o755)
 
-    env = dict(os.environ, BOB_HUD_SOCKET=path, HUD_NAMES="off")
+    env = dict(os.environ, BOB_HUD_SOCKET=path, HUD_NAMES="off", HUD_ROUTE="off")
     process = subprocess.Popen(
         [sys.executable, str(BIN), "--model-cmd", fake],
         env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -1041,12 +1042,77 @@ def test_reconnects() -> None:
         process.wait(timeout=10)
 
 
+def test_routing(m) -> None:
+    """The router runs before the model, and only the assistant path reaches it."""
+    import tempfile
+    mem = tempfile.mkdtemp()
+    os.environ["BOB_MEMORY_DIR"] = mem
+    m.voice_memory.MEMORY = Path(mem)
+    m.voice_memory.TRANSCRIPT = Path(mem) / "transcript.jsonl"
+    m.voice_memory.PROJECT = Path(mem) / "project.json"
+    m.voice_memory.DRAFT = Path(mem) / "draft.json"
+    opened = os.path.join(mem, "opened")
+    # ROUTE, OPEN_CMD and TERMINAL_CMD are read from the environment once at
+    # import (bin/hud-listen), so setting os.environ after the module is
+    # already loaded cannot reach them; the module attributes are set
+    # directly instead. HUD_CLASSIFY_CMD is read at call time inside
+    # route.route, so the environment is right for that one.
+    m.ROUTE = True
+    m.OPEN_CMD = shlex.split(f"sh -c 'echo \"$0\" >> {opened}'")
+    m.TERMINAL_CMD = shlex.split("sh -c 'echo []'")
+    os.environ["HUD_CLASSIFY_CMD"] = "off"
+    listener = m.Listener("claude -p", False, False)
+    sent: list[str] = []
+    listener.send = sent.append  # type: ignore[method-assign]
+
+    req = m.Request(said="look up rust traits", spoken_at=time.monotonic(), pointed=None)
+    decision = listener.decide(req, "Terminal · ~/dev/x")
+    check("a lookup routes to the browser", decision.dest == "browser", str(decision))
+    label = listener.open_browser(req.said)
+    check("open_browser runs HUD_OPEN_CMD with the url",
+          Path(opened).exists() and "google.com/search?q=rust+traits" in Path(opened).read_text())
+    check("the label names chrome", label == "chrome: rust traits")
+    listener.record(req, decision, None, "done")
+    entry = m.voice_memory.last()
+    check("the transcript has the line", entry["text"] == "look up rust traits" and entry["dest"] == "browser")
+    check("via is voice", entry["via"] == "voice")
+
+    req = m.Request(said="text caleb hi", spoken_at=time.monotonic(), pointed=None)
+    check("a text is the assistant's", listener.decide(req, "Google Chrome · Docs").dest == "assistant")
+
+    req = m.Request(said="add a retry", spoken_at=time.monotonic(), pointed=None, dest="terminal")
+    check("a preset dest is kept", listener.decide(req, "").dest == "terminal")
+    prompt = listener.prompt_for(req, "")
+    check("a terminal turn tells the agent to draft", "chewie terminal draft" in prompt)
+    check("a terminal turn says never to submit", "never run `chewie terminal submit`" in prompt.lower() or "never run chewie terminal submit" in prompt.lower())
+    check("a terminal turn says the spoken line", "On it, working in the terminal" in prompt)
+    plain = m.Request(said="what time is it", spoken_at=time.monotonic(), pointed=None, dest="assistant")
+    check("an assistant turn has no terminal block", "chewie terminal" not in listener.prompt_for(plain, ""))
+
+    m.voice_memory.update_project({"name": "signaler", "summary": "a price signaler", "cwd": "/tmp/s"})
+    first = m.Listener("claude -p", False, False)
+    check("the first turn of a session carries the project line",
+          "building a price signaler in signaler" in first.prompt_for(plain, ""))
+    first.turns = 3
+    check("later assistant turns do not repeat it",
+          "building a price signaler" not in first.prompt_for(plain, ""))
+    check("terminal turns always carry it", "building a price signaler" in first.prompt_for(req, ""))
+
+    m.ROUTE = False
+    off = m.Listener("claude -p", False, False)
+    req = m.Request(said="look up rust traits", spoken_at=time.monotonic(), pointed=None)
+    check("HUD_ROUTE=off routes everything to the assistant", off.decide(req, "").dest == "assistant")
+    m.ROUTE = True
+
+
 def main() -> int:
     module = load()
     print("draw_lines")
     test_draw_lines(module)
     print("subtitle")
     test_subtitle(module)
+    print("routing")
+    test_routing(module)
     print("breadcrumb")
     test_breadcrumb(module)
     print("the recorded stream")
