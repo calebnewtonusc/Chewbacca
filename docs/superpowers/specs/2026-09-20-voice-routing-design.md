@@ -18,7 +18,7 @@ Chewbacca reads the screen and its own memory and picks.
 
 | Destination | What arrives there                                             | How                                                                                                                        |
 | ----------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `terminal`  | the sentence as a prompt to the Claude Code session, submitted | `chewie terminal send`, AppleScript `do script ... in tab` against the tab whose processes include `claude`                |
+| `terminal` | a drafted prompt, placed in the Claude Code input and never submitted by Chewbacca | the assistant drafts it, `chewie terminal draft` pastes it into the tab running `claude`, the person presses Return or says send |
 | `browser`   | a search or a URL opened in the person's real Chrome           | `open -a "Google Chrome" <url>`; page reading stays with the assistant, which already gets the page URL from `hud-context` |
 | `assistant` | the existing voice agent with `mac` tools                      | unchanged path, now with memory in its context                                                                             |
 
@@ -29,7 +29,7 @@ Other apps are added later by adding a row, not by changing the router.
 A pure function. `route(utterance, context, memory) -> Decision`.
 
 ```
-Decision = {dest: terminal|browser|assistant, confidence: 0..1, reason: str, hold: bool}
+Decision = {dest: terminal|browser|assistant, confidence: 0..1, reason: str}
 context  = {app, title, selection}            # from hud-context, already collected
 memory   = {last: {dest, t}, project: {...}}  # from ~/.bob/memory/
 ```
@@ -67,43 +67,103 @@ sentences in the prompt. On timeout or parse failure: the warm destination if
 any, else `assistant`. Expected under 800 ms. Expected to fire on a minority of
 sentences; measure it.
 
-**Hold.** Any `terminal` decision under 0.7 sets `hold`. A held sentence does
-not touch the terminal. The pill shows it with "to the terminal? say send" and
-waits fifteen seconds. "Send", "yes", "go" delivers it. "No" or "to you" routes
-it to the assistant. Silence drops it and says so. This is the only place the
-person is asked, and the threshold is set so it is rare. The reason for holding
-rather than delivering without Return: delivering without Return needs focus
-theft and synthetic typing, and the research says outbound artifacts get an
-Edit, Discard, Send affordance, which the pill already is.
+**Nothing is ever submitted to the terminal by Chewbacca.** A terminal
+decision places a draft in the Claude Code input and stops. The person presses
+Return, or says "send it", "run it", "confirm", or "go". A wrong route therefore
+costs a draft sitting in the wrong place, which "no, to you" clears. The
+confidence number is still recorded so the thresholds can be tuned from the
+transcript, but no decision hinges on it.
 
 The router lives in `bin/lib/route.py`, imports nothing from `hud-listen`, and
 is tested as a table of `(utterance, context, memory) -> dest`.
 
-## Delivery to the terminal
+## Terminal: draft, read, send
 
-`chewie terminal send <text> [--tab TTY] [--json]`, implemented in
-`mac/lib/terminal.py`.
+A terminal-bound sentence goes through the assistant, not around it. The
+assistant says what it is doing in one line, "On it, working in the terminal",
+then drafts the prompt and places it. The person reads it in the terminal and
+submits it.
 
-1. Ask Terminal for every tab's `tty`, `processes`, `selected`, and the window's
-   `frontmost`, in one AppleScript.
-2. Candidate tabs: `processes` contains `claude`. If none: exit 1, "no Claude
-   Code session in Terminal", and the router falls back to `assistant` with
-   that message spoken.
-3. Choose: the tab whose `tty` matches `project.json`; else the selected tab of
-   the front window if it is a candidate; else the first candidate.
-4. `do script <text> in <tab>`. Never `activate`. Focus stays where it was.
-5. Print `{tty, title}` so the transcript records where it went.
+The example that set this: "in terminal, begin building a signaler for when my
+stock reaches a certain price, draft a prompt." Chewbacca answers "On it,
+working in the terminal", opens Claude Code if it is not already open, writes a
+proper prompt into its input, and waits. The person presses Return, or says
+"send it".
 
-The first implementation task is to verify step 4 reaches Claude Code's prompt
-when Claude Code is the foreground process, using a throwaway tab running
-`cat`, not a live session. If `do script` reaches the shell instead, the
-fallback is: `set selected of tab`, `activate`, `chewie type --paste`, key
-Return, then re-activate the previous app. That is uglier and steals focus for
-a moment, and the spec prefers it not be needed.
+### Drafting
 
-Quoting: the text is passed to AppleScript as a string literal with `"` and
-`\` escaped. Newlines in the utterance are replaced with spaces; a spoken
-sentence has none.
+The voice agent receives the sentence with the router's tag, `dest: terminal`,
+and the project memory. Its job is the prompt, not the task. Guidance in
+`bin/hud-agent.md`:
+
+- A short, specific instruction goes in as said. "Add tests for the parser" is
+  already a prompt.
+- A vague or large ask is drafted into a prompt Claude Code can act on: what to
+  build, where, the constraints the person would state if asked. One paragraph.
+  No headings, no code fences, because it is going into a one-line input.
+- Say the first line aloud, then place the draft, then say nothing more. The
+  draft is on screen; reading it aloud costs the person time.
+- Never run `chewie terminal submit` on its own initiative.
+
+### `chewie terminal`, four verbs
+
+`mac/lib/terminal.py`, wrapped by `chewie terminal {tabs,ensure,draft,submit,clear}`.
+
+**`tabs`**: one AppleScript listing every Terminal tab's `tty`, `processes`,
+`selected`, and whether its window is front. JSON. Candidates are tabs whose
+`processes` include `claude`.
+
+**`ensure [--cwd DIR]`**: makes sure a Claude Code session exists and returns
+its tty. If a candidate tab exists, pick it: the one whose tty matches
+`project.json`, else the selected tab of the front window if it is a candidate,
+else the first. If none exists, open a new Terminal window with
+`do script "cd <DIR> && claude"`, poll `tabs` until `claude` appears in its
+processes (up to ten seconds), and return it. `DIR` is `--cwd`, else
+`project.json`'s `cwd`, else the assistant asks "which folder?" once; a new
+project goes in `~/dev/<slug>`, created if needed. `do script` is the right
+tool here because this is a shell command and Return is wanted.
+
+**`draft <text> [--tty TTY]`**: places text in the Claude Code input without
+submitting. Brings Terminal to the front and selects the tab on purpose: the
+person is about to read the draft and press Return there, so the terminal being
+in front is the wanted state, not focus theft. Then pastes through
+`peekaboo paste`, which restores the previous clipboard. No Return. Newlines in
+the draft are collapsed to spaces so the input holds one paragraph. Prints
+`{tty, chars}`.
+
+**`submit [--tty TTY]`**: selects the tab if it is not already selected, brings
+Terminal front if it is not, presses Return through System Events `key code 36`.
+This is the only thing that runs a prompt, and only a person triggers it.
+
+**`clear [--tty TTY]`**: same focus dance, then Control-U to clear the input.
+Used by "scrap that" and by the "no, to you" correction after a draft.
+
+Secure Input: `draft` and `clear` synthesize a paste and a keystroke, so
+`chewie type`'s existing Secure Input check runs first and the assistant says
+which app holds it if it is on.
+
+### Voice words the bridge handles itself
+
+These never reach the model. `hud-listen` matches them when a draft is
+outstanding, meaning `draft` ran in the last five minutes and nothing has
+submitted or cleared it since:
+
+- submit: "send it", "send", "run it", "run", "confirm", "go", "do it"
+- clear: "scrap that", "clear it", "never mind", "cancel that"
+- re-route: "no, to you", "not the terminal" clears the draft and hands the
+  original sentence to the assistant
+
+If no draft is outstanding these words fall through to normal routing, so
+"run" in a sentence about something else is not eaten.
+
+### Verification before building
+
+Two things, by hand, on a throwaway tab running `claude` in an empty temp
+directory, never on a live session:
+
+1. `peekaboo paste` of a one-paragraph string lands in the Claude Code input
+   intact and does not submit.
+2. `key code 36` submits it, and Control-U clears it.
 
 ## Delivery to the browser
 
@@ -123,7 +183,8 @@ every turn and already writes `~/.bob/names.txt`.
 
 ```
 {"t": iso, "via": "voice|typed", "text": ..., "dest": ..., "confidence": ...,
- "reason": ..., "reply": ... | null, "project": <project.name> | null}
+ "reason": ..., "reply": ... | null, "project": <project.name> | null,
+ "draft": ... | null, "submitted": true | false | null}
 ```
 
 `project.json`, the current terminal project:
@@ -150,31 +211,34 @@ sentences, not the file.
 
 ## Feedback in the pill
 
-The pill already carries one line and six phases. On a decision it shows
-`to terminal: <first six words>` or `to chrome: <query>` for 1.2 seconds before
-the normal phase resumes. Assistant-bound sentences show nothing new; that is
-today's behavior. A held sentence shows `to the terminal? say send` for the
-fifteen-second window.
+The pill already carries one line and six phases. On a route decision it shows
+`to terminal` or `to chrome: <query>` for 1.2 seconds. While a draft is
+outstanding it shows `draft in terminal, say send` and stays there until the
+draft is submitted, cleared, or five minutes pass. Assistant-bound sentences
+show nothing new.
 
 ## Changes by file
 
 | File                               | Change                                                                                                                              |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `bin/lib/route.py`                 | new: the router, pure                                                                                                               |
-| `bin/hud-listen`                   | call the router in `handle()` before dispatch; write memory; drive the pill line; hold and correction windows                       |
-| `mac/lib/terminal.py`              | new: tab discovery and `do script` delivery                                                                                         |
-| `mac/bin/chewie`                   | new verb `terminal {send,tabs}`                                                                                                     |
-| `bin/hud-agent.md`                 | one paragraph: the terminal exists, memory line format, never forward a sentence to the terminal itself (the router did or did not) |
+| `bin/hud-listen` | call the router in `handle()` before dispatch; tag terminal-bound turns; the outstanding-draft words; write memory; drive the pill line |
+| `mac/lib/terminal.py` | new: tab discovery, ensure, draft, submit, clear |
+| `mac/bin/chewie` | new verb `terminal {tabs,ensure,draft,submit,clear}` |
+| `bin/hud-agent.md` | the drafting rules, the memory line, never submit |
 | `hud/Sources/BobHUDKit/Pill.swift` | only if the existing line op cannot hold a transient message; expected no change                                                    |
 | `tests/test_route.py`              | the routing table                                                                                                                   |
 | `tests/test_memory.py`             | round-trip and rotation                                                                                                             |
-| `tests/test_terminal.py`           | tab discovery against a fixture; delivery test is manual and opt-in because it opens a window                                       |
+| `tests/test_terminal.py` | tab discovery and tab choice against a fixture; paste, submit and clear are manual and opt-in because they open a window |
 | `docs/VOICE-DESIGN.md`             | a section on routing, with the thresholds and why                                                                                   |
 
 ## Error handling
 
-- No Claude tab: spoken once, sentence goes to `assistant`.
-- `do script` fails: spoken, transcript records `dest: terminal, error: ...`.
+- No Claude tab and no known folder: the assistant asks which folder, once.
+- `ensure` cannot see `claude` in the new tab within ten seconds: spoken,
+  the draft is not placed, transcript records the error.
+- `draft` paste fails or Secure Input is on: spoken with the holding app named,
+  transcript records `dest: terminal, error: ...`.
 - Classifier timeout: warm destination else `assistant`, transcript records
   `reason: "classifier timeout"`.
 - Memory unwritable: log and continue; routing degrades to rules plus
@@ -184,20 +248,21 @@ fifteen-second window.
 
 ## Constants, and what set them
 
-- Correction window 15 s and hold window 15 s: guessed, never measured. Long
-  enough to finish a sentence and change your mind, short enough that "no"
-  twenty seconds later means something else.
+- Correction window 15 s: guessed, never measured. Long enough to finish a
+  sentence and change your mind, short enough that "no" twenty seconds later
+  means something else.
+- Outstanding draft 5 min: guessed. After that "send" is a normal word again.
+- Ensure poll 10 s: `claude` on this machine shows its prompt in about two
+  seconds; ten leaves room for a cold start.
 - Warm destination 10 min: guessed. The failure to watch for is a terminal
   sentence sent to Chrome after a long read; lower it if that happens.
-- Hold threshold 0.7: guessed. Measure how often it fires in the first week
-  against how often a wrong terminal send happened, and move it.
 - Classifier timeout 3 s: the measured time to first text on the lean session
   is 1.1 to 6.0 s; a routing decision that takes longer than the answer would
   is not worth waiting for.
 
 ## Not in this spec
 
-Reading terminal output back aloud. Other workspaces beyond Terminal and
+Reading terminal output back aloud. Reading the draft aloud. Other workspaces beyond Terminal and
 Chrome. Multiple Claude sessions in different projects at once, beyond
 preferring the remembered tty. A settings UI for the thresholds; they are
 constants until measured.
@@ -205,6 +270,6 @@ constants until measured.
 ## Testing
 
 `tests/test_route.py` is the contract: every rule above is a row. The
-classifier is mocked in tests and exercised once by hand. Terminal delivery is
-verified once by hand against a throwaway tab before anything else is built,
-because the whole design rests on `do script` reaching the foreground process.
+classifier is mocked in tests and exercised once by hand. Terminal paste, submit and
+clear are verified once by hand against a throwaway `claude` tab before
+anything else is built.
