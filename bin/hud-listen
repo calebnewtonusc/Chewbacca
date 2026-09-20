@@ -93,6 +93,21 @@ CHUNK_END = re.compile(r"(?<=[.!?])\s+|\n+")
 # same rule for a text it is handed whole, and this is the same rule for text
 # handed over one chunk at a time.
 SHORT_CHUNK = 3
+# The floating pill at the bottom of the screen is "the hyper bar" to the
+# person, and a click on it opens the conversation panel where everything the
+# model writes is kept. A spoken sentence that names it ends the spoken part
+# of that reply: whatever follows in the block is written for the panel and
+# not read aloud. Asked for on 2026-09-20: "when the user asks questions with
+# large summaries that require a lot of speaking for the assistant, it just
+# says something along the lines of 'all info on x topic is ready for you in
+# the hyper bar'". The prompt asks the model to write long answers that way;
+# this is what makes the pointer mean it.
+HYPER_BAR = re.compile(r"hyper\s*bar", re.IGNORECASE)
+# The backstop for a long block that never pointed at the hyper bar: this
+# many words are read, the rest is written, and one line says so. Sixty is
+# about twenty seconds at a spoken pace. Guessed, never measured.
+SPOKEN_CAP = 60
+HYPER_BAR_POINTER = "The rest is in the hyper bar."
 
 # Where Claude Code keeps the session this listener resumes: the cwd with "/"
 # swapped for "-", and cwd is $HOME (see run_streamed). Checked 2026-09-19: a
@@ -567,6 +582,15 @@ class Run:
         self.spoken_upto = 0
         # A chunk too short to say on its own, waiting for the next.
         self.hold = ""
+        # Words of the open block the voice has had, whether a sentence of
+        # it named the hyper bar, and whether any of it was kept back.
+        self.block_words = 0
+        self.block_pointed = False
+        self.withheld = False
+        # Whether anything in this turn was written for the hyper bar
+        # instead of spoken, so the glass can hold a little longer for the
+        # click that opens it.
+        self.written_aside = False
         # Every finished prose block of the turn, in order: the written
         # answer, for the conversation panel.
         self.blocks: list[str] = []
@@ -607,7 +631,11 @@ class Run:
         return ["w " + json.dumps(text) + (" done=true" if done else "")]
 
     def flush(self, final: bool) -> list[str]:
-        """Hand the open block's complete chunks to the voice; all of it when final."""
+        """Hand the open block's complete chunks to the voice; all of it when final.
+
+        Not all of it, when the block is long: see `HYPER_BAR`. Every chunk
+        still reaches the panel through `write`; only the voice is spared.
+        """
         rest = self.block[self.spoken_upto:]
         chunks: list[str] = []
         while True:
@@ -624,6 +652,12 @@ class Run:
             words = spoken(chunk)
             if not words:
                 continue
+            if self.block_pointed or self.block_words >= SPOKEN_CAP:
+                self.withheld = True
+                continue
+            self.block_words += len(words.split())
+            if HYPER_BAR.search(words):
+                self.block_pointed = True
             self.hold = f"{self.hold} {words}".strip()
             if len(self.hold.split()) >= SHORT_CHUNK:
                 self.voice.append(self.hold)
@@ -636,10 +670,17 @@ class Run:
     def close_block(self) -> list[str]:
         """The open text block is complete: speak the rest, keep the text."""
         out = self.flush(final=True)
+        if self.withheld:
+            self.written_aside = True
+            # Cut by the cap rather than by its own pointer: say where the
+            # rest went, or the reply just stops mid-thought.
+            if not self.block_pointed:
+                self.voice.append(HYPER_BAR_POINTER)
         if self.block.strip():
             self.blocks.append(self.block.strip())
         self.block = ""
         self.spoken_upto = 0
+        self.block_words, self.block_pointed, self.withheld = 0, False, False
         return out
 
     def take_voice(self) -> list[str]:
@@ -672,6 +713,7 @@ class Run:
             if etype == "content_block_start":
                 if (inner.get("content_block") or {}).get("type") == "text":
                     self.block, self.spoken_upto, self.hold = "", 0, ""
+                    self.block_words, self.block_pointed, self.withheld = 0, False, False
             elif etype == "content_block_delta":
                 delta = inner.get("delta") or {}
                 if delta.get("type") == "text_delta":
@@ -693,6 +735,7 @@ class Run:
                     # has not had goes to it now.
                     if not text.startswith(self.block):
                         self.spoken_upto, self.hold = 0, ""
+                        self.block_words, self.block_pointed, self.withheld = 0, False, False
                     if self.first_text_at is None and text:
                         self.first_text_at = now
                     self.block = text
@@ -830,6 +873,8 @@ class Listener:
         self.turn_report: dict | None = None
         # The last silence filler said, so the next one is different.
         self.last_filler: str | None = None
+        # Whether the last reply was written for the hyper bar rather than spoken.
+        self.aside = False
         # A reply handed to hud-speak that has not yet reported quiet. Set
         # before the first level arrives, because synthesis takes most of a
         # second and the leave timer must not start in that gap.
@@ -1026,6 +1071,11 @@ class Listener:
     # of the voice, not from `p done`: an eight-second hold from done used to
     # take a twelve-second reply down mid-sentence.
     LEAVE_AFTER = 10.0
+    # Longer when the reply was written for the hyper bar rather than spoken:
+    # the voice said "it's in the hyper bar" and stopped, and the bar is what
+    # they now reach for. Twenty is guessed, never measured; the panel keeps
+    # the text after the bar has gone either way.
+    LEAVE_AFTER_WRITTEN = 20.0
     # How long "Stopped." stays up with nothing waiting. The pill's own X path
     # hides the same line after 3 s (OverlayModel.swift cancelRun, marked
     # guessed there too); matching it makes a spoken stop and a pressed one
@@ -1457,7 +1507,7 @@ class Listener:
                 # `done` forever is a field that stops meaning finished, and
                 # one that leaves the moment the reply lands never showed the
                 # person that their errand worked at all.
-                state, hold = "done", self.LEAVE_AFTER
+                state, hold = "done", self.LEAVE_AFTER_WRITTEN if self.aside else self.LEAVE_AFTER
             else:
                 state, hold = "failed", self.LEAVE_AFTER
             if has_next:
@@ -1909,6 +1959,7 @@ class Listener:
         }
         with self.state:
             self.turn_report = report
+        self.aside = run.written_aside
         # Logged now if the voice has started or is not coming; a one
         # sentence reply usually ends its turn before its first sound, and
         # then `heard_speaker` logs it on that sound.

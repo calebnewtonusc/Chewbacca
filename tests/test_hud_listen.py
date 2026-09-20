@@ -670,6 +670,70 @@ def test_translate_deltas(m) -> None:
     check("blocks join as paragraphs", run.answer() == "Sent. Sagar has it.\n\nAlso booked.")
 
 
+def test_hyper_bar(m) -> None:
+    """A long answer is written for the hyper bar and the voice says only
+    the sentence that points there."""
+
+    def delta(text: str) -> dict:
+        return {"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                "delta": {"type": "text_delta", "text": text}}}
+
+    start = {"type": "stream_event", "event": {"type": "content_block_start", "index": 0,
+             "content_block": {"type": "text", "text": ""}}}
+    recap = ("All the info on the Civil War is ready for you in the hyper bar.\n\n"
+             "The war ran from 1861 to 1865. It began when Southern states seceded after Lincoln's "
+             "election.\n\nRoughly 750,000 people died. It ended with the Union preserved and slavery "
+             "abolished by the Thirteenth Amendment.")
+    run = m.Run()
+    run.subtitles = False
+    lines = run.translate(start, 0.0)
+    lines += run.translate(delta(recap[:40]), 0.1)
+    lines += run.translate(delta(recap[40:120]), 0.2)
+    lines += run.translate(delta(recap[120:]), 0.3)
+    lines += run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": recap}]}}, 0.4)
+    voice = run.take_voice()
+    check("only the pointer is spoken",
+          voice == ["All the info on the Civil War is ready for you in the hyper bar."], f"got {voice}")
+    check("the whole answer reaches the panel", lines[-1] == "w " + json.dumps(recap), f"got {lines[-1]}")
+    check("the run knows it wrote aside", run.written_aside)
+
+    # A pointer that is not the first sentence still ends the spoken part.
+    run = m.Run()
+    run.subtitles = False
+    text = "Short version: it was about slavery. The full recap is in the hyper bar.\n\nIt ran from 1861 to 1865."
+    run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}}, 1.0)
+    voice = run.take_voice()
+    check("spoken up to and including the pointer",
+          voice == ["Short version: it was about slavery.", "The full recap is in the hyper bar."], f"got {voice}")
+
+    # No pointer and no end in sight: the cap cuts it and says where the rest is.
+    run = m.Run()
+    run.subtitles = False
+    long = " ".join(f"Sentence number {i} of the recap has eight words in it." for i in range(1, 13))
+    run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": long}]}}, 2.0)
+    voice = run.take_voice()
+    said = " ".join(voice[:-1]).split()
+    check("the voice stops near the cap",
+          m.SPOKEN_CAP <= len(said) < m.SPOKEN_CAP + 12, f"spoke {len(said)} words")
+    check("and says where the rest went", voice[-1] == m.HYPER_BAR_POINTER, f"got {voice[-1]!r}")
+    check("the panel still has all of it", run.answer() == long)
+    check("the run knows it wrote aside", run.written_aside)
+
+    # Short answers, and short steps around tool calls, are untouched.
+    run = m.Run()
+    run.subtitles = False
+    run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": "Checking Friday."}]}}, 3.0)
+    run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": "Nothing on Friday, it's wide open. Saturday has the game at noon."}]}}, 4.0)
+    voice = run.take_voice()
+    check("a short reply is spoken in full",
+          voice == ["Checking Friday.", "Nothing on Friday, it's wide open.", "Saturday has the game at noon."], f"got {voice}")
+    check("and nothing was written aside", not run.written_aside)
+
+    standing = m.AGENT_PROMPT.read_text(encoding="utf-8")
+    check("the prompt teaches the hyper bar",
+          "hyper bar" in standing and "All the info on the Civil War" in standing)
+
+
 def test_spoken(m) -> None:
     """What the voice gets: the words, not the markup."""
     check("emphasis and code marks go", m.spoken("It is **bold**, *soft*, and `code`.") == "It is bold, soft, and code.")
@@ -1067,6 +1131,8 @@ def main() -> int:
     test_turn_line(module)
     print("the silence filler")
     test_pick_filler(module)
+    print("the hyper bar")
+    test_hyper_bar(module)
     print("the lean profile")
     test_agent_flags(module)
     test_lean_prompt(module)

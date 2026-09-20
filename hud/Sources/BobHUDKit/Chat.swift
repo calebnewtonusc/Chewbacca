@@ -252,7 +252,7 @@ struct ChatPanel: View {
             Spacer(minLength: 8)
             IconButton(symbol: "trash", help: "Clear the conversation") { model.clearChat() }
                 .disabled(model.turns.isEmpty)
-            IconButton(symbol: "chevron.down", help: "Back to the pill", action: onClose)
+            IconButton(symbol: "chevron.down", help: "Back to the hyper bar", action: onClose)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)

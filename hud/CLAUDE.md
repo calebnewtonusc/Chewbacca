@@ -107,7 +107,9 @@ the socket: nothing reads prose there.
 
 What they said is drawn on the pill at the bottom of the screen first, in
 quotes, and held there for a second before `h` goes up, so pressing the key
-again takes it back instead of sending it.
+again takes it back instead of sending it. To the person the pill is the
+"hyper bar": that is what the voice calls it, and it is where a long answer
+is said to be.
 
 The pill is also where you speak. `s "<text>"` puts one line under the panels:
 a breadcrumb while you work, the answer when you are done.
@@ -125,7 +127,9 @@ pill, and `q 0` clears it.
 
 The rest of a full answer goes to the conversation panel, which the pill opens
 when clicked: every request and every answer of the session, selectable, with a
-field to type the next request. `w "<text>"` is the answer so far, the whole
+field to type the next request. A long answer, a summary or a recap, is not
+read aloud at all: the voice says one line, "All the info on the Civil War is
+ready for you in the hyper bar", and the answer is written here for reading. `w "<text>"` is the answer so far, the whole
 text rather than a delta, and `w "<text>" done=true` closes it. Send it at each
 sentence as the answer is written, so the panel fills as the voice reads. Prose
 with Markdown: paragraphs, headings, bullet and numbered lists, quotes, rules,
