@@ -147,6 +147,16 @@
             "statusMessage": "Checking for unpushed work..."
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/kit-autopush.sh",
+            "timeout": 30,
+            "statusMessage": "Pushing the kit..."
+          }
+        ]
       }
     ],
     "PreToolUse": [

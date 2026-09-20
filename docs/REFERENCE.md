@@ -480,6 +480,7 @@ is not something anyone will debug confidently later.
 | `session-context` | Every new session | Loads your context, skipping unfilled template placeholders   |
 | `format-and-sync` | After Write/Edit  | Formats with Prettier, then commits and pushes context repos  |
 | `stop-check`      | Session end       | Flags uncommitted or unpushed work, silent when there is none |
+| `kit-autopush`    | Session end       | Pushes this repo's committed work on main once the local gates pass |
 | `env-guard`       | Before Write      | Warns before writing a real `.env`, ignores `.env.example`    |
 
 **Two defaults to know about before you run `setup.sh`.** Every response opens
