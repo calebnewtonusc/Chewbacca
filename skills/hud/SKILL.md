@@ -296,7 +296,8 @@ something it sends `h "what they said"` back up the socket.
 
 What they said is drawn on the pill at the bottom of the screen first, in
 quotes, and held there for a second before `h` goes up, so pressing the key
-again takes it back instead of sending it. Two quick presses of the talk key
+again takes it back instead of sending it. To the person the pill is the
+"hyper bar", which is what the voice calls it. Two quick presses of the talk key
 are the way out: the panel, the microphone, a run in flight, the voice and the
 glass all go, and `x` comes up the socket so `hud listen` stops talking.
 
@@ -326,7 +327,14 @@ sentences into the last line, and it sends `q <n>` when more than one request
 is waiting. A spoken reply is one to two sentences and at most 140 characters,
 because the pill holds two lines of 13 point text at 440 points wide and a
 panel has less room than an ear. Lead with the answer; the panel carries the
-rest.
+rest. A long answer is not read at all: the model writes it for the panel and
+says one line pointing at the hyper bar ("All the info on the Civil War is
+ready for you in the hyper bar"), and `hud listen` reads only up to that
+sentence. A long block with no such line is cut at `SPOKEN_CAP` words and
+"The rest is in the hyper bar." is said instead. The panel's header has the
+switch, "Speech off for long answers", on by default; off, the display sends
+`e prefer voice long=spoken`, `hud listen` reads everything out and tells the
+model on each spoken request not to point at the hyper bar.
 
 Recognition is on-device. Do not add anything that ships audio somewhere.
 

@@ -250,9 +250,23 @@ struct ChatPanel: View {
                 .id(status)
                 .transition(.opacity)
             Spacer(minLength: 8)
+            Toggle(
+                isOn: Binding(
+                    get: { model.longAnswersWritten },
+                    set: { model.setLongAnswersWritten($0) })
+            ) {
+                Text("Speech off for long answers")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(HUD.faint)
+                    .lineLimit(1)
+            }
+            .toggleStyle(SwitchStyle())
+            .help(
+                "On: a long answer is written here and the voice says one line pointing at it. "
+                + "Off: every answer is read out in full.")
             IconButton(symbol: "trash", help: "Clear the conversation") { model.clearChat() }
                 .disabled(model.turns.isEmpty)
-            IconButton(symbol: "chevron.down", help: "Back to the pill", action: onClose)
+            IconButton(symbol: "chevron.down", help: "Back to the hyper bar", action: onClose)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)

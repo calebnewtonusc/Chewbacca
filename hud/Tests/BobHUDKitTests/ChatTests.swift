@@ -16,6 +16,22 @@ struct ChatTests {
         #expect(model.turns[1].role == .assistant && model.turns[1].text.isEmpty && !model.turns[1].done)
     }
 
+    @Test("the long-answer switch ships on, is kept, and is told to the bridge")
+    func longAnswerSwitch() {
+        UserDefaults.standard.removeObject(forKey: OverlayModel.longAnswersKey)
+        defer { UserDefaults.standard.removeObject(forKey: OverlayModel.longAnswersKey) }
+        let model = OverlayModel()
+        #expect(model.longAnswersWritten)
+        #expect(model.preferenceEvent.line == "e prefer voice long=written")
+
+        var sent: [String] = []
+        model.onEvent = { sent.append($0.line) }
+        model.setLongAnswersWritten(false)
+        #expect(!model.longAnswersWritten)
+        #expect(sent == ["e prefer voice long=spoken"])
+        #expect(!OverlayModel().longAnswersWritten, "the switch is not kept across launches")
+    }
+
     @Test("the written answer replaces itself until done")
     func writeReplaces() {
         let model = OverlayModel()

@@ -311,6 +311,44 @@ struct IconButton: View {
     }
 }
 
+/// A switch drawn here rather than `.switch`, which is an `NSSwitch`:
+/// `ImageRenderer` cannot draw one and puts a prohibition sign on a
+/// yellow bar in its place, so the panel's snapshot lied about its own
+/// header. Drawn, it also takes the glass's accent and hover like every
+/// other control on the panel.
+struct SwitchStyle: ToggleStyle {
+    @State private var hovering = false
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            configuration.isOn.toggle()
+        } label: {
+            HStack(spacing: 8) {
+                configuration.label
+                ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+                    Capsule()
+                        .fill(configuration.isOn ? HUD.accent : .white.opacity(hovering ? 0.22 : 0.14))
+                        .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+                    Circle()
+                        .fill(configuration.isOn ? Color.black.opacity(0.85) : HUD.ink)
+                        .padding(2)
+                        .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
+                }
+                .frame(width: 30, height: 17)
+            }
+        }
+        .buttonStyle(Press())
+        .opacity(enabled ? 1 : 0.35)
+        .onHover { hovering = $0 }
+        .animation(Motion.fade(0.18, reduced: reduceMotion), value: configuration.isOn)
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .accessibilityAddTraits(.isToggle)
+        .accessibilityValue(configuration.isOn ? "on" : "off")
+    }
+}
+
 /// Gives under the pointer: 0.92 for the time the mouse is down.
 struct Press: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {

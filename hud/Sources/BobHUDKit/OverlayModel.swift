@@ -116,7 +116,39 @@ public final class OverlayModel {
     public var onChatClose: (() -> Void)?
     private var nextTurn = 0
 
+    /// Whether a long answer is written for the panel and only pointed at,
+    /// or read out in full. On by default, and a switch on the panel. Asked
+    /// for on 2026-09-20, the first time a summary was read end to end: "i
+    /// definently want this to be a feature users can turn on and off in
+    /// the hyper bar (speech off for long responses) toggle switch ... what
+    /// if i just wanted to quickly read or copy and paste what it wrote".
+    /// The bridge is told on every change, and again each time a client
+    /// subscribes, because a bridge restarted later has no other way to know.
+    public private(set) var longAnswersWritten = OverlayModel.storedLongAnswersWritten()
+    static let longAnswersKey = "hud.longAnswersWritten"
+
     public init() {}
+
+    /// Flips the panel's switch, keeps it across launches, and tells the bridge.
+    public func setLongAnswersWritten(_ written: Bool) {
+        longAnswersWritten = written
+        UserDefaults.standard.set(written, forKey: Self.longAnswersKey)
+        onEvent?(preferenceEvent)
+    }
+
+    /// The preferences as one line for the bridge: `e prefer voice long=written`.
+    public var preferenceEvent: OutboundEvent {
+        .action(
+            name: "prefer", component: "voice",
+            payload: ["long": .string(longAnswersWritten ? "written" : "spoken")])
+    }
+
+    /// Unset is on: the switch ships on and a first launch has never touched it.
+    static func storedLongAnswersWritten() -> Bool {
+        let defaults = UserDefaults.standard
+        return defaults.object(forKey: longAnswersKey) == nil
+            || defaults.bool(forKey: longAnswersKey)
+    }
 
     /// Includes the pill, so Escape can reach a run with nothing drawn yet.
     public var isEmpty: Bool {
