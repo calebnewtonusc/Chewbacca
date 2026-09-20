@@ -783,6 +783,34 @@ if [ -d "$SK_SRC" ]; then
     ok "all $SK_WANT skills installed, as symlinks"
   fi
 
+  # A SKILL THAT POINTS AT SOMEBODY ELSE'S HOME DIRECTORY.
+  #
+  # 88 of the 106 skills on this machine are symlinks into upstream packs, and
+  # those packs are written on their author's laptop. On 2026-09-20 seven of
+  # them carried /Users/steipete paths: `speaking` held another person's
+  # private conference strategy and a live Google Sheet URL, and `npm` and
+  # `release-mac-app` documented script paths under his home that simply do
+  # not exist here, so an agent following them gets "no such file".
+  #
+  # The audit that missed this used `grep -r`, which does not follow symlinks.
+  # `grep -R` is required, and that single letter is why this check exists.
+  SK_FOREIGN=""
+  ME="$(basename "$HOME")"
+  for d in "$CLAUDE_DIR"/skills/*/; do
+    [ -d "$d" ] || continue
+    n="$(basename "$d")"
+    hit="$(grep -Rhoa "/Users/[A-Za-z0-9_.-]*" "$d" 2>/dev/null \
+           | grep -v "^/Users/$ME$" | sort -u | head -1)"
+    [ -n "$hit" ] && SK_FOREIGN="$SK_FOREIGN $n"
+  done
+  if [ -n "$SK_FOREIGN" ]; then
+    warn "$(echo $SK_FOREIGN | wc -w | tr -d ' ') skill(s) reference another user's home directory"
+    [ "$QUIET" -eq 1 ] || echo "         $SK_FOREIGN"
+    [ "$QUIET" -eq 1 ] || echo "         Their documented commands will not run here. Unlink the ones you do not use."
+  else
+    ok "no skill points at another user's home directory"
+  fi
+
   # A skill renamed in the repo leaves the old copy behind in ~/.claude/skills,
   # where it keeps loading its description into every session and competes with
   # the new one for triggering. nova-brief and nova-runtime survived the rename

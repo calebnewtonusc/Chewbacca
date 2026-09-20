@@ -5979,6 +5979,31 @@ function cmdUpdate(argv) {
   recomputeScores();
 }
 
+/// What span of contact history the overdue answer was actually measured over.
+///
+/// "Nobody is overdue" is only meaningful next to the window it was computed
+/// from. Off a 90-day import it is not a finding, it is an empty window, and
+/// it reads as a finding. So every clean bill of health carries its evidence.
+function textsWindowNote() {
+  try {
+    const d = db();
+    const r = d
+      .prepare("SELECT MIN(happened_at) AS lo, COUNT(*) AS n FROM interactions")
+      .get();
+    if (!r || !r.n) return "no contact history on file yet, so this proves nothing";
+    const days = Math.max(1, Math.round(daysBetween(r.lo, nowISO())));
+    const span =
+      days >= 365 ? `${(days / 365).toFixed(1)} years` : `${days} days`;
+    let note = `${r.n.toLocaleString()} interactions over ${span}`;
+    if (days < 180) {
+      note += ". That window is short: run `people texts sync` to import the full history";
+    }
+    return note;
+  } catch {
+    return "an unknown window";
+  }
+}
+
 // Overdue is measured against the cadence you set for that person, and falls
 // back to a cadence implied by how much you care: someone you know well and
 // score highly is expected more often than an acquaintance.
@@ -6209,8 +6234,12 @@ function cmdReconnect(argv) {
           `    people note <name> "..." --dim social`,
       );
     return say(
+      // Never assert a clean bill of health without the window it was
+      // measured over. "Nobody is overdue" off a 90-day import is not a
+      // finding, it is an empty window, and it reads as a finding.
       c.grn("  nobody is overdue") +
-        (known ? c.dim(`\n  ${known} people have recent contact on file`) : ""),
+        (known ? c.dim(`\n  ${known} people have recent contact on file`) : "") +
+        c.dim(`\n  measured against ${textsWindowNote()}`),
     );
   }
   say("");
@@ -6980,8 +7009,32 @@ function cmdTexts(argv) {
     // for --days 3200 returned the most recent 2000 rows and reported success,
     // so a backfill looked like it worked and quietly imported six days. Pass 0
     // to turn the row cap off and let --days mean what it says.
+    // THE FIRST SYNC TAKES EVERYTHING, AND THE WINDOW IS ALWAYS PRINTED.
+    //
+    // This used to default the first sync to 90 days. Every last-contact date
+    // then lands inside the window, so nothing can be overdue, and `people
+    // reconnect` answers "nobody is overdue, 232 people have recent contact on
+    // file" off 23,000 messages. Gavin hit it on 2026-09-18 and named the real
+    // problem: the clean bill of health is the dangerous part, because it
+    // reads as an answer rather than as an empty window. Running --days 3200
+    // gave him 155k messages back to 2021 and fifteen overdue people
+    // immediately.
+    //
+    // A bounded first import was the wrong trade. It is slower to be correct
+    // once than to be silently wrong forever, and the row cap that made a
+    // backfill actually dangerous is already off (see above). An incremental
+    // sync still takes 30 days, because by then there is a high-water mark.
     const seen = Number(syncState("messages_max_id") || 0);
-    const days = Number(flags.days || (seen ? 30 : 90));
+    const days = Number(flags.days ?? (seen ? 30 : 0));
+    if (!flags.quiet) {
+      say(
+        c.dim(
+          days === 0
+            ? "  reading the full message history (first sync, this takes a minute)"
+            : `  reading the last ${days} days`,
+        ),
+      );
+    }
     const limit = flags.limit === undefined ? 0 : Number(flags.limit);
     let raw;
     try {
