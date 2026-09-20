@@ -55,6 +55,8 @@ c <id> <Type> prop=value ...
 d /pointer <json>
 r <id>
 - <surface>
+s "<text>"                         say one line on the pill under the panels
+q <n>                              how many requests are waiting
 listen                             ask to receive events on this connection
 ```
 
@@ -291,9 +293,21 @@ The display can listen. It is off until the person turns it on from the menu bar
 (hold the globe key to talk, or a wake word), and when it hears something it
 sends `h "what they said"` back up the socket.
 
+What they said is drawn on the pill at the bottom of the screen first, in
+quotes, and held there for a second before `h` goes up, so pressing the key
+again takes it back instead of sending it.
+
 `hud listen` is the loop: it holds a connection open, and when something is said
 it asks a model to answer by drawing. Run it in the background of a session where
 you want the screen to be answerable out loud.
+
+The pill is also where the answer is spoken. `hud listen` turns every tool call
+into a breadcrumb on it (`s "Reading your calendar"`) and the reply's first two
+sentences into the last line, and it sends `q <n>` when more than one request
+is waiting. A spoken reply is one to two sentences and at most 140 characters,
+because the pill holds two lines of 13 point text at 440 points wide and a
+panel has less room than an ear. Lead with the answer; the panel carries the
+rest.
 
 Recognition is on-device. Do not add anything that ships audio somewhere.
 
