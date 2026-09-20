@@ -95,6 +95,17 @@ if group "people"; then
     expect "list includes the person" "Test Person" "${P[@]}" list
     check  "log an interaction" "${P[@]}" log "test person" --channel call "caught up"
     check  "rank runs" "${P[@]}" rank --limit 5
+
+    # reconnect used to rank by nothing. urgency was score * (1 + over/cadence),
+    # base_score is 0 for anyone with no hand-written observation, and zero
+    # times anything is zero, so every row tied at 0, the sort was a no-op and
+    # the list came out in table order. Gavin hit it with 944 of his 945 people
+    # at score 0 and got an alphabetical list. These three people all have score
+    # 0 and differ only in how overdue they are, so the ONLY thing that can
+    # order them correctly is the lateness term.
+    check "reconnect ranks by lateness when every score is zero" \
+      bash "$ROOT/tests/reconnect_ranking.sh" "${P[@]}"
+
     check  "score runs" "${P[@]}" score
     check  "birthdays runs" "${P[@]}" birthdays --days 30
     check  "reconnect runs" "${P[@]}" reconnect
