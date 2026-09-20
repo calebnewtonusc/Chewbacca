@@ -146,10 +146,15 @@ def _browser_shaped(said: str) -> bool:
     if low.startswith("open "):
         rest = low[5:]
         # "open <x>" is browser-shaped only when the rest carries a domain:
-        # a spoken " dot " or a literal "." in the raw sentence. Ruling: the
-        # brief's extra "first word is 'hacker'" special case is dropped, the
+        # a spoken " dot " or an intra-word dot in the raw sentence, like
+        # "github.com". A trailing full stop is not a domain: transcribed
+        # speech routinely ends in one ("open calculator." was probed
+        # against the real module and built the hostname
+        # "https://calculator."), so the dot must sit between two word
+        # characters, never at the end of the sentence. Ruling: the brief's
+        # extra "first word is 'hacker'" special case is dropped, the
         # " dot " check alone covers "open hacker news dot com".
-        return " dot " in rest or "." in said
+        return " dot " in rest or bool(re.search(r"[a-z0-9]\.[a-z]", said.lower()))
     return False
 
 
@@ -235,8 +240,11 @@ def browser_url(said: str) -> tuple[str, str]:
                 query = norm[len(opener):]
                 break
 
-    if is_domain and "." in query:
-        host = query.replace(" ", "")
+    host = query.replace(" ", "")
+    # A domain needs a real TLD at the end, not just any dot: "open
+    # calculator." normalises to a query ending in "." and must fall
+    # through to a search, not build "https://calculator.".
+    if is_domain and re.search(r"\.[a-z]{2,}$", host):
         return f"https://{host}", f"chrome: {host}"
 
     return f"https://www.google.com/search?q={quote_plus(query)}", f"chrome: {query}"
