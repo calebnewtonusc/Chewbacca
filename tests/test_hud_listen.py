@@ -565,6 +565,22 @@ def test_agent_flags(m) -> None:
     check("the full profile adds nothing", m.agent_flags("full", settings) == [])
 
 
+def test_pick_filler(m) -> None:
+    """A question gets a looking filler, a task an okay, never twice running."""
+    check("a task", m.pick_filler("text caleb I am late") in m.TASK_FILLERS)
+    check("a question by its first word", m.pick_filler("what's on tomorrow") in m.QUESTION_FILLERS)
+    check("a question by its mark", m.pick_filler("Caleb around today?") in m.QUESTION_FILLERS)
+    first = m.pick_filler("book a dentist")
+    second = m.pick_filler("book a dentist", last=first)
+    third = m.pick_filler("book a dentist", last=second)
+    check("never the same one twice running", first != second and second != third, f"got {first}, {second}, {third}")
+    check("a last filler from the other set still gives a fresh one",
+          m.pick_filler("what time is it", last=m.TASK_FILLERS[0]) in m.QUESTION_FILLERS)
+    check("nothing said still gets a filler", m.pick_filler("") in m.TASK_FILLERS)
+    check("the filler sets stay clear of the model's acknowledgement",
+          all("On it" not in f for f in m.TASK_FILLERS + m.QUESTION_FILLERS))
+
+
 def test_lean_prompt(m) -> None:
     """The lean per-request prompt repeats only what changed."""
     listener = m.Listener("claude -p", False, False)
@@ -578,6 +594,10 @@ def test_lean_prompt(m) -> None:
     check("the full profile keeps the rules in the prompt",
           "Answer the way a good assistant" in full.prompt_for(req, ""))
     check("the system prompt file exists", m.AGENT_PROMPT.is_file(), str(m.AGENT_PROMPT))
+    standing = m.AGENT_PROMPT.read_text(encoding="utf-8")
+    check("the prompt carries the restate-then-acknowledge lines",
+          "On it." in standing and "Texting Caleb" in standing and "Delete it?" in standing)
+    check("and the banned openers", "Great question" in standing and "Certainly" in standing)
 
 
 def test_pick_names(m) -> None:
@@ -1045,6 +1065,8 @@ def main() -> int:
     test_pick_names(module)
     print("the turn line")
     test_turn_line(module)
+    print("the silence filler")
+    test_pick_filler(module)
     print("the lean profile")
     test_agent_flags(module)
     test_lean_prompt(module)
