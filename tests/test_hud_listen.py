@@ -816,6 +816,67 @@ def test_end_to_end() -> None:
     check("it left the glass", received[-1] == "p dormant", f"got {received[-1:]}")
 
 
+def test_route_end_to_end() -> None:
+    """A lookup opens the browser and never starts the model."""
+    import tempfile
+    directory = tempfile.mkdtemp()
+    path = os.path.join(directory, "hud.sock")
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(path)
+    server.listen(1)
+    received: list[str] = []
+    ready = threading.Event()
+
+    def serve() -> None:
+        conn, _ = server.accept()
+        ready.set()
+        conn.sendall(b'h "look up rust traits"\n')
+        conn.settimeout(30)
+        buffer = b""
+        try:
+            while "p dormant" not in received:
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                buffer += chunk
+                while b"\n" in buffer:
+                    line, buffer = buffer.split(b"\n", 1)
+                    received.append(line.decode())
+        except socket.timeout:
+            pass
+        conn.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    fake = os.path.join(directory, "fake-model")
+    ran = os.path.join(directory, "model-ran")
+    with open(fake, "w", encoding="utf-8") as handle:
+        handle.write(f"#!/bin/sh\ncat > /dev/null\ntouch {ran}\necho 'should not run'\n")
+    os.chmod(fake, 0o755)
+    opened = os.path.join(directory, "opened")
+    env = dict(
+        os.environ,
+        BOB_HUD_SOCKET=path, HUD_NAMES="off", HUD_ROUTE="on",
+        BOB_MEMORY_DIR=os.path.join(directory, "mem"),
+        HUD_OPEN_CMD=f"sh -c 'echo \"$0\" >> {opened}'",
+        HUD_TERMINAL_CMD="sh -c 'echo []'",
+        HUD_CLASSIFY_CMD="off",
+    )
+    process = subprocess.Popen(
+        [sys.executable, str(BIN), "--model-cmd", fake],
+        env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    ready.wait(10)
+    time.sleep(15)
+    process.terminate()
+    process.wait(timeout=10)
+    server.close()
+    check("the browser was opened with the search", os.path.exists(opened) and "rust+traits" in open(opened).read())
+    check("the model never ran", not os.path.exists(ran))
+    check("the pill named chrome", any(line.startswith('s "chrome: rust traits"') for line in received), str(received))
+    check("the transcript was written",
+          os.path.exists(os.path.join(directory, "mem", "transcript.jsonl")))
+
+
 def run_against(model: str, say: list, until, timeout: float = 40.0, name: str = "fake-model"):
     """Stand up a fake display, run the real script against `model` as its
     model command, and return (received, sent): (seconds after connecting,
@@ -1205,6 +1266,8 @@ def main() -> int:
     test_pointing(module)
     print("end to end")
     test_end_to_end()
+    print("route end to end")
+    test_route_end_to_end()
     print("queue end to end")
     test_queue_end_to_end()
     print("stop end to end")
