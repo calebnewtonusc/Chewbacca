@@ -357,6 +357,10 @@ fi
 if group "hud"; then
   check  "hud parses"         bash -n "$ROOT/bin/hud"
   check  "hud-listen parses"  python3 -m py_compile "$ROOT/bin/hud-listen"
+  check  "hud-speak parses"   python3 -m py_compile "$ROOT/bin/hud-speak"
+  # The voice, minus the model: sentence splitting and the cache of short
+  # lines, which is what "Done." costs after the first time.
+  check  "hud-speak splits and caches" python3 "$ROOT/tests/test_hud_speak.py"
   check  "hud-context parses" python3 -m py_compile "$ROOT/bin/hud-context"
   check  "hud-watch parses"   python3 -m py_compile "$ROOT/bin/hud-watch"
   # The budget is the whole design. A proactive thing that interrupts whenever

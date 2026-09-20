@@ -48,6 +48,7 @@ without it those words are dropped silently.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -73,6 +74,16 @@ if not Path(os.environ["PHONEMIZER_ESPEAK_LIBRARY"]).exists():
 
 MODEL = "mlx-community/Kokoro-82M-bf16"
 RATE = 24_000
+# Short lines are kept once made. "Done.", "Sent.", "Checking your
+# calendar." and the rest of the closed set an assistant says all day come
+# back from disk instead of the model: a read of a 40 KB wav against a
+# generation measured at 160 to 260 ms on 2026-09-20. Eight words is the
+# guess at where a line stops being one of the same few; never measured.
+CACHE = Path.home() / ".bob" / "voice-cache"
+CACHE_WORDS = 8
+# Beyond this the oldest go. Fifty kilobytes a line, so this is about
+# twenty five megabytes. Guessed, never measured.
+CACHE_FILES = 500
 # Sentence ends. Splitting here is what lets the first sentence start playing
 # while the second is still being made; a whole reply generated first added
 # most of a second before anything was heard.
@@ -96,6 +107,30 @@ def sentences(text: str) -> list[str]:
         else:
             out.append(part)
     return out
+
+
+def cache_path(voice: str, speed: float, text: str) -> Path | None:
+    """Where a short line's sound lives, or None for a line too long to keep.
+
+    The key carries the model, the voice and the speed, because a cached
+    "Done." in another voice is the wrong voice, and it is a hash rather
+    than the words because the words are the person's business and a
+    directory listing is not.
+    """
+    if len(text.split()) > CACHE_WORDS:
+        return None
+    key = hashlib.sha1(f"{MODEL}|{voice}|{speed}|{text}".encode("utf-8")).hexdigest()
+    return CACHE / f"{key}.wav"
+
+
+def trim_cache(limit: int = CACHE_FILES) -> None:
+    """Drop the oldest lines once the cache is past `limit` files."""
+    try:
+        files = sorted(CACHE.glob("*.wav"), key=lambda f: f.stat().st_mtime)
+    except OSError:
+        return
+    for stale in files[: max(0, len(files) - limit)]:
+        stale.unlink(missing_ok=True)
 
 
 def envelope(samples, rate: int = RATE) -> list[float]:
@@ -135,10 +170,11 @@ class Player:
     """
 
     def __init__(self, emit=None, volume: float = 1.0) -> None:
-        # (path, generation, envelope, sentence). A None path is the end of
-        # one say; the sentence rides along so the display can be told
-        # which words are starting to play.
-        self.queue: Queue[tuple[str | None, int, list[float], str]] = Queue()
+        # (path, generation, envelope, sentence, keep). A None path is the
+        # end of one say; the sentence rides along so the display can be
+        # told which words are starting to play; `keep` is a cached line,
+        # left on disk after it plays.
+        self.queue: Queue[tuple[str | None, int, list[float], str, bool]] = Queue()
         self.generation = 0
         self.current: subprocess.Popen[bytes] | None = None
         self.lock = threading.Lock()
@@ -148,7 +184,7 @@ class Player:
 
     def _loop(self) -> None:
         while True:
-            path, generation, levels, sentence = self.queue.get()
+            path, generation, levels, sentence, keep = self.queue.get()
             try:
                 if generation != self.generation:
                     continue
@@ -168,7 +204,7 @@ class Player:
                     )
                 self._follow(self.current, generation, levels)
             finally:
-                if path is not None:
+                if path is not None and not keep:
                     Path(path).unlink(missing_ok=True)
                 self.queue.task_done()
 
@@ -225,24 +261,44 @@ class Speaker:
         self.jobs: Queue[tuple[str, int, str]] = Queue()
         threading.Thread(target=self._work, daemon=True).start()
 
-    def synthesize(self, text: str) -> tuple[str, list[float]]:
+    def synthesize(self, text: str, cache: bool = True) -> tuple[str, list[float], bool]:
+        """The sound of `text`: its path, its envelope, and whether the
+        file is a cached one to leave in place. Short lines come from and
+        go to the cache (see `cache_path`); `cache=False` makes the sound
+        regardless, for the warm-up."""
         import numpy as np
         import soundfile as sf
 
+        kept = cache_path(self.voice, self.speed, text) if cache else None
+        if kept is not None and kept.is_file():
+            try:
+                samples, _ = sf.read(str(kept), dtype="float32")
+                return str(kept), envelope(samples), True
+            except (OSError, RuntimeError):
+                pass
         chunks = [
             np.array(r.audio)
             for r in self.model.generate(text=text, voice=self.voice, speed=self.speed)
         ]
         samples = np.concatenate(chunks)
+        if kept is not None:
+            try:
+                CACHE.mkdir(parents=True, exist_ok=True)
+                sf.write(str(kept), samples, RATE)
+                trim_cache()
+                return str(kept), envelope(samples), True
+            except OSError:
+                pass
         path = self.tmp / f"{os.getpid()}-{threading.get_ident()}-{abs(hash(text))}.wav"
         sf.write(str(path), samples, RATE)
-        return str(path), envelope(samples)
+        return str(path), envelope(samples), False
 
     def warm(self) -> None:
         # The first generation after load carries the compilation cost.
         # Paying it here, before "ready", is what makes the first spoken
-        # line land in under half a second.
-        Path(self.synthesize("Ready.")[0]).unlink(missing_ok=True)
+        # line land in under half a second. Never from the cache, which
+        # would skip the compilation this exists to pay.
+        Path(self.synthesize("Ready.", cache=False)[0]).unlink(missing_ok=True)
 
     def say(self, text: str, more: bool = False) -> None:
         """A reply, cutting off what was playing. Whole, quiet follows it on
@@ -267,13 +323,13 @@ class Speaker:
                 if generation != self.player.generation:
                     continue
                 if kind == "end":
-                    self.player.queue.put((None, generation, [], ""))
+                    self.player.queue.put((None, generation, [], "", False))
                     continue
                 for sentence in sentences(text):
                     if generation != self.player.generation:
                         break
-                    path, levels = self.synthesize(sentence)
-                    self.player.queue.put((path, generation, levels, sentence))
+                    path, levels, keep = self.synthesize(sentence)
+                    self.player.queue.put((path, generation, levels, sentence, keep))
             finally:
                 self.jobs.task_done()
 
