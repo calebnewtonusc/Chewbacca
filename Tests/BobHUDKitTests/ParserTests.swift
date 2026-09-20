@@ -625,6 +625,92 @@ struct VoiceTests {
         #expect(heard.isEmpty)
         #expect(partials == ["text sarah"])
     }
+
+    // How a turn actually ends on the machine this was measured on
+    // (2026-09-19): never with a final. The recogniser answers the key
+    // release with an error, and what was heard has to survive that.
+
+    @Test("a recogniser error after a partial sends the partial")
+    @MainActor
+    func errorAfterPartialSendsThePartial() {
+        let voice = VoiceListener()
+        voice.setMode(.pushToTalk)
+        var heard: [String] = []
+        var failures: [String] = []
+        voice.onSignal = { signal in
+            switch signal {
+            case .heard(let text): heard.append(text)
+            case .failed(let message): failures.append(message)
+            default: break
+            }
+        }
+        let turn = voice.receivedForTesting("text sarah", isFinal: false)
+        voice.receivedForTesting(nil, isFinal: false, failed: true, errorCode: 1101, turn: turn)
+        #expect(heard == ["text sarah"])
+        #expect(failures.isEmpty)
+    }
+
+    @Test("a recogniser error with nothing heard names the recogniser, not the person")
+    @MainActor
+    func errorWithNothingHeardNamesTheRecogniser() {
+        let voice = VoiceListener()
+        voice.setMode(.pushToTalk)
+        var heard: [String] = []
+        var failures: [String] = []
+        voice.onSignal = { signal in
+            switch signal {
+            case .heard(let text): heard.append(text)
+            case .failed(let message): failures.append(message)
+            default: break
+            }
+        }
+        voice.receivedForTesting(nil, isFinal: false, failed: true, errorCode: 1101)
+        #expect(heard.isEmpty)
+        #expect(failures == ["Speech model not ready (1101). Try again."])
+        // Its own "no speech detected" is the person's silence.
+        #expect(VoiceListener.message(forRecognizerError: 1110) == "Did not catch that")
+    }
+
+    @Test("an empty final commits the last partial")
+    @MainActor
+    func emptyFinalCommitsThePartial() {
+        let voice = VoiceListener()
+        voice.setMode(.pushToTalk)
+        var heard: [String] = []
+        var failures: [String] = []
+        voice.onSignal = { signal in
+            switch signal {
+            case .heard(let text): heard.append(text)
+            case .failed(let message): failures.append(message)
+            default: break
+            }
+        }
+        let turn = voice.receivedForTesting("text sarah", isFinal: false)
+        voice.receivedForTesting("", isFinal: true, turn: turn)
+        #expect(heard == ["text sarah"])
+        #expect(failures.isEmpty)
+    }
+
+    @Test("an empty revision does not erase what was heard")
+    @MainActor
+    func emptyPartialKeepsWhatWasHeard() {
+        let voice = VoiceListener()
+        voice.setMode(.pushToTalk)
+        var partials: [String] = []
+        var heard: [String] = []
+        voice.onSignal = { signal in
+            switch signal {
+            case .partial(let text): partials.append(text)
+            case .heard(let text): heard.append(text)
+            default: break
+            }
+        }
+        let turn = voice.receivedForTesting("text sarah", isFinal: false)
+        voice.receivedForTesting("", isFinal: false, turn: turn)
+        voice.fireCommitForTesting(turn: turn)
+        #expect(partials == ["text sarah"])
+        #expect(heard == ["text sarah"])
+    }
 }
 
 @Suite("Spoken and typed requests")

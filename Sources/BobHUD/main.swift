@@ -32,15 +32,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Whether the push-to-talk key is currently down, so a flags change that
     /// does not involve it is ignored.
     private var pushing = false
-    /// A heard sentence that has not gone up the socket yet: the task that
-    /// sends it once `cancelWindow` has passed. Nil once it is sent or taken
-    /// back.
-    private var pending: Task<Void, Never>?
 
-    /// How long a heard sentence sits on the pill before it is sent, so a
-    /// wrong transcript can be taken back with Escape, the X, or the next
-    /// press. 1.0s: guessed, never measured.
-    private static let cancelWindow: TimeInterval = 1.0
+    /// The listening mode chosen from the menu, kept across launches.
+    ///
+    /// Only a mode the person picked is ever restored: a first launch is
+    /// still off, which is what the menu's comment promises. Before this,
+    /// every relaunch came up deaf and the first press of the evening did
+    /// nothing, on 2026-09-19 five times in a row.
+    private static let listeningKey = "hud.listening"
     /// How long a missed utterance stays on the pill. The person just let go
     /// of the key, so they are looking. 3s: guessed, never measured.
     private static let missedHold: TimeInterval = 3
@@ -88,14 +87,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         // The X on the pill, or Escape, while the sentence is still the
-        // person's: stop the microphone and drop anything in its cancel
-        // window. A cancel while working goes up the socket from the model.
+        // person's: stop the microphone. A cancel while working goes up the
+        // socket from the model.
         model.onPillCancel = { [weak self] _ in
-            guard let self else { return }
-            self.cancelPending()
-            self.voice.cancelPush()
+            self?.voice.cancelPush()
         }
         setUpVoice()
+        restoreListening()
 
         do {
             try server.start()
@@ -269,7 +267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `thinking`, because from the person's side the request is now in flight
     /// whether or not anything is actually listening on the other end of the
     /// socket. The words themselves go on the pill: every partial as it is
-    /// revised, and the sentence for `cancelWindow` before it is sent.
+    /// revised, and the sentence the moment it is sent.
     private func setUpVoice() {
         voice.onSignal = { [weak self] signal in
             Task { @MainActor in
@@ -278,10 +276,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 case .listening(let on):
                     // Voice.swift sends `.heard` and then `.listening(false)`,
                     // and `.failed` and then `.listening(false)`, in that
-                    // order. A sentence in its cancel window or a failure on
-                    // its hold keeps the ring where it is: the model takes a
+                    // order. A sentence already sent has put the pill in
+                    // working and the ring in thinking; a failure is on its
+                    // hold. Both keep the ring where it is: the model takes a
                     // failed pill down on any return to dormant.
-                    if !on, self.pending != nil || self.model.pill.phase == .failed { return }
+                    if !on, self.model.pill.phase == .working || self.model.pill.phase == .failed {
+                        return
+                    }
                     self.model.setPresence(on ? .attentive : .dormant, amplitude: 0)
                     if on && self.voice.mode == .pushToTalk { self.model.beginHearing() }
 
@@ -298,10 +299,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.model.hear(partial: text)
 
                 case .heard(let text):
-                    // On the pill before anything is sent, then held for the
-                    // cancel window.
+                    // On the pill and up the socket in the same breath. There
+                    // was a one second cancel window here; it was a second on
+                    // every request, for a wrong transcript that the X on the
+                    // pill can still stop once the run is under way. Asked
+                    // for 2026-09-19: "release the button, think, reply,
+                    // execute task as quickly as possible."
                     self.model.heard(text)
-                    self.hold(text)
+                    self.dispatch(text)
 
                 case .failed(let message):
                     // The pill is the notice. `warn` would draw it a second
@@ -325,9 +330,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self, self.voice.mode == .pushToTalk else { return }
                 if down && !self.pushing {
                     self.pushing = true
-                    // A press inside the cancel window takes the last sentence
-                    // back: the person is about to say it again.
-                    self.cancelPending()
                     self.voice.beginPush()
                 } else if !down && self.pushing {
                     self.pushing = false
@@ -335,23 +337,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
-    }
-
-    /// Keep a heard sentence on the pill for the cancel window, then send it.
-    private func hold(_ text: String) {
-        cancelPending()
-        pending = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(Self.cancelWindow))
-            guard !Task.isCancelled, let self else { return }
-            self.pending = nil
-            self.dispatch(text)
-        }
-    }
-
-    /// Take back a sentence that has not been sent yet.
-    private func cancelPending() {
-        pending?.cancel()
-        pending = nil
     }
 
     /// Send a request up the socket. The microphone and the typed bar both
@@ -462,11 +447,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch model.pill.phase {
         case .hearing, .heard:
             // Still the person's sentence. `cancelRun` goes through
-            // `onPillCancel`, which stops the microphone and drops a sentence
-            // in its cancel window, and then takes the pill down.
+            // `onPillCancel`, which stops the microphone, and then takes the
+            // pill down.
             model.cancelRun()
         default:
-            cancelPending()
             dismissAll()
         }
     }
@@ -548,9 +532,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let raw = sender.representedObject as? String,
               let mode = VoiceListener.Mode(rawValue: raw)
         else { return }
+        UserDefaults.standard.set(raw, forKey: Self.listeningKey)
+        listen(mode)
+    }
+
+    /// Bring the mode chosen last time back, menu tick and all.
+    private func restoreListening() {
+        guard let raw = UserDefaults.standard.string(forKey: Self.listeningKey),
+              let mode = VoiceListener.Mode(rawValue: raw), mode != .off
+        else { return }
+        listen(mode)
+    }
+
+    private func listen(_ mode: VoiceListener.Mode) {
         voice.setMode(mode)
+        // Permissions and the recogniser's first start happen now, on the
+        // person's choice, not under their first sentence.
+        if mode == .pushToTalk { voice.prepare() }
         for entry in voiceMenu?.items ?? [] {
-            entry.state = (entry.representedObject as? String) == raw ? .on : .off
+            entry.state = (entry.representedObject as? String) == mode.rawValue ? .on : .off
         }
         if mode == .off { model.setPresence(.dormant, amplitude: 0) }
     }

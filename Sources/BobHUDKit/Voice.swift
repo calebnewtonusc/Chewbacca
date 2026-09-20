@@ -107,6 +107,8 @@ public final class VoiceListener {
     /// partial can land before the microphone does. Not measured; cheap to
     /// skip.
     private var authorized = false
+    /// The throwaway request that wakes the recogniser. See `warmUp`.
+    private var warmTask: SFSpeechRecognitionTask?
 
     /// How long after the key comes up the last partial is committed as the
     /// transcript if the final has not landed. The on-device recogniser's final
@@ -115,11 +117,12 @@ public final class VoiceListener {
     /// Sarah"), so waiting is what buys the corrected name. 0.4 is the middle
     /// of the 300 to 500ms band the research brief for this change gives for
     /// the wait; guessed, never measured on this machine. Every push-to-talk
-    /// turn logs a `voice.final` line with its release-to-commit lag and which
-    /// side won; `log stream` filtered on subsystem `bob.hud` shows them. If
-    /// `source=grace` shows up in more than one turn in ten, raise this to the
-    /// logged p90 of `source=final`; a 300ms longer wait is invisible against
-    /// a 70s run and a wrong name is not.
+    /// turn logs a `voice.turn` line with its release-to-commit lag and which
+    /// side won; `log show --predicate 'subsystem == "bob.hud"'` reads them
+    /// back. Measured 2026-09-19 on a MacBook Pro, macOS 15.7.3: the
+    /// recogniser never sent a final at all. Every release came back as
+    /// error 1101 some 20 to 40ms after the microphone closed, so the error
+    /// path commits the last partial and the grace has never had to fire.
     var commitGrace: TimeInterval = 0.4
 
     /// The floor under a turn that produced no partial at all: nothing to
@@ -187,6 +190,49 @@ public final class VoiceListener {
             // Nothing opens until the key goes down. That is the point of the
             // mode: no audio is captured while you are not holding it.
             stop()
+        }
+    }
+
+    /// Ask for the permissions and wake the recogniser now, at the moment the
+    /// person chose the mode, rather than under their first sentence. Not
+    /// called from `setMode`, which the tests drive in a process that has no
+    /// usage strings and would be killed on the first permission call.
+    public func prepare() {
+        if authorized { warmUp(); return }
+        authorize { ok in
+            self.authorized = ok
+            if ok { self.warmUp() }
+        }
+    }
+
+    /// Start the system's local recognition service before it is needed.
+    ///
+    /// The service starts on the first request and loads its model then. On
+    /// 2026-09-19 the first six presses after the mode was chosen found it
+    /// unable to lock the model (MobileAssetError 6582) and every one came
+    /// back empty with error 1101 on release; the next press, twelve minutes
+    /// later, worked. One request holding a tenth of a second of silence
+    /// makes that first start happen here. No audio is captured: the buffer
+    /// is zeros this class makes, and the microphone stays shut.
+    private func warmUp() {
+        guard warmTask == nil, let recognizer, recognizer.isAvailable else { return }
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.requiresOnDeviceRecognition = true
+        if let format = AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1),
+           let silence = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1_600),
+           let samples = silence.floatChannelData {
+            silence.frameLength = 1_600
+            samples[0].update(repeating: 0, count: 1_600)
+            request.append(silence)
+        }
+        request.endAudio()
+        Self.log.notice("voice.warm on_device=\(recognizer.supportsOnDeviceRecognition)")
+        warmTask = recognizer.recognitionTask(with: request) { @Sendable [weak self] _, error in
+            let code = (error as NSError?)?.code ?? 0
+            Task { @MainActor in
+                Self.log.notice("voice.warm done code=\(code)")
+                self?.warmTask = nil
+            }
         }
     }
 
@@ -297,6 +343,7 @@ public final class VoiceListener {
             return
         }
         onSignal?(.listening(true))
+        Self.log.notice("voice.start on_device=\(recognizer.supportsOnDeviceRecognition)")
 
         // Captured once, here, so every result the task ever delivers carries
         // the turn it belongs to, whatever `turn` reads by the time it runs.
@@ -307,27 +354,36 @@ public final class VoiceListener {
             // only scalars across. `SFSpeechRecognitionResult` is not
             // Sendable, so handing the object itself to the main actor is a
             // data race the compiler refuses, and reaching back into it from
-            // the other side would be one it cannot see.
+            // the other side would be one it cannot see. The error's code
+            // goes too: it is the one thing that tells a person who said
+            // nothing apart from a recogniser that was not running.
             let failed = error != nil
+            let code = (error as NSError?)?.code ?? 0
             let text = result?.bestTranscription.formattedString
             let isFinal = result?.isFinal ?? false
             Task { @MainActor in
-                self?.received(text: text, isFinal: isFinal, failed: failed, turn: turn)
+                self?.received(
+                    text: text, isFinal: isFinal, failed: failed, errorCode: code, turn: turn)
             }
         }
     }
 
     /// Every recognition result lands here, on the main actor, as scalars.
-    private func received(text: String?, isFinal: Bool, failed: Bool, turn: Int) {
+    private func received(
+        text: String?, isFinal: Bool, failed: Bool, errorCode: Int = 0, turn: Int
+    ) {
         // A cancelled task reports an error, and this is where that error, and
         // every late result from a torn-down turn, is dropped on the floor.
         guard turn == self.turn else { return }
         if failed {
             if mode == .wake { restartIfWaking(); return }
             // Push to talk: the task is dead either way, and a partial in hand
-            // is worth more than an error nobody can act on.
+            // is worth more than an error nobody can act on. On this Mac this
+            // is the branch that commits nearly every sentence: the
+            // recogniser answers `endAudio` with error 1101, never a final.
+            logTurn("error", code: errorCode)
             if latestPartial.isEmpty {
-                onSignal?(.failed("Did not catch that"))
+                onSignal?(.failed(Self.message(forRecognizerError: errorCode)))
                 stop()
             } else {
                 commit(latestPartial)
@@ -335,24 +391,25 @@ public final class VoiceListener {
             return
         }
         guard let text else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if isFinal {
             if mode == .wake {
                 fire(text)
                 restartIfWaking()
             } else {
-                if let lag = lagSinceRelease {
-                    Self.log.info("voice.final lag_ms=\(lag) source=final")
-                } else {
-                    // The recogniser ended the turn under the held key. The
-                    // microphone closes with the key still down, which reads
-                    // as "it stopped listening to me", so it is worth knowing
-                    // how often it happens.
-                    Self.log.info("voice.final source=held")
-                }
-                commit(text)
+                // A final with no words in it is the recogniser giving up,
+                // not the person saying nothing. The last partial is the
+                // sentence. `lag_ms=held` in the log means the recogniser
+                // ended the turn under the key, which reads as "it stopped
+                // listening to me" and is worth knowing the rate of.
+                logTurn(trimmed.isEmpty ? "empty-final" : "final")
+                commit(trimmed.isEmpty ? latestPartial : text)
             }
             return
         }
+        // An empty revision never erases what was heard; a later one with
+        // words in it replaces it.
+        guard !trimmed.isEmpty else { return }
         latestPartial = text
         // In wake mode the room's conversation is a partial too. Show only what
         // follows the wake word, or the glass narrates other people's sentences.
@@ -395,9 +452,7 @@ public final class VoiceListener {
     /// already closed or never produced a partial.
     private func commitLatestPartial(turn: Int) {
         guard turn == self.turn, !latestPartial.isEmpty else { return }
-        if let lag = lagSinceRelease {
-            Self.log.info("voice.final lag_ms=\(lag) source=grace")
-        }
+        logTurn("grace")
         commit(latestPartial)
     }
 
@@ -411,6 +466,7 @@ public final class VoiceListener {
             @Sendable _ in
             Task { @MainActor in
                 guard self.turn == turn, self.task != nil else { return }
+                self.logTurn("floor")
                 self.onSignal?(.failed("Did not catch that"))
                 self.stop()
             }
@@ -420,6 +476,31 @@ public final class VoiceListener {
     /// Milliseconds since the key came up, or nil while it is still down.
     private var lagSinceRelease: Int? {
         releasedAt.map { Int(Date().timeIntervalSince($0) * 1000) }
+    }
+
+    /// One line per turn end, written to disk. Notice rather than info
+    /// because info is kept in memory only, which is how six failed presses
+    /// on 2026-09-19 left nothing for `log show` to find.
+    private func logTurn(_ source: String, code: Int = 0) {
+        let lag = lagSinceRelease.map(String.init) ?? "held"
+        Self.log.notice(
+            "voice.turn source=\(source, privacy: .public) code=\(code) lag_ms=\(lag, privacy: .public) partial_chars=\(self.latestPartial.count)"
+        )
+    }
+
+    /// What goes on the pill when the recogniser ends a turn with an error
+    /// and nothing in hand. 1110 is its "no speech detected", which is the
+    /// person's silence and reads as such. Anything else is the recogniser's
+    /// own failure and must not be worded as the person's: six presses on
+    /// 2026-09-19 came back 1101 because the on-device model could not be
+    /// locked, and "Did not catch that" had the person speaking louder at a
+    /// recogniser that was not running.
+    static func message(forRecognizerError code: Int) -> String {
+        switch code {
+        case 0, 1110: return "Did not catch that"
+        case 1101: return "Speech model not ready (1101). Try again."
+        default: return "Speech recogniser failed (\(code)). Try again."
+        }
     }
 
     private func stop(quiet: Bool = false) {
@@ -526,9 +607,12 @@ public final class VoiceListener {
     /// real turn produces: a final after the grace already committed, a partial
     /// after a cancel.
     @discardableResult
-    func receivedForTesting(_ text: String?, isFinal: Bool, turn: Int? = nil) -> Int {
+    func receivedForTesting(
+        _ text: String?, isFinal: Bool, failed: Bool = false, errorCode: Int = 0,
+        turn: Int? = nil
+    ) -> Int {
         let turn = turn ?? self.turn
-        received(text: text, isFinal: isFinal, failed: false, turn: turn)
+        received(text: text, isFinal: isFinal, failed: failed, errorCode: errorCode, turn: turn)
         return turn
     }
 
