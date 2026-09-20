@@ -26,7 +26,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>            <string>Bob HUD</string>
-  <key>CFBundleDisplayName</key>     <string>Bob HUD</string>
+  <!-- The identifier and executable stay: the microphone grant is keyed to
+       the identifier. What the person sees is the assistant's name. -->
+  <key>CFBundleDisplayName</key>     <string>Chewbacca</string>
   <key>CFBundleIdentifier</key>      <string>dev.bobthebuilder.hud</string>
   <key>CFBundleExecutable</key>      <string>BobHUD</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>

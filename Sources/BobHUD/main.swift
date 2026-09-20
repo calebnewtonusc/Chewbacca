@@ -510,7 +510,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(
             systemSymbolName: "sparkles.rectangle.stack",
-            accessibilityDescription: "Bob HUD")
+            accessibilityDescription: "Chewbacca")
 
         let menu = NSMenu()
 
@@ -600,7 +600,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func presentFatal(_ error: Error) {
         let alert = NSAlert()
-        alert.messageText = "Bob HUD could not start"
+        alert.messageText = "Chewbacca could not start"
         alert.informativeText =
             "\(error.localizedDescription)\n\nSocket: \(SocketServer.defaultPath)"
         alert.alertStyle = .critical
