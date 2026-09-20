@@ -241,7 +241,7 @@ def test_stop(m) -> None:
 
     listener = m.Listener("claude -p", False, False)
     asked: list[str] = []
-    listener.ask = asked.append
+    listener.ask = lambda said, **kw: asked.append(said)  # type: ignore[method-assign]
     sent: list[str] = []
     listener.send = sent.append
     listener.handle("e stop run")
@@ -734,6 +734,32 @@ def test_long_answer_switch(m) -> None:
     check("a pointer sentence no longer ends the spoken part", "1861" in said and "750,000" in said, said)
 
 
+def test_guide_hit(m) -> None:
+    """A click on a guide bubble asks the model for the next step, marked
+    as relayed from the screen rather than said by the person."""
+    listener = m.Listener("claude -p", False, False)
+    asked: list[tuple[str, dict]] = []
+    listener.ask = lambda said, **kw: asked.append((said, kw))  # type: ignore[method-assign]
+    listener.handle('e hit guide label="Sign in"')
+    check("one ask", len(asked) == 1)
+    said, kw = asked[0] if asked else ("", {})
+    check("it names what they clicked", "'Sign in'" in said, said)
+    check("it says to look again and show the next step", "hud-guide" in said and "next step" in said)
+    check("it is relayed, not said", kw.get("relayed") is True)
+    listener.handle("e hit guide label=Next")
+    check("a bare label is read too", len(asked) == 2 and "'Next'" in asked[1][0])
+    listener.handle("e hit guide")
+    check("no label still asks", len(asked) == 3 and "the highlighted control, and" in asked[2][0], asked[2][0] if len(asked) > 2 else "")
+    listener.handle("e hit other label=Next")
+    check("only a guide is a guide", len(asked) == 3)
+
+    req = m.Request(said="They just clicked it.", spoken_at=0.0, pointed=None, relayed=True)
+    prompt = listener.prompt_for(req, "")
+    check("the prompt says it came from the screen",
+          prompt.startswith("From their screen, not from them: They just clicked it.") and "said this out loud" not in prompt,
+          prompt[:120])
+
+
 def test_remember(m) -> None:
     """Every request and its answer reach the superassistant log, and the
     prompt the agent is given carries the brain digest."""
@@ -877,7 +903,7 @@ def test_typed_request(m) -> None:
     """`h "<text>" via=typed` is a typed request; the string alone is spoken."""
     listener = m.Listener("claude -p", False, False)
     asked: list[tuple[str, bool]] = []
-    listener.ask = lambda said, typed=False: asked.append((said, typed))
+    listener.ask = lambda said, typed=False, **kw: asked.append((said, typed))  # type: ignore[method-assign]
     listener.handle('h "what is due"')
     listener.handle('h "and next week" via=typed')
     listener.handle('h 42')
@@ -1266,6 +1292,8 @@ def main() -> int:
     test_long_answer_switch(module)
     print("read aloud skips the pointer")
     test_read_aloud_skips_the_pointer(module)
+    print("a click on a guide")
+    test_guide_hit(module)
     print("the superassistant log")
     test_remember(module)
     print("the lean profile")

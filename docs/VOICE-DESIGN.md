@@ -100,6 +100,37 @@ Gavin on 2026-09-20: "when the user asks questions with large summaries that
 require a lot of speaking for the assistant, it just says something along the
 lines of 'all info on x topic is ready for you in the hyper bar'".
 
+## Showing them where
+
+Asked for on 2026-09-20, for somebody who is not the builder: "if a grandma
+is trying to fill out information on a page and she's getting stuck, a little
+bubble will appear exactly where she needs to click." The voice could already
+describe a screen; describing is what a phone call with a relative does, and
+it is why those calls take an hour.
+
+`bin/hud-guide` reads the front window's controls through the accessibility
+tree peekaboo walks, and puts one mark on the glass with `tone=guide`: a ring
+around the control, a bubble above it in words a person would use, a slow
+pulse. The display treats that one mark as a control of its own: a click
+inside it takes it down and sends `e hit guide label="..."` up the socket,
+the bridge relays that to the model marked as coming from the screen rather
+than from the person, and the model looks again and shows the next step. The
+person follows along without saying a word.
+
+The rules the model guides by, in `hud-agent.md`: one step at a time, in
+their words, calling things by the name on the screen; their hands, never the
+model's, while guiding; the bubble only ever on request. And the offer, from
+the same ask: "if the user is asking a task that you can complete, show them
+the highlighted version and then follow up with something like, I can
+complete this for you if you want as well, just ask." So when the task is
+one the machine section covers, the highlighted step comes first and the
+offer once, after it, never per step, and the model acts on it only when
+asked, and stops before anything they cannot undo.
+
+The display also notes the app it took focus from, in `~/.bob/front-app`,
+because the conversation panel takes key: without that, a typed "where do I
+click" had the screen reader reading the panel it was typed into.
+
 ## Sounding like a person
 
 From the same guide, OpenAI's Realtime prompting guide, and Sesame's work on

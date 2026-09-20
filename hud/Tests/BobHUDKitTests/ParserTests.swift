@@ -840,6 +840,49 @@ struct DecayTests {
     }
 }
 
+@Suite("Guides")
+@MainActor
+struct GuideTests {
+    @Test("a click on a guide takes it down and reports it")
+    func hit() throws {
+        let model = OverlayModel()
+        var sent: [String] = []
+        model.onEvent = { sent.append($0.line) }
+        model.apply(try #require(try LineParser.parse(
+            "m guide 100 100 80 30 label=\"Sign in\" tone=guide life=0")))
+        #expect(model.hit(at: CGPoint(x: 120, y: 110)))
+        #expect(model.markers.isEmpty)
+        #expect(sent == ["e hit guide label=\"Sign in\""])
+    }
+
+    @Test("the ring counts, and beside it does not")
+    func reach() throws {
+        let model = OverlayModel()
+        var sent: [String] = []
+        model.onEvent = { sent.append($0.line) }
+        model.apply(try #require(try LineParser.parse(
+            "m guide 100 100 80 30 label=Next tone=guide life=0")))
+        #expect(!model.hit(at: CGPoint(x: 300, y: 300)))
+        #expect(model.markers.count == 1)
+        #expect(sent.isEmpty)
+        // Four points outside the rectangle, on the ring.
+        #expect(model.hit(at: CGPoint(x: 96, y: 110)))
+        #expect(sent == ["e hit guide label=Next"])
+    }
+
+    @Test("a plain mark is a note, not a control")
+    func plainMarkIgnoresClicks() throws {
+        let model = OverlayModel()
+        var sent: [String] = []
+        model.onEvent = { sent.append($0.line) }
+        model.apply(try #require(try LineParser.parse(
+            "m bug 100 100 80 30 label=\"The bug\" tone=bad life=0")))
+        #expect(!model.hit(at: CGPoint(x: 120, y: 110)))
+        #expect(model.markers.count == 1)
+        #expect(sent.isEmpty)
+    }
+}
+
 @Suite("Repeating yourself")
 @MainActor
 struct RepeatTests {

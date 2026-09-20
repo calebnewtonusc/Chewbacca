@@ -253,6 +253,72 @@ struct SnapshotTests {
         #expect(!same(high, low, rows: 0..<Int(size.height) * 2), "the mark did not move")
     }
 
+    @Test("a guide draws a ring and a bubble", arguments: Ground.allCases)
+    func guideDraws(ground: Ground) {
+        let drawn = coverage(
+            "guide", size: CGSize(width: 460, height: 260), ground: ground
+        ) {
+            MarkerView(
+                marker: Marker(
+                    id: "guide", rect: CGRect(x: 120, y: 140, width: 200, height: 44),
+                    label: "Click Sign in", tone: Marker.guideTone, expires: nil),
+                screenHeight: 260)
+        }
+        #expect(drawn > 0.02, "a guide covered only \(drawn) of the frame")
+    }
+
+    @Test("the bubble sits above the control, and only above it")
+    func guideBubbleAbove() {
+        let size = CGSize(width: 460, height: 260)
+        let rect = CGRect(x: 120, y: 140, width: 200, height: 44)
+        let told = image("guide-told", size: size) {
+            MarkerView(
+                marker: Marker(
+                    id: "g", rect: rect, label: "Click Sign in",
+                    tone: Marker.guideTone, expires: nil),
+                screenHeight: size.height)
+        }
+        let bare = image("guide-bare", size: size) {
+            MarkerView(
+                marker: Marker(id: "g", rect: rect, tone: Marker.guideTone, expires: nil),
+                screenHeight: size.height)
+        }
+        guard let told, let bare else {
+            Issue.record("could not render a guide")
+            return
+        }
+        let scale = max(told.pixelsHigh / Int(size.height), 1)
+        let ringTop = Int(rect.minY - Marker.guideReach) * scale
+        let ringBottom = Int(rect.maxY + Marker.guideReach + 12) * scale
+        #expect(!same(told, bare, rows: 0..<ringTop), "no bubble above the control")
+        #expect(same(told, bare, rows: ringBottom..<told.pixelsHigh), "the bubble leaked below the control")
+    }
+
+    @Test("a guide at the top of the screen puts its bubble below")
+    func guideBubbleBelowNearTheTop() {
+        let size = CGSize(width: 460, height: 260)
+        let rect = CGRect(x: 120, y: 20, width: 200, height: 30)
+        let told = image("guide-top-told", size: size) {
+            MarkerView(
+                marker: Marker(
+                    id: "g", rect: rect, label: "Click Sign in",
+                    tone: Marker.guideTone, expires: nil),
+                screenHeight: size.height)
+        }
+        let bare = image("guide-top-bare", size: size) {
+            MarkerView(
+                marker: Marker(id: "g", rect: rect, tone: Marker.guideTone, expires: nil),
+                screenHeight: size.height)
+        }
+        guard let told, let bare else {
+            Issue.record("could not render a guide")
+            return
+        }
+        let scale = max(told.pixelsHigh / Int(size.height), 1)
+        let ringBottom = Int(rect.maxY + Marker.guideReach) * scale
+        #expect(!same(told, bare, rows: ringBottom..<told.pixelsHigh), "no bubble below the control")
+    }
+
     @Test("a label does not move the mark")
     func markerPositionIgnoresItsLabel() {
         // The label used to be a sibling in the stack, so it changed the mark's

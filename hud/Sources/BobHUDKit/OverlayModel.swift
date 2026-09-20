@@ -350,6 +350,30 @@ public final class OverlayModel {
         startSweep()
     }
 
+    /// A click on the screen, in points with a top-left origin.
+    ///
+    /// A guide under it is done: it comes down, and the bridge is told which
+    /// one, so the voice can look again and show the next step. Only a guide
+    /// answers a click. A bracket mark is a note about the screen, and a note
+    /// that reported every click near it would be a second pointer nobody
+    /// asked for.
+    @discardableResult
+    public func hit(at point: CGPoint) -> Bool {
+        let reach = Marker.guideReach
+        let struck = markers.filter {
+            $0.isGuide && $0.rect.insetBy(dx: -reach, dy: -reach).contains(point)
+        }
+        guard !struck.isEmpty else { return false }
+        markers.removeAll { marker in struck.contains { $0.id == marker.id } }
+        revision += 1
+        for marker in struck {
+            onEvent?(.action(
+                name: "hit", component: marker.id,
+                payload: ["label": .string(marker.label)]))
+        }
+        return true
+    }
+
     /// Retire marks as they expire.
     ///
     /// One timer for the whole layer rather than one per mark: a dozen timers

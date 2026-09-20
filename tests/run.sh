@@ -363,6 +363,11 @@ if group "hud"; then
   # lines, which is what "Done." costs after the first time.
   check  "hud-speak splits and caches" python3 "$ROOT/tests/test_hud_speak.py"
   check  "hud-context parses" python3 -m py_compile "$ROOT/bin/hud-context"
+  check  "hud-guide parses"   python3 -m py_compile "$ROOT/bin/hud-guide"
+  # The bubble on the button: which elements count as controls, how words
+  # find one, and the exact line the display gets. A saved snapshot and a
+  # fake display, so no screen is read and nothing is drawn.
+  check  "hud-guide finds the control and sends the bubble" python3 "$ROOT/tests/test_hud_guide.py"
   check  "superassistant parses" python3 -m py_compile "$ROOT/bin/superassistant"
   # The voice's memory both ways: the brain digest it is given, and the log
   # of what it was asked. Hermetic: a temp brain and a temp log.
