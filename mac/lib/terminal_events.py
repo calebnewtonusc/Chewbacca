@@ -32,10 +32,15 @@ HANDLED = frozenset({
     "PermissionRequest", "PreToolUse", "PostToolUse", "PermissionDenied", "Stop", "SessionEnd",
 })
 
-# The voice transcript keeps 5000 lines and that holds days of use; a tool
-# call is noisier than a sentence, so fewer lines cover the same span.
-# Guessed from that, never measured.
-EVENTS_CAP = 2000
+# The file is append-only and rotates by size, because hud-listen tails it by
+# byte offset: a rewrite that dropped the oldest lines shifted every byte
+# after it, and the reader either replayed the whole log or read a fragment
+# and lost the entry it was sitting on. 400 KB is about 2000 entries, which is
+# the span the old line cap aimed at: a measured entry with a Bash summary and
+# a uuid session is 190 bytes, and one with a full 80-character summary is
+# 232, so 2000 x 200 = 400 KB. The line count was guessed from the voice
+# transcript's 5000; the bytes are measured, the span still is not.
+EVENTS_MAX_BYTES = 400_000
 # One pill line. The pill's subtitle wraps past this on a 440pt capsule.
 SUMMARY_CHARS = 80
 # How long the voice gets to hear a yes or no before the tab prompts on its
@@ -107,20 +112,23 @@ def entry_for(event: dict, ask: str = "", held: bool = False) -> dict:
     }
 
 
-def _lines() -> list[str]:
-    try:
-        return [l for l in EVENTS.read_text(encoding="utf-8").splitlines() if l.strip()]
-    except OSError:
-        return []
-
-
 def append(entry: dict) -> None:
+    """One line, appended. Never a rewrite.
+
+    Claude Code runs tool calls concurrently and waits on every hook, so this
+    is on the critical path: one O_APPEND write of a short line, no read, no
+    lock. Past the size cap the whole file is renamed to `<name>.1` and the
+    next append starts a fresh one, so the reader sees a new inode rather
+    than bytes that moved under it. Only one generation is kept.
+    """
     MEMORY.mkdir(parents=True, exist_ok=True)
-    lines = _lines()
-    lines.append(json.dumps(entry, ensure_ascii=False))
-    if len(lines) > EVENTS_CAP:
-        lines = lines[-EVENTS_CAP:]
-    EVENTS.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    with EVENTS.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    try:
+        if EVENTS.stat().st_size > EVENTS_MAX_BYTES:
+            os.replace(EVENTS, EVENTS.with_name(EVENTS.name + ".1"))
+    except OSError:
+        pass
 
 
 def front_app() -> str:

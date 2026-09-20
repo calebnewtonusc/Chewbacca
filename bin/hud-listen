@@ -983,7 +983,9 @@ class Listener:
         # (bin/lib/terminal_state.py). Read on the watcher thread and on the
         # answer-word path; written only by `on_terminal_event`.
         self.terminal_state = terminal_state.initial()
-        self.terminal_offset = 0
+        # (inode, offset) into the events file, not a bare offset: the hook
+        # rotates the file past its size cap. See terminal_state.tail.
+        self.terminal_cursor = terminal_state.START
 
     def log(self, *args) -> None:
         if self.verbose:
@@ -1855,7 +1857,7 @@ class Listener:
 
     def poll_terminal(self) -> None:
         """Fold whatever the hook appended since the last look."""
-        entries, self.terminal_offset = terminal_state.tail(events_path(), self.terminal_offset)
+        entries, self.terminal_cursor = terminal_state.tail(events_path(), self.terminal_cursor)
         for entry in entries:
             self.on_terminal_event(entry)
         expired = terminal_state.expire(self.terminal_state, time.time())

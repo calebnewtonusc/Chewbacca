@@ -99,14 +99,31 @@ def main() -> int:
           e["event"] == "PreToolUse" and e["tool"] == "Bash" and e["summary"] == "ls"
           and e["session"] == "abc123" and e["ask"] == "" and e["held"] is False, str(e))
 
-    print("the cap")
-    te.EVENTS_CAP = 5
-    for i in range(8):
-        te.append({"event": "PreToolUse", "i": i})
-    check("the file never exceeds the cap", len(entries()) == 5)
-    check("the newest lines are kept", entries()[-1]["i"] == 7)
-    te.EVENTS_CAP = 2000
+    print("the log")
+    rotated = te.EVENTS.with_name(te.EVENTS.name + ".1")
+
+    def generation(path: Path) -> list[int]:
+        return [json.loads(l)["i"] for l in path.read_text().splitlines() if l.strip()]
+
     te.EVENTS.unlink()
+    te.EVENTS_MAX_BYTES = 10_000
+    te.append({"event": "PreToolUse", "i": 0})
+    first = te.EVENTS.read_bytes()
+    te.append({"event": "PreToolUse", "i": 1})
+    check("append only ever adds bytes", te.EVENTS.read_bytes().startswith(first))
+    check("both entries are there", generation(te.EVENTS) == [0, 1], str(generation(te.EVENTS)))
+    te.EVENTS_MAX_BYTES = 1
+    te.append({"event": "PreToolUse", "i": 2})
+    check("past the cap the file is rotated away", not te.EVENTS.exists())
+    check(".1 holds everything up to the rotation", generation(rotated) == [0, 1, 2], str(generation(rotated)))
+    te.EVENTS_MAX_BYTES = 10_000
+    te.append({"event": "PreToolUse", "i": 3})
+    check("the next append starts a fresh file", generation(te.EVENTS) == [3], str(generation(te.EVENTS)))
+    te.EVENTS_MAX_BYTES = 1
+    te.append({"event": "PreToolUse", "i": 4})
+    check("a second rotation replaces the older .1", generation(rotated) == [3, 4], str(generation(rotated)))
+    te.EVENTS_MAX_BYTES = 400_000
+    rotated.unlink()
 
     print("the ask protocol")
     clock = Clock()
