@@ -1,0 +1,15 @@
+# What Chewbacca would stream for:
+#   "show me a dashboard of recent texts and what to remember about people"
+c hud Screen title="People"
+r hud
+> hud counts unread remember
+c counts Stack direction=horizontal gap=4
+> counts m1 m2 m3
+c m1 Metric label="Unread" value=7
+c m2 Metric label="Owe a reply" value=3
+c m3 Metric label="This week" value=41
+c unread Table caption="Waiting on you" columns=[{"field":"who","label":"Who"},{"field":"when","label":"When"},{"field":"about","label":"About"}] rows=[{"who":"Sagar","when":"2h","about":"Team Ignite gates"},{"who":"Mom","when":"yesterday","about":"Sunday plans"},{"who":"Langston","when":"3d","about":"OPAL necklace timing"}]
+c remember Stack gap=2
+> remember rh rlist
+c rh Heading text="Worth remembering" level=2
+c rlist List items=["Sagar: week 8 retention is the calendar-bound gate","Erik: Turtle Island came out this year, ask how it landed","Langston: Tizzy waits on the bone-conduction necklace"]
