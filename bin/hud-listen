@@ -1435,13 +1435,15 @@ class Listener:
         except (BrokenPipeError, OSError, AssertionError):
             return False
 
-    def ask(self, said: str, typed: bool = False) -> None:
+    def ask(self, said: str, typed: bool = False, dest: str | None = None) -> None:
         self.hush()
         words = normalise(said)
         if words in STOP_WORDS or (words in BARGE_WORDS and self.in_flight()):
             self.stop()
             return
-        req = Request(said=said, spoken_at=time.monotonic(), pointed=self.pointing(), typed=typed)
+        if not typed and dest is None and self.handle_draft_word(said):
+            return
+        req = Request(said=said, spoken_at=time.monotonic(), pointed=self.pointing(), typed=typed, dest=dest)
         with self.state:
             waiting = self.current is not None
             if waiting:
@@ -1616,6 +1618,50 @@ class Listener:
         if result.returncode != 0:
             self.log("terminal", verb, "failed:", result.stderr.strip())
         return result.returncode == 0
+
+    def handle_draft_word(self, said: str) -> bool:
+        """"send it", "scrap that", "no, to you" while a draft is outstanding.
+
+        Handled here, never by the model: the words are exact, the draft
+        file says whether one exists, and a model asked to press Return is a
+        model that might. With no draft outstanding these words fall through
+        to routing, so "run" in a sentence about something else is not eaten.
+        """
+        if not ROUTE:
+            return False
+        action = route.draft_word(said)
+        if action is None:
+            return False
+        draft = voice_memory.draft(time.time())
+        if draft is None:
+            return False
+
+        def work() -> None:
+            self.send("p acting")
+            if action == "submit":
+                ok = self.terminal("submit")
+                self.send("s " + json.dumps("sent" if ok else "couldn't send, the tab is gone"))
+                try:
+                    voice_memory.append({
+                        "t": voice_memory.now_iso(), "via": "voice", "text": said,
+                        "dest": "terminal", "confidence": 1.0, "reason": "draft word",
+                        "reply": None, "project": voice_memory.project().get("name"),
+                        "draft": draft.get("text"), "submitted": bool(ok),
+                    })
+                except OSError as err:
+                    self.log("memory unwritable:", err)
+                self.settle("done" if ok else "failed", self.LEAVE_AFTER)
+                return
+            ok = self.terminal("clear")
+            if action == "clear":
+                self.send("s " + json.dumps("cleared" if ok else "couldn't clear it"))
+                self.settle("done" if ok else "failed", self.STOP_HOLD)
+                return
+            self.send("s " + json.dumps("okay, to me"))
+            self.ask(draft.get("text", ""), dest="assistant")
+
+        threading.Thread(target=work, daemon=True).start()
+        return True
 
     # `looking_at` already spends up to 3 s on one AppleScript through
     # hud-context; `claude_tab_open` is one more chewie AppleScript call, so
