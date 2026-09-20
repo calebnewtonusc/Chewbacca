@@ -137,6 +137,33 @@ Every routed sentence is a line in `~/.bob/memory/transcript.jsonl` with its
 destination, confidence, and reason, which is the data for moving any of the
 thresholds above. The constants and what set them are listed in the spec.
 
+## The terminal talks back
+
+The tab is not only a place a sentence goes. A Claude Code hook,
+`chewie terminal hook`, runs on every tool call, permission prompt, and
+finished turn in the remembered tab and writes one line each to
+`~/.bob/memory/terminal-events.jsonl`. hud-listen tails it into one state
+and shows it as a strip under the pill: running, waiting on you, done.
+
+When the tab stops on a permission and Terminal is not in front, the hook
+holds the prompt for thirty seconds and the voice asks: "The terminal wants
+to run npm test. Yes or no?" "Yes", "go ahead", or "allow" grants that one
+call; "no" or "deny" refuses it. Nothing grants a standing rule by voice:
+"always" needs the keyboard, so a misheard word costs one tool call. If
+nobody answers in time, the tab shows its ordinary dialog and the same
+words press Return or Escape there instead.
+
+When Terminal is in front the voice says nothing: you can see the dialog.
+The strip and the ring's attention state carry it.
+
+"Stop the terminal" denies a held prompt with interrupt, or sends Escape to
+the tab. A finished turn says one line, the first sentence of the answer,
+again only when the tab is not in front.
+
+Setup registers the hook in `~/.claude/settings.json` for six events. Any
+session whose folder is not the remembered one is invisible to all of this:
+the hook exits before writing anything.
+
 ## Measuring it
 
 Every turn writes a `turn:` line to `~/.bob/listen.log` with `text=` (prompt
