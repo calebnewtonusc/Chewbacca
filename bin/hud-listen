@@ -1030,6 +1030,12 @@ class Listener:
         # The run stopped on purpose, kept until the next prompt has told the
         # model what actually reached the screen.
         self.cancelled: Request | None = None
+        # The request whose remaining words are written, not spoken: the
+        # talk key went down while it was running. See `interrupted`.
+        self.muted: Request | None = None
+        # The request a spoken one cut off. Its cancellation is not
+        # announced, because the words that replaced it are the reason.
+        self.replaced: Request | None = None
         self.cancelled_drawn: list[str] = []
         # Surfaces the in-flight run has confirmed on the glass so far.
         self.drawn: list[str] = []
@@ -1233,6 +1239,13 @@ class Listener:
             if not isinstance(said, str):
                 return
             self.ask(said, typed="via=typed" in rest[end:].split())
+        elif line == "k down":
+            # The talk key went down: they are about to speak. The voice
+            # stops now, not when their words arrive a few seconds later.
+            self.interrupted()
+        elif line == "k up":
+            # The words, if there were any, follow as `h`.
+            pass
         elif line == "x":
             # The person took everything down: Escape on an empty pill, or
             # two quick globe presses. The display has already gone dormant
@@ -1322,9 +1335,10 @@ class Listener:
 
         Surfaces never clear on their own, so everything already on the glass
         survives; only the reply that had not been written yet is lost. Queued
-        requests still run, because each was asked for on purpose. With
-        nothing in flight there is nothing else the word can mean, so it
-        clears the queue instead.
+        (typed) requests still run, because each was asked for on purpose.
+        With nothing in flight there is nothing else the word can mean, so it
+        clears the queue instead. A spoken request that arrives mid-run does
+        not come here: it replaces the run (`interrupt`).
         """
         self.hush()
         with self.state:
@@ -1353,6 +1367,44 @@ class Listener:
         self.send("s " + json.dumps("Dropped what was waiting." if cleared else "Nothing to stop."))
         self.send("p failed")
         later(self.NEXT_HOLD_FAILED, self.release)
+
+    def interrupted(self) -> None:
+        """The talk key went down while the voice was speaking or a run was
+        in flight: stop talking at once, and keep quiet for the rest of that
+        run. What it goes on to write still reaches the panel.
+
+        "It keeps talking over me when I try to speak while it's working or
+        giving a response from a previous request" (2026-09-20). Before this
+        the voice was cut only when the words arrived, seconds after the
+        key went down, and the run then carried on speaking its later
+        sentences over whatever was said next.
+        """
+        self.hush()
+        with self.state:
+            self.muted = self.current
+        if self.muted is not None:
+            self.log("muted:", self.muted.said)
+
+    def interrupt(self, req: Request) -> None:
+        """A spoken request while one is in flight replaces it.
+
+        The run is ended without a word and `req` runs next; nothing waits
+        behind it. What they most recently asked for is what they mean, and
+        an answer to the earlier question read out after the new one would
+        be the talking-over this exists to end. Typed requests still queue
+        (`ask`): typing interrupts nobody.
+        """
+        with self.state:
+            old, proc = self.current, self.proc
+            self.cancelled = old
+            self.cancelled_drawn = list(self.drawn)
+            self.replaced = old
+            self.queue.clear()
+            self.queue.append(req)
+        self.log("interrupted:", old.said if old else "", "for:", req.said)
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            later(self.KILL_GRACE, proc.kill)
 
     def release(self) -> None:
         """Leave the glass, unless a request started during the hold."""
@@ -1707,13 +1759,16 @@ class Listener:
         )
         with self.state:
             waiting = self.current is not None
-            if waiting:
+            if waiting and (typed or relayed):
                 self.queue.append(req)
                 depth = len(self.queue)
-            else:
+            elif not waiting:
                 self.current = req
         if not waiting:
             threading.Thread(target=self._drain, daemon=True).start()
+            return
+        if not typed and not relayed:
+            self.interrupt(req)
             return
         self.log("queued:", said)
         # Depth on the glass first, screen sample second: looking_at() can
@@ -1838,6 +1893,22 @@ class Listener:
             outcome = self._ask(req)
             with self.state:
                 has_next = bool(self.queue)
+                replaced = outcome == "cancelled" and self.replaced is req
+                if self.replaced is req:
+                    self.replaced = None
+                if self.muted is req:
+                    self.muted = None
+            if replaced:
+                # Cut off by the words that follow: no "Stopped", no hold,
+                # straight on to them. The pill went to thinking when they
+                # were heard.
+                with self.state:
+                    self.current = self.queue.popleft() if self.queue else None
+                    depth = len(self.queue)
+                if self.current is None:
+                    return
+                self.send(f"q {depth}")
+                continue
             if outcome == "cancelled":
                 # The same words the pill's own X puts up, so a spoken stop
                 # and a pressed one read the same. `done` rather than
@@ -2242,7 +2313,7 @@ class Listener:
         filled = threading.Event()
 
         def fill() -> None:
-            if not streaming or proc.poll() is not None or stop.is_set():
+            if not streaming or proc.poll() is not None or stop.is_set() or self.muted is self.running:
                 return
             with gate:
                 if spoke.is_set():
@@ -2279,7 +2350,8 @@ class Listener:
                         self.log(f"[+{time.monotonic() - started:.1f}s]", line)
                     self.send(line)
                 for chunk in run.take_voice():
-                    if not streaming:
+                    if not streaming or self.muted is self.running:
+                        # Muted: the talk key went down. Written, not said.
                         continue
                     if not voiced and filled.is_set() and ACKNOWLEDGEMENT.fullmatch(chunk.strip()):
                         # The filler already said it.
@@ -2294,7 +2366,8 @@ class Listener:
                         voiced = True
                 if run.first_text and not spoken_first and not typed and not streaming:
                     spoken_first = True
-                    self.speak(run.first_text)
+                    if self.muted is not self.running:
+                        self.speak(run.first_text)
                 with self.state:
                     self.drawn = list(run.drawn)
                 if event.get("type") == "result":

@@ -44,6 +44,12 @@ public enum OutboundEvent: Sendable, Equatable {
     case problem(String)
     /// What this build is, so a client can tell before it relies on something.
     case version(String)
+    /// The talk key went down or came up. Sent the moment it happens, before
+    /// any words exist, so the bridge can stop talking while the person is
+    /// still drawing breath rather than when their sentence arrives: "it
+    /// keeps talking over me when I try to speak" (2026-09-20). A listener
+    /// that does not know the line ignores it.
+    case talkKey(down: Bool)
 
     public var line: String {
         switch self {
@@ -59,6 +65,9 @@ public enum OutboundEvent: Sendable, Equatable {
 
         case .dismissed:
             return "x"
+
+        case .talkKey(let down):
+            return down ? "k down" : "k up"
 
         case .heard(let text):
             return "h \(OutboundEvent.jsonString(text))"
