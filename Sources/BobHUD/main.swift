@@ -1,6 +1,7 @@
 import AppKit
 import BobHUDKit
 import SwiftUI
+import os
 
 /// BobHUD: a layer of glass over everything, with things drawn on it.
 ///
@@ -21,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var escMonitor: Any?
     private var mouseMonitor: Any?
     private var localMouseMonitor: Any?
+    private var localFlagsMonitor: Any?
     private var flagsMonitor: Any?
     private var barMonitor: Any?
     private var reticleDown: Any?
@@ -31,8 +33,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let voice = VoiceListener()
     /// Whether the push-to-talk key is currently down, so a flags change that
     /// does not involve it is ignored.
-    private var pushing = false
-
     /// The listening mode chosen from the menu, kept across launches.
     ///
     /// Only a mode the person picked is ever restored: a first launch is
@@ -107,7 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         voice.setMode(.off)
         let monitors = [
             hotKeyMonitor, escMonitor, mouseMonitor,
-            localMouseMonitor, flagsMonitor, barMonitor,
+            localMouseMonitor, flagsMonitor, localFlagsMonitor, barMonitor,
             reticleDown, reticleDrag, reticleUp,
         ]
         for monitor in monitors.compactMap({ $0 }) {
@@ -196,7 +196,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mouseMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.mouseMoved, .leftMouseDragged]
         ) { [weak self] _ in
-            Task { @MainActor in self?.updateInteractive() }
+            Task { @MainActor in
+                self?.updateInteractive()
+                self?.trackPointer()
+            }
         }
 
         // A global monitor only sees events delivered to *other* apps, so the
@@ -206,7 +209,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.mouseMoved, .leftMouseDragged]
         ) { [weak self] event in
-            Task { @MainActor in self?.updateInteractive() }
+            Task { @MainActor in
+                self?.updateInteractive()
+                self?.trackPointer()
+            }
             return event
         }
     }
@@ -323,21 +329,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // else has claimed, it cannot collide with what you are typing into the
         // app underneath, and holding it is a gesture rather than a shortcut to
         // remember. Nothing is captured until it goes down.
+        //
+        // Two monitors, because a global one sees only the events other apps
+        // get. Click the pill and this app is the active one, and from then
+        // on the key went nowhere; a release that landed here while the
+        // press had been seen globally also left the microphone open.
         flagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) {
             [weak self] event in
             let down = event.modifierFlags.contains(.function)
-            Task { @MainActor in
-                guard let self, self.voice.mode == .pushToTalk else { return }
-                if down && !self.pushing {
-                    self.pushing = true
-                    self.voice.beginPush()
-                } else if !down && self.pushing {
-                    self.pushing = false
-                    self.voice.endPush()
-                }
-            }
+            Task { @MainActor in self?.globe(down: down) }
+        }
+        localFlagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) {
+            [weak self] event in
+            let down = event.modifierFlags.contains(.function)
+            Task { @MainActor in self?.globe(down: down) }
+            return event
         }
     }
+
+    /// The globe key's state, from either monitor. Every flags change is
+    /// forwarded, no memory of the last one kept: `beginPush` does nothing
+    /// while a turn is open and `endPush` nothing while the microphone is
+    /// shut, so a repeat is harmless, and a flag that tracked the key here
+    /// could only ever drift from the truth after a missed event, which is
+    /// the one case that matters.
+    private func globe(down: Bool) {
+        // Persisted, so a key that stops working can be told apart from a
+        // key that stopped arriving: on 2026-09-19 two presses produced no
+        // trace at all and there was no way to know which.
+        Self.keys.notice("voice.key down=\(down) mode=\(self.voice.mode.rawValue, privacy: .public)")
+        guard voice.mode == .pushToTalk else { return }
+        if down { voice.beginPush() } else { voice.endPush() }
+    }
+
+    private static let keys = Logger(subsystem: "bob.hud", category: "keys")
 
     /// Send a request up the socket. The microphone and the typed bar both
     /// come here, so there is one path from asking to drawing rather than two
@@ -417,6 +442,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         CGRect(
             x: min(from.x, to.x), y: min(from.y, to.y),
             width: abs(to.x - from.x), height: abs(to.y - from.y))
+    }
+
+    /// Tell the field where the hand is, so the band can part round it.
+    private func trackPointer() {
+        guard let screen = OverlayWindow.active else {
+            model.point(at: nil, aspect: 1)
+            return
+        }
+        let frame = screen.frame
+        let mouse = NSEvent.mouseLocation
+        let unit = CGPoint(
+            x: (mouse.x - frame.minX) / frame.width,
+            y: (frame.maxY - mouse.y) / frame.height)
+        model.point(at: unit, aspect: frame.width / max(frame.height, 1))
     }
 
     private func updateInteractive() {

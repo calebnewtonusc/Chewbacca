@@ -240,6 +240,12 @@ public final class VoiceListener {
     public func beginPush() {
         guard mode == .pushToTalk else { return }
         pushHeld = true
+        // Every way `start()` can decline, in one persisted line, because a
+        // press that opens nothing looks the same from outside whichever it
+        // was.
+        Self.log.notice(
+            "voice.press authorized=\(self.authorized) open=\(self.task != nil) available=\(self.recognizer?.isAvailable ?? false) on_device=\(self.recognizer?.supportsOnDeviceRecognition ?? false) engine=\(self.engine.isRunning)"
+        )
         if authorized { start(); return }
         authorize { ok in
             self.authorized = ok
