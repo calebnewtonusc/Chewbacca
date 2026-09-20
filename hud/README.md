@@ -97,8 +97,8 @@ microphone is off until you turn it on from the menu bar; a Mac whose dictation
 is off is told which setting to turn on. Pressed twice quickly, the key is the
 way out: the panel, the microphone, a run in flight and the glass all go.
 Pressed by accident, with nothing said into it, the band leaves on its own three
-seconds later. A short tone says a press was heard; "Sound when heard" in the
-menu turns it off.
+seconds later. "Sound when heard" in the menu adds a short tone on release;
+it is off unless you turn it on.
 
 The recogniser expects the names in `~/.bob/names.txt`, which `hud listen`
 writes from Messages and Contacts, and `~/.bob/vocabulary.txt`, which is yours.

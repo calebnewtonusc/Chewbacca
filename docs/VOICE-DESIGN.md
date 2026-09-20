@@ -8,9 +8,12 @@ assistant talks; the prompt is the artifact, this is the reasoning.
 
 Three things happen, in this order, and each covers a different gap.
 
-1. **A tone, at 0 s.** The display plays 40 ms of 880 Hz the moment the press
-   is heard (`Earcon`). Alexa's Brief Mode replaced spoken confirmations with a
-   chime for the same reason: receipt is a signal, not a sentence.
+1. **Receipt, at 0 s.** The band moves and the pill shows the sentence the
+   moment the press is heard. A 40 ms tone (`Earcon`, "Sound when heard") is
+   there for anyone who wants it and off by default: it shipped on, and a day
+   of use said a tone on every release is a tone on every sentence. Alexa's
+   Brief Mode went the other way for the same reason, replacing spoken
+   confirmations with a chime: receipt is a signal, not a sentence.
 2. **The model's first sentence, at about 1 s.** Under the lean profile the
    first words arrived 1.0 to 1.7 s after the prompt (2026-09-20). For a task
    that sentence says back what is being done, in the person's terms, then a

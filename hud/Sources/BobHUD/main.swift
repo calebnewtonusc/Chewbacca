@@ -44,10 +44,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The tone that says the press was heard. See `Earcon`.
     private let earcon = Earcon()
     private static let earconKey = "hud.earcon"
-    /// On unless turned off from the menu.
+    /// Off unless turned on from the menu. It shipped on, and the first day
+    /// of use ended with "get rid of the little beep ... just the sound
+    /// effect when i release push to talk" (2026-09-20): the band moving
+    /// and the pill's line are receipt enough, and a tone on every release
+    /// is a tone on every sentence of a conversation.
     private static var earconOn: Bool {
-        let defaults = UserDefaults.standard
-        return defaults.object(forKey: earconKey) == nil || defaults.bool(forKey: earconKey)
+        UserDefaults.standard.bool(forKey: earconKey)
     }
     /// Whether the push-to-talk key is currently down, so a flags change that
     /// does not involve it is ignored.

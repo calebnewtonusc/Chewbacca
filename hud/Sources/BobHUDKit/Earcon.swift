@@ -13,6 +13,10 @@ import AVFoundation
 /// spoken word, high enough that a laptop speaker plays it as a tone and
 /// not a click, ramped so the edges do not click either. Guessed against the
 /// ear, never measured.
+///
+/// Off by default since 2026-09-20, opt-in from the menu ("Sound when
+/// heard"): a day of use said the release tone was one sound too many on
+/// every sentence. See `earconOn` in main.swift.
 @MainActor
 public final class Earcon {
     nonisolated public static let frequency = 880.0
