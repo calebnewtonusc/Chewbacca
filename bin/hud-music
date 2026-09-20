@@ -1,0 +1,795 @@
+#!/usr/bin/env python3
+"""Play music by name, at once.
+
+    hud-music play "<song, artist or album>"     find it and play it
+    hud-music pause | resume | next | previous | again | stop
+    hud-music volume [<0-100> | up | down]
+    hud-music now                                what is playing, in a sentence
+    hud-music status                             which players are ready, and why not
+    hud-music setup <client id> <client secret>  the Spotify keys, once
+    hud-music parse "<what they said>"           what the words mean, for the bridge
+
+The players, in the order tried:
+
+- Spotify, when it is installed and its keys are in ~/.bob/spotify.json: one
+  client-credentials search for the URI (no login, no Premium), then the
+  desktop app is told to play it through AppleScript. Under a second.
+- Music.app, when it is already running: its own library, through AppleScript.
+- YouTube, whenever yt-dlp and ffplay are installed: the first search result's
+  audio, played with no window. A few seconds, and there is no next or previous.
+
+The bridge reads the words itself, so "play X" never waits on the model:
+parse() turns an utterance into a command, perform() runs it and answers in
+one sentence for the voice.
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import difflib
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass
+from pathlib import Path
+
+BOB_DIR = Path(os.environ.get("BOB_DIR") or Path.home() / ".bob")
+# {"client_id": ..., "client_secret": ..., "market": "US"}. From a Spotify
+# developer app, which any Spotify account can create at
+# developer.spotify.com/dashboard; the search needs no login and no Premium.
+SPOTIFY_KEYS = BOB_DIR / "spotify.json"
+# The client-credentials token, good for an hour, so a search costs one
+# request rather than two.
+SPOTIFY_TOKEN = BOB_DIR / "spotify-token.json"
+# The YouTube player this tool started: {"pid", "title", "paused"}.
+YOUTUBE_STATE = BOB_DIR / "music-youtube.json"
+SPOTIFY_APP = Path("/Applications/Spotify.app")
+TOKEN_URL = "https://accounts.spotify.com/api/token"
+SEARCH_URL = "https://api.spotify.com/v1/search"
+# A Spotify search answered in about 0.3 s from Texas on 2026-09-20. Six
+# seconds is a slow network, not a wait a person notices as broken.
+SEARCH_TIMEOUT = 6
+# A yt-dlp lookup took 2.3 s on 2026-09-20. Twenty covers a slow network
+# without leaving the voice silent for longer than a person keeps listening.
+YOUTUBE_TIMEOUT = 20
+# How far "turn it up" moves the volume, out of 100. Guessed, never measured.
+VOLUME_STEP = 15
+# How close the words have to be to an artist's name to mean the artist and
+# not a song with those words in it. "play drake" is Drake; "play blinding
+# lights" is the song. Guessed, never measured beyond those two.
+ARTIST_MATCH = 0.85
+# When no song comes close, a weaker artist match still beats the first song
+# Spotify happened to rank. Guessed, never measured.
+WEAK_ARTIST_MATCH = 0.6
+WEAK_TRACK_MATCH = 0.5
+# Spotify launches in about two seconds on this machine. The first command
+# sent while it is still coming up fails, so it is sent again after that.
+LAUNCH_WAIT = 2.0
+LAUNCH_TRIES = 3
+
+
+class PlayerError(Exception):
+    """One clause for the voice about what went wrong."""
+
+
+@dataclass
+class Command:
+    verb: str
+    # What they named, as they said it. Empty for pause, next and the rest.
+    what: str = ""
+    # "artist" or "album" when the words said so, else "".
+    want: str = ""
+    # A number for `volume`, or "up" / "down".
+    level: str = ""
+
+    @property
+    def query(self) -> str:
+        # "X by Y" searches better as "X Y".
+        return re.sub(r"\s+by\s+", " ", self.what)
+
+
+@dataclass
+class Outcome:
+    ok: bool
+    line: str
+
+
+@dataclass
+class Pick:
+    uri: str
+    kind: str
+    title: str
+
+
+# ── the words ────────────────────────────────────────────────────────────────
+
+LEAD = re.compile(
+    r"^(?:hey |ok |okay |please |can you |could you |would you |go ahead and |also |and |now "
+    r"|open (?:up )?(?:spotify|music|apple music|youtube) and )+")
+# "Play some jazz and tell me the time" is two requests, and the second is
+# the model's. A title can hold an "and" ("Me and My Broken Heart"), so only
+# an "and" that starts another errand hands the whole thing on.
+WRAPPED = re.compile(r"\band (?:then|tell|what|set|open|remind|text|send|check|show|read|turn|call|start|make|find|let|give|say|also)\b")
+TRAIL = re.compile(
+    r"\s+(?:please|for me|for us|now|thanks|thank you|while (?:we|i) work|while (?:we|i)'?re? (?:work|working)"
+    r"|in the background|for a (?:bit|while|sec|second|minute)|real quick|right now)$")
+PLATFORM = re.compile(r"\s+(?:on|in|from|through) (?:spotify|youtube|apple music|music)$")
+
+PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("pause", re.compile(r"pause(?: (?:the |this |that )?(?:music|song|it|that|this|playback))?|hold the music")),
+    ("resume", re.compile(
+        r"resume(?: (?:the )?(?:music|song|it|playback))?|unpause|keep playing|un ?pause it"
+        r"|play(?: (?:it|the music|some music|music|something|anything|a song|songs|some songs))?"
+        r"|continue (?:the )?(?:music|song)|put (?:the )?music back on")),
+    ("next", re.compile(r"skip(?: (?:this|it|that|this song|this one|the song|song|track|ahead))?|next(?: (?:song|track|one))?")),
+    ("previous", re.compile(r"previous(?: (?:song|track|one))?|go back(?: (?:a song|one|a track|a track))?|last song|back one|back a song")),
+    ("again", re.compile(r"play (?:that|it|this) again|start (?:it |that |this |the song )?over|restart (?:the |this )?(?:song|track)|run it back")),
+    ("stop", re.compile(
+        r"stop (?:the |this )?(?:music|song|playing|playback)|turn (?:the music|it|the song) off|music off"
+        r"|kill the music|shut (?:it|the music) off|turn off the music")),
+    ("volume", re.compile(
+        r"(?:turn|crank) (?:it|the music|the volume|this|that) (?:way |a bit |a little )?(?P<dir>up|down)"
+        r"|(?:volume|music|sound) (?P<dir2>up|down)|(?P<word>louder|quieter|softer)"
+        r"|(?:set (?:the )?)?volume(?: to)? (?P<n>\d{1,3})(?: percent)?"
+        r"|(?:make it|turn it) (?:way |a bit |a little )?(?P<dir3>up|down)")),
+    ("now", re.compile(
+        r"what'?s (?:this|playing|this song|the song|on|that)|what is (?:this|playing|this song|that)"
+        r"|what song is (?:this|playing|that)|who (?:is this|sings this|is singing|is that)"
+        r"|what am i listening to|name this song|what's the name of this song")),
+    ("play", re.compile(r"(?:play|put on|throw on|start playing|queue up|listen to|i want to hear|let's hear|lets hear) (?P<what>.+)")),
+]
+# A named thing that means "whatever": these are a resume, not a search.
+NOTHING_NAMED = {"music", "something", "anything", "a song", "songs", "some music", "some songs", "it", "stuff", "some stuff"}
+
+
+def parse(said: str) -> Command | None:
+    """The command in an utterance, or None when it is not about music."""
+    words = " ".join(re.sub(r"[^a-z0-9' ]", " ", said.lower()).split())
+    words = LEAD.sub("", words)
+    while True:
+        trimmed = TRAIL.sub("", words)
+        if trimmed == words:
+            break
+        words = trimmed
+    if not words:
+        return None
+    for verb, pattern in PATTERNS:
+        match = pattern.fullmatch(words)
+        if not match:
+            continue
+        if verb == "volume":
+            groups = match.groupdict()
+            if groups.get("n"):
+                return Command("volume", level=str(min(int(groups["n"]), 100)))
+            direction = groups.get("dir") or groups.get("dir2") or groups.get("dir3")
+            if not direction:
+                direction = "up" if groups.get("word") == "louder" else "down"
+            return Command("volume", level=direction)
+        if verb != "play":
+            return Command(verb)
+        what = PLATFORM.sub("", match.group("what")).strip()
+        if WRAPPED.search(what):
+            return None
+        what = re.sub(r"^(?:some |something |a bit of |a little |a little bit of )", "", what)
+        if what in NOTHING_NAMED:
+            return Command("resume")
+        want = ""
+        album = re.fullmatch(r"(?:the |an? )?album (.+)", what)
+        artist = re.fullmatch(r"(?:songs |music |stuff |tracks |anything |something )?(?:by|from) (.+)", what)
+        track = re.fullmatch(r"(?:the |a )?(?:song|track) (.+)", what)
+        if album:
+            what, want = album.group(1), "album"
+        elif artist:
+            what, want = artist.group(1), "artist"
+        elif track:
+            what = track.group(1)
+        return Command("play", what=what.strip(), want=want)
+    return None
+
+
+# ── the machine ──────────────────────────────────────────────────────────────
+
+def osascript(script: str, timeout: float = 8) -> str:
+    result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=timeout)
+    if result.returncode != 0:
+        lines = result.stderr.strip().splitlines()
+        raise PlayerError(lines[-1] if lines else "AppleScript failed")
+    return result.stdout.strip()
+
+
+def running(app: str) -> bool:
+    return subprocess.run(["pgrep", "-x", app], capture_output=True).returncode == 0
+
+
+def quoted(text: str) -> str:
+    """Text inside an AppleScript string literal."""
+    return text.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def clean(text: str) -> str:
+    return " ".join(re.sub(r"[^a-z0-9 ]", " ", text.lower()).split())
+
+
+def ratio(a: str, b: str) -> float:
+    return difflib.SequenceMatcher(None, clean(a), clean(b)).ratio()
+
+
+# ── Spotify ──────────────────────────────────────────────────────────────────
+
+def spotify_keys() -> dict | None:
+    client_id = os.environ.get("SPOTIFY_CLIENT_ID")
+    secret = os.environ.get("SPOTIFY_CLIENT_SECRET")
+    if client_id and secret:
+        return {"client_id": client_id, "client_secret": secret, "market": os.environ.get("SPOTIFY_MARKET", "US")}
+    try:
+        keys = json.loads(SPOTIFY_KEYS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if isinstance(keys, dict) and keys.get("client_id") and keys.get("client_secret"):
+        return keys
+    return None
+
+
+def spotify_token(keys: dict) -> str:
+    try:
+        cached = json.loads(SPOTIFY_TOKEN.read_text(encoding="utf-8"))
+        if cached.get("access_token") and cached.get("expires_at", 0) > time.time() + 30:
+            return cached["access_token"]
+    except (OSError, ValueError):
+        pass
+    body = urllib.parse.urlencode({"grant_type": "client_credentials"}).encode()
+    auth = base64.b64encode(f"{keys['client_id']}:{keys['client_secret']}".encode()).decode()
+    request = urllib.request.Request(TOKEN_URL, data=body, headers={
+        "Authorization": f"Basic {auth}",
+        "Content-Type": "application/x-www-form-urlencoded",
+    })
+    try:
+        with urllib.request.urlopen(request, timeout=SEARCH_TIMEOUT) as response:
+            answer = json.load(response)
+    except urllib.error.HTTPError as error:
+        raise PlayerError(
+            "Spotify rejected the keys in spotify.json" if error.code in (400, 401)
+            else f"Spotify's token service answered {error.code}") from None
+    except (urllib.error.URLError, OSError, ValueError):
+        raise PlayerError("Spotify could not be reached") from None
+    token = answer.get("access_token") if isinstance(answer, dict) else None
+    if not token:
+        raise PlayerError("Spotify sent no token")
+    try:
+        SPOTIFY_TOKEN.parent.mkdir(parents=True, exist_ok=True)
+        SPOTIFY_TOKEN.write_text(json.dumps({
+            "access_token": token,
+            "expires_at": time.time() + int(answer.get("expires_in") or 3600),
+        }), encoding="utf-8")
+        os.chmod(SPOTIFY_TOKEN, 0o600)
+    except OSError:
+        pass
+    return token
+
+
+def spotify_search(query: str) -> dict:
+    keys = spotify_keys()
+    if not keys:
+        raise PlayerError("Spotify has no keys yet")
+    token = spotify_token(keys)
+    params = urllib.parse.urlencode({
+        "q": query, "type": "track,artist,album", "limit": 5,
+        "market": keys.get("market") or "US",
+    })
+    request = urllib.request.Request(f"{SEARCH_URL}?{params}", headers={"Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(request, timeout=SEARCH_TIMEOUT) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        if error.code == 401:
+            # A token Spotify no longer honours; the next search fetches one.
+            SPOTIFY_TOKEN.unlink(missing_ok=True)
+        raise PlayerError(f"Spotify search answered {error.code}") from None
+    except (urllib.error.URLError, OSError, ValueError):
+        raise PlayerError("Spotify could not be reached") from None
+
+
+def artists_of(item: dict) -> str:
+    return ", ".join(a.get("name", "") for a in (item.get("artists") or [])[:2] if a.get("name"))
+
+
+def choose(query: str, results: dict, want: str = "") -> Pick | None:
+    """The one thing to play for these words.
+
+    An artist when the words are the artist's name and the song results are
+    no closer, so "play drake" plays Drake rather than a song called Drake by
+    somebody else; the song otherwise; the album or the artist outright when
+    the words said "album" or "by".
+    """
+    tracks = [t for t in ((results.get("tracks") or {}).get("items") or []) if t.get("uri")]
+    artists = [a for a in ((results.get("artists") or {}).get("items") or []) if a.get("uri")]
+    albums = [a for a in ((results.get("albums") or {}).get("items") or []) if a.get("uri")]
+
+    def artist_score(artist: dict) -> float:
+        name = artist.get("name", "")
+        return max(ratio(query, name), ratio(query, re.sub(r"^the\s+", "", name, flags=re.I)))
+
+    def track_score(track: dict) -> float:
+        name, by = track.get("name", ""), artists_of(track)
+        return max(ratio(query, name), ratio(query, f"{name} by {by}"), ratio(query, f"{name} {by}"))
+
+    def album_score(album: dict) -> float:
+        name = album.get("name", "")
+        return max(ratio(query, name), ratio(query, f"{name} {artists_of(album)}"))
+
+    if want == "album" and albums:
+        album = max(albums, key=album_score)
+        return Pick(album["uri"], "album", f"the album {album['name']} by {artists_of(album)}")
+    if want == "artist" and artists:
+        artist = max(artists, key=artist_score)
+        return Pick(artist["uri"], "artist", artist["name"])
+
+    best_artist = max(artists, key=artist_score, default=None)
+    best_track = max(tracks, key=track_score, default=None)
+    artist_fit = artist_score(best_artist) if best_artist else 0.0
+    track_fit = track_score(best_track) if best_track else 0.0
+    if best_artist and artist_fit >= ARTIST_MATCH and artist_fit >= track_fit:
+        return Pick(best_artist["uri"], "artist", best_artist["name"])
+    if best_artist and track_fit < WEAK_TRACK_MATCH and artist_fit >= WEAK_ARTIST_MATCH:
+        return Pick(best_artist["uri"], "artist", best_artist["name"])
+    if best_track:
+        return Pick(best_track["uri"], "track", f"{best_track['name']} by {artists_of(best_track)}")
+    if best_artist:
+        return Pick(best_artist["uri"], "artist", best_artist["name"])
+    if albums:
+        album = albums[0]
+        return Pick(album["uri"], "album", f"the album {album['name']} by {artists_of(album)}")
+    return None
+
+
+def spotify_ready() -> bool:
+    return bool(spotify_keys()) and (running("Spotify") or SPOTIFY_APP.exists())
+
+
+def spotify_state() -> str:
+    """playing, paused, stopped, or off when it is not running."""
+    if not running("Spotify"):
+        return "off"
+    try:
+        return osascript('tell application "Spotify" to player state as string')
+    except (PlayerError, subprocess.TimeoutExpired):
+        return "off"
+
+
+def spotify_now() -> str:
+    try:
+        text = osascript('tell application "Spotify" to (name of current track) & "|" & (artist of current track)')
+    except (PlayerError, subprocess.TimeoutExpired):
+        return ""
+    name, _, artist = text.partition("|")
+    return f"{name} by {artist}" if name and artist else name
+
+
+def spotify_tell(script: str) -> str:
+    """A command to Spotify, launching it and trying again if it was closed."""
+    for attempt in range(LAUNCH_TRIES):
+        try:
+            return osascript(f'tell application "Spotify" to {script}', timeout=15)
+        except PlayerError as error:
+            if attempt == LAUNCH_TRIES - 1:
+                raise PlayerError(f"Spotify said: {error}") from None
+            time.sleep(LAUNCH_WAIT)
+    return ""
+
+
+def spotify_play(pick: Pick) -> str:
+    stop_youtube()
+    spotify_tell(f'play track "{quoted(pick.uri)}"')
+    return f"Playing {pick.title}."
+
+
+# ── Music.app ────────────────────────────────────────────────────────────────
+
+def music_state() -> str:
+    if not running("Music"):
+        return "off"
+    try:
+        return osascript('tell application "Music" to player state as string')
+    except (PlayerError, subprocess.TimeoutExpired):
+        return "off"
+
+
+def music_now() -> str:
+    try:
+        text = osascript('tell application "Music" to (name of current track) & "|" & (artist of current track)')
+    except (PlayerError, subprocess.TimeoutExpired):
+        return ""
+    name, _, artist = text.partition("|")
+    return f"{name} by {artist}" if name and artist else name
+
+
+def music_play(query: str) -> str | None:
+    """The first library match, or None when the library has nothing."""
+    script = (
+        'tell application "Music"\n'
+        f'set found to (search library playlist 1 for "{quoted(query)}")\n'
+        'if (count of found) is 0 then return ""\n'
+        "set t to item 1 of found\n"
+        "play t\n"
+        'return (name of t) & "|" & (artist of t)\n'
+        "end tell"
+    )
+    text = osascript(script, timeout=15)
+    if not text:
+        return None
+    stop_youtube()
+    name, _, artist = text.partition("|")
+    return f"Playing {name} by {artist}, from your library."
+
+
+# ── YouTube ──────────────────────────────────────────────────────────────────
+
+def youtube_ready() -> bool:
+    return bool(shutil.which("yt-dlp") and shutil.which("ffplay"))
+
+
+def youtube_lookup(query: str) -> tuple[str, str]:
+    """The first result's title and audio URL."""
+    if not youtube_ready():
+        raise PlayerError("YouTube needs yt-dlp and ffplay (brew install yt-dlp ffmpeg)")
+    try:
+        result = subprocess.run(
+            ["yt-dlp", "-f", "bestaudio", "--get-title", "--get-url", "--no-warnings",
+             "--no-playlist", f"ytsearch1:{query}"],
+            capture_output=True, text=True, timeout=YOUTUBE_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        raise PlayerError("YouTube took too long") from None
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if result.returncode != 0 or len(lines) < 2:
+        raise PlayerError(f"YouTube had nothing for {query}")
+    return lines[0], lines[-1]
+
+
+def tidy_title(title: str) -> str:
+    """A YouTube title as a person would say it: song by artist."""
+    text = re.sub(r"[\(\[][^\)\]]*(official|video|audio|lyric|lyrics|visualizer|hd|4k|remaster)[^\)\]]*[\)\]]", "", title, flags=re.I)
+    text = re.sub(r"\s*\|.*$", "", text)
+    text = " ".join(text.split()).strip(" -")
+    artist, sep, song = text.partition(" - ")
+    if sep and song:
+        return f"{song.strip()} by {artist.strip()}"
+    return text
+
+
+def spawn_player(url: str) -> int:
+    process = subprocess.Popen(
+        ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", url],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    return process.pid
+
+
+def youtube_alive() -> dict | None:
+    try:
+        state = json.loads(YOUTUBE_STATE.read_text(encoding="utf-8"))
+        pid = int(state["pid"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    probe = subprocess.run(["ps", "-p", str(pid), "-o", "comm="], capture_output=True, text=True)
+    if "ffplay" not in probe.stdout:
+        YOUTUBE_STATE.unlink(missing_ok=True)
+        return None
+    return state
+
+
+def stop_youtube() -> bool:
+    state = youtube_alive()
+    if not state:
+        return False
+    try:
+        os.kill(int(state["pid"]), signal.SIGTERM)
+    except OSError:
+        pass
+    YOUTUBE_STATE.unlink(missing_ok=True)
+    return True
+
+
+def youtube_play(query: str) -> str:
+    title, url = youtube_lookup(query)
+    stop_youtube()
+    if spotify_state() == "playing":
+        spotify_tell("pause")
+    if music_state() == "playing":
+        osascript('tell application "Music" to pause')
+    pid = spawn_player(url)
+    YOUTUBE_STATE.parent.mkdir(parents=True, exist_ok=True)
+    YOUTUBE_STATE.write_text(json.dumps({"pid": pid, "title": title, "paused": False, "at": time.time()}), encoding="utf-8")
+    return f"Playing {tidy_title(title)}, from YouTube."
+
+
+def youtube_pause(paused: bool) -> None:
+    state = youtube_alive()
+    if not state:
+        raise PlayerError("nothing from YouTube is playing")
+    os.kill(int(state["pid"]), signal.SIGSTOP if paused else signal.SIGCONT)
+    state["paused"] = paused
+    YOUTUBE_STATE.write_text(json.dumps(state), encoding="utf-8")
+
+
+def system_volume() -> int:
+    try:
+        return int(osascript("output volume of (get volume settings)"))
+    except (PlayerError, ValueError, subprocess.TimeoutExpired):
+        return 50
+
+
+# ── the commands ─────────────────────────────────────────────────────────────
+
+def active_player() -> str | None:
+    """Which player a pause, a skip or a volume applies to. None when nothing is up."""
+    if youtube_alive():
+        return "youtube"
+    if spotify_state() in ("playing", "paused"):
+        return "spotify"
+    if music_state() in ("playing", "paused"):
+        return "music"
+    return None
+
+
+def play(command: Command) -> Outcome:
+    if not command.what:
+        return resume()
+    reasons: list[str] = []
+    if spotify_ready():
+        try:
+            pick = choose(command.query, spotify_search(command.query), command.want)
+            if pick:
+                return Outcome(True, spotify_play(pick))
+            reasons.append(f"nothing on Spotify called {command.what}")
+        except PlayerError as error:
+            reasons.append(str(error))
+    elif spotify_keys() is None and (running("Spotify") or SPOTIFY_APP.exists()):
+        reasons.append("Spotify search is not set up, see hud-music status")
+    if running("Music"):
+        try:
+            line = music_play(command.query)
+            if line:
+                return Outcome(True, line)
+        except PlayerError as error:
+            reasons.append(f"Music said: {error}")
+    if youtube_ready():
+        try:
+            return Outcome(True, youtube_play(command.query))
+        except PlayerError as error:
+            reasons.append(str(error))
+    else:
+        reasons.append("no YouTube fallback without yt-dlp and ffplay")
+    return Outcome(False, f"Couldn't play {command.what}: {'; '.join(reasons) or 'no player is ready'}.")
+
+
+def resume() -> Outcome:
+    player = active_player()
+    if player == "youtube":
+        youtube_pause(False)
+        return Outcome(True, "Playing.")
+    if player == "spotify":
+        spotify_tell("play")
+        return Outcome(True, f"Playing {spotify_now()}." if spotify_now() else "Playing.")
+    if player == "music":
+        osascript('tell application "Music" to play')
+        return Outcome(True, "Playing.")
+    if spotify_state() == "stopped":
+        try:
+            spotify_tell("play")
+            time.sleep(0.3)
+            now = spotify_now()
+            if now:
+                return Outcome(True, f"Playing {now}.")
+        except PlayerError:
+            pass
+    return Outcome(False, "Nothing to resume. Name a song or an artist.")
+
+
+def pause() -> Outcome:
+    player = active_player()
+    if player == "youtube":
+        youtube_pause(True)
+    elif player == "spotify":
+        spotify_tell("pause")
+    elif player == "music":
+        osascript('tell application "Music" to pause')
+    else:
+        return Outcome(False, "Nothing's playing.")
+    return Outcome(True, "Paused.")
+
+
+def stop() -> Outcome:
+    stopped = stop_youtube()
+    if spotify_state() in ("playing", "paused"):
+        spotify_tell("pause")
+        stopped = True
+    if music_state() in ("playing", "paused"):
+        osascript('tell application "Music" to pause')
+        stopped = True
+    return Outcome(True, "Music off.") if stopped else Outcome(False, "Nothing's playing.")
+
+
+def skip(direction: str) -> Outcome:
+    player = active_player()
+    if player == "youtube":
+        return Outcome(False, "That's a single from YouTube, there's no next. Name another song.")
+    if player == "spotify":
+        spotify_tell("next track" if direction == "next" else "previous track")
+        time.sleep(0.4)
+        now = spotify_now()
+        return Outcome(True, f"{'Next' if direction == 'next' else 'Back to'}: {now}." if now else "Done.")
+    if player == "music":
+        osascript(f'tell application "Music" to {"next track" if direction == "next" else "previous track"}')
+        now = music_now()
+        return Outcome(True, f"{'Next' if direction == 'next' else 'Back to'}: {now}." if now else "Done.")
+    return Outcome(False, "Nothing's playing.")
+
+
+def again() -> Outcome:
+    player = active_player()
+    if player == "spotify":
+        spotify_tell("set player position to 0")
+        return Outcome(True, "From the top.")
+    if player == "music":
+        osascript('tell application "Music" to set player position to 0')
+        return Outcome(True, "From the top.")
+    if player == "youtube":
+        return Outcome(False, "Can't rewind a YouTube stream. Say play and the name to hear it again.")
+    return Outcome(False, "Nothing's playing.")
+
+
+def volume(level: str) -> Outcome:
+    player = active_player()
+    if player == "spotify":
+        current = int(spotify_tell("sound volume") or 50)
+        target = new_level(current, level)
+        spotify_tell(f"set sound volume to {target}")
+    elif player == "music":
+        current = int(osascript('tell application "Music" to sound volume') or 50)
+        target = new_level(current, level)
+        osascript(f'tell application "Music" to set sound volume to {target}')
+    else:
+        current = system_volume()
+        target = new_level(current, level)
+        osascript(f"set volume output volume {target}")
+    return Outcome(True, f"Volume {target}.")
+
+
+def new_level(current: int, level: str) -> int:
+    if level == "up":
+        return min(current + VOLUME_STEP, 100)
+    if level == "down":
+        return max(current - VOLUME_STEP, 0)
+    return max(0, min(int(level), 100))
+
+
+def now() -> Outcome:
+    state = youtube_alive()
+    if state:
+        return Outcome(True, f"{tidy_title(state.get('title', ''))}, from YouTube{', paused' if state.get('paused') else ''}.")
+    if spotify_state() in ("playing", "paused"):
+        return Outcome(True, f"{spotify_now()}, on Spotify{', paused' if spotify_state() == 'paused' else ''}.")
+    if music_state() in ("playing", "paused"):
+        return Outcome(True, f"{music_now()}, in Music.")
+    return Outcome(False, "Nothing's playing.")
+
+
+def perform(command: Command) -> Outcome:
+    """Run one command and answer in a sentence. Never raises."""
+    try:
+        if command.verb == "play":
+            return play(command)
+        if command.verb == "resume":
+            return resume()
+        if command.verb == "pause":
+            return pause()
+        if command.verb == "stop":
+            return stop()
+        if command.verb in ("next", "previous"):
+            return skip(command.verb)
+        if command.verb == "again":
+            return again()
+        if command.verb == "volume":
+            return volume(command.level)
+        if command.verb == "now":
+            return now()
+    except PlayerError as error:
+        return Outcome(False, f"{str(error).rstrip('.')}.")
+    except subprocess.TimeoutExpired:
+        return Outcome(False, "The player didn't answer.")
+    return Outcome(False, f"Don't know how to {command.verb}.")
+
+
+def status() -> str:
+    lines = []
+    if SPOTIFY_APP.exists() or running("Spotify"):
+        if spotify_keys():
+            lines.append(f"Spotify: installed, {'running' if running('Spotify') else 'closed'}, keys in place. Songs, artists and albums play by name.")
+        else:
+            lines.append(
+                "Spotify: installed, but search has no keys, so nothing plays by name on it yet.\n"
+                "  Once: developer.spotify.com/dashboard, Create app (any name, redirect URI http://127.0.0.1:8888/callback,\n"
+                "  tick Web API), then:  hud-music setup <client id> <client secret>")
+    else:
+        lines.append("Spotify: not installed.")
+    lines.append(f"Music.app: {'running, its library plays by name' if running('Music') else 'closed, so its library is not searched'}.")
+    lines.append(
+        "YouTube: yt-dlp and ffplay found, anything plays by name, a few seconds in." if youtube_ready()
+        else "YouTube: needs yt-dlp and ffplay (brew install yt-dlp ffmpeg).")
+    player = active_player()
+    lines.append(f"Now: {now().line}" if player else "Now: nothing playing.")
+    return "\n".join(lines)
+
+
+def setup(client_id: str, client_secret: str, market: str) -> str:
+    SPOTIFY_KEYS.parent.mkdir(parents=True, exist_ok=True)
+    SPOTIFY_KEYS.write_text(json.dumps({
+        "client_id": client_id.strip(), "client_secret": client_secret.strip(), "market": market,
+    }, indent=2) + "\n", encoding="utf-8")
+    os.chmod(SPOTIFY_KEYS, 0o600)
+    SPOTIFY_TOKEN.unlink(missing_ok=True)
+    try:
+        spotify_token(spotify_keys() or {})
+    except PlayerError as error:
+        return f"Keys saved to {SPOTIFY_KEYS}, but {error}."
+    return f"Keys saved to {SPOTIFY_KEYS}. Spotify search works."
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="hud-music", description="Play music by name, at once.")
+    commands = parser.add_subparsers(dest="command", required=True)
+    played = commands.add_parser("play", help="find it and play it")
+    played.add_argument("what", nargs="*")
+    for name in ("pause", "resume", "next", "previous", "again", "stop", "now", "status"):
+        commands.add_parser(name)
+    loud = commands.add_parser("volume")
+    loud.add_argument("level", nargs="?", default="")
+    keys = commands.add_parser("setup", help="save the Spotify keys")
+    keys.add_argument("client_id")
+    keys.add_argument("client_secret")
+    keys.add_argument("--market", default="US")
+    heard = commands.add_parser("parse", help="what the words mean")
+    heard.add_argument("said")
+    args = parser.parse_args(argv)
+
+    if args.command == "status":
+        print(status())
+        return 0
+    if args.command == "setup":
+        print(setup(args.client_id, args.client_secret, args.market))
+        return 0
+    if args.command == "parse":
+        command = parse(args.said)
+        print(json.dumps(command.__dict__) if command else "null")
+        return 0 if command else 1
+    if args.command == "play":
+        command = parse("play " + " ".join(args.what)) if args.what else Command("resume")
+        if command is None:
+            command = Command("play", what=" ".join(args.what))
+    elif args.command == "volume":
+        if not args.level:
+            player = active_player()
+            level = spotify_tell("sound volume") if player == "spotify" else str(system_volume())
+            print(f"Volume {level}.")
+            return 0
+        command = Command("volume", level=args.level)
+    else:
+        command = Command(args.command)
+    outcome = perform(command)
+    print(outcome.line)
+    return 0 if outcome.ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

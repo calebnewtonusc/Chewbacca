@@ -368,6 +368,11 @@ if group "hud"; then
   # find one, and the exact line the display gets. A saved snapshot and a
   # fake display, so no screen is read and nothing is drawn.
   check  "hud-guide finds the control and sends the bubble" python3 "$ROOT/tests/test_hud_guide.py"
+  check  "hud-music parses"   python3 -m py_compile "$ROOT/bin/hud-music"
+  # "Play X" without the model: what the words mean, which result to play,
+  # and what each player is told. Every player is a stub, so no sound and
+  # no network.
+  check  "hud-music reads the words and drives the players" python3 "$ROOT/tests/test_hud_music.py"
   check  "superassistant parses" python3 -m py_compile "$ROOT/bin/superassistant"
   # The voice's memory both ways: the brain digest it is given, and the log
   # of what it was asked. Hermetic: a temp brain and a temp log.

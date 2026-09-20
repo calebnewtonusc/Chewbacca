@@ -131,6 +131,38 @@ The display also notes the app it took focus from, in `~/.bob/front-app`,
 because the conversation panel takes key: without that, a typed "where do I
 click" had the screen reader reading the panel it was typed into.
 
+## Music without the model
+
+Asked for on 2026-09-20: "tell the assistant to play a song or artist and it
+plays almost instantly." The loop as built could already play a song: the
+model would hear "play Blinding Lights", write an AppleScript, run it, and
+say so, in the two to eight seconds a model turn takes. Almost instantly is
+not a model turn.
+
+So "play X", "pause", "skip", "what's playing" and the volume never reach
+the model. `bin/hud-music` owns the vocabulary, one regular expression a
+verb, and the bridge asks it first: `parse()` on every utterance, and when
+it answers with a command, `perform()` on a worker, the one sentence it
+returns spoken, written to the pill, and kept in the superassistant log,
+with the glass held on `done` as after any reply. The model sees nothing.
+The same file is a command, `hud-music`, so the model can still play music
+when the request is wrapped in something else, and so a person can from a
+shell.
+
+The players, in the order tried. Spotify when its keys are in
+`~/.bob/spotify.json`: one client-credentials search for the URI, then the
+desktop app told to play it, under a second. The search needs a Spotify
+developer app's client id and secret, which any Spotify account can create;
+no login and no Premium. Music.app when it is already running: its own
+library. YouTube whenever `yt-dlp` and `ffplay` are installed: the first
+result's audio with no window, a few seconds in, with no next or previous.
+Each player is told to stop before another starts.
+
+"Stop" is a stop word, and with the model idle and music playing it is the
+music that stops. With a run in flight it is still the run: what they most
+recently asked for is what they most likely mean. "Stop the music" is always
+the music.
+
 ## Sounding like a person
 
 From the same guide, OpenAI's Realtime prompting guide, and Sesame's work on
