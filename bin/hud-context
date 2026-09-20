@@ -20,8 +20,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
+from pathlib import Path
 
 # One AppleScript rather than four. Each `osascript` call costs 60-100ms of
 # process start, and this runs on the front of every spoken request, where the
@@ -80,6 +82,40 @@ def ask_app(app: str) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
+# Where the display notes the app it took focus from. See `under_display`.
+FRONT_APP = Path(os.environ.get("BOB_DIR") or Path.home() / ".bob") / "front-app"
+OWN_APP = "BobHUD"
+
+
+def under_display() -> str:
+    """The app the display covered, when the display is what is in front.
+
+    The conversation panel takes key, so for anything typed into it the
+    frontmost app is the display itself, and "they are looking at BobHUD" is
+    true and useless. The display writes the last other app it saw activate
+    next to its socket; that is the one the person was in.
+    """
+    try:
+        recorded = json.loads(FRONT_APP.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    name = recorded.get("name") if isinstance(recorded, dict) else ""
+    return name if isinstance(name, str) and name != OWN_APP else ""
+
+
+def window_of(app: str) -> str:
+    """The front window's title for an app that is not in front."""
+    quoted = app.replace("\\", "\\\\").replace('"', '\\"')
+    script = f'tell application "System Events" to tell process "{quoted}" to get name of front window'
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script], capture_output=True, text=True, timeout=3
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
 def look() -> dict[str, str]:
     try:
         result = subprocess.run(
@@ -99,6 +135,10 @@ def look() -> dict[str, str]:
     app, title, selection = parts[0].strip(), parts[1].strip(), "\n".join(parts[2:]).strip()
 
     seen: dict[str, str] = {}
+    if app == OWN_APP:
+        beneath = under_display()
+        if beneath:
+            app, title, selection = beneath, ask_app(beneath) or window_of(beneath), ""
     if app:
         seen["app"] = app
     if not title and app:

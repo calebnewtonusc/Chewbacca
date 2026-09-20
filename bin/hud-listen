@@ -252,6 +252,10 @@ class Request:
     # writing: the person chose not to speak, and a reply read aloud to
     # someone who typed because they could not be heard is the wrong reply.
     typed: bool = False
+    # Sent by the display about something the person did, not something they
+    # said: a click on a guide bubble, a press on a control. The model is
+    # told so, because "the user said this out loud" would be a lie.
+    relayed: bool = False
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:6])
 
 
@@ -1010,6 +1014,7 @@ class Listener:
         entry = {
             "said": req.said,
             "typed": req.typed,
+            "relayed": req.relayed,
             "answer": answer or "",
             "aside": self.aside,
             "outcome": outcome,
@@ -1024,6 +1029,36 @@ class Listener:
                 self.log("remembered:", req.said[:60])
         except Exception as err:  # noqa: BLE001
             self.log("not remembered:", err)
+
+    def hit(self, rest: str) -> None:
+        """`guide label="..."`: the person clicked the control the bubble was on.
+
+        The display has already taken the bubble down. What is asked of the
+        model is the next step, which it finds by looking at the screen again
+        with `hud-guide`, so following along costs the person nothing but the
+        click they were told to make.
+        """
+        fields = rest.split(None, 1)
+        if not fields or fields[0] != "guide":
+            return
+        label = ""
+        marker = rest.find("label=")
+        if marker >= 0:
+            raw = rest[marker + len("label="):]
+            try:
+                decoded, _ = json.JSONDecoder().raw_decode(raw)
+                label = decoded if isinstance(decoded, str) else ""
+            except json.JSONDecodeError:
+                # A bare word is sent unquoted.
+                label = raw.split()[0] if raw.split() else ""
+        self.log("guide hit:", label or "(unlabelled)")
+        what = f"the highlighted control, {label!r}," if label else "the highlighted control,"
+        self.ask(
+            f"They just clicked {what} and the bubble is gone. Look at the screen again with "
+            "hud-guide and put the bubble on the next step, in one short sentence. If that was "
+            "the last step, say they are done in one line and run hud-guide clear.",
+            relayed=True,
+        )
 
     def prefer(self, rest: str) -> None:
         """`voice long=written|spoken`, from the panel's switch."""
@@ -1179,9 +1214,16 @@ class Listener:
                 # `e prefer voice long=written|spoken`: a switch on the
                 # panel. Kept, not asked: the next request carries it.
                 self.prefer(component)
+            elif action == "hit":
+                # `e hit guide label="..."`: they clicked the control a
+                # guide bubble was on. The next step is asked for.
+                self.hit(component)
             else:
                 # A control was used. Same path: the press is a request in words.
-                self.ask(f"The user pressed {action} on {component}. Respond by updating the display.")
+                self.ask(
+                    f"The user pressed {action} on {component}. Respond by updating the display.",
+                    relayed=True,
+                )
 
     # SIGTERM first so Claude Code can write its last session row, then kill.
     # Guessed, never measured: the probe used SIGKILL outright and the session
@@ -1591,13 +1633,16 @@ class Listener:
         except (BrokenPipeError, OSError, AssertionError):
             return False
 
-    def ask(self, said: str, typed: bool = False) -> None:
+    def ask(self, said: str, typed: bool = False, relayed: bool = False) -> None:
         self.hush()
         words = normalise(said)
         if words in STOP_WORDS or (words in BARGE_WORDS and self.in_flight()):
             self.stop()
             return
-        req = Request(said=said, spoken_at=time.monotonic(), pointed=self.pointing(), typed=typed)
+        req = Request(
+            said=said, spoken_at=time.monotonic(), pointed=self.pointing(),
+            typed=typed, relayed=relayed,
+        )
         with self.state:
             waiting = self.current is not None
             if waiting:
@@ -1825,11 +1870,12 @@ class Listener:
                 "fences. If the request does not warrant a panel, reply "
                 "with a single line that is only the word: none\n"
             )
-        asked = (
-            f"The user typed this into the conversation panel on their screen: {req.said!r}\n\n"
-            if req.typed
-            else f"The user said this out loud, to their screen: {req.said!r}\n\n"
-        )
+        if req.relayed:
+            asked = f"From their screen, not from them: {req.said}\n\n"
+        elif req.typed:
+            asked = f"The user typed this into the conversation panel on their screen: {req.said!r}\n\n"
+        else:
+            asked = f"The user said this out loud, to their screen: {req.said!r}\n\n"
         heard = (
             "Reply in writing: nothing is read aloud for a typed request. "
             if req.typed

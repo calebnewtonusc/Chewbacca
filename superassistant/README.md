@@ -43,6 +43,7 @@ Every request, spoken or typed, and the written answer to it is appended to
 | `at`      | local time, ISO 8601                               |
 | `said`    | the request, as heard or typed                     |
 | `typed`   | true when it came from the conversation panel      |
+| `relayed` | true when the display sent it about something done, such as a click on a guide bubble, rather than the person saying it |
 | `answer`  | the whole written answer                           |
 | `aside`   | true when the answer was written for the hyper bar |
 | `outcome` | `done`, `failed` or `cancelled`                    |

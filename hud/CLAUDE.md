@@ -212,6 +212,36 @@ disbelieve all of them.
 
 Twelve marks maximum. Past a dozen the screen is not annotated, it is hatched.
 
+## Guiding a person
+
+A mark says "look at this" to somebody who knows the screen. A guide says
+"press this" to somebody who does not: a ring around the control, a bubble
+that says what to do in words, and a slow pulse so the eye finds it.
+
+```
+m guide 724 70 30 30 label="Click Sign in" tone=guide life=120
+```
+
+`tone=guide` is the whole difference. A guide is the one mark that answers a
+click: when the person presses inside its rectangle, or on the ring around it,
+the display takes it down and sends
+
+```
+e hit guide label="Click Sign in"
+```
+
+so whoever is guiding can look at the screen again and show the next step.
+Nothing on the glass takes the click itself; it reaches the app underneath as
+it always did.
+
+`bin/hud-guide` does the finding: `hud-guide list` reads the front window's
+controls through the accessibility tree, `find "sign in"` matches by name,
+`show elem_12 --say "Click Sign in"` sends the line above, `clear` takes it
+down. One bubble at a time, by design: re-sending `guide` moves it, and a
+person following along wants the next step, not a trail. The voice's rules
+for guiding, one step, their words, their hands, are in `bin/hud-agent.md`
+under "Showing them where".
+
 ## Panels that take themselves down
 
 `@ toast at=top life=6` closes after six seconds. Use it for something the person

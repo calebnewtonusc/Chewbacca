@@ -32,6 +32,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var localEscMonitor: Any?
     private var mouseMonitor: Any?
     private var localMouseMonitor: Any?
+    private var clickMonitor: Any?
+    private var localClickMonitor: Any?
     private var localFlagsMonitor: Any?
     private var flagsMonitor: Any?
     private var barMonitor: Any?
@@ -80,6 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setUpMenuBar()
         setUpKeys()
         observeScreenChanges()
+        observeFrontApp()
 
         let server = SocketServer(path: SocketServer.defaultPath) { [weak self] event in
             // The socket runs on its own queue; every touch of the model has to
@@ -129,7 +132,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         voice.setMode(.off)
         let monitors = [
             hotKeyMonitor, escMonitor, localEscMonitor, mouseMonitor,
-            localMouseMonitor, flagsMonitor, localFlagsMonitor, barMonitor,
+            localMouseMonitor, clickMonitor, localClickMonitor, flagsMonitor,
+            localFlagsMonitor, barMonitor,
             reticleDown, reticleDrag, reticleUp,
         ]
         for monitor in monitors.compactMap({ $0 }) {
@@ -252,6 +256,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return event
         }
+
+        // A click, anywhere. A guide is the one thing on the glass that
+        // answers one: the person was told "press this", and the display has
+        // to notice that they did without ever taking the click itself,
+        // because the click belongs to the app underneath. Global for the
+        // clicks that app gets, local for the rare one that lands while the
+        // glass is solid over a panel.
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
+            Task { @MainActor in self?.strike() }
+        }
+        localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            Task { @MainActor in self?.strike() }
+            return event
+        }
+    }
+
+    /// Hand the click to the guides, in the glass's own points.
+    private func strike() {
+        guard model.markers.contains(where: \.isGuide) else { return }
+        let mouse = NSEvent.mouseLocation
+        guard let screen = OverlayWindow.active, screen.frame.contains(mouse) else { return }
+        let frame = screen.frame
+        model.hit(at: CGPoint(x: mouse.x - frame.minX, y: frame.maxY - mouse.y))
+    }
+
+    /// Which app the person is in, written where the tools can read it.
+    ///
+    /// `hud-guide` and `hud-context` ask the system what is in front, and
+    /// while the conversation panel is open the answer is this app: the
+    /// panel takes key, so a typed "where do I click" would have the screen
+    /// reader reading the panel it was typed into. Every switch to another
+    /// app is noted in one small file next to the socket, so a tool that
+    /// finds this app in front knows which one to look at instead.
+    private func observeFrontApp() {
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil, queue: .main
+        ) { note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey]
+                    as? NSRunningApplication else { return }
+            Self.noteFront(app)
+        }
+        if let app = NSWorkspace.shared.frontmostApplication {
+            Self.noteFront(app)
+        }
+    }
+
+    nonisolated private static func noteFront(_ app: NSRunningApplication) {
+        guard app.processIdentifier != ProcessInfo.processInfo.processIdentifier,
+              let name = app.localizedName, !name.isEmpty
+        else { return }
+        let record: [String: Any] = [
+            "name": name,
+            "bundle": app.bundleIdentifier ?? "",
+            "pid": Int(app.processIdentifier),
+        ]
+        let path = URL(fileURLWithPath: SocketServer.defaultPath)
+            .deletingLastPathComponent().appendingPathComponent("front-app")
+        guard let data = try? JSONSerialization.data(withJSONObject: record) else { return }
+        try? data.write(to: path, options: .atomic)
     }
 
     /// The typed front door.

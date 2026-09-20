@@ -40,6 +40,15 @@ public struct Marker: Identifiable, Equatable, Sendable {
     /// Long enough to look up from what you were doing and read it, short
     /// enough that a stale mark is gone before you have built any trust in it.
     public static let defaultLife: TimeInterval = 12
+
+    /// The tone that makes a mark a guide. See `GuideView`.
+    public static let guideTone = "guide"
+    /// How far outside its rectangle a guide is drawn, and still counts a
+    /// click, in points. The ring sits this far outside the control, so a
+    /// press on the ring is a press on the thing it circles.
+    public static let guideReach: CGFloat = 8
+
+    public var isGuide: Bool { tone == Marker.guideTone }
 }
 
 /// One drawn mark: corner brackets and, if it has one, a label above it.
@@ -57,41 +66,13 @@ struct MarkerView: View {
     private var tint: Color { HUD.tone(marker.tone) }
 
     var body: some View {
-        // The label is an overlay, so only the brackets decide the size.
-        //
-        // As a sibling in the ZStack it was part of the layout, so a mark with
-        // a label was a different size from the region it marked, and
-        // `.position` then centred the pair rather than the brackets. The mark
-        // sat below the thing it was pointing at, by half the height of its own
-        // caption. An annotation layer whose marks are near the right place is
-        // worse than one with no marks, because it is confidently wrong.
-        Brackets(lit: arrived, tint: tint)
-            .frame(width: marker.rect.width, height: marker.rect.height)
-            .overlay(alignment: .topLeading) {
-                if !marker.label.isEmpty {
-                    Text(marker.label)
-                        .font(.system(size: 10.5, weight: .medium, design: .rounded))
-                        .foregroundStyle(HUD.ink)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .background(Color.black.opacity(0.55), in: Capsule())
-                        .overlay {
-                            Capsule().strokeBorder(tint.opacity(0.65), lineWidth: 0.8)
-                        }
-                        .shadow(color: .black.opacity(0.55), radius: 6, y: 2)
-                        .fixedSize()
-                        // Above the region, not inside it. A label inside covers
-                        // the thing the mark exists to point at, which is the
-                        // one thing it must never do.
-                        //
-                        // Offset rather than an alignment guide: the guide
-                        // version left the caption sitting inside the top-left
-                        // of the marked area, and an overlay is sized by its
-                        // host, so moving a child of it costs nothing.
-                        .offset(y: -26)
-                }
+        Group {
+            if marker.isGuide {
+                GuideView(marker: marker)
+            } else {
+                brackets
             }
+        }
         // Pinned by its top-left corner, not by its centre.
         //
         // `.position` centres a view inside whatever bounds its parent hands
@@ -130,9 +111,154 @@ struct MarkerView: View {
         // exists precisely to say "look at this", so hiding it from the people
         // who most need something to say that is exactly backwards.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(marker.label.isEmpty ? "Marked region" : marker.label)
+        .accessibilityLabel(spokenLabel)
         .accessibilityValue(
             HUD.spoken(marker.tone).map { "\($0), " } .orEmpty
                 + "at \(Int(marker.rect.minX)), \(Int(marker.rect.minY))")
+    }
+
+    private var spokenLabel: String {
+        if marker.isGuide { return "Press this: \(marker.label)" }
+        return marker.label.isEmpty ? "Marked region" : marker.label
+    }
+
+    /// The classic mark: corner brackets and, if it has one, a caption.
+    private var brackets: some View {
+        // The label is an overlay, so only the brackets decide the size.
+        //
+        // As a sibling in the ZStack it was part of the layout, so a mark with
+        // a label was a different size from the region it marked, and
+        // `.position` then centred the pair rather than the brackets. The mark
+        // sat below the thing it was pointing at, by half the height of its own
+        // caption. An annotation layer whose marks are near the right place is
+        // worse than one with no marks, because it is confidently wrong.
+        Brackets(lit: arrived, tint: tint)
+            .frame(width: marker.rect.width, height: marker.rect.height)
+            .overlay(alignment: .topLeading) {
+                if !marker.label.isEmpty {
+                    Text(marker.label)
+                        .font(.system(size: 10.5, weight: .medium, design: .rounded))
+                        .foregroundStyle(HUD.ink)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .background(Color.black.opacity(0.55), in: Capsule())
+                        .overlay {
+                            Capsule().strokeBorder(tint.opacity(0.65), lineWidth: 0.8)
+                        }
+                        .shadow(color: .black.opacity(0.55), radius: 6, y: 2)
+                        .fixedSize()
+                        // Above the region, not inside it. A label inside covers
+                        // the thing the mark exists to point at, which is the
+                        // one thing it must never do.
+                        //
+                        // Offset rather than an alignment guide: the guide
+                        // version left the caption sitting inside the top-left
+                        // of the marked area, and an overlay is sized by its
+                        // host, so moving a child of it costs nothing.
+                        .offset(y: -26)
+                }
+            }
+    }
+}
+
+/// A guide: the mark a person asked for when they asked where to click.
+///
+/// Brackets say "look at this" to somebody who already knows the screen. A
+/// guide says "press this" to somebody who does not: a ring around the whole
+/// control, a bubble that says what to do in words, big enough to read from
+/// where they sit, and a slow pulse so the eye finds it. Asked for on
+/// 2026-09-20: "a little bubble will appear exactly where she needs to click".
+///
+/// It is the one mark that answers a click. The display takes it down and
+/// tells the bridge, which looks again and shows the next step, so following
+/// along never needs a word from the person. See `OverlayModel.hit(at:)`.
+struct GuideView: View {
+    let marker: Marker
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulsing = false
+
+    /// Above the control unless the control is at the top of the screen,
+    /// where above is off the glass. 72 is the bubble's height plus its
+    /// gap plus the menu bar, roughly; a bubble that starts under the menu
+    /// bar is still readable, one that starts above the screen is not.
+    private var bubbleBelow: Bool { marker.rect.minY < 72 }
+
+    var body: some View {
+        let tint = HUD.accent
+        ZStack {
+            // The halo: a second ring that grows and fades, over and over.
+            // The only moving part, and the part Reduce Motion removes.
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(tint.opacity(pulsing ? 0 : 0.55), lineWidth: 2)
+                .scaleEffect(pulsing ? 1.22 : 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(tint, lineWidth: 2.5)
+                .shadow(color: tint.opacity(0.75), radius: 8)
+        }
+        // Outside the control's own edge, so the ring frames the control
+        // rather than sitting on its border.
+        .padding(-Marker.guideReach)
+        .frame(width: marker.rect.width, height: marker.rect.height)
+        .overlay(alignment: bubbleBelow ? .bottom : .top) {
+            if !marker.label.isEmpty {
+                bubble(tint: tint)
+                    // Clear of the ring, whichever side it is on: the ring's
+                    // reach plus a gap for the bubble's tail.
+                    .alignmentGuide(.top) { $0[.bottom] + Marker.guideReach + 8 }
+                    .alignmentGuide(.bottom) { $0[.top] - Marker.guideReach - 8 }
+            }
+        }
+        .onAppear {
+            withAnimation(Motion.repeating(
+                .easeInOut(duration: 1.6).repeatForever(autoreverses: false),
+                reduced: reduceMotion)
+            ) {
+                pulsing = true
+            }
+        }
+    }
+
+    private func bubble(tint: Color) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        return Text(marker.label)
+            .font(.system(size: 15, weight: .semibold, design: .rounded))
+            .foregroundStyle(HUD.ink)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(.ultraThinMaterial, in: shape)
+            .background(Color.black.opacity(0.62), in: shape)
+            .overlay { shape.strokeBorder(tint.opacity(0.7), lineWidth: 1) }
+            // The tail, aimed at the control.
+            .overlay(alignment: bubbleBelow ? .top : .bottom) {
+                Tail(down: !bubbleBelow)
+                    .fill(Color.black.opacity(0.78))
+                    .frame(width: 16, height: 8)
+                    .offset(y: bubbleBelow ? -8 : 8)
+            }
+            .shadow(color: .black.opacity(0.5), radius: 10, y: 3)
+            // Its own width, not the control's: a bubble on a 30-point
+            // button would otherwise wrap one word per line.
+            .fixedSize()
+    }
+}
+
+/// The bubble's tail: a small triangle pointing at the control.
+struct Tail: Shape {
+    let down: Bool
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        if down {
+            path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        } else {
+            path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.midX, y: rect.minY))
+        }
+        path.closeSubpath()
+        return path
     }
 }
