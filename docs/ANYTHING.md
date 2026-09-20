@@ -21,8 +21,9 @@ Chewbacca does not need more ways to click. It has seven layers, every
 permission granted, a benchmark-literate doctrine, and the right architecture
 on paper. Five things are actually in the way:
 
-1. **The action vocabulary is hand-written and 9 wide.** macOS ships 274 typed
-   actions on this machine that nothing reads.
+1. **The action vocabulary is hand-written and 9 wide.** This Mac declares 170
+   URL schemes that are free to call and 249 typed App Intent actions that are
+   free to read. Nothing reads or calls either.
 2. **The one path that carries the safety gate and the audit log is the one
    path nobody takes**, and it has a hole in it anyway.
 3. **Nothing records what happened**, so nothing improves.
@@ -40,13 +41,18 @@ and one of them is a live security bug.
 
 ### The doors this machine actually has
 
+This machine runs **macOS 15.7.3 Sequoia**, not 26 or 27. Everything measured
+here is a Sequoia measurement.
+
 | Door | Count | Measured by |
 | --- | --- | --- |
 | App bundles installed | 140 | `/Applications/*.app`, `/Applications/*/*.app`, `/System/Applications/**` |
 | With an AppleScript dictionary | 27 (19%) | bundled `*.sdef` or `OSAScriptingDefinition` |
-| Exposing a URL scheme | 78 (56%) | `CFBundleURLTypes` |
-| Shipping an App Intents catalog | 34 | `Contents/**/Metadata.appintents/extract.actionsdata` |
-| **Typed App Intent actions** | **274** | parsed from those catalogs |
+| Declaring at least one URL scheme | 78 (56%) | `CFBundleURLTypes` |
+| **Distinct URL schemes declared** | **170** | same |
+| Shipping an App Intents catalog | 23 | `Contents/Resources/Metadata.appintents/extract.actionsdata` |
+| **Typed App Intent actions** | **249** | parsed from those catalogs |
+| Same, counting nested helpers and XPC services | 274 | `Contents/**/` glob |
 | Shortcuts installed | 5, all Apple samples | `shortcuts list` |
 
 `mac/data/grammar.json` declares **9 actions, 5 queries, 5 streams**, all
@@ -61,6 +67,11 @@ Preview 17, Maps 16, VoiceMemos 14. Third-party apps do it too: Maccy exposes
 `HistoryItemAppEntity` with `text`, `richText`, `html`, `image` and `file`
 properties. [MACOS-TOOLS.md](MACOS-TOOLS.md) says Maccy's history cannot be
 read programmatically. It has shipped a typed reader the whole time.
+
+One thing the catalog will not tell you: **247 of 248 actions declare
+`authenticationPolicy: 0`.** The metadata does not mark what is dangerous. Risk
+classification is yours to build and yours to own, by verb rather than by what
+the app claims.
 
 This is the same artifact `grammar.json` is: a typed action catalog with
 confirm-worthy operations identifiable by name. Apple generates it per app, at
@@ -375,43 +386,96 @@ out of `Info.plist` directly, which is what produced the 27/140 number above).
 
 ### Tier 1: generate the action catalog instead of writing it
 
-This is the answer to "anything."
+This is the answer to "anything", and the research changed its shape. Read this
+before building it, because the obvious plan does not work.
 
-Build `chewie catalog`, which scans the machine and emits a typed action
-catalog merging four sources:
+**The verdict on App Intents: you can read all 249, and you cannot call any of
+them.** Both halves were confirmed first-hand.
 
-| Source | Yield here | Gives you |
-| --- | --- | --- |
-| App Intents `extract.actionsdata` | 274 actions, 34 apps | names, typed params, return entity types, descriptions |
-| AppleScript dictionaries | 27 apps | commands, classes, properties |
-| `CFBundleURLTypes` | 78 apps | a launch and deep-link door |
-| `shortcuts list` | 5 | user-authored compound actions |
+Reading costs nothing. `extract.actionsdata` is world-readable at a fixed path,
+no entitlement, no TCC. The format is undocumented and unstable, emitted by
+Xcode's `appintentsmetadataprocessor`, with a `version.json` beside it and a
+`generator` key inside, which is Apple saying the schema moves. `AppIntents.framework`
+is an authoring framework: it has no entry point that lists the system's intents
+and none that performs another app's.
 
-Then `grammar.json` stops being a hand-written file and becomes the generated
-union, with a small hand-written overlay for the things that need a confirm
-flag or a friendlier name. Nine actions becomes hundreds, and each one arrives
-with its parameter types already declared by the app that owns it.
+Calling is gated by `com.apple.shortcuts.background-running`, an Apple-private
+entitlement that AMFI enforces. `codesign -d --entitlements` on
+`WorkflowKit.framework/XPCServices/BackgroundShortcutRunner.xpc` shows why Apple
+will never open it: the runner holds `com.apple.private.tcc.allow` for fourteen
+services including Accessibility, Screen Capture, Microphone, Apple Events,
+Photos and Contacts. The runner is a privileged TCC-exempt broker, and handing
+out a generic "run any intent" API would hand out that bypass set. A non-Apple
+binary claiming the entitlement is killed at exec. The one public project that drives it directly says plainly that it needs
+SIP and AMFI disabled, and its own author recommends against running it on a
+machine you care about.
 
-Two things to settle before building it, both of which the research appendix
-answers or flags:
+Apple did not open a route in macOS 26 or 27 either. Checked against the full
+WWDC26 session index: no MCP support, no computer-use API, no external agent
+API. App Intents got richer and stayed closed, and every new surface (App
+Schemas, View Annotations) requires the target app's own developer to opt in.
 
-- **Invocation.** Reading the catalog is proven. Invoking an intent from
-  outside the owning app is the open question: the candidate paths are building
-  and signing a Shortcut that wraps the intent, a signed Swift helper using the
-  AppIntents framework, or a URL route. Headless shortcut construction did not
-  work in my attempts here: `shortcuts sign` rejected both a binary and an XML
-  `WFWorkflow` plist, the second with an internal runtime error that looks like
-  a defect in the tool rather than in the input. Settle this before committing
-  to the tier.
-- **The fallback if invocation is closed.** The catalog is still worth
-  generating even if it is read-only, because it tells the layer chooser which
-  apps have a semantic door at all, which is the question
-  [mac/DECISION-TREE.md](mac/DECISION-TREE.md) currently answers with a broken
-  `sdef` call.
+**Shortcuts is the only execution door, and it does work.** Authoring and
+signing a `.shortcut` headlessly is real:
+
+```
+shortcuts sign -m anyone -i min.shortcut -o signed.shortcut   # rc=0, AEA1 container
+shortcuts sign -m people-who-know-me ...                      # fails
+```
+
+The input is a plist whose root is `WFWorkflowActions`, an array of
+`{WFWorkflowActionIdentifier, WFWorkflowActionParameters}`. Keep it minimal;
+extra top-level keys break it, which is what made a first attempt here fail
+before a second one succeeded. `-m anyone` is the mode that works and it needs
+network. The run contract is
+`shortcuts run <name-or-UUID> [-i path|-] [-o path|-] [--output-type UTI]`,
+errors on stderr with exit 1, and `shortcuts list --show-identifiers` gives
+stable UUIDs to address by.
+
+What that door costs, and it is not small:
+
+1. **One wrapper per intent, per parameter shape.** No generic "run intent X
+   with params Y" exists. Structured I/O is possible via `--output-type
+   public.json`, but the shortcut itself has to be authored to parse and emit
+   it. There is no automatic marshalling.
+2. **One human-present first run per wrapper, forever.** Shortcuts gates data
+   access per shortcut with Allow Once / Always Allow / Don't Allow. No flag,
+   no plist key, no `tccutil` equivalent answers it. Design an explicit "arm
+   the assistant" session where every wrapper is run once, rather than meeting
+   this prompt at 2am in a scheduled job.
+3. **A GUI session.** `shortcuts run` is Aqua-bound. It works from a
+   LaunchAgent in a logged-in session, not from a LaunchDaemon or bare SSH.
+4. **A click to import**, unless you write `~/Library/Shortcuts/Shortcuts.sqlite`
+   directly, which is fragile: CoreData triggers, `siriactionsd` caching, Full
+   Disk Access, and iCloud restoring what you delete.
+
+**So do the cheap door first.** URL schemes are free to enumerate *and* free to
+call. There are 170 of them across 78 apps on this machine, many undocumented.
+`open -g wispr-flow://start-hands-free` is how one engineer replaced a hotkey
+synthesis that macOS had broken: no grant, no focus theft, one command. For an
+agent this is higher yield and lower friction than App Intents, and nothing in
+Chewbacca's seven-layer model has a slot for it.
+
+The build, in order:
+
+1. **`chewie catalog`**, which scans the machine and emits one typed catalog
+   merging four sources: `CFBundleURLTypes` (170 schemes, callable now),
+   AppleScript dictionaries (27 apps), App Intents metadata (249 actions,
+   readable now), and `shortcuts list` (user-authored compound actions).
+   Generate it; do not write it.
+2. **Wire the URL-scheme half straight into the grammar as actions.** That is
+   the part that pays this week.
+3. **Treat the App Intents half as a capability map for planning**, which
+   answers the question [mac/DECISION-TREE.md](mac/DECISION-TREE.md) currently
+   answers with a broken `sdef` call: does this app have a semantic door at
+   all.
+4. **Add Shortcuts wrappers only where an intent is worth the per-intent cost**,
+   and expect that cost to be the dominant engineering line item.
 
 The prize, in the literature's terms: this is rule one, call the API before you
-touch the UI, applied at the scale of the whole machine instead of 12 hand-
-written office APIs. UFO2 got 6 to 8 points and a 58% step reduction from 12.
+touch the UI, applied at the scale of the whole machine instead of twelve
+hand-written office APIs. UFO2 got 6 to 8 points and a 58% step reduction
+from twelve.
 
 ### Tier 2: one path, always instrumented
 
@@ -583,6 +647,95 @@ real cost on every session, and `writing.md` at 2,264 tokens is the single
 largest rule. The deferred-loading mechanism already exists and is used for
 three rules. Use it for more.
 
+### Do not invent these, they are solved
+
+Every pattern below is shipping somewhere and was found by looking at what
+people praise and what makes them uninstall. Sources in the appendix.
+
+**Name the step, never the state.** Apple's own guidance: instead of
+"Processing", say "Finding substitutions for ingredients". The HUD's pill
+currently shows a phase. It should show the step.
+
+**Allow, Always allow, Deny, on one keystroke each.** Raycast's exact shape is
+Return, Command-Return, Escape, plus Allow All and Deny All once a queue builds
+up. Batch approval is what stops per-action confirmation from being abandoned,
+and abandonment is what the 13.6% number measures.
+
+**Three tiers, not one switch: scope, confirm, refuse.** App-level permission
+that is grantable and revocable; per-action confirmation for consequential
+operations; a hard category blocklist that is refused rather than gated.
+Anthropic's model, and the only one with published numbers behind it. Keep a
+hardcoded floor no preference can lower: Raycast always asks before reading
+`.env` files and private keys even in auto mode.
+
+**Never auto-send. Render outbound artifacts as Edit, Discard, Send.**
+Highlight's pattern, and the one Operator violated when it spent $31.43 on eggs
+it was asked only to find.
+
+**Hand control back for credentials, and stop recording during the handoff** so
+the assistant is never in a position to have retained a password. Operator's
+best micro-interaction.
+
+**Checkpoint before every multi-step run, with one-key rollback.** Cursor
+checkpoints on every apply. This is the concrete shape of the undo that
+[review-discipline.md](../.claude/rules/review-discipline.md) already requires
+and `mac/` does not have.
+
+**Make every claim one click from its source.** Granola puts a magnifying glass
+on each summary line that jumps to the transcript moment it came from. Anything
+Chewbacca asserts from a message, a page or a file should be clickable back to
+the bytes.
+
+**Typographically separate what you wrote from what the model wrote.** Granola
+renders human notes in black and generated text in gray. Cheap, and it is why
+the output reads as a person's notes.
+
+**Withhold proactive suggestions below a confidence threshold**, and never
+render a confidence number you have not calibrated. Both are Apple's explicit
+guidance, and the first is the mechanism that would prevent most interruption
+complaints. `hud-watch`'s two-per-hour cap is a rate limit, not a threshold.
+
+**Prefer guided corrections to a blank box.** Offer alternatives. This is the
+right shape for the mid-run correction the HUD does not have.
+
+### The failure modes that actually kill these products
+
+Worth reading as a list of things not to ship.
+
+**A success indicator over a silent non-answer.** Granola users reported
+sessions that showed recording and produced nothing, unrecoverable because no
+audio is retained. This is the worst failure mode in the entire research set,
+and Chewbacca already has its own version of it: `mac messages send` accepts
+handles never registered with iMessage and returns success. Verify the thing
+landed, not that it started.
+
+**Confidently wrong, stated authoritatively.** Cursor's support bot invented a
+login policy that did not exist. 1,511 points on Hacker News, public
+cancellations, and an engineer having to deny his own product's bot. The bug
+cost less trust than the explanation did.
+
+**Data leaving the device without a dated, visible opt-in moment.** Wispr Flow
+was found sending periodic screenshots of the active window to third-party
+servers continuously, not only during dictation, and its first move was to ban
+the user who found it. The ban did more damage than the finding. Chewbacca's
+answer here is structural and already half-built: `failure-modes.json` names
+prompt injection critical, and nothing yet distinguishes data that may leave
+the machine from data that must not. That is items 549 to 551.
+
+**Battery.** Rewind is the cautionary tale, and nobody in the research set has
+solved always-on capture without a power cost users notice. Five processes are
+already resident. Measure it and show it rather than hoping.
+
+**Requiring an account for something that worked locally.** Warp required login
+for a terminal emulator and the top comment was "I have never uninstalled a
+program faster in my life", before any AI feature was touched. Chewbacca has no
+account and no server. Keep it that way.
+
+**Latency.** Reviewers independently say one second breaks a fast talker's
+flow. The HUD's measured time to first text runs 1.1 to 6.0 seconds, and 75% to
+94% of that is the model. Local-first is a latency requirement before it is a
+privacy one, which is the real argument for the Kokoro work already done.
+
 ---
 
 ## What not to do
@@ -683,6 +836,45 @@ work, with the harness caveats attached where the sources disagree.
 | Specialization as the primary defense | bound the blast radius, one surface per agent | [arXiv 2511.19477](https://arxiv.org/html/2511.19477v1) |
 | Tool coloring: red touches untrusted data, blue takes critical action, never both | MCP colors | [simonwillison.net](https://simonwillison.net/2025/Nov/4/mcp-colors/) |
 
+### macOS surfaces
+
+| Claim | Source |
+| --- | --- |
+| `AppIntents` is an authoring framework with no enumerate or perform entry point | [developer.apple.com](https://developer.apple.com/documentation/appintents/appintent) |
+| `.shortcut` file format and signing | [zachary7829.github.io](https://zachary7829.github.io/blog/shortcuts/fileformat), [cherrilang.org](https://cherrilang.org/compiler/signing.html) |
+| `shortcuts` CLI run contract | [man page](https://keith.github.io/xcode-man-pages/shortcuts.1.html), [Apple guide](https://support.apple.com/guide/shortcuts-mac/run-shortcuts-from-the-command-line-apd455c82f02/mac) |
+| Shortcuts URL and x-callback-url routes | [Apple guide](https://support.apple.com/guide/shortcuts-mac/run-a-shortcut-from-a-url-apd624386f42/mac) |
+| `BackgroundShortcutRunner` entitlement wall; SIP and AMFI must be off | [tarq.net, Action Relay](https://tarq.net/posts/action-relay-shortcut-actions-mcp/) |
+| URL scheme mining as an event-synthesis replacement | [nick-liu.com](https://www.nick-liu.com/posts/tahoe-hotkey-dead-end/) |
+| WWDC 2026: App Intents central and closed; no external agent API | [Apple WWDC26 guide](https://developer.apple.com/wwdc26/guides/apple-intelligence/), [Apple newsroom](https://www.apple.com/newsroom/2026/06/apple-aids-app-development-with-new-intelligence-frameworks-and-advanced-tools/) |
+| SiriKit deprecated in favour of App Intents | [dracode.dev](https://dracode.dev/blog/2026-06-08-09-wwdc-2026-siri-2-app-intents/) |
+| Accessibility tree is the cheap channel; vision the expensive one | [NN/g, AI agents as users](https://www.nngroup.com/articles/ai-agents-as-users/) |
+
+Entitlements were read first-hand with `codesign -d --entitlements` on
+`/usr/bin/shortcuts` and on
+`WorkflowKit.framework/XPCServices/BackgroundShortcutRunner.xpc`.
+
+### Assistant UX
+
+| Pattern or failure | Source |
+| --- | --- |
+| Allow / Always allow / Deny keystrokes; auto-mode hardcoded floor; agent tool scoping | [Raycast manual](https://manual.raycast.com/ai/ai-extensions), [agents](https://manual.raycast.com/ai/agents) |
+| Three-tier permission model with published attack numbers | [claude.com](https://claude.com/blog/claude-for-chrome) |
+| Name the step, not the state; confirm before irreversible actions | [Apple HIG, generative AI](https://developer.apple.com/design/human-interface-guidelines/generative-ai) |
+| Guided corrections, confidence thresholds, proactive-feature caution | [Apple HIG, machine learning](https://developer.apple.com/design/human-interface-guidelines/machine-learning) |
+| Claim-to-source jump; human text vs generated text typography | [wondertools.substack.com](https://wondertools.substack.com/p/granolaguide) |
+| Checkpoint on every apply, one-key rollback | [callmissed.com](https://www.callmissed.com/en/blog/cursor-composer-in-2026-how-it-reshaped-editing) |
+| Credential handoff with recording stopped | [Washington Post via archive](https://web.archive.org/web/20250207135803/https://www.washingtonpost.com/technology/2025/02/07/openai-operator-ai-agent-chatgpt/) |
+| Silent non-answer under a success indicator | [anarlog.so](https://anarlog.so/blog/granola-ai-complaints/) |
+| Confidently wrong support bot | [news.ycombinator.com](https://news.ycombinator.com/item?id=43683012) |
+| Screenshots leaving the device; banning the reporter | [embertype.com](https://embertype.com/blog/the-day-wispr-flow-banned-a-user/) |
+| Account wall on a local tool | [news.ycombinator.com](https://news.ycombinator.com/item?id=42247583) |
+| Always-on capture power cost | [andrewschreiber.substack.com](https://andrewschreiber.substack.com/p/an-early-adopters-thoughts-on-rewindais) |
+| One second breaks dictation flow | [techcrunch.com](https://techcrunch.com/2026/08/17/wispr-raises-280m-at-2b-valuation-as-it-looks-beyond-dictation/) |
+| Ambient done right: no chat window, everything inspectable before commit | [MacStories, macOS 26 review](https://www.macstories.net/stories/macos-26-tahoe-the-macstories-review/3/) |
+| Separate user instructions from page content, structurally | [brave.com](https://brave.com/blog/comet-prompt-injection/) |
+| Global, Local and Ambient context roles | [NN/g](https://www.nngroup.com/articles/3-agent-context-roles/) |
+
 ### Flagged as unverified
 
 The research pass could not confirm these, and nothing in Part three depends on
@@ -701,6 +893,13 @@ them:
   read.
 - Browser Use Cloud's 97% on Online-Mind2Web uses its own agentic judge, not
   the benchmark's standard evaluation. Not comparable to rows below it.
+- Whether macOS 26 and 27 added any TCC restriction targeting accessibility
+  automation. The Tahoe and Golden Gate release notes are JavaScript-rendered
+  and could not be extracted. Treat as unconfirmed rather than absent.
+- `LNActionRegistry` and `LNFetchAppShortcuts` as a third-party invocation
+  vector. Named in PlugInKit reverse-engineering writeups, never demonstrated.
+- Whether Obsidian, Arc, 1Password, Drafts, Fantastical, Slack or Notion expose
+  modern App Intents rather than legacy Intents extensions. Not checked.
 
 ### Method
 
