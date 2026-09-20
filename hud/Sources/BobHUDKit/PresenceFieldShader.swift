@@ -90,7 +90,15 @@ static inline float3 filmResponse(float opd) {
 /// answer is only ever "far".
 static inline float depthAt(float2 uvp, float W, float margin) {
     float2 r2 = (uvp - 0.5) * 2.0;
-    const float SQ = 5.0;
+    // How square the corners are. The level set through the diagonal sits at
+    // 2^(-1/SQ) of the half-width, so the band's inner surface cuts each
+    // corner by 13% of it at 5 and by 5.6% at 12, and the band fills the
+    // whole wedge between that curve and the square screen corner. Was 5,
+    // rendered side by side at 5, 8 and 12 by FieldRenderTests on
+    // 2026-09-20 after the ask "decrease how much boundary its covering in
+    // the corners": at 12 the corner still rounds, and the band runs at
+    // close to one thickness into it instead of pooling.
+    const float SQ = 12.0;
     float rad = pow(pow(abs(r2.x), SQ) + pow(abs(r2.y), SQ), 1.0 / SQ);
     float gk = pow(max(rad, 1e-3), 1.0 - SQ);
     float2 g = float2(gk * pow(abs(r2.x), SQ - 1.0) * (2.0 / W),
@@ -188,7 +196,7 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     // How far the silhouette sits off every edge, in the units `depthAt`
     // returns. It is the value that field takes at the screen edge itself, so
     // a pool shallower than this draws nothing along the straight runs and
-    // survives only in the corners, where the superellipse dips to 0.09. That
+    // survives only in the corners, where the superellipse dips to 0.15. That
     // is exactly what the 55% thickness cut did on 2026-09-19: every state
     // landed under 0.2, the four edges went empty, and the field read as four
     // smudges in the corners of the screen. So the band is measured from here
