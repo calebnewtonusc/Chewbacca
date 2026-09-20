@@ -205,7 +205,7 @@ struct SnapshotTests {
                 "presence-\(state.rawValue)",
                 size: CGSize(width: 60, height: 60), ground: .dark
             ) {
-                PresenceRing(presence: state, amplitude: state == .hearing ? 0.7 : 0)
+                PresenceRing(presence: state, amplitude: state.voiced ? 0.7 : 0)
             }
             #expect(drawn > 0.01, "\(state.rawValue) drew almost nothing: \(drawn)")
         }

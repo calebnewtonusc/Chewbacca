@@ -234,7 +234,10 @@ public final class OverlayModel {
                 pill = PillState(queued: pill.queued)
             }
 
-        case .hearing, .attention:
+        case .hearing, .speaking, .attention:
+            // Speaking leaves the pill where it is. The reply is already on
+            // it as `saying`, or a breadcrumb is, while the run goes on: the
+            // voice only moves the ring.
             break
         }
         pillHideTask?.cancel()

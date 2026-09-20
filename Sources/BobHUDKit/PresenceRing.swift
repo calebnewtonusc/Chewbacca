@@ -18,6 +18,12 @@ public enum Presence: String, Sendable, CaseIterable {
     case attentive
     /// Hearing speech directed at it. Thickness tracks amplitude.
     case hearing
+    /// Saying something out loud. Thickness tracks its own voice, exactly as
+    /// `hearing` tracks the person's: the same signature on both sides of the
+    /// exchange, because the ask on 2026-09-19 was for the reply to "make the
+    /// same talking effect" as the request. Set from outside, by the bridge,
+    /// from the level of the audio it is playing.
+    case speaking
     /// A request is in flight. One arc, rotating.
     case thinking
     /// Executing something. Arc segments stepping, one per completed action.
@@ -33,6 +39,10 @@ public enum Presence: String, Sendable, CaseIterable {
     /// An action failed in a way that may have left something in a bad state.
     /// The only state that is ever red.
     case failed
+
+    /// The two states a voice drives, the person's and its own. Both are set
+    /// from outside at the rate the level arrives, and both draw the same way.
+    var voiced: Bool { self == .hearing || self == .speaking }
 
     /// Colour carries meaning here and nothing else. No branding, no theming.
     var tint: Color {
@@ -111,11 +121,11 @@ struct PresenceRing: View {
             Circle()
                 .stroke(presence.tint, lineWidth: 1.8)
 
-        case .hearing:
-            // Thickness modulates with what it is hearing. Nothing rotates,
-            // because rotation would read as thinking, and the difference
-            // between "I am hearing you" and "I am working on it" is exactly
-            // the distinction a person needs mid-sentence.
+        case .hearing, .speaking:
+            // Thickness modulates with the voice, the person's or its own.
+            // Nothing rotates, because rotation would read as thinking, and
+            // the difference between "I am hearing you" and "I am working on
+            // it" is exactly the distinction a person needs mid-sentence.
             Circle()
                 .stroke(presence.tint, lineWidth: 1.5 + 2.5 * min(max(amplitude, 0), 1))
                 .animation(.linear(duration: 0.06), value: amplitude)
