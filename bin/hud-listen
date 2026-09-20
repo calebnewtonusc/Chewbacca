@@ -596,6 +596,9 @@ class Run:
         # instead of spoken, so the glass can hold a little longer for the
         # click that opens it.
         self.written_aside = False
+        # The panel's switch. Off, and nothing is ever kept from the voice:
+        # a pointer sentence is just a sentence and the cap does not apply.
+        self.long_written = True
         # Every finished prose block of the turn, in order: the written
         # answer, for the conversation panel.
         self.blocks: list[str] = []
@@ -657,7 +660,7 @@ class Run:
             words = spoken(chunk)
             if not words:
                 continue
-            if self.block_pointed or self.block_words >= SPOKEN_CAP:
+            if self.long_written and (self.block_pointed or self.block_words >= SPOKEN_CAP):
                 self.withheld = True
                 continue
             self.block_words += len(words.split())
@@ -880,6 +883,12 @@ class Listener:
         self.last_filler: str | None = None
         # Whether the last reply was written for the hyper bar rather than spoken.
         self.aside = False
+        # The panel's switch, "Speech off for long answers": on, a long
+        # answer is written for the hyper bar and one sentence points at it;
+        # off, everything is read out. The display sends it as `e prefer
+        # voice long=written|spoken` on every change and again each time
+        # this bridge subscribes, so a restart starts right. On until told.
+        self.long_written = True
         # A reply handed to hud-speak that has not yet reported quiet. Set
         # before the first level arrives, because synthesis takes most of a
         # second and the leave timer must not start in that gap.
@@ -914,6 +923,18 @@ class Listener:
     def log(self, *args) -> None:
         if self.verbose:
             print(*args, file=sys.stderr, flush=True)
+
+    def prefer(self, rest: str) -> None:
+        """`voice long=written|spoken`, from the panel's switch."""
+        fields = rest.split()
+        if not fields or fields[0] != "voice":
+            return
+        for field in fields[1:]:
+            key, _, raw = field.partition("=")
+            value = raw.strip('"')
+            if key == "long" and value in ("written", "spoken"):
+                self.long_written = value == "written"
+                self.log("long answers", value)
 
     def send(self, line: str) -> None:
         if line.startswith("p "):
@@ -1053,6 +1074,10 @@ class Listener:
                 # answer in the conversation panel. Spoken here, not asked,
                 # because the words already exist.
                 self.read_aloud(component)
+            elif action == "prefer":
+                # `e prefer voice long=written|spoken`: a switch on the
+                # panel. Kept, not asked: the next request carries it.
+                self.prefer(component)
             else:
                 # A control was used. Same path: the press is a request in words.
                 self.ask(f"The user pressed {action} on {component}. Respond by updating the display.")
@@ -1715,6 +1740,16 @@ class Listener:
             if req.pointed
             else ""
         )
+        # The switch overrides the standing rule, so it is said on every
+        # spoken request while it is off, not once: the rule is in the
+        # system prompt for every turn, and a note said once fades under it.
+        aloud = (
+            "They have turned speech on for long answers: read this answer "
+            "out in full, however long it runs, and do not point at the "
+            "hyper bar.\n"
+            if not self.long_written and not req.typed
+            else ""
+        )
         if self.lean:
             # The standing rules are the system prompt's (hud-agent.md);
             # only what changed since the last turn is repeated, because
@@ -1725,6 +1760,7 @@ class Listener:
                 + (f"They are looking at: {seen}\n\n" if seen else "")
                 + pointed
                 + ("Reply in writing: nothing is read aloud for a typed request.\n" if req.typed else "")
+                + aloud
             )
         return (
             prefix
@@ -1738,6 +1774,7 @@ class Listener:
             "sentence, under twenty words, that answers on its own: it is the "
             "line on the pill at the bottom of their screen. "
             + heard
+            + aloud
             + "Write plain prose in short paragraphs: no headings, no tables, "
             "and no code unless they asked for code; a short list is fine. "
             "Before any tool call, write one short sentence saying what you "
@@ -1870,6 +1907,7 @@ class Listener:
         run = Run()
         streaming = self.speaker is not None and self.voice is not None and not typed
         run.subtitles = not streaming
+        run.long_written = self.long_written
         started = time.monotonic()
         spoken_first = False
         voiced = False

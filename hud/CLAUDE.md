@@ -129,7 +129,11 @@ The rest of a full answer goes to the conversation panel, which the pill opens
 when clicked: every request and every answer of the session, selectable, with a
 field to type the next request. A long answer, a summary or a recap, is not
 read aloud at all: the voice says one line, "All the info on the Civil War is
-ready for you in the hyper bar", and the answer is written here for reading. `w "<text>"` is the answer so far, the whole
+ready for you in the hyper bar", and the answer is written here for reading.
+The panel's header has the switch for that, "Speech off for long answers", on
+by default; off, every answer is read out in full. The display sends it to
+whoever is listening as `e prefer voice long=written|spoken`, on every change
+and again right after a client's `listen`. `w "<text>"` is the answer so far, the whole
 text rather than a delta, and `w "<text>" done=true` closes it. Send it at each
 sentence as the answer is written, so the panel fills as the voice reads. Prose
 with Markdown: paragraphs, headings, bullet and numbered lists, quotes, rules,

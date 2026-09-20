@@ -122,6 +122,31 @@ struct SocketTests {
         #expect(text.contains("show me my week"))
     }
 
+    @Test("subscribing is reported after the version, so the app can add its own greeting")
+    func subscribingIsReported() async throws {
+        let path = temporaryPath()
+        let kinds = Mailbox()
+        let server = SocketServer(path: path) { event in
+            if case .subscribed = event.kind { kinds.add("subscribed") }
+            if case .line = event.kind { kinds.add("line") }
+        }
+        try server.start()
+        defer { server.stop() }
+
+        let listener = connect(to: path)
+        #expect(listener >= 0)
+        defer { close(listener) }
+        let subscribe = "listen\n"
+        _ = subscribe.withCString { send(listener, $0, strlen($0), 0) }
+        try await Task.sleep(for: .milliseconds(250))
+
+        #expect(kinds.all == ["subscribed"], "listen is about the connection, never a line for the glass")
+        var buffer = [UInt8](repeating: 0, count: 256)
+        let count = recv(listener, &buffer, buffer.count, 0)
+        let text = String(decoding: buffer[0..<max(count, 0)], as: UTF8.self)
+        #expect(text.hasPrefix("v! "), "the version is on the wire before the app hears of the subscriber")
+    }
+
     @Test("send reports failure when nobody is connected")
     func sendWithNoClients() throws {
         // The command bar relies on this to tell the person their request went
