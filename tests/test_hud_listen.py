@@ -1124,6 +1124,50 @@ def test_routing(m) -> None:
     m.ROUTE = True
 
 
+def test_draft_words(m) -> None:
+    """'send it' with a draft outstanding presses Return and never reaches the model."""
+    import tempfile
+    mem = tempfile.mkdtemp()
+    m.voice_memory.MEMORY = Path(mem)
+    m.voice_memory.TRANSCRIPT = Path(mem) / "transcript.jsonl"
+    m.voice_memory.PROJECT = Path(mem) / "project.json"
+    m.voice_memory.DRAFT = Path(mem) / "draft.json"
+    log = os.path.join(mem, "terminal.log")
+    m.TERMINAL_CMD = ["sh", "-c", f'echo "$0" >> {log}']
+    m.ROUTE = True
+    listener = m.Listener("claude -p", False, False)
+    sent: list[str] = []
+    listener.send = sent.append  # type: ignore[method-assign]
+    asked: list[str] = []
+    listener._drain = lambda: None  # type: ignore[method-assign]
+
+    check("no draft: 'send it' is not consumed", not listener.handle_draft_word("send it"))
+    check("no draft: nothing ran", not Path(log).exists())
+
+    now = m.voice_memory.now_iso()
+    Path(mem, "draft.json").write_text(json.dumps({"tty": "/dev/ttys002", "text": "add a retry", "t": now}))
+    check("with a draft: 'send it' is consumed", listener.handle_draft_word("send it"))
+    time.sleep(0.5)
+    check("submit ran", Path(log).exists() and "submit" in Path(log).read_text())
+    check("the pill said sent", any(line.startswith('s "sent') for line in sent), str(sent))
+    entry = m.voice_memory.last()
+    check("the transcript marks it submitted", entry and entry.get("submitted") is True, str(entry))
+
+    Path(mem, "draft.json").write_text(json.dumps({"tty": "/dev/ttys002", "text": "add a retry", "t": now}))
+    Path(log).unlink()
+    check("'scrap that' is consumed", listener.handle_draft_word("scrap that"))
+    time.sleep(0.5)
+    check("clear ran", "clear" in Path(log).read_text())
+
+    Path(mem, "draft.json").write_text(json.dumps({"tty": "/dev/ttys002", "text": "add a retry", "t": now}))
+    Path(log).unlink()
+    listener.ask = lambda said, typed=False, dest=None: asked.append((said, dest))  # type: ignore[method-assign]
+    check("'no, to you' is consumed", listener.handle_draft_word("no, to you"))
+    time.sleep(0.5)
+    check("re-route clears the draft", "clear" in Path(log).read_text())
+    check("re-route asks the assistant with the draft's text", asked == [("add a retry", "assistant")], str(asked))
+
+
 def main() -> int:
     module = load()
     print("draw_lines")
@@ -1132,6 +1176,8 @@ def main() -> int:
     test_subtitle(module)
     print("routing")
     test_routing(module)
+    print("draft words")
+    test_draft_words(module)
     print("breadcrumb")
     test_breadcrumb(module)
     print("the recorded stream")
