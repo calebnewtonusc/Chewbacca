@@ -549,12 +549,21 @@ if group "hooks"; then
   autopush_fixture() {
     # $1 = branch to end up on. Prints the work tree path.
     local d; d="$(mktemp -d)"
-    git init -q --bare "$d/origin.git"
-    git clone -q "$d/origin.git" "$d/work" 2>/dev/null
+    git -c init.defaultBranch=main init -q --bare "$d/origin.git"
+    git -c init.defaultBranch=main clone -q "$d/origin.git" "$d/work" 2>/dev/null
     cd "$d/work" || return 1
     git config user.email t@t; git config user.name t
     git symbolic-ref HEAD refs/heads/main
-    echo one > a.txt; git add a.txt; git commit -qm init; git push -q origin main
+    # -u is load-bearing, and init.defaultBranch is why.
+    #
+    # Cloning an empty repo configures the upstream for whatever that default
+    # is. The author's ~/.gitconfig sets it to main, so the clone configures
+    # main and a plain push is enough. A CI runner defaults to master, the
+    # clone configures master, the symbolic-ref above moves HEAD to a main that
+    # has no upstream, and the hook exits at its no-upstream check without ever
+    # reaching a gate. Both cases below then failed on the runner while passing
+    # on the laptop, which is the worst way for a test to be wrong.
+    echo one > a.txt; git add a.txt; git commit -qm init; git push -q -u origin main
     # A non-main branch is pushed once so it HAS an upstream. Without that the
     # hook exits at the no-upstream check and never reaches the branch guard,
     # so the case proved nothing: deleting the guard left it green.
@@ -583,7 +592,7 @@ if group "hooks"; then
     before="$(git --git-dir="$d/origin.git" show-ref | sort)"
     CHEWBACCA_REPO_DIR="$d/work" bash "'"$ROOT"'/.claude/hooks/kit-autopush.sh" >/dev/null 2>&1
     after="$(git --git-dir="$d/origin.git" show-ref | sort)"
-    [ "$before" = "$after" ] || { echo "the remote grew a ref: $after"; exit 1; }
+    [ "$before" = "$after" ] || { echo "the remote grew a ref: $after" >&2; exit 1; }
     exit 0
   '
 
@@ -595,8 +604,8 @@ if group "hooks"; then
     before="$(git --git-dir="$d/origin.git" rev-parse main)"
     out="$(CHEWBACCA_REPO_DIR="$d/work" bash "'"$ROOT"'/.claude/hooks/kit-autopush.sh" 2>&1)"
     after="$(git --git-dir="$d/origin.git" rev-parse main)"
-    [ "$before" = "$after" ] || { echo "it pushed past a failed gate"; exit 1; }
-    echo "$out" | grep -q BLOCKED || { echo "said nothing: $out"; exit 1; }
+    [ "$before" = "$after" ] || { echo "it pushed past a failed gate" >&2; exit 1; }
+    echo "$out" | grep -q BLOCKED || { echo "said nothing: $out" >&2; exit 1; }
     exit 0
   '
 
@@ -607,8 +616,8 @@ if group "hooks"; then
     local_head="$(git -C "$d/work" rev-parse HEAD)"
     CHEWBACCA_REPO_DIR="$d/work" bash "'"$ROOT"'/.claude/hooks/kit-autopush.sh" >/dev/null 2>&1
     after="$(git --git-dir="$d/origin.git" rev-parse main)"
-    [ "$before" != "$after" ] || { echo "nothing was pushed"; exit 1; }
-    [ "$after" = "$local_head" ] || { echo "remote is not at the local head"; exit 1; }
+    [ "$before" != "$after" ] || { echo "nothing was pushed" >&2; exit 1; }
+    [ "$after" = "$local_head" ] || { echo "remote is not at the local head" >&2; exit 1; }
     exit 0
   '
 
@@ -616,7 +625,7 @@ if group "hooks"; then
     d="$('"$(declare -f autopush_fixture)"'; autopush_fixture main)"
     git -C "$d/work" reset -q --hard HEAD~1
     out="$(CHEWBACCA_REPO_DIR="$d/work" bash "'"$ROOT"'/.claude/hooks/kit-autopush.sh" 2>&1)"
-    [ -z "$out" ] || { echo "spoke when it had nothing to say: $out"; exit 1; }
+    [ -z "$out" ] || { echo "spoke when it had nothing to say: $out" >&2; exit 1; }
     exit 0
   '
 fi
