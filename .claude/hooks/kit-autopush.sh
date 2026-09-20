@@ -30,7 +30,10 @@ type hook_init >/dev/null 2>&1 && hook_init kit-autopush.sh 30
 
 set -uo pipefail
 
-LOG_DIR="$HOME/.chewbacca/logs"
+# CHEWBACCA_LOG_DIR is what tests/run.sh redirects to keep a run hermetic.
+# Writing straight to $HOME meant the suite appended twenty rows to the real
+# log, which is somebody else's history on somebody else's machine.
+LOG_DIR="${CHEWBACCA_LOG_DIR:-$HOME/.chewbacca/logs}"
 LOG="$LOG_DIR/autopush.log"
 mkdir -p "$LOG_DIR" 2>/dev/null || true
 note() { echo "$(date -u +%FT%TZ) $*" >> "$LOG" 2>/dev/null || true; }
@@ -40,11 +43,17 @@ note() { echo "$(date -u +%FT%TZ) $*" >> "$LOG" 2>/dev/null || true; }
 # The install manifest records where the kit was installed from, so this works
 # on a machine that keeps it somewhere other than the author's path. An env
 # override wins, for a second checkout or a test.
-CONFIG="$HOME/.claude/d1-config.sh"
-# shellcheck source=/dev/null
-[ -f "$CONFIG" ] && . "$CONFIG"
-
+# An explicit environment value wins over the config file. d1-config.sh uses
+# plain assignment, so sourcing it unconditionally would clobber an override
+# and point this at the author's real checkout. That is how a test harness
+# ends up pushing the actual repo.
 REPO="${CHEWBACCA_REPO_DIR:-}"
+if [ -z "$REPO" ]; then
+  CONFIG="$HOME/.claude/d1-config.sh"
+  # shellcheck source=/dev/null
+  [ -f "$CONFIG" ] && . "$CONFIG"
+  REPO="${CHEWBACCA_REPO_DIR:-}"
+fi
 if [ -z "$REPO" ] && [ -f "$HOME/.chewbacca/install-manifest.json" ]; then
   REPO="$(python3 -c '
 import json, sys
