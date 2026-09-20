@@ -2,9 +2,10 @@
 """Find the Terminal tab running Claude Code, and put a draft in it.
 
 Layer 2, Terminal.app's scripting dictionary, plus one paste. Nothing here
-presses Return except `submit`, and `submit` is only ever run because a person
-said "send it" or "run it" (bin/hud-listen). A prompt that Chewbacca typed and
-Chewbacca also submitted is a prompt nobody read.
+presses Return except `submit` and `answer yes`, and both are only ever run
+because a person said so (bin/hud-listen): "send it" or "run it" for a draft,
+"yes" while the tab is waiting on a permission. A prompt that Chewbacca typed
+and Chewbacca also submitted is a prompt nobody read.
 
     chewie terminal tabs                    every tab: tty, selected, front, processes
     chewie terminal ensure [--cwd DIR] [--fresh]  a tab running claude, opened if needed (--fresh: always opened)
