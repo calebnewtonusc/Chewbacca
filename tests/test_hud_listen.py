@@ -582,8 +582,11 @@ def test_pick_filler(m) -> None:
     check("a last filler from the other set still gives a fresh one",
           m.pick_filler("what time is it", last=m.TASK_FILLERS[0]) in m.QUESTION_FILLERS)
     check("nothing said still gets a filler", m.pick_filler("") in m.TASK_FILLERS)
-    check("the filler sets stay clear of the model's acknowledgement",
-          all("On it" not in f for f in m.TASK_FILLERS + m.QUESTION_FILLERS))
+    check("a task filler is an acknowledgement, never a yes or an okay",
+          all(m.ACKNOWLEDGEMENT.fullmatch(f) for f in m.TASK_FILLERS) and not any(f.lower().rstrip(".") in ("okay", "ok", "yes", "sure", "yep") for f in m.TASK_FILLERS))
+    check("the model's bare acknowledgements are known, so they are not said twice after a filler",
+          all(m.ACKNOWLEDGEMENT.fullmatch(s) for s in ("On it.", "Right away.", "Doing that.", "Working on it.", "Handling it.", "Getting to it.", "on it"))
+          and not any(m.ACKNOWLEDGEMENT.fullmatch(s) for s in ("Okay.", "On it. Texting Caleb you're running ten late.", "Chrome's up.", "")))
 
 
 def test_lean_prompt(m) -> None:
@@ -600,8 +603,9 @@ def test_lean_prompt(m) -> None:
           "Answer the way a good assistant" in full.prompt_for(req, ""))
     check("the system prompt file exists", m.AGENT_PROMPT.is_file(), str(m.AGENT_PROMPT))
     standing = m.AGENT_PROMPT.read_text(encoding="utf-8")
-    check("the prompt carries the restate-then-acknowledge lines",
-          "On it." in standing and "Texting Caleb" in standing and "Delete it?" in standing)
+    check("the prompt carries the acknowledge-first lines",
+          "On it." in standing and "Texting Caleb" in standing and "Delete it?" in standing and "Simple gets simple" in standing
+          and 'Never "Yes", "OK", "Okay", "Sure", "Yep"' in standing)
     check("and the banned openers", "Great question" in standing and "Certainly" in standing)
 
 
