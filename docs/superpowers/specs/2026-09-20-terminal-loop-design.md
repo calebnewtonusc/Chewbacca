@@ -10,8 +10,13 @@ Branch `feat/terminal-loop`, off `feat/voice-routing`.
 
 ## Decisions already made
 
-- Only the tab `project.json` remembers counts. Other Claude Code sessions are
-  invisible to the loop.
+- Only the tab `project.json` remembers counts. What the hook enforces is the
+  folder: a session whose `cwd` does not match `project.json`'s, after
+  `realpath` on both, is invisible to the loop. Two sessions started in the
+  same folder both pass that filter and share the events file, so one's
+  `Stop` can put the strip on "finished" while the other is mid-run. Every
+  entry records its `session_id`, so scoping to one session is a later
+  change to the fold, not a new field.
 - The voice reads a permission prompt aloud only when Terminal is not the
   frontmost app. When the tab is in front, the strip and the field carry it.
 - "Yes" grants one call. "Always" is not a voice word: a standing rule needs
@@ -34,9 +39,15 @@ is not used: its `permission_prompt` fires six seconds after the prompt, and
 
 ## The hook
 
-`.claude/hooks/terminal-loop.sh` is a one-line wrapper: `exec chewie
-terminal hook`. `chewie` is on PATH after setup and knows its own lib
-directory, so the wrapper never has to find the repo. `setup.sh` copies the
+`.claude/hooks/terminal-loop.sh` is a wrapper that runs `chewie terminal
+hook` and then exits 0 itself. Never `exec`: a chewie that predates the
+`terminal` verb answers with an argparse error and exit 2, and on a
+`PermissionRequest` exit 2 is a blocking error that refuses the tool call.
+Seen on 2026-09-20, when tests/run.sh ran the wrapper against a
+`~/.local/bin/chewie` linked to an older checkout. `chewie` is on PATH after
+setup and knows its own lib directory, so the wrapper never has to find the
+repo, but it falls back to where setup.sh links it because hooks run without
+a login shell. `setup.sh` copies the
 wrapper with the other hooks and registers it in `~/.claude/settings.json`
 for the six events, empty matcher, `timeout` 45. The Python lives in
 `mac/lib/terminal_events.py`, imported by `mac/lib/terminal.py` for the
@@ -51,8 +62,14 @@ Every invocation:
 3. Append one line to `$BOB_MEMORY_DIR/terminal-events.jsonl`:
    `{"t": <epoch>, "event": <name>, "tool": <tool_name or "">, "summary":
    <text>, "session": <session_id>, "ask": <ask id or "">, "held": <bool>}`.
-   `held` is true only on a `PermissionRequest` the hook is waiting on. Capped at 2000
-   lines the way the transcript is capped, rewritten when it passes the cap.
+   `held` is true only on a `PermissionRequest` the hook is waiting on. The
+   file is append-only: one write per event, never a rewrite, because
+   hud-listen tails it by byte offset and a rewrite shifts every byte after
+   the line it dropped. Past 400 KB, about 2000 entries, the file is renamed
+   to `terminal-events.jsonl.1` and the next append starts a fresh one. The
+   reader carries an `(inode, offset)` cursor, so it sees the rotation
+   rather than inferring it from the size, and drains the rest of `.1` from
+   its old offset before reading the new file from the top.
 4. For `PermissionRequest`, run the ask protocol below. For everything else,
    exit 0 with no output.
 
@@ -115,8 +132,13 @@ strip is the whole announcement.
 Handled in `ask()` before routing, the way the draft words are, and only
 while the state is waiting; otherwise they are ordinary sentences.
 
-- allow: "yes", "yeah", "yep", "go ahead", "allow", "allow it", "do it"
+- allow: "yes", "yeah", "yep", "go ahead", "allow", "allow it"
 - deny: "no", "nope", "deny", "deny it", "don't"
+
+`ask()` checks the draft words before the terminal words, so no word may sit
+in both sets: one that does never reaches the dialog. That is why "do it" is
+a draft word only. With a draft outstanding it used to submit the draft,
+pressing Return in the tab, while the person meant the permission prompt.
 
 Hook still holding: write `asks/<id>.answer`. Ask expired, tab prompting:
 `chewie terminal answer yes|no --tty <tty>`, which focuses the tab and
@@ -137,7 +159,10 @@ meaning: the assistant's own run.
 Two verbs added to `mac/lib/terminal.py`, both `--tty`, both refusing under
 Secure Input the way the others do:
 
-- `answer yes|no`: focus, then Return or Escape.
+- `answer yes|no`: focus, then Return or Escape. `yes` presses the same key
+  `submit` does, so it refuses with exit 3 unless `CHEWIE_TERMINAL_ANSWER=1`
+  is set, which only hud-listen's answer path does. `no` is Escape and needs
+  no gate.
 - `interrupt`: focus, then Escape.
 
 And `focus`, exposing the existing `focus()` for the strip's click.
@@ -200,9 +225,12 @@ strip and nothing else.
 | hook `timeout` | 45 | must exceed `ASK_WAIT_S` plus the front check |
 | front check timeout | 2 s | one System Events call takes well under a second on this machine |
 | watcher poll | 0.5 s | same cadence as `ensure` |
-| events cap | 2000 lines | the transcript's cap is 5000 and holds days of use |
+| events cap | 400 KB | a measured entry is 190 bytes, 232 with a full summary, so 2000 x 200 |
 | summary | 80 chars | one pill line |
-| idle after | 10 min | matches `WARM_S` in voice memory |
+| idle after | 10 min | guessed, never measured; matches `WARM_S` in voice memory |
+| ask expiry | `ASK_WAIT_S` + 45 | past the hook's own timeout, the holder is gone |
+| answer confirm | 1 s | guessed, never measured: four hook polls |
+| event freshness | 5 s | guessed, never measured: the 0.5 s poll plus the front check |
 
 ## Out of scope
 
