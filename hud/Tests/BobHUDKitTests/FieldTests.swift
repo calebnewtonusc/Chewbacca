@@ -53,6 +53,64 @@ struct FieldTests {
         #expect(between > 0.3 && between < 0.7)
     }
 
+    @Test("entering a still state keeps the clock live until it has eased in")
+    func stillStatePaces() {
+        // `done` says one frame a second. Asking the view for that before
+        // the ease has run stalls it for the whole second: the band froze
+        // mid-motion on every finished task.
+        #expect(PresenceFieldRenderer.rate(
+            for: Presence.done.field, closing: false, settled: false, parting: false) == 30)
+        #expect(PresenceFieldRenderer.rate(
+            for: Presence.dormant.field, closing: false, settled: false, parting: false) == 30)
+    }
+
+    @Test("a live state that has settled runs at its own pace")
+    func settledPaces() {
+        #expect(PresenceFieldRenderer.rate(
+            for: Presence.attentive.field, closing: false, settled: true, parting: false) == 20)
+        #expect(PresenceFieldRenderer.rate(
+            for: Presence.hearing.field, closing: false, settled: true, parting: false) == 60)
+    }
+
+    @Test("the exit and the parting want sixty whatever the state says")
+    func fastPaths() {
+        #expect(PresenceFieldRenderer.rate(
+            for: Presence.dormant.field, closing: true, settled: false, parting: false) == 60)
+        #expect(PresenceFieldRenderer.rate(
+            for: Presence.attentive.field, closing: false, settled: true, parting: true) == 60)
+    }
+
+    @Test("a frame after a long gap eases as one frame, not across the gap")
+    func wakeEases() {
+        // Seven seconds parked in `done`, then something changed.
+        #expect(PresenceFieldRenderer.easeInterval(gap: 7.0, rate: 30) == 1.0 / 30)
+        // A stall at one frame a second is a wake too, not a slow frame.
+        #expect(PresenceFieldRenderer.easeInterval(gap: 1.0, rate: 1) == 1.0 / 30)
+        // A real frame at sixty is its own length.
+        #expect(PresenceFieldRenderer.easeInterval(gap: 0.017, rate: 60) == 0.017)
+        // The first frame ever has no clock and snaps, as before.
+        #expect(PresenceFieldRenderer.easeInterval(gap: 0, rate: 60) == 0)
+    }
+
+    @Test("a re-render that changed nothing leaves the clock alone")
+    @MainActor
+    func unchangedFrame() {
+        let renderer = PresenceFieldRenderer()
+        let done = PresenceFrame(
+            style: Presence.done.field, awokeAt: .now, closingAt: nil, heard: 0, alpha: 1)
+        // The first sight of `done` starts the clock, at a live rate.
+        #expect(renderer.receive(frame: done, paused: true) == 30)
+        // The pill hiding, a transcript line landing: the overlay re-renders
+        // and the field is handed the same frame again. Touching the clock
+        // here restarts it, which is a stall.
+        #expect(renderer.receive(frame: done, paused: true) == nil)
+        // Going away is a change, and it runs at sixty.
+        let leaving = PresenceFrame(
+            style: Presence.dormant.field, awokeAt: done.awokeAt, closingAt: .now, heard: 0,
+            alpha: 1)
+        #expect(renderer.receive(frame: leaving, paused: false) == 60)
+    }
+
     @Test("a pointer that has not really moved does not wake the model")
     @MainActor
     func quantised() {
