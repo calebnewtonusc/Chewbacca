@@ -35,7 +35,17 @@ from pathlib import Path
 SOCKET = os.environ.get("BOB_HUD_SOCKET", str(Path.home() / ".bob" / "hud.sock"))
 SKILL = Path(__file__).resolve().parent.parent / "skills" / "hud" / "SKILL.md"
 CONTEXT = Path(__file__).resolve().parent / "hud-context"
-SPEAK = Path(__file__).resolve().parent / "hud-speak"
+# Which voice server reads the replies. `hud-speak` is the Python one
+# (Kokoro through MLX, needs uv and espeak-ng); `hud-voice` is the Swift one
+# (the same model on the Neural Engine through FluidAudio, one binary, no
+# installs), built from voice/ into ~/.local/bin. Both speak the same lines.
+# Measured 2026-09-20, warm, to the first sound of a three-word line: 0.16s
+# through hud-speak, 0.13s through hud-voice; ready 2.3s and 1.6s after
+# start. hud-speak stays the default until a day of use says otherwise.
+SPEAKER = os.environ.get("HUD_SPEAKER", "hud-speak")
+SPEAK = Path(__file__).resolve().parent / SPEAKER
+if not SPEAK.exists():
+    SPEAK = Path.home() / ".local" / "bin" / SPEAKER
 # Kokoro names a voice by language and gender, then a name: af_heart,
 # am_michael, bf_emma. Nothing macOS ships looks like that.
 KOKORO_VOICE = re.compile(r"[a-z]{2}_[a-z]+")
@@ -1037,10 +1047,11 @@ class Listener:
             self.send("p dormant")
 
     def start_speaker(self, voice: str) -> subprocess.Popen[str] | None:
-        """Start `hud-speak` and keep it. Its first line, "ready", means the
-        model is loaded and warm; until then anything spoken waits in the
-        pipe. On the first run of a fresh machine that is a minute of
-        installing; after that about eight seconds."""
+        """Start the voice server (`SPEAK`) and keep it. Its first line,
+        "ready", means the model is loaded and warm; until then anything
+        spoken waits in the pipe. On the first run of a fresh machine that
+        is a minute of installing or downloading; after that a few
+        seconds."""
         try:
             proc = subprocess.Popen(
                 [str(SPEAK), "--voice", voice],
@@ -1103,6 +1114,14 @@ class Listener:
             # subtitle, so the words on the glass are the words in the air:
             # asked for on 2026-09-19 as "have the text go with the pill".
             text = str(message["saying"] or "")
+            if text:
+                self.send("s " + json.dumps(text))
+        elif "status" in message:
+            # The voice server is not ready and says why ("Getting the
+            # voice ready" while a first run downloads the model). On the
+            # pill, so a first launch that sits silent for a minute is
+            # seen to be doing something.
+            text = str(message["status"] or "")
             if text:
                 self.send("s " + json.dumps(text))
         elif message.get("quiet"):
