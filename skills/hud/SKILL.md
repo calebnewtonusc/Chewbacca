@@ -331,7 +331,10 @@ rest. A long answer is not read at all: the model writes it for the panel and
 says one line pointing at the hyper bar ("All the info on the Civil War is
 ready for you in the hyper bar"), and `hud listen` reads only up to that
 sentence. A long block with no such line is cut at `SPOKEN_CAP` words and
-"The rest is in the hyper bar." is said instead.
+"The rest is in the hyper bar." is said instead. The panel's header has the
+switch, "Speech off for long answers", on by default; off, the display sends
+`e prefer voice long=spoken`, `hud listen` reads everything out and tells the
+model on each spoken request not to point at the hyper bar.
 
 Recognition is on-device. Do not add anything that ships audio somewhere.
 

@@ -67,6 +67,15 @@ cut at `SPOKEN_CAP` words with "The rest is in the hyper bar." said after it.
 The glass holds twenty seconds rather than ten after such a reply, for the
 click that opens it.
 
+It is the person's call, not the bridge's. The panel's header has a switch,
+"Speech off for long answers", on by default and kept across launches. Off,
+the display sends `e prefer voice long=spoken`, the bridge withholds nothing
+from the voice, and every spoken request carries one line telling the model
+to read the answer out in full and not point at the hyper bar. The line goes
+on every request rather than once, because the pointing rule sits in the
+system prompt for every turn and a note said once fades under it. The bridge
+is told again whenever it subscribes, so a restart starts right.
+
 Why: speech cannot be skimmed, so every extra spoken sentence is time the
 person cannot get back, and Google's VUI brevity principle and Alexa's
 one-breath test both say the same thing from the other side. Asked for by

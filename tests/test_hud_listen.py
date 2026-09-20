@@ -670,6 +670,65 @@ def test_translate_deltas(m) -> None:
     check("blocks join as paragraphs", run.answer() == "Sent. Sagar has it.\n\nAlso booked.")
 
 
+def test_long_answer_switch(m) -> None:
+    """The panel's switch off: a long answer is read out in full with no
+    pointer, the bridge remembers the setting, and the model is told per
+    spoken request."""
+    listener = m.Listener("claude -p", False, False)
+    check("written is the default", listener.long_written)
+    listener.handle("e prefer voice long=spoken")
+    check("spoken is remembered", not listener.long_written)
+    listener.handle("e prefer voice long=written")
+    check("and written again", listener.long_written)
+    listener.handle('e prefer voice long="spoken"')
+    check("a quoted value is the same value", not listener.long_written)
+    listener.handle("e prefer voice long=loud")
+    listener.handle("e prefer sound long=written")
+    check("an unknown value or component changes nothing", not listener.long_written)
+
+    req = m.Request(said="summarise the war", spoken_at=0.0, pointed=None)
+    prompt = listener.prompt_for(req, "")
+    check("the model is told to read it all out",
+          "read this answer out in full" in prompt and "do not point at the hyper bar" in prompt,
+          prompt[-240:])
+    typed = m.Request(said="summarise the war", spoken_at=0.0, pointed=None, typed=True)
+    check("a typed request is read by nobody, so it carries no note",
+          "read this answer out" not in listener.prompt_for(typed, ""))
+    listener.long_written = True
+    check("written: the standing rule stands, no note",
+          "read this answer out" not in listener.prompt_for(req, ""))
+
+    def delta(text: str) -> dict:
+        return {"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                "delta": {"type": "text_delta", "text": text}}}
+
+    start = {"type": "stream_event", "event": {"type": "content_block_start", "index": 0,
+             "content_block": {"type": "text", "text": ""}}}
+    long = " ".join(f"Sentence number {i} of the recap is here." for i in range(1, 13))
+    run = m.Run()
+    run.subtitles = False
+    run.long_written = False
+    lines = run.translate(start, 0.0)
+    lines += run.translate(delta(long), 0.1)
+    lines += run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": long}]}}, 0.2)
+    said = " ".join(run.take_voice())
+    check("twelve sentences are all spoken, past the cap",
+          "Sentence number 1 " in said and "Sentence number 12" in said, said[-80:])
+    check("no pointer is added", m.HYPER_BAR_POINTER not in said and not run.written_aside)
+    check("the whole answer still reaches the panel", lines[-1] == "w " + json.dumps(long))
+
+    recap = ("All the info on the Civil War is ready for you in the hyper bar.\n\n"
+             "It ran from 1861 to 1865. Roughly 750,000 people died.")
+    run = m.Run()
+    run.subtitles = False
+    run.long_written = False
+    run.translate(start, 0.0)
+    run.translate(delta(recap), 0.1)
+    run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": recap}]}}, 0.2)
+    said = " ".join(run.take_voice())
+    check("a pointer sentence no longer ends the spoken part", "1861" in said and "750,000" in said, said)
+
+
 def test_hyper_bar(m) -> None:
     """A long answer is written for the hyper bar and the voice says only
     the sentence that points there."""
@@ -1137,6 +1196,8 @@ def main() -> int:
     test_pick_filler(module)
     print("the hyper bar")
     test_hyper_bar(module)
+    print("the long-answer switch")
+    test_long_answer_switch(module)
     print("the lean profile")
     test_agent_flags(module)
     test_lean_prompt(module)

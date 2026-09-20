@@ -170,6 +170,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 model.onEvent?(.problem(String(describing: error)))
             }
 
+        case .subscribed:
+            // A bridge that just connected has no idea how the panel's
+            // switch is set, and a bridge restarted after the person turned
+            // speech on for long answers would go back to pointing at the
+            // hyper bar until the switch was touched again.
+            model.onEvent?(model.preferenceEvent)
+
         case .ended:
             break
 
