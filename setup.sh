@@ -846,6 +846,12 @@ cat > "$HOME/.claude/d1-config.sh" << D1CONFIG
 PERSONAL_CONTEXT_DIR="$PC_DIR"
 PUBLIC_CONTEXT_DIR="$CC_DIR"
 CONTEXT_OWNER="$USER_NAME"
+
+# Where this kit's own checkout lives, so kit-autopush.sh can push fixes to it
+# without anybody remembering to. It falls back to the repo path in
+# ~/.chewbacca/install-manifest.json, so moving the checkout and re-running
+# setup is enough; this line is the override for a second checkout.
+CHEWBACCA_REPO_DIR="$SCRIPT_DIR"
 D1CONFIG
 log "Hook config written to ~/.claude/d1-config.sh"
 
