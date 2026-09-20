@@ -729,6 +729,34 @@ def test_long_answer_switch(m) -> None:
     check("a pointer sentence no longer ends the spoken part", "1861" in said and "750,000" in said, said)
 
 
+def test_read_aloud_skips_the_pointer(m) -> None:
+    """The panel's read-aloud button starts at the answer, not at the
+    sentence that pointed at the panel."""
+    recap = ("All the info on the Civil War is ready for you in the hyper bar.\n\n"
+             "The war ran from 1861 to 1865.\n\nRoughly 750,000 people died.")
+    check("the pointer paragraph goes",
+          m.without_pointer(recap) == "The war ran from 1861 to 1865.\n\nRoughly 750,000 people died.",
+          repr(m.without_pointer(recap)))
+    mixed = "Short version: it was about slavery. The full recap is in the hyper bar.\n\nIt ran from 1861 to 1865."
+    check("only the pointing sentence goes",
+          m.without_pointer(mixed) == "Short version: it was about slavery.\n\nIt ran from 1861 to 1865.",
+          repr(m.without_pointer(mixed)))
+    plain = "Paris.\n\nIt has been the capital since 987."
+    check("an answer with no pointer is untouched", m.without_pointer(plain) == plain)
+    body = "The hyper bar is the pill at the bottom.\n\nClick it to open the conversation."
+    check("the first sentence naming it is still a pointer, the rest stays",
+          m.without_pointer(body) == "Click it to open the conversation.", repr(m.without_pointer(body)))
+    only = "The rest is in the hyper bar."
+    check("a pointer with nothing after it is read as it is", m.without_pointer(only) == only)
+
+    listener = m.Listener("claude -p", False, False)
+    said: list[str] = []
+    listener.speak = said.append
+    listener.handle("e say turn text=" + json.dumps(recap))
+    check("the button reads the answer only",
+          said == ["The war ran from 1861 to 1865. Roughly 750,000 people died."], f"got {said}")
+
+
 def test_hyper_bar(m) -> None:
     """A long answer is written for the hyper bar and the voice says only
     the sentence that points there."""
@@ -1198,6 +1226,8 @@ def main() -> int:
     test_hyper_bar(module)
     print("the long-answer switch")
     test_long_answer_switch(module)
+    print("read aloud skips the pointer")
+    test_read_aloud_skips_the_pointer(module)
     print("the lean profile")
     test_agent_flags(module)
     test_lean_prompt(module)
