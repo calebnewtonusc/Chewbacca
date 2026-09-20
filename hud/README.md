@@ -1,0 +1,227 @@
+# Bob HUD
+
+A layer of glass over your whole screen that an AI agent can draw on.
+
+Not a window. Not a browser. One transparent, click-through panel covering the
+display, rendering native SwiftUI, that an agent writes to over a Unix socket
+while you keep working underneath it.
+
+```bash
+printf '@ hi at=topRight\nc s Screen title="HELLO"\nr s\n' | nc -U ~/.bob/hud.sock
+```
+
+## Why this exists
+
+Every generative UI system renders to HTML, because HTML is what a model already
+knows how to emit and what a browser already knows how to draw. That choice
+decides everything downstream: your generated interface lives in a tab, so it
+cannot float over your work, cannot mark a region of your screen, cannot show you
+a real PDF, and cannot be glanced at while you do something else.
+
+Render the same stream as native views and all of that becomes possible. There is
+no bundle, no WebView, no page. The model authors an interface and it appears on
+your screen, over whatever you were already doing.
+
+## What it can draw
+
+**Dashboards.** `Sparkline`, `Bars`, `Ring`, `Events`, `Metric`, `Table`,
+`Status`, laid out in stacks or a grid. No axes, no gridlines, no legends: the
+number is printed beside the shape, so the drawing carries the trend and the text
+carries the value. Metrics and rings colour themselves when a value crosses a
+threshold you gave them.
+
+**Diagrams.** A free-form vector vocabulary in a unit square: nodes, boxes,
+lines, arrows, circles, labels. It is the escape hatch for the case nobody
+anticipated, and it is geometry rather than code on purpose. Nothing in a diagram
+can execute, fetch, or escape, because none of it is a program.
+
+**Files.** `File path="~/Downloads/resume.pdf"` shows the actual document. PDFs
+render through the system's own PDF engine, images as images, text as text, and
+editable text writes back to that exact path.
+
+**Marks on the screen itself.** `m bug 420 260 380 90 label="This is the one
+failing"` draws corner brackets around a region of your display with a label. Not
+a panel near your work: a mark on it. Marks decay, because one that outlives what
+it described teaches you to disbelieve all of them.
+
+**Presence.** A ring in the corner and a field round the edge of the screen,
+with eight states between them, so you can tell whether it is listening,
+thinking, running something, finished or stuck without looking directly at it.
+Colour carries three of those and nothing else: white while it waits, green
+while it is doing something to your machine, red when that failed.
+
+**Live controls.** Buttons, fields, selects and checkboxes that write to the
+panel's own data model at once and send an event back up the socket, so they
+respond at typing speed whether or not an agent is still listening.
+
+## Surfaces are not windows
+
+```
+@ figure at=center chrome=bare
+```
+
+`chrome=bare` draws no panel at all. The content sits directly on your screen
+with a halo behind it for legibility. `bracket` puts corner marks around a region
+without covering it. `card` is frosted glass and the default.
+
+## Things change rather than being redrawn
+
+A surface outlives the connection that drew it, so addressing it again by name
+updates it in place, and anything you leave off is kept. Send a component with
+new numbers and it animates: a metric's digits roll, bars grow, and a diagram's
+nodes travel to their new positions rather than cutting.
+
+For anything that updates more than once, bind it and push data:
+
+```
+c d Diagram aspect=2.2 parts=@/graph
+d /graph [{"t":"node","x":0.2,"y":0.5,"label":"A"}]
+d /graph [{"t":"node","x":0.6,"y":0.5,"label":"A"}]
+```
+
+The second line moves the node. One line, no component re-sent.
+
+## Asking for something
+
+Two front doors, and both produce the same event, so whatever is listening
+handles them the same way.
+
+**Option-Space** opens a command bar: one line, centred, a third of the way down.
+It shows what the assistant can already see before you type a word, which is the
+point of it. Not Command-Space, which is Spotlight, and not Option-Command-Space,
+which hides the glass.
+
+**The globe key**, held, listens. Recognition is on-device and the microphone is
+off until you turn it on from the menu bar.
+
+Either way the display sends `h "what they asked for"` up the socket. It holds no
+model and no key: something else has to be listening and answer by drawing.
+
+`hud listen`, in the Chewbacca kit, is the loop that turns those events into
+drawings.
+
+## Taking your screen back
+
+Escape clears the glass. Option-Command-Space hides and shows it. `-` on its own
+does the same over the socket, so nothing needs a permission to put the display
+away: drawing on your screen should never be cheaper than clearing it.
+
+Panels and marks can also expire on their own with `life=`, and marks do by
+default, because an annotation that outlives what it described teaches you to
+disbelieve all of them.
+
+## The wire
+
+Every line is one op, and a line is either complete or invisible, so a
+half-written line never draws a half-built panel.
+
+```
+@ <surface> [at=region] [w=380] [urgency=alert] [chrome=bare] [life=60]
+c <id> <Type> prop=value ...
+> <parent> <child> ...
+d /pointer <json>
+r <id>
+- <surface>
+p <state> [amp=0.4]
+m <id> <x> <y> <w> <h> [label="..."] [tone=bad] [life=30]
+u [<id>]
+```
+
+Nothing paints until `r`. `c` and `>` may arrive in any order, so a child can be
+sent before its parent. Anything the renderer does not recognise is dropped
+rather than drawn wrong.
+
+## Is it any good
+
+The interfaces a model builds out of this catalog are tested, which is the part
+of generative UI nobody has been able to do. `eval/hud.eval.ts` runs seven
+scenarios three times each and measures not only whether the assertions pass but
+how much the answer *moves* between runs.
+
+That distinction is the whole point, and it earned its keep immediately. The
+diagram scenario passed every assertion — rendered three times out of three,
+used a `Diagram` three times out of three — and still failed, because its
+stability was 0.31. Three correct diagrams, three different diagrams, which is
+exactly what people mean when they say a generated interface destroys the
+familiarity they had built. An assertion-only harness reports that as three
+green runs.
+
+The cause was in the catalog, not the model: nothing said how to arrange a
+drawing. Given a convention, it went to 1.00 and the suite got roughly twice as
+fast, because a model that knows the arrangement stops inventing one.
+
+```
+7/7 scenarios pass, every one at stability 1.00
+```
+
+## Seeing it without a screen
+
+A heads-up display is the hardest kind of UI to review, because looking at it
+needs a machine somebody is sitting at, unlocked, with the right things already
+behind it. `SnapshotTests` removes all of that: `ImageRenderer` turns each
+surface into pixels, so the interface is reviewable from a terminal or a build
+server.
+
+Every surface is drawn twice, over a light page and a dark one, because the one
+thing this UI cannot control is what is behind it. The assertion is that a
+meaningful share of the pixels changed, which sounds crude and is the one that
+matters: a view rendering nothing is pixel-identical to its backdrop, and
+"renders nothing" is this project's favourite failure. A `matchedGeometryEffect`
+once blanked the entire display and was caught only because somebody happened to
+take a screenshot.
+
+```bash
+HUD_SNAPSHOT_DIR=/tmp/shots swift test   # keeps the PNGs
+```
+
+It found three things on its first run: markers whose visibility depended on an
+async task having fired, edges in a diagram that vanished into a page of black
+text, and a caption sitting inside the region it was supposed to be labelling.
+
+## Building it
+
+```bash
+swift build
+swift test          # 70 tests
+./scripts/bundle.sh # produces build/BobHUD.app
+```
+
+macOS 14 or later. No dependencies.
+
+## What it cannot do
+
+[1000 ways it falls short](docs/1000-WAYS-IT-FALLS-SHORT.md) is an audit of the
+working build: what you cannot do, what is wrong, and what is right by accident.
+Seven of the thousand are marked as deliberate with the reasoning given, because
+a list that cannot tell a decision from a defect is not an audit.
+
+What is left is filed as work in [the backlog](docs/BACKLOG.md) and tracked in
+`bd`. The audit stays as the record of what was wrong.
+
+The list is here rather than only in a tracker because a heads-up display fails
+quietly. It draws something, you glance at it, and you never find out what it
+left out.
+
+## Design notes
+
+The comments in `Sources/BobHUDKit` explain the reasoning rather than the syntax,
+and most of them exist because something was wrong first. A few worth knowing:
+
+- The window ignores mouse events by default and only becomes solid where a
+  surface actually is. Returning nil from `hitTest` passes clicks through but not
+  scroll, which silently ate every scroll on the display.
+- `NSHostingView` is a single `NSView`. SwiftUI creates no child views, so a
+  `hitTest` that compares against `self` cannot tell a button from a gap.
+- A `Canvas` cannot sample what is behind the window, so anything that needs to
+  be glass has to be a real view.
+- A `View` may conform to `Animatable`, which is what lets a diagram morph: the
+  canvas reads its coordinates out of `animatableData` and redraws along the path
+  between two drawings instead of cutting between them.
+- The socket accepts several clients at once. It used to read one connection to
+  completion before accepting the next, which meant that starting the loop that
+  lets you talk to the display stopped every other client from drawing on it,
+  with no error and no timeout.
+
+Part of [Bob the Builder](../README.md).
+
+All glory to God! ✝️❤️
