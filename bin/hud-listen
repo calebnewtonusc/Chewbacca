@@ -252,17 +252,23 @@ CLOSED = re.compile(r"(?m)hud close\s+(\S+)|^\s*-\s+(\S+)")
 # measured against a listener. HUD_FILLER_AFTER overrides it, for tuning
 # against a real listener without an edit.
 FILLER_AFTER = float(os.environ.get("HUD_FILLER_AFTER", "2.0"))
-# A question gets a looking filler, a task gets an okay. The model's own
-# acknowledgement is "On it." and its kin (hud-agent.md), so neither set
-# repeats those: "Okay. Texting Caleb you're late. On it." reads as a
-# person, "On it. On it." does not.
+# A question gets a looking filler, a task gets "On it." and its kin, the
+# same words the model opens a task with (hud-agent.md): "I'm tired of it
+# saying yes or ok" (2026-09-20). When the filler has already said it, a
+# bare acknowledgement arriving from the model is not said again, so the
+# person hears "On it." once and never "On it. On it."
 QUESTION_WORDS = frozenset({
     "what", "whats", "when", "whens", "who", "whos", "where", "wheres", "why",
     "how", "hows", "is", "are", "am", "was", "were", "do", "does", "did",
     "can", "could", "will", "would", "should", "which", "any", "have", "has",
 })
 QUESTION_FILLERS = ("Let me see.", "One sec.", "Let me look.")
-TASK_FILLERS = ("Okay.", "Sure.", "Yep.")
+TASK_FILLERS = ("On it.", "Right away.", "Doing it.")
+# A first sentence that is only an acknowledgement, in any of the model's
+# wordings, and so adds nothing after a filler.
+ACKNOWLEDGEMENT = re.compile(
+    r"(?:on it|on that|right away|doing (?:it|that|this)(?: now)?|working on it|handling it|getting (?:to|on) it|will do)[.!]?",
+    re.IGNORECASE)
 
 
 def pick_filler(said: str, last: str | None = None) -> str:
@@ -2274,6 +2280,10 @@ class Listener:
                     self.send(line)
                 for chunk in run.take_voice():
                     if not streaming:
+                        continue
+                    if not voiced and filled.is_set() and ACKNOWLEDGEMENT.fullmatch(chunk.strip()):
+                        # The filler already said it.
+                        self.log(f"[+{time.monotonic() - started:.1f}s] voice: {chunk.strip()} (already said)")
                         continue
                     with gate:
                         first = not voiced and not filled.is_set()
