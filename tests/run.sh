@@ -375,6 +375,11 @@ if group "installer"; then
   # inside the plugins section, so portable, the only non-macOS profile,
   # installed 57 commands and zero skills. The biggest piece of the kit was
   # missing from every Windows and Linux install.
+  # Every install starts on a machine with nothing on it, and that path had
+  # never been executed, so the dead end bootstrap's own header says was fixed
+  # was still there: "brew install node" printed to someone with no brew.
+  check  "a bare Mac gets no dead ends" bash "$ROOT/tests/bare_machine.sh"
+
   check  "the portable profile installs skills" bash -c '
     sandbox="$(mktemp -d)"
     HOME="$sandbox" bash "$1/setup.sh" --profile portable --name CI >/dev/null 2>&1
