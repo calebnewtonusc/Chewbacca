@@ -291,14 +291,24 @@ need to see it.
 ## Hearing them
 
 The display can listen. It is off until the person turns it on from the menu bar
-(hold the globe key to talk, or a wake word), and when it hears something it
-sends `h "what they said"` back up the socket.
+(hold the talk key, the globe by default, or a wake word), and when it hears
+something it sends `h "what they said"` back up the socket.
 
 What they said is drawn on the pill at the bottom of the screen first, in
 quotes, and held there for a second before `h` goes up, so pressing the key
-again takes it back instead of sending it. Two quick presses of the globe key
+again takes it back instead of sending it. Two quick presses of the talk key
 are the way out: the panel, the microphone, a run in flight, the voice and the
 glass all go, and `x` comes up the socket so `hud listen` stops talking.
+
+`hud listen` runs Claude Code under a lean profile by default: its own short
+system prompt (`bin/hud-agent.md`, which carries the `mac` usage), one tool,
+and none of the person's settings, with their permission mode and deny list
+passed back by hand. That is 15k tokens a turn against 237k, measured on one
+calendar question, and it is what makes a day of talking fit a subscription.
+`--profile full` runs it the way `claude -p` runs at a terminal. Every turn
+writes one `turn:` line to the log with where the time and the tokens went.
+The reply is read by `hud-speak` (Python) or, with `HUD_SPEAKER=hud-voice`,
+by the Swift server in `voice/`, which needs nothing installed.
 
 `hud listen` is the loop: it holds a connection open, and when something is said
 it asks a model to answer by drawing. Run it in the background of a session where

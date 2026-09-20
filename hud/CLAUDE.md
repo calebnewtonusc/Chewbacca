@@ -79,8 +79,9 @@ Take something down with `- <surface>` when the person is done with it.
 ## How a request reaches you
 
 You do not poll. A person asks for something by pressing Option-Space and typing,
-by holding the globe key and speaking, or by typing into the conversation panel,
-and the display sends it up the socket:
+by holding the talk key (the globe, or a right-hand modifier chosen from the
+menu) and speaking, or by typing into the conversation panel, and the display
+sends it up the socket:
 
 ```
 h "show me my week"
@@ -91,9 +92,15 @@ h "show me my week" via=typed
 read it aloud: they chose not to speak, usually because they cannot hear or be
 heard where they are.
 
-Two quick globe presses are the way out: the display closes the panel, shuts
-the microphone, sends `e stop run` for a run in flight and then `x`, and
-clears the glass. On `x`, stop talking and show nothing afterwards.
+Two quick presses of the talk key are the way out: the display closes the
+panel, shuts the microphone, sends `e stop run` for a run in flight and then
+`x`, and clears the glass. On `x`, stop talking and show nothing afterwards.
+
+The recogniser is handed the names in `~/.bob/names.txt` (written by `hud
+listen` from Messages and Contacts) and `~/.bob/vocabulary.txt` (the person's
+own, one word or phrase per line) on every press, so a name is heard as the
+name and not the nearest common word. A short tone plays when a press is
+heard, off from the menu.
 
 Stay connected to receive it. Answer by drawing, not by writing prose back down
 the socket: nothing reads prose there.
