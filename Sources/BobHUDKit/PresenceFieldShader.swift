@@ -197,6 +197,17 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
 
     float depth = rest * clamp(t / 0.45, 0.0, 1.0);
 
+    // Nothing is drawn deeper into the screen than the band reaches, and the
+    // band cannot reach past one and a half depths: the displacement below
+    // moves the free surface by at most 0.375 of a depth. Measured on
+    // 2026-09-19 on an M4 Pro at 5120x2880: the full pass cost 10.8 ms a
+    // frame, two thirds of a 60fps frame, almost all of it on pixels that
+    // came out empty, and the band stuttered under the pointer. Leaving here
+    // is what makes the noise below affordable.
+    if (depthAt(uv, W, MARGIN) - MARGIN > depth * 1.5 + 0.01) {
+        return half4(0.0);
+    }
+
     float born = smoothstep(0.0, 0.02, depth);
 
     // The band parts round the pointer so what is under it can be read. The
