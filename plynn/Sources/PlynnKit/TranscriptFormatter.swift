@@ -79,7 +79,7 @@ public actor TranscriptFormatter {
         if #available(macOS 26, *), let fm = appleFMBox as? AppleFMFormatter {
             return fm.ready ? nil : fm.availabilityDescription
         }
-        return "Apple Intelligence needs macOS 26 — polishing with the local model"
+        return "Apple Intelligence needs macOS 26, polishing with the local model"
     }
 
     /// Raw completion on whichever polish engine is live — the summarizer's
@@ -124,7 +124,7 @@ public actor TranscriptFormatter {
             try await llm.ensureLoaded()
         } catch {
             plog(
-                "plynn: POLISH UNAVAILABLE — could not load %@: %@. "
+                "plynn: POLISH UNAVAILABLE. Could not load %@: %@. "
                     + "Dictation will paste the raw transcript. "
                     + "If this is a 401, check `hf auth list` for an expired token.",
                 LLMFormatter.modelID, error.localizedDescription)
