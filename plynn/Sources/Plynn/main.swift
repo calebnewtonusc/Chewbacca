@@ -74,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let launchStartedAt = ContinuousClock.now
-        NSLog("plynn: starting; RSS %.0f MB; AX trusted: %d",
+        plog("plynn: starting; RSS %.0f MB; AX trusted: %d",
               Metrics.residentMB(), AXIsProcessTrusted() ? 1 : 0)
         setUpStatusItem()
 
@@ -89,7 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let missing = Self.missingPrerequisites(
             engineReady: engineManager.activeEngineReady)
         if let missing {
-            NSLog("plynn: not ready — %@", missing)
+            plog("plynn: not ready — %@", missing)
             showError(missing)
         }
         if !engineManager.activeEngineReady {
@@ -112,14 +112,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // compete for download bandwidth or memory pressure at launch).
         Task { [engineManager, formatter] in
             if await engineManager.warmActiveEngine() {
-                NSLog("plynn: [launch-to-ready %@] RSS %.0f MB",
+                plog("plynn: [launch-to-ready %@] RSS %.0f MB",
                       "\(launchStartedAt.duration(to: .now))", Metrics.residentMB())
             }
             await formatter.warmLLM()
-            NSLog("plynn: polish engine %@; RSS %.0f MB",
+            plog("plynn: polish engine %@; RSS %.0f MB",
                   await formatter.polishEngine ?? "none (rules only)", Metrics.residentMB())
             if let reason = await formatter.appleFMStatus {
-                NSLog("plynn: Apple Intelligence %@", reason)
+                plog("plynn: Apple Intelligence %@", reason)
             }
         }
 
@@ -128,7 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // pay twenty six seconds.
         Task { [chewieSession] in
             await chewieSession.start()
-            NSLog("plynn: chewie session %@", await chewieSession.isRunning ? "warm" : "unavailable")
+            plog("plynn: chewie session %@", await chewieSession.isRunning ? "warm" : "unavailable")
         }
 
         model.onTap = { [weak self] in self?.dispatch(.stopRequested) }
@@ -166,10 +166,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         secureWatcher.start()
 
         if !hotkey.start() {
-            NSLog("plynn: NO ACCESSIBILITY PERMISSION — grant in System Settings, then relaunch")
+            plog("plynn: NO ACCESSIBILITY PERMISSION — grant in System Settings, then relaunch")
         }
         if !chewieHotkey.start() {
-            NSLog("plynn: could not tap the Option key; Chewie will not answer")
+            plog("plynn: could not tap the Option key; Chewie will not answer")
         }
     }
 
@@ -288,12 +288,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // A reconfiguring device (FaceTime/Zoom grabbing the mic) can
                 // fail the first open; one retry after a beat usually catches
                 // the settled format.
-                NSLog("plynn: mic error \(error) — retrying")
+                plog("plynn: mic error \(error) — retrying")
                 usleep(250_000)
                 do {
                     try r.start()
                 } catch {
-                    NSLog("plynn: mic unavailable \(error)")
+                    plog("plynn: mic unavailable \(error)")
                     dispatch(.transcriptionFailed("Microphone unavailable"))
                 }
             }
@@ -308,7 +308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Feedback.play(.stop)
             startTranscribeWatchdog()
             lastCaptureSeconds = Double(samples.count) / 16_000
-            NSLog("plynn: captured %.1fs", lastCaptureSeconds)
+            plog("plynn: captured %.1fs", lastCaptureSeconds)
             let feedTask = feedTask
             let engine = sessionEngine
             let formatter = formatter
@@ -323,7 +323,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task {
                 await feedTask?.value  // all chunks fed, in order
                 if let transcriptionReleaseAt {
-                    NSLog("plynn: [fn-release-to-feed %@]",
+                    plog("plynn: [fn-release-to-feed %@]",
                           "\(transcriptionReleaseAt.duration(to: .now))")
                 }
                 let stillTranscribing = await MainActor.run {
@@ -346,7 +346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     return
                 }
                 if let transcriptionReleaseAt {
-                    NSLog("plynn: [fn-release-to-engine-finish %@] engine %@",
+                    plog("plynn: [fn-release-to-engine-finish %@] engine %@",
                           "\(transcriptionReleaseAt.duration(to: .now))", engine.displayName)
                 }
 
@@ -408,7 +408,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let transformed = await formatter.transform(
                         selection: selection, instruction: raw)
                     if let transcriptionReleaseAt {
-                        NSLog("plynn: [fn-release-to-format %@] mode command",
+                        plog("plynn: [fn-release-to-format %@] mode command",
                               "\(transcriptionReleaseAt.duration(to: .now))")
                     }
                     let canDeliver = await MainActor.run {
@@ -425,7 +425,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             // Cmd-V replaces the still-active selection.
                             self.dispatch(.transcriptReady(transformed))
                         } else {
-                            NSLog("plynn: command transform failed — selection untouched")
+                            plog("plynn: command transform failed — selection untouched")
                             Feedback.play(.failure)
                             self.dispatch(.transcriptReady(""))
                         }
@@ -439,7 +439,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     context: context.withFileCandidates(fileCandidates),
                     aiPolish: aiPolish)
                 if let transcriptionReleaseAt {
-                    NSLog("plynn: [fn-release-to-format %@] ai-polish %d",
+                    plog("plynn: [fn-release-to-format %@] ai-polish %d",
                           "\(transcriptionReleaseAt.duration(to: .now))", aiPolish ? 1 : 0)
                 }
                 // The watchdog may have already given up on this session;
@@ -452,7 +452,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await MainActor.run {
                     self.pendingPressEnter = result.pressEnter
                     if result.text != result.verbatim {
-                        NSLog("plynn: formatting changed transcript")
+                        plog("plynn: formatting changed transcript")
                     }
                     if !result.text.isEmpty {
                         try? self.store?.record(
@@ -509,7 +509,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 text,
                 onComplete: { [releaseTime] in
                     guard let releaseTime else { return }
-                    NSLog("plynn: [fn-release-to-paste %@] RSS %.0f MB",
+                    plog("plynn: [fn-release-to-paste %@] RSS %.0f MB",
                           "\(releaseTime.duration(to: .now))", Metrics.residentMB())
                 },
                 onFailure: { [weak self, releaseTime] result in
@@ -610,7 +610,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 do {
                     answer = try await chewieSession.ask(prompt)
                 } catch {
-                    NSLog("plynn: warm chewie failed (%@), running cold",
+                    plog("plynn: warm chewie failed (%@), running cold",
                           error.localizedDescription)
                     answer = try await ChewieRouter.ask(prompt)
                 }
@@ -618,7 +618,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Claude is the default and the local model is the fallback,
                 // not the other way round. It only runs when Claude could not:
                 // missing binary, non-zero exit, or the watchdog killed it.
-                NSLog("plynn: chewie failed (%@), trying the local model",
+                plog("plynn: chewie failed (%@), trying the local model",
                       error.localizedDescription)
                 guard let local = await formatter.complete(
                     ChewieRouter.localFallbackPrompt(prompt))
@@ -664,7 +664,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pendingPressEnter = false
         model.partial = text
         if let releaseTime {
-            NSLog("plynn: [fn-release-to-copy %@] RSS %.0f MB",
+            plog("plynn: [fn-release-to-copy %@] RSS %.0f MB",
                   "\(releaseTime.duration(to: .now))", Metrics.residentMB())
         }
         showError(result == .copiedToClipboard ? "Copied — press ⌘V" : "Paste failed")
@@ -706,14 +706,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in self?.model.push(levels: points) }
         }
         recorder.onFailure = { [weak self] error in
-            NSLog("plynn: meeting stream failed: \(error)")
+            plog("plynn: meeting stream failed: \(error)")
             Task { @MainActor in self?.dispatch(.stopRequested) }
         }
         Task {
             do {
                 try await recorder.start()
             } catch {
-                NSLog("plynn: meeting could not start: \(error)")
+                plog("plynn: meeting could not start: \(error)")
                 await MainActor.run {
                     self.model.phase = .micUnavailable
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
@@ -796,7 +796,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? store.writeMarkdownFile(
                 title: title, startedAt: started, notes: body,
                 transcript: transcript.plainText)
-            NSLog("plynn: meeting %lld saved (%@)", id, notes == nil ? "summary pending" : "notes ready")
+            plog("plynn: meeting %lld saved (%@)", id, notes == nil ? "summary pending" : "notes ready")
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { [weak self] in
@@ -846,7 +846,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     try? store.addTerm(
                         text: fix.corrected, aliases: [fix.heard.lowercased()])
                 }
-                NSLog("plynn: learned dictionary correction")
+                plog("plynn: learned dictionary correction")
             }
         }
     }
@@ -901,7 +901,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(for: Self.transcribeDeadline)
             guard !Task.isCancelled, let self, self.session.state == .transcribing
             else { return }
-            NSLog("plynn: transcription stalled past %@ — resetting session",
+            plog("plynn: transcription stalled past %@ — resetting session",
                   "\(Self.transcribeDeadline)")
             dispatch(.escape)  // .transcribing → .cancelled
             dispatch(.transcriptionFailed("Transcription timed out"))  // .cancelled → .idle

@@ -145,12 +145,12 @@ public final class EngineManager {
                     try await engine.start()
                     return WarmOutcome.loaded
                 } catch {
-                    NSLog("plynn: engine warm failed (%@): %@", engine.displayName, String(describing: error))
+                    plog("plynn: engine warm failed (%@): %@", engine.displayName, String(describing: error))
                     return WarmOutcome.failed
                 }
             }
             if result == nil {
-                NSLog("plynn: engine warm timed out (%@) after %.1fs", engine.displayName, timeout)
+                plog("plynn: engine warm timed out (%@) after %.1fs", engine.displayName, timeout)
             }
             let outcome = result ?? .timedOut
             // Settle the state INSIDE the task, before anyone can observe the
@@ -201,7 +201,7 @@ public final class EngineManager {
                 try await parakeet.start()
                 loaded = true
             } catch {
-                NSLog("plynn: Parakeet download/warm failed: %@", String(describing: error))
+                plog("plynn: Parakeet download/warm failed: %@", String(describing: error))
             }
             poll.cancel()
             await MainActor.run { [weak self] in
