@@ -16,11 +16,11 @@ Chewbacca reads the screen and its own memory and picks.
 
 ## Destinations, to start
 
-| Destination | What arrives there                                             | How                                                                                                                        |
-| ----------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `terminal` | a drafted prompt, placed in the Claude Code input and never submitted by Chewbacca | the assistant drafts it, `chewie terminal draft` pastes it into the tab running `claude`, the person presses Return or says send |
-| `browser`   | a search or a URL opened in the person's real Chrome           | `open -a "Google Chrome" <url>`; page reading stays with the assistant, which already gets the page URL from `hud-context` |
-| `assistant` | the existing voice agent with `mac` tools                      | unchanged path, now with memory in its context                                                                             |
+| Destination | What arrives there                                                                 | How                                                                                                                              |
+| ----------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `terminal`  | a drafted prompt, placed in the Claude Code input and never submitted by Chewbacca | the assistant drafts it, `chewie terminal draft` pastes it into the tab running `claude`, the person presses Return or says send |
+| `browser`   | a search or a URL opened in the person's real Chrome                               | `open -a "Google Chrome" <url>`; page reading stays with the assistant, which already gets the page URL from `hud-context`       |
+| `assistant` | the existing voice agent with `mac` tools                                          | unchanged path, now with memory in its context                                                                                   |
 
 Other apps are added later by adding a row, not by changing the router.
 
@@ -39,8 +39,8 @@ Three tiers, cheapest first. Stop at the first that decides.
 **Tier 1, correction.** If the sentence is a correction of the previous
 decision and the previous decision is under fifteen seconds old: "no, the
 terminal", "no, to you", "no, chrome", "other one". Re-route the previous
-utterance. If it already went to the terminal it was submitted and cannot be
-recalled; say so instead.
+utterance. If it went to the terminal, the draft is cleared first: nothing was
+submitted, so nothing is lost.
 
 **Tier 2, rules.** In order:
 
@@ -219,18 +219,18 @@ show nothing new.
 
 ## Changes by file
 
-| File                               | Change                                                                                                                              |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `bin/lib/route.py`                 | new: the router, pure                                                                                                               |
-| `bin/hud-listen` | call the router in `handle()` before dispatch; tag terminal-bound turns; the outstanding-draft words; write memory; drive the pill line |
-| `mac/lib/terminal.py` | new: tab discovery, ensure, draft, submit, clear |
-| `mac/bin/chewie` | new verb `terminal {tabs,ensure,draft,submit,clear}` |
-| `bin/hud-agent.md` | the drafting rules, the memory line, never submit |
-| `hud/Sources/BobHUDKit/Pill.swift` | only if the existing line op cannot hold a transient message; expected no change                                                    |
-| `tests/test_route.py`              | the routing table                                                                                                                   |
-| `tests/test_memory.py`             | round-trip and rotation                                                                                                             |
-| `tests/test_terminal.py` | tab discovery and tab choice against a fixture; paste, submit and clear are manual and opt-in because they open a window |
-| `docs/VOICE-DESIGN.md`             | a section on routing, with the thresholds and why                                                                                   |
+| File                               | Change                                                                                                                                  |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `bin/lib/route.py`                 | new: the router, pure                                                                                                                   |
+| `bin/hud-listen`                   | call the router in `handle()` before dispatch; tag terminal-bound turns; the outstanding-draft words; write memory; drive the pill line |
+| `mac/lib/terminal.py`              | new: tab discovery, ensure, draft, submit, clear                                                                                        |
+| `mac/bin/chewie`                   | new verb `terminal {tabs,ensure,draft,submit,clear}`                                                                                    |
+| `bin/hud-agent.md`                 | the drafting rules, the memory line, never submit                                                                                       |
+| `hud/Sources/BobHUDKit/Pill.swift` | only if the existing line op cannot hold a transient message; expected no change                                                        |
+| `tests/test_route.py`              | the routing table                                                                                                                       |
+| `tests/test_memory.py`             | round-trip and rotation                                                                                                                 |
+| `tests/test_terminal.py`           | tab discovery and tab choice against a fixture; paste, submit and clear are manual and opt-in because they open a window                |
+| `docs/VOICE-DESIGN.md`             | a section on routing, with the thresholds and why                                                                                       |
 
 ## Error handling
 
@@ -243,8 +243,8 @@ show nothing new.
   `reason: "classifier timeout"`.
 - Memory unwritable: log and continue; routing degrades to rules plus
   frontmost app, which is most of the value anyway.
-- Secure Input on: irrelevant to `do script`; relevant only to the fallback
-  typing path, where `chewie type` already warns.
+- Secure Input on: `draft` and `clear` refuse with exit 2 and name the holder;
+  `ensure` is unaffected because `do script` is not a keystroke.
 
 ## Constants, and what set them
 
