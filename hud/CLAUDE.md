@@ -99,8 +99,8 @@ panel, shuts the microphone, sends `e stop run` for a run in flight and then
 The recogniser is handed the names in `~/.bob/names.txt` (written by `hud
 listen` from Messages and Contacts) and `~/.bob/vocabulary.txt` (the person's
 own, one word or phrase per line) on every press, so a name is heard as the
-name and not the nearest common word. A short tone plays when a press is
-heard, off from the menu.
+name and not the nearest common word. "Sound when heard" in the menu adds a
+short tone on release, off by default.
 
 Stay connected to receive it. Answer by drawing, not by writing prose back down
 the socket: nothing reads prose there.
