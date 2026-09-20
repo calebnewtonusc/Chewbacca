@@ -259,7 +259,9 @@ hud-music status                 # which players are ready, and why not
 Spotify plays by name once its keys are in `~/.bob/spotify.json`
 (`hud-music setup`, which asks for the client id and secret of a free
 developer app from developer.spotify.com/dashboard; no Premium, no login).
-Without them, Spotify opens with the search on screen, one tap from playing.
+Without them, Deezer, Wikidata and MusicBrainz find the Spotify URI for
+anything well known, a second or two; a name they have never heard of opens
+in Spotify's search on screen, one tap from playing.
 "On YouTube" plays the first result through `ffplay` with no window, a few
 seconds in, and so does any request when Spotify is not installed. "Stop" on
 its own pauses the music when the voice is idle; "stop the music" always does.
