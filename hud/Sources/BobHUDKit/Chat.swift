@@ -360,7 +360,7 @@ struct ChatPanel: View {
                 Text(greeting)
                     .font(.system(size: 20, weight: .semibold, design: .rounded))
                     .foregroundStyle(HUD.ink)
-                Text("Hold the globe key and speak, or type below. Anything on your Mac, or anything at all.")
+                Text("Hold \(PushKey.chosen.title) and speak, or type below. Anything on your Mac, or anything at all.")
                     .font(.system(size: 12))
                     .foregroundStyle(HUD.faint)
                     .fixedSize(horizontal: false, vertical: true)
