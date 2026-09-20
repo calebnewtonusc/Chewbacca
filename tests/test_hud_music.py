@@ -123,6 +123,15 @@ def main() -> int:
             "next song": ("next", "", ""),
             "go back a song": ("previous", "", ""),
             "play that again": ("again", "", ""),
+            # Said at 15:10 on 2026-09-20; the model spent 64 s on it.
+            "Shuffle the album here comes the cowboy by Mac DeMarco": ("play", "here comes the cowboy by mac demarco", "album"),
+            "play mac demarco on shuffle": ("play", "mac demarco", ""),
+            "shuffle fred again": ("play", "fred again", ""),
+            "shuffle": ("shuffle", "", ""),
+            "shuffle it": ("shuffle", "", ""),
+            "put it on shuffle": ("shuffle", "", ""),
+            "turn off shuffle": ("shuffle", "", ""),
+            "shuffle the music": ("shuffle", "", ""),
             "stop the music": ("stop", "", ""),
             "turn the music off": ("stop", "", ""),
             "what's playing": ("now", "", ""),
@@ -147,6 +156,11 @@ def main() -> int:
             else:
                 check(f"{said!r} is not music", command is None, str(command))
         check("a query drops the by", music.Command("play", what="blinding lights by the weeknd").query == "blinding lights the weeknd")
+        for said, shuffle in {"shuffle the album blonde": "on", "play blonde on shuffle": "on", "play blonde shuffled": "on", "play blonde": "",
+                              "shuffle": "on", "turn off shuffle": "off", "shuffle off": "off", "stop shuffling": "off", "turn shuffle on": "on"}.items():
+            command = music.parse(said)
+            level = command.shuffle if command.verb == "play" else command.level
+            check(f"{said!r} shuffle is {shuffle or 'not said'}", level == shuffle, str(command))
         for said, what in {"play something chill": "chill", "play the new kendrick": "the new kendrick", "play that song from barbie": "that song from barbie"}.items():
             command = music.parse(said)
             check(f"{said!r} is a search like any other", command is not None and command.verb == "play" and command.what == what, str(command))
@@ -325,6 +339,10 @@ def main() -> int:
         out = music.perform(music.parse("play something chill"))
         check("a playlist plays as one", out.ok and out.line == "Playing the playlist Something chill." and 'spotify play track "spotify:playlist:2DS9f2LPCPXriE16flYJxR"' in calls, f"{out} {calls}")
         calls.clear()
+        out = music.perform(music.parse("shuffle the album blonde"))
+        check("shuffle turns shuffling on before the album starts",
+              out.ok and out.line == "Shuffling the album Blonde by Frank Ocean." and calls[-2:] == ["spotify set shuffling to true", 'spotify play track "spotify:album:3mH6qwIy9crq0I9YQbOuDf"'], f"{out} {calls}")
+        calls.clear()
         out = music.perform(music.parse("play nothing at all"))
         check("a page with nothing playable falls to the open sources, then the search on screen",
               out.ok and out.unsure and calls[0] == "web nothing at all" and "deezer tracks nothing at all" in calls and "open spotify search nothing at all" in calls, f"{out} {calls}")
@@ -365,6 +383,10 @@ def main() -> int:
         calls.clear()
         state["spotify"] = "playing"
         check("pause goes to Spotify", music.perform(music.Command("pause")).line == "Paused." and calls == ["spotify pause"], str(calls))
+        calls.clear()
+        check("shuffle on its own is Spotify's switch", music.perform(music.Command("shuffle", level="on")).line == "Shuffle on." and calls == ["spotify set shuffling to true"], str(calls))
+        calls.clear()
+        check("and off", music.perform(music.Command("shuffle", level="off")).line == "Shuffle off." and calls == ["spotify set shuffling to false"], str(calls))
         calls.clear()
         out = music.perform(music.Command("next"))
         check("next says what is next", out.ok and out.line == "Next: Blinding Lights by The Weeknd." and calls == ["spotify next track"], f"{out} {calls}")

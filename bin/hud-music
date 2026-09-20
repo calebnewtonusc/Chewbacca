@@ -2,7 +2,7 @@
 """Play music by name, at once.
 
     hud-music play "<song, artist or album>"     find it and play it
-    hud-music pause | resume | next | previous | again | stop
+    hud-music pause | resume | next | previous | again | stop | shuffle [on|off]
     hud-music volume [<0-100> | up | down]
     hud-music now                                what is playing, in a sentence
     hud-music status                             which players are ready, and why not
@@ -118,6 +118,9 @@ class Command:
     level: str = ""
     # "spotify", "youtube" or "music" when they said where, else "".
     platform: str = ""
+    # "on" when they said shuffle ("shuffle the album X", "play X on
+    # shuffle", or "shuffle" by itself), "off" when they said to stop.
+    shuffle: str = ""
     # Play the best guess even when the open sources are not sure of it.
     anyway: bool = False
     # Report an unsure guess rather than opening the search on screen; the
@@ -165,6 +168,7 @@ TRAIL = re.compile(
     r"\s+(?:please|for me|for us|now|thanks|thank you|while (?:we|i) work|while (?:we|i)'?re? (?:work|working)"
     r"|in the background|for a (?:bit|while|sec|second|minute)|real quick|right now)$")
 PLATFORM = re.compile(r"\s+(?:on|in|from|through|off) (?P<platform>spotify|youtube|apple music|music)$")
+ON_SHUFFLE = re.compile(r"\s+(?:on|with) shuffle$|\s+shuffled$")
 
 PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("pause", re.compile(r"pause(?: (?:the |this |that )?(?:music|song|it|that|this|playback))?|hold the music")),
@@ -183,11 +187,17 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         r"|(?:volume|music|sound) (?P<dir2>up|down)|(?P<word>louder|quieter|softer)"
         r"|(?:set (?:the )?)?volume(?: to)? (?P<n>\d{1,3})(?: percent)?"
         r"|(?:make it|turn it) (?:way |a bit |a little )?(?P<dir3>up|down)")),
+    # "Shuffle the album Here Comes the Cowboy by Mac DeMarco" went to the
+    # model on 2026-09-20 and took 64 s; the word is a verb here now.
+    ("shuffle", re.compile(
+        r"(?:turn |switch |put )?(?:on )?shuffle(?: (?:it|this|that|them|the music|the album|the playlist|the queue|mode))?(?: on)?"
+        r"|put (?:it|this|the music) on shuffle|start shuffling"
+        r"|(?P<off>(?:turn|switch) (?:off )?shuffle(?: off)?|shuffle off|stop shuffling|unshuffle(?: it)?|no shuffle)")),
     ("now", re.compile(
         r"what'?s (?:this|playing|this song|the song|on|that)|what is (?:this|playing|this song|that)"
         r"|what song is (?:this|playing|that)|who (?:is this|sings this|is singing|is that)"
         r"|what am i listening to|name this song|what's the name of this song")),
-    ("play", re.compile(r"(?:play|put on|throw on|start playing|queue up|listen to|i want to hear|let's hear|lets hear) (?P<what>.+)")),
+    ("play", re.compile(r"(?:play|put on|throw on|start playing|queue up|listen to|i want to hear|let's hear|lets hear|(?P<shuffle>shuffle)) (?P<what>.+)")),
 ]
 # A named thing that means "whatever": these are a resume, not a search.
 NOTHING_NAMED = {"music", "something", "anything", "a song", "songs", "some music", "some songs", "it", "stuff", "some stuff"}
@@ -216,9 +226,14 @@ def parse(said: str) -> Command | None:
             if not direction:
                 direction = "up" if groups.get("word") == "louder" else "down"
             return Command("volume", level=direction)
+        if verb == "shuffle":
+            return Command("shuffle", level="off" if match.group("off") else "on")
         if verb != "play":
             return Command(verb)
         what = match.group("what")
+        shuffle = "on" if match.group("shuffle") else ""
+        if ON_SHUFFLE.search(what):
+            what, shuffle = ON_SHUFFLE.sub("", what), "on"
         platform = ""
         where = PLATFORM.search(what)
         if where:
@@ -229,7 +244,7 @@ def parse(said: str) -> Command | None:
             return None
         what = re.sub(r"^(?:some |something |a bit of |a little |a little bit of )", "", what)
         if what in NOTHING_NAMED:
-            return Command("resume", platform=platform)
+            return Command("shuffle", level="on") if shuffle else Command("resume", platform=platform)
         want = ""
         album = re.fullmatch(r"(?:the |an? )?album (.+)", what)
         artist = re.fullmatch(r"(?:songs |music |stuff |tracks |anything |something )?(?:by|from) (.+)", what)
@@ -240,7 +255,7 @@ def parse(said: str) -> Command | None:
             what, want = artist.group(1), "artist"
         elif track:
             what = track.group(1)
-        return Command("play", what=what.strip(), want=want, platform=platform)
+        return Command("play", what=what.strip(), want=want, platform=platform, shuffle=shuffle)
     return None
 
 
@@ -946,10 +961,13 @@ def spotify_tell(script: str) -> str:
     return ""
 
 
-def spotify_play(pick: Pick) -> str:
+def spotify_play(pick: Pick, shuffle: bool = False) -> str:
     stop_youtube()
+    if shuffle:
+        # Before the play, so the first song is a random one too.
+        spotify_tell("set shuffling to true")
     spotify_tell(f'play track "{quoted(pick.uri)}"')
-    line = f"Playing {pick.title}"
+    line = f"{'Shuffling' if shuffle else 'Playing'} {pick.title}"
     # "Fred again.." already ends the sentence.
     return line if line.endswith(".") else line + "."
 
@@ -1145,7 +1163,7 @@ def play(command: Command) -> Outcome:
             try:
                 pick = choose(command.query, spotify_search(command.query), command.want)
                 if pick:
-                    return Outcome(True, spotify_play(pick))
+                    return Outcome(True, spotify_play(pick, command.shuffle == "on"))
                 reasons.append(f"nothing on Spotify called {command.what}")
             except PlayerError as error:
                 reasons.append(str(error))
@@ -1160,7 +1178,7 @@ def play(command: Command) -> Outcome:
                 # search; "album after hours by the weeknd" is the song.
                 pick = spotify_web_top(command.query + " album" if command.want == "album" else command.what)
                 if pick:
-                    return Outcome(True, spotify_play(pick))
+                    return Outcome(True, spotify_play(pick, command.shuffle == "on"))
                 reasons.append(f"Spotify's search shows nothing for {command.what}")
             except PlayerError as error:
                 reasons.append(str(error))
@@ -1169,7 +1187,7 @@ def play(command: Command) -> Outcome:
             except PlayerError as error:
                 reasons.append(str(error))
             if pick and (pick.fit >= SURE_MATCH or command.anyway):
-                return Outcome(True, spotify_play(pick))
+                return Outcome(True, spotify_play(pick, command.shuffle == "on"))
             if pick:
                 reasons.append(f"the closest the open sources had was {pick.title}")
             else:
@@ -1266,6 +1284,20 @@ def skip(direction: str) -> Outcome:
     return Outcome(False, "Nothing's playing.")
 
 
+def shuffle(level: str) -> Outcome:
+    on = level != "off"
+    player = active_player()
+    if player == "youtube":
+        return Outcome(False, "That's a single from YouTube, there's nothing to shuffle. Name an album or an artist.")
+    if player == "spotify" or (player is None and (running("Spotify") or SPOTIFY_APP.exists())):
+        spotify_tell(f"set shuffling to {'true' if on else 'false'}")
+        return Outcome(True, "Shuffle on." if on else "Shuffle off.")
+    if player == "music":
+        osascript(f'tell application "Music" to set shuffle enabled to {"true" if on else "false"}')
+        return Outcome(True, "Shuffle on." if on else "Shuffle off.")
+    return Outcome(False, "Nothing's playing.")
+
+
 def again() -> Outcome:
     player = active_player()
     if player == "spotify":
@@ -1330,6 +1362,8 @@ def perform(command: Command) -> Outcome:
             return skip(command.verb)
         if command.verb == "again":
             return again()
+        if command.verb == "shuffle":
+            return shuffle(command.level)
         if command.verb == "volume":
             return volume(command.level)
         if command.verb == "now":

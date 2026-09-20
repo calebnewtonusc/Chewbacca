@@ -250,7 +250,7 @@ waits on the model. `bin/hud-music` is the same code as a command:
 
 ```bash
 hud-music play "fred again"      # Spotify by name, or YouTube audio without keys
-hud-music pause | resume | next | previous | again | stop
+hud-music pause | resume | next | previous | again | stop | shuffle
 hud-music volume up              # or down, or a number
 hud-music now                    # what is on, in a sentence
 hud-music status                 # which players are ready, and why not
