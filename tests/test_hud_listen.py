@@ -857,6 +857,10 @@ def test_route_end_to_end() -> None:
         os.environ,
         BOB_HUD_SOCKET=path, HUD_NAMES="off", HUD_ROUTE="on",
         BOB_MEMORY_DIR=os.path.join(directory, "mem"),
+        # A temp file, empty: decide() reads NAMES through read_names(), and
+        # without this override it reads the developer's real
+        # ~/.bob/names.txt during the test.
+        BOB_NAMES=os.path.join(directory, "names.txt"),
         HUD_OPEN_CMD=f"sh -c 'echo \"$0\" >> {opened}'",
         HUD_TERMINAL_CMD="sh -c 'echo []'",
         HUD_CLASSIFY_CMD="off",
@@ -1121,6 +1125,12 @@ def test_routing(m) -> None:
     m.ROUTE = True
     m.OPEN_CMD = shlex.split(f"sh -c 'echo \"$0\" >> {opened}'")
     m.TERMINAL_CMD = shlex.split("sh -c 'echo []'")
+    # decide() reads NAMES through read_names(); pointed at a temp file with
+    # nothing in it so this never touches the developer's real
+    # ~/.bob/names.txt, where a contact whose first name lands in a
+    # sentence's first six words would flip an assertion and look like a
+    # router bug.
+    m.NAMES = Path(mem) / "names.txt"
     os.environ["HUD_CLASSIFY_CMD"] = "off"
     listener = m.Listener("claude -p", False, False)
     sent: list[str] = []
@@ -1193,13 +1203,17 @@ def test_draft_words(m) -> None:
     m.voice_memory.TRANSCRIPT = Path(mem) / "transcript.jsonl"
     m.voice_memory.PROJECT = Path(mem) / "project.json"
     m.voice_memory.DRAFT = Path(mem) / "draft.json"
+    m.NAMES = Path(mem) / "names.txt"
     log = os.path.join(mem, "terminal.log")
-    m.TERMINAL_CMD = ["sh", "-c", f'echo "$0" >> {log}']
+    # "$0 $*" so the log shows the tty argv, not just the verb: the tty the
+    # draft recorded has to reach `chewie terminal submit`/`clear`, not
+    # whatever tab is currently front-and-selected.
+    m.TERMINAL_CMD = ["sh", "-c", f'echo "$0 $*" >> {log}']
     m.ROUTE = True
     listener = m.Listener("claude -p", False, False)
     sent: list[str] = []
     listener.send = sent.append  # type: ignore[method-assign]
-    asked: list[str] = []
+    asked: list[tuple[str, str | None]] = []
     listener._drain = lambda: None  # type: ignore[method-assign]
 
     check("no draft: 'send it' is not consumed", not listener.handle_draft_word("send it"))
@@ -1209,7 +1223,8 @@ def test_draft_words(m) -> None:
     Path(mem, "draft.json").write_text(json.dumps({"tty": "/dev/ttys002", "text": "add a retry", "t": now}))
     check("with a draft: 'send it' is consumed", listener.handle_draft_word("send it"))
     time.sleep(0.5)
-    check("submit ran", Path(log).exists() and "submit" in Path(log).read_text())
+    check("submit ran on the draft's tty",
+          Path(log).exists() and "submit --tty /dev/ttys002" in Path(log).read_text(), Path(log).read_text())
     check("the pill said sent", any(line.startswith('s "sent') for line in sent), str(sent))
     entry = m.voice_memory.last()
     check("the transcript marks it submitted", entry and entry.get("submitted") is True, str(entry))
@@ -1218,15 +1233,36 @@ def test_draft_words(m) -> None:
     Path(log).unlink()
     check("'scrap that' is consumed", listener.handle_draft_word("scrap that"))
     time.sleep(0.5)
-    check("clear ran", "clear" in Path(log).read_text())
+    check("clear ran on the draft's tty", "clear --tty /dev/ttys002" in Path(log).read_text(), Path(log).read_text())
 
+    # The re-route source is the sentence the person actually said, not the
+    # drafted paragraph: append a terminal-bound transcript line where the
+    # two differ, so a fix that reads the wrong one is caught.
     Path(mem, "draft.json").write_text(json.dumps({"tty": "/dev/ttys002", "text": "add a retry", "t": now}))
     Path(log).unlink()
+    m.voice_memory.append({
+        "t": now, "via": "voice", "text": "build me a signaler", "dest": "terminal",
+        "draft": "add a retry",
+    })
     listener.ask = lambda said, typed=False, dest=None: asked.append((said, dest))  # type: ignore[method-assign]
     check("'no, to you' is consumed", listener.handle_draft_word("no, to you"))
     time.sleep(0.5)
-    check("re-route clears the draft", "clear" in Path(log).read_text())
-    check("re-route asks the assistant with the draft's text", asked == [("add a retry", "assistant")], str(asked))
+    check("re-route clears the draft on its tty", "clear --tty /dev/ttys002" in Path(log).read_text(), Path(log).read_text())
+    check("re-route asks the assistant with what was said, not the draft",
+          asked == [("build me a signaler", "assistant")], str(asked))
+
+    # A failed clear on the re-route path is reported, not papered over: the
+    # draft is still sitting in the input and the person has to be told.
+    Path(mem, "draft.json").write_text(json.dumps({"tty": "/dev/ttys002", "text": "add a retry", "t": now}))
+    m.TERMINAL_CMD = ["sh", "-c", "exit 1"]
+    sent.clear()
+    asked.clear()
+    check("'no, to you' is consumed even when the clear fails", listener.handle_draft_word("no, to you"))
+    time.sleep(0.5)
+    check("a failed clear says so, not 'okay, to me'",
+          any(line == 's "couldn\'t clear the draft, to me"' for line in sent), str(sent))
+    check("the sentence still reaches the assistant on a failed clear",
+          asked == [("build me a signaler", "assistant")], str(asked))
 
 
 def main() -> int:
