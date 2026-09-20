@@ -1,0 +1,363 @@
+#!/usr/bin/env python3
+"""The voice assistant's memory, both ways.
+
+`hud-listen` answers what is said to the screen with a lean Claude Code
+session: its own short system prompt, one tool, none of the person's
+settings, because those settings carry a 75k-token briefing into every turn
+(measured 2026-09-20). The cost of the lean profile was that the voice knew
+nothing about the person it was talking to, and nothing it was asked reached
+anywhere else: a Claude Code session could not see a question asked out loud
+a minute earlier. Asked for on 2026-09-20: "make sure this application is
+connected to chewbacca and has all the current up to date information, vice
+versa ... make a superassistant folder within chewbacca so it can store all
+the questions asked".
+
+Two halves:
+
+  in   `agent_prompt` appends a digest of the second brain (the
+       PERSONAL_CONTEXT_DIR from ~/.claude/d1-config.sh: YOU.md, NOW.md,
+       PEOPLE.md and the memory index) to the voice assistant's prompt, and
+       rewrites it whenever those files change, so the next request carries
+       the current state and an unchanged prompt keeps its cache.
+  out  `record` appends every request and its written answer to
+       superassistant/questions.jsonl in the Chewbacca checkout. The
+       session-context hook reads the last few into every Claude Code
+       session, and this CLI searches all of it.
+
+    superassistant recent [N] [--line] [--json]   the last N questions, oldest first
+    superassistant search <text> [--json]         questions or answers with the text
+    superassistant today [--json]                 today's questions
+    superassistant context                        the digest the voice assistant gets
+    superassistant prompt                         the whole prompt it gets
+    superassistant path                           where the log is
+
+The log is personal and gitignored. SUPERASSISTANT_DIR moves it.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+import time
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+STORE = Path(os.environ.get("SUPERASSISTANT_DIR") or REPO / "superassistant")
+LOG = STORE / "questions.jsonl"
+CONFIG = Path.home() / ".claude" / "d1-config.sh"
+AGENT_PROMPT = Path(__file__).resolve().parent / "hud-agent.md"
+PROMPT_OUT = Path.home() / ".bob" / "agent-prompt.md"
+
+# Caps on what the digest carries, in lines. The lean profile reads 6k to
+# 12k tokens a turn (measured 2026-09-20); the whole brain is 42k characters,
+# about 10k tokens, which would double that on every turn. These hold the
+# digest near 3k tokens: the identity, all of NOW.md, the names, and the
+# memory index, with every file itself one `cat` away.
+IDENTITY_LINES = 12
+NOW_LINES = 90
+PEOPLE_LINES = 30
+MEMORY_LINES = 25
+# How much of a question or an answer one line of `recent` shows.
+LINE_WIDTH = 100
+
+# Template scaffolding and bookkeeping lines the brain files carry, which
+# say nothing to the voice: the session-context hook drops the same ones.
+NOISE = re.compile(
+    r"^(?:[-*+]\s*\.{2,}\s*$"
+    r"|\|(?:\s*\.{2,}\s*\|)+\s*$"
+    r"|\|[\s:|-]+\|\s*$"
+    r"|-{3,}$|\*{3,}$|_{3,}$"
+    r"|<!--.*?-->$"
+    r"|>?\s*_?(?:TODO|TBD)_?\s*$"
+    r"|\*\*Updated:\*\*.*$"
+    r"|\*\*Update trigger:\*\*.*$"
+    r"|\s*$)",
+    re.S,
+)
+TEMPLATE_TOKEN = re.compile(
+    r"YOUR_[A-Z_]{2,}|PROJECT_NAME|\{name\}|<your[- ]|Auto-updated by Claude", re.I
+)
+
+
+def config_value(name: str) -> str:
+    """A value from the environment, or from setup.sh's d1-config.sh."""
+    value = os.environ.get(name, "")
+    if value:
+        return value
+    try:
+        text = CONFIG.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    match = re.search(rf'^(?:export\s+)?{name}=(?:"([^"]*)"|\'([^\']*)\'|(\S*))\s*$', text, re.M)
+    if not match:
+        return ""
+    return next(group for group in match.groups() if group is not None)
+
+
+def brain_dir() -> Path | None:
+    """The second brain, if setup.sh wired one."""
+    path = config_value("PERSONAL_CONTEXT_DIR")
+    if not path:
+        return None
+    brain = Path(path).expanduser()
+    return brain if brain.is_dir() else None
+
+
+def owner() -> str:
+    return config_value("CONTEXT_OWNER") or "The person"
+
+
+def is_noise(line: str) -> bool:
+    return bool(NOISE.match(line) or TEMPLATE_TOKEN.search(line))
+
+
+def useful(path: Path, cap: int) -> list[str]:
+    """The lines of a brain file worth a token, up to `cap`."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    kept = [line.rstrip() for line in raw.splitlines() if not is_noise(line.strip())]
+    # The title line repeats the file name; the digest has its own headings,
+    # and the file's own sit one level under them.
+    if kept and kept[0].startswith("# "):
+        kept = kept[1:]
+    kept = ["#" + line if line.startswith("#") else line for line in kept]
+    return kept[:cap]
+
+
+def section(path: Path, heading: str, cap: int) -> list[str]:
+    """The lines under one `## heading`, up to the next `##`."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    out: list[str] = []
+    inside = False
+    for line in raw.splitlines():
+        if line.startswith("## "):
+            if inside:
+                break
+            inside = line[3:].strip().lower().startswith(heading.lower())
+            continue
+        if inside and not is_noise(line.strip()):
+            out.append(line.rstrip())
+    return out[:cap]
+
+
+def people(path: Path, cap: int) -> list[str]:
+    """One line a person from PEOPLE.md's tables: the cells, joined."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    out: list[str] = []
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|") or is_noise(stripped):
+            continue
+        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+        cells = [cell for cell in cells if cell]
+        if not cells or cells[0].lower() in ("name", "who"):
+            continue
+        out.append("- " + ", ".join(cells)[:160])
+    return out[:cap]
+
+
+def memory_index(brain: Path, cap: int) -> list[str]:
+    """The MEMORY.md index: one pointer a memory. The index's own dash is
+    replaced, because a dash is read aloud as a pause that means nothing."""
+    try:
+        raw = (brain / "memory" / "MEMORY.md").read_text(encoding="utf-8")
+    except OSError:
+        return []
+    dash = " " + chr(0x2014) + " "
+    lines = [line.strip().replace(dash, ": ") for line in raw.splitlines() if line.startswith("- ")]
+    return lines[:cap]
+
+
+def digest(brain: Path | None = None, log: Path | None = None) -> str:
+    """What the voice assistant is told about the person, from the brain."""
+    brain = brain or brain_dir()
+    log = log or LOG
+    name = owner()
+    out = ["# Who you are talking to", ""]
+    if brain is None:
+        out.append(
+            f"{name}. No second brain is wired on this Mac (setup.sh writes "
+            "PERSONAL_CONTEXT_DIR to ~/.claude/d1-config.sh), so ask rather than assume."
+        )
+    else:
+        out.append(
+            f"{name}. What follows is from their second brain at {brain}: their own "
+            "files, kept current by them and by their Claude Code sessions. Their words "
+            "in a request beat any line here; when a line here is stale, say so rather "
+            "than argue from it."
+        )
+        identity = section(brain / "YOU.md", "Identity", IDENTITY_LINES)
+        if identity:
+            out += ["", "## Identity", *identity]
+        now = useful(brain / "NOW.md", NOW_LINES)
+        if now:
+            out += ["", "## Now: jobs, projects, priorities, what is broken (NOW.md, the current state; it wins over anything older)", *now]
+        who = people(brain / "PEOPLE.md", PEOPLE_LINES)
+        if who:
+            out += ["", f"## People (the rest is in {brain / 'PEOPLE.md'}; read it before texting or mailing anyone)", *who]
+        memories = memory_index(brain, MEMORY_LINES)
+        if memories:
+            out += ["", f"## Memory (one fact a file in {brain / 'memory'}; this is the index, `cat` the file for the whole memory)", *memories]
+        out += [
+            "",
+            "## The rest of the brain",
+            f"SCHOOL.md in {brain} is the term, the courses and the AI policy per course, but never state a "
+            "deadline you did not read: run `coursework due --days 14 --json` or `coursework today`. "
+            "SYSTEM.md is the tools and hooks on this Mac, STACK.md the technologies they build with. "
+            "`cat` the file before answering anything about their life, work, people or school.",
+        ]
+    out += [
+        "",
+        "## What they have asked you",
+        f"Every request and your written answer is kept at {log}, newest last. "
+        "`superassistant recent 10` lists the last ten, `superassistant search <text>` finds "
+        "one, `superassistant today` is today's. \"What did I ask you yesterday\" and \"what "
+        "did you tell me about X\" are answered from there, not from memory.",
+    ]
+    return "\n".join(out).rstrip() + "\n"
+
+
+def agent_prompt(base: Path = AGENT_PROMPT, out: Path = PROMPT_OUT) -> Path:
+    """The prompt file for the voice assistant: `base` plus the digest.
+
+    Written only when the text changed, so an unchanged prompt keeps its
+    modification time and its cache. Returns `base` itself when nothing
+    could be written: a prompt without the digest is a worse assistant,
+    and a prompt that cannot be read at all is none.
+    """
+    try:
+        text = base.read_text(encoding="utf-8").rstrip() + "\n\n" + digest()
+    except OSError:
+        return base
+    try:
+        if out.exists() and out.read_text(encoding="utf-8") == text:
+            return out
+        out.parent.mkdir(parents=True, exist_ok=True)
+        temp = out.with_name(out.name + ".tmp")
+        temp.write_text(text, encoding="utf-8")
+        temp.replace(out)
+        return out
+    except OSError:
+        return base
+
+
+def record(entry: dict, log: Path | None = None) -> bool:
+    """Append one question and its answer. Never raises."""
+    log = log or LOG
+    row = dict(entry)
+    row.setdefault("at", time.strftime("%Y-%m-%dT%H:%M:%S%z"))
+    try:
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with log.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except (OSError, TypeError, ValueError):
+        return False
+    return True
+
+
+def entries(log: Path | None = None) -> list[dict]:
+    """Every question in the log, oldest first; a bad line is skipped."""
+    log = log or LOG
+    try:
+        raw = log.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    out: list[dict] = []
+    for line in raw.splitlines():
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict) and isinstance(row.get("said"), str):
+            out.append(row)
+    return out
+
+
+def recent(count: int, log: Path | None = None) -> list[dict]:
+    return entries(log)[-count:] if count > 0 else []
+
+
+def search(text: str, log: Path | None = None) -> list[dict]:
+    needle = text.lower()
+    return [
+        row for row in entries(log)
+        if needle in row["said"].lower() or needle in str(row.get("answer", "")).lower()
+    ]
+
+
+def today(log: Path | None = None) -> list[dict]:
+    day = time.strftime("%Y-%m-%d")
+    return [row for row in entries(log) if str(row.get("at", "")).startswith(day)]
+
+
+def clip(text: str, width: int = LINE_WIDTH) -> str:
+    flat = " ".join(text.split())
+    return flat if len(flat) <= width else flat[: width - 1].rstrip() + "…"
+
+
+def line(row: dict, brief: bool = False) -> str:
+    """One question on one line: when, how, what, and what came back."""
+    when = str(row.get("at", ""))[:16].replace("T", " ")
+    if brief:
+        return f"{when} {clip(row['said'])}"
+    how = "typed" if row.get("typed") else "spoken"
+    answer = str(row.get("answer") or "").strip().splitlines()
+    first = clip(answer[0], 80) if answer else "(no answer)"
+    return f"{when}  {how:6}  {clip(row['said'])}\n{'':26}{first}"
+
+
+def emit(rows: list[dict], as_json: bool, brief: bool = False) -> None:
+    for row in rows:
+        print(json.dumps(row, ensure_ascii=False) if as_json else line(row, brief))
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="superassistant", description=__doc__.split("\n\n")[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+    recent_cmd = sub.add_parser("recent", help="the last N questions, oldest first")
+    recent_cmd.add_argument("count", nargs="?", type=int, default=10)
+    recent_cmd.add_argument("--json", action="store_true")
+    recent_cmd.add_argument("--line", action="store_true", help="one short line a question")
+    search_cmd = sub.add_parser("search", help="questions or answers containing the text")
+    search_cmd.add_argument("text")
+    search_cmd.add_argument("--json", action="store_true")
+    today_cmd = sub.add_parser("today", help="today's questions")
+    today_cmd.add_argument("--json", action="store_true")
+    sub.add_parser("context", help="the digest the voice assistant gets")
+    sub.add_parser("prompt", help="the whole prompt the voice assistant gets")
+    sub.add_parser("path", help="where the log is")
+    args = parser.parse_args(argv)
+
+    if args.command == "recent":
+        emit(recent(args.count), args.json, args.line)
+        return 0
+    if args.command == "search":
+        rows = search(args.text)
+        emit(rows, args.json)
+        return 0 if rows else 1
+    if args.command == "today":
+        emit(today(), args.json)
+        return 0
+    if args.command == "context":
+        sys.stdout.write(digest())
+        return 0
+    if args.command == "prompt":
+        sys.stdout.write(agent_prompt().read_text(encoding="utf-8"))
+        return 0
+    print(LOG)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

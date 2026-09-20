@@ -69,6 +69,21 @@ click that opens it. The read-aloud button on an answer in the panel starts
 at the answer: the pointer sentence is taken off the front first, because
 whoever pressed it has already found the hyper bar.
 
+## Connected to the brain, both ways
+
+The lean profile that makes the voice affordable also cut it off: none of the
+person's settings means none of the session briefing, so the voice knew
+nothing about who it was talking to, and nothing it was asked went anywhere.
+`bin/superassistant` closes both halves. Before every run the bridge rebuilds
+the prompt from `hud-agent.md` plus a digest of the second brain (identity,
+all of NOW.md, the people, the memory index, and a map of the rest with the
+rule to read the file before answering), rewritten only when those files
+change. After every run the request and its written answer are appended to
+`superassistant/questions.jsonl`, which the session-context hook reads back
+into every Claude Code session and `superassistant recent` and `search`
+query. Asked for on 2026-09-20: "make sure this application is connected to
+chewbacca and has all the current up to date information, vice versa".
+
 It is the person's call, not the bridge's. The panel's header has a switch,
 "Speech off for long answers", on by default and kept across launches. Off,
 the display sends `e prefer voice long=spoken`, the bridge withholds nothing

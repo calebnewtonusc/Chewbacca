@@ -130,6 +130,9 @@ when clicked: every request and every answer of the session, selectable, with a
 field to type the next request. A long answer, a summary or a recap, is not
 read aloud at all: the voice says one line, "All the info on the Civil War is
 ready for you in the hyper bar", and the answer is written here for reading.
+The voice knows the person: `hud-listen` appends a digest of the second brain
+to its prompt before every run, and keeps every question and answer in
+`superassistant/questions.jsonl` (see `superassistant/README.md`).
 The panel's header has the switch for that, "Speech off for long answers", on
 by default; off, every answer is read out in full. The display sends it to
 whoever is listening as `e prefer voice long=written|spoken`, on every change

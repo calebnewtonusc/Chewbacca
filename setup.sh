@@ -666,7 +666,7 @@ unset _tool _installed_scanners
 # hud calls the others by path, so installing one alone gives a command that
 # fails halfway.
 _installed_hud=""
-for _tool in hud hud-listen hud-context hud-watch hud-speak; do
+for _tool in hud hud-listen hud-context hud-watch hud-speak superassistant; do
   if [ -f "$SCRIPT_DIR/bin/$_tool" ]; then
     link_tool "$_tool"
     _installed_hud="$_installed_hud $_tool"

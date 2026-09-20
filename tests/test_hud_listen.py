@@ -74,6 +74,11 @@ def load():
     # The script has no .py extension, so the loader has to be named: without
     # one, spec_from_file_location returns None and the failure points at
     # module_from_spec rather than at the missing suffix.
+    # The bridge keeps every request in the superassistant log, and the
+    # tests run whole requests: they must not land in the real one. Set
+    # here, not in main(), because pytest loads through the fixture.
+    import tempfile
+    os.environ.setdefault("SUPERASSISTANT_DIR", tempfile.mkdtemp(prefix="superassistant-test-"))
     spec = importlib.util.spec_from_file_location(
         "hud_listen", BIN, loader=SourceFileLoader("hud_listen", str(BIN))
     )
@@ -331,7 +336,7 @@ def test_speak_kokoro(m) -> None:
     speaker.stdin.lines.clear()
     listener.handle('e say turn text="Two things.\\n\\n- **Origin Story** is due Tuesday"')
     check("the read-aloud button speaks the answer as prose, Markdown stripped",
-          speaker.stdin.lines == ['{"say": "Two things.\\n\\nOrigin Story is due Tuesday"}\n'],
+          speaker.stdin.lines == ['{"say": "Two things. Origin Story is due Tuesday"}\n'],
           f"got {speaker.stdin.lines}")
     listener.handle("e say turn")
     listener.handle('e say turn text=""')
@@ -650,13 +655,13 @@ def test_translate_deltas(m) -> None:
     lines = run.translate(delta("more or less.\n\n- one thing\n- and another one"), 0.3)
     voice = run.take_voice()
     check("markdown is not read aloud, and a short line waits for the next",
-          voice == ["It has been since 987, more or less.", "one thing and another one"]
-          or voice == ["It has been since 987, more or less.", "one thing"], f"got {voice}")
+          voice == ["It has been since 987, more or less."], f"got {voice}")
     lines += run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": full}]}}, 0.4)
     lines += run.translate(stop, 0.5)
     check("the block event closes the answer without a subtitle",
           lines[-1] == "w " + json.dumps(full) and not any(l.startswith("s ") for l in lines), f"got {lines}")
-    check("nothing is said twice", run.take_voice() in ([], ["and another one"]))
+    check("the held lines are said once, together, at the close",
+          run.take_voice() == ["one thing and another one"])
     check("the answer is the block", run.answer() == full)
 
     # No deltas at all: a model command that does not stream partial messages.
@@ -727,6 +732,39 @@ def test_long_answer_switch(m) -> None:
     run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": recap}]}}, 0.2)
     said = " ".join(run.take_voice())
     check("a pointer sentence no longer ends the spoken part", "1861" in said and "750,000" in said, said)
+
+
+def test_remember(m) -> None:
+    """Every request and its answer reach the superassistant log, and the
+    prompt the agent is given carries the brain digest."""
+    import tempfile
+    module = m.superassistant()
+    check("the superassistant module loads next to the bridge", module is not None)
+    with tempfile.TemporaryDirectory() as tmp:
+        log = Path(tmp) / "questions.jsonl"
+        kept, module.LOG = module.LOG, log
+        try:
+            listener = m.Listener("claude -p", False, False)
+            listener.aside = True
+            req = m.Request(said="what is due this week", spoken_at=time.monotonic(), pointed=None)
+            listener.remember(req, "Two things.\n\nANTH reading and the SPAN quiz.", True, "done")
+            listener.remember(m.Request(said="never mind", spoken_at=time.monotonic(), pointed=None, typed=True),
+                              "", False, "cancelled")
+            rows = module.entries(log)
+        finally:
+            module.LOG = kept
+    check("two questions, in order", [r["said"] for r in rows] == ["what is due this week", "never mind"],
+          f"got {rows}")
+    check("the answer, the outcome and the session travel with it",
+          rows[0]["answer"].startswith("Two things.") and rows[0]["outcome"] == "done"
+          and rows[0]["aside"] and rows[0]["session"] == listener.session and "at" in rows[0])
+    check("a typed cancel is kept as one", rows[1]["typed"] and rows[1]["outcome"] == "cancelled")
+    check("the agent is given the prompt with the digest",
+          listener.prompt_path.name == "agent-prompt.md"
+          and "--system-prompt-file" in listener.flags
+          and listener.flags[listener.flags.index("--system-prompt-file") + 1] == str(listener.prompt_path)
+          and "# Who you are talking to" in listener.prompt_path.read_text(),
+          f"got {listener.prompt_path} {listener.flags}")
 
 
 def test_read_aloud_skips_the_pointer(m) -> None:
@@ -1228,6 +1266,8 @@ def main() -> int:
     test_long_answer_switch(module)
     print("read aloud skips the pointer")
     test_read_aloud_skips_the_pointer(module)
+    print("the superassistant log")
+    test_remember(module)
     print("the lean profile")
     test_agent_flags(module)
     test_lean_prompt(module)
