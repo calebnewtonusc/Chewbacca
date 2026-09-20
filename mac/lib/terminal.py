@@ -102,9 +102,23 @@ def collapse(text: str) -> str:
 # Everything below talks to the machine. `osascript` and `run` are module
 # level so tests replace them.
 
+# Subprocess timeouts, seconds. Guessed, never measured: no hang or incident
+# set these, they exist so a stuck osascript/ps/lsof call fails loudly instead
+# of blocking chewie forever.
+OSASCRIPT_TIMEOUT = 15
+RUN_TIMEOUT = 15
+# secure-input.sh only reads one ioreg property, so it can be much tighter
+# than the general timeouts above. Also guessed, never measured.
+SECURE_INPUT_TIMEOUT = 5
+# ensure()'s poll cadence while it waits for the newly opened tab to start
+# claude. Guessed, never measured: fine-grained enough that a 10s default
+# deadline still gets ~20 checks, coarse enough not to hammer osascript.
+ENSURE_POLL_INTERVAL = 0.5
+
+
 def osascript(script: str, *args: str) -> str:
     result = subprocess.run(
-        ["osascript", "-e", script, *args], capture_output=True, text=True, timeout=15
+        ["osascript", "-e", script, *args], capture_output=True, text=True, timeout=OSASCRIPT_TIMEOUT
     )
     if result.returncode != 0:
         print(f"terminal: osascript failed: {result.stderr.strip()}", file=sys.stderr)
@@ -112,15 +126,15 @@ def osascript(script: str, *args: str) -> str:
     return result.stdout
 
 
-def run(argv: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(argv, capture_output=True, text=True, timeout=15)
+def run(argv: list[str], timeout: float = RUN_TIMEOUT) -> subprocess.CompletedProcess:
+    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
 
 
 def secure_input_holder() -> str | None:
     """The process name holding Secure Input, or None. Synthetic keystrokes
     and pastes are dropped with no error while it is on."""
     try:
-        result = subprocess.run([str(SECURE_INPUT)], capture_output=True, text=True, timeout=5)
+        result = run([str(SECURE_INPUT)], timeout=SECURE_INPUT_TIMEOUT)
     except (OSError, subprocess.TimeoutExpired):
         return None
     if result.returncode == 0:
@@ -253,7 +267,7 @@ def ensure(cwd: str | None, timeout: float = 10.0) -> dict:
                     "tty": tty, "cwd": folder, "name": Path(folder).name, "updated": now_iso(),
                 })
                 return {"tty": tty, "cwd": project["cwd"], "opened": True}
-        time.sleep(0.5)
+        time.sleep(ENSURE_POLL_INTERVAL)
     print(f"terminal: opened {tty} but claude did not start within {timeout:.0f}s", file=sys.stderr)
     raise SystemExit(1)
 
