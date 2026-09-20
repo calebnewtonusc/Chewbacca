@@ -54,6 +54,11 @@ public struct OverlaySurface: Identifiable, Equatable {
 public final class OverlayModel {
     public private(set) var surfaces: [OverlaySurface] = []
     public private(set) var revision = 0
+    /// Where the pointer is on the glass, in unit coordinates with a top-left
+    /// origin, or nil when it is nowhere the field cares about. Read by the
+    /// presence field alone, and deliberately not part of `revision`: a
+    /// pointer move must not replay every surface's spring.
+    public private(set) var pointer: CGPoint?
 
     /// Where events from any surface go.
     public var onEvent: ((OutboundEvent) -> Void)?
@@ -410,6 +415,27 @@ public final class OverlayModel {
             self.pill = PillState(queued: self.pill.queued)
             self.revision += 1
         }
+    }
+
+    /// Beyond this distance from the nearest edge, in screen heights, the
+    /// pointer is nobody's business: the deepest band (0.075) plus the
+    /// parting radius (0.16), rounded up.
+    public static let pointerReach: CGFloat = 0.26
+
+    /// The mouse moved. `unit` is where, in unit coordinates with a top-left
+    /// origin; `aspect` is the display's width over its height, so the
+    /// distance to a side edge can be measured in the same screen heights
+    /// the shader uses. Quantised to a thousandth of the screen so a pointer
+    /// that has not really moved does not wake the field, and nil across the
+    /// middle of the display, where the field draws nothing.
+    public func point(at unit: CGPoint?, aspect: CGFloat) {
+        let next: CGPoint? = unit.flatMap { p in
+            let near = min(p.x * aspect, (1 - p.x) * aspect, p.y, 1 - p.y)
+            guard near < Self.pointerReach else { return nil }
+            return CGPoint(x: (p.x * 1000).rounded() / 1000, y: (p.y * 1000).rounded() / 1000)
+        }
+        guard next != pointer else { return }
+        pointer = next
     }
 
     public func report(pillSize: CGSize) {

@@ -152,6 +152,39 @@ struct PresenceFrame: Equatable {
     var heard: Double
     /// Scales the whole layer's alpha, for the two states that pulse.
     var alpha: Double
+    /// Where the pointer is, in unit coordinates with a top-left origin, or
+    /// nil when it is nowhere near the edge. The band parts around it.
+    var pointer: CGPoint?
+}
+
+/// One number that follows another instead of jumping to it.
+///
+/// Every state change used to land in one frame: the band went from 0.039
+/// deep to 0.018 the instant the key went down, the contour field jumped
+/// when `drift` went from 0.5 to 3.2, and `acting` started its breath at
+/// whatever phase the clock happened to be on. Seen on 2026-09-19 as "its
+/// not clean and fluid transitioning". Exponential off real elapsed time
+/// rather than a per-frame constant, because the live rates run from 20 to
+/// 60fps and a fixed step per frame would take three times longer in one
+/// state than in another.
+struct Chase: Equatable {
+    var shown: Float
+    /// Time constant. 0.30s puts it about 95% of the way there in a second.
+    var tau: Float
+
+    mutating func step(toward target: Float, dt: Double) {
+        guard dt > 0, tau > 0 else {
+            shown = target
+            return
+        }
+        shown += (target - shown) * Float(1 - exp(-dt / Double(tau)))
+    }
+
+    /// Close enough to stop redrawing for. A thousandth is under one level
+    /// out of 255 on every channel this feeds.
+    func settled(at target: Float) -> Bool {
+        abs(shown - target) < 0.001
+    }
 }
 
 /// The layer itself.
@@ -165,6 +198,8 @@ struct PresenceField: View {
     let presence: Presence
     /// 0 to 1, only read in `.hearing`.
     let amplitude: Double
+    /// Unit coordinates, top-left origin, or nil when far from the edge.
+    let pointer: CGPoint?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.hudOffscreen) private var offscreen
@@ -221,7 +256,8 @@ struct PresenceField: View {
             closingAt: closingAt,
             popAt: popAt,
             heard: presence == .hearing ? min(max(amplitude, 0), 1) : 0,
-            alpha: pulsing && pulses < 2 ? 0.55 : 1.0)
+            alpha: pulsing && pulses < 2 ? 0.55 : 1.0,
+            pointer: pointer)
     }
 
     /// Arrival and departure, the only two transitions this layer treats as
@@ -310,7 +346,11 @@ private struct PresenceFieldSurface: NSViewRepresentable {
         // round the screen for good. Letting the clock run one more frame and
         // parking it from inside `draw` is the version that cannot miss.
         context.coordinator.parkWhenDrawn = paused
-        if !paused { view.isPaused = false }
+        // Every change starts the clock, including one into a still state:
+        // `done` now eases in from `acting` over a third of a second, and the
+        // pointer can part a parked band. The renderer parks it again from
+        // inside `draw` once nothing on screen is still moving.
+        view.isPaused = false
     }
 }
 
@@ -328,13 +368,21 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
         var tint: SIMD4<Float>
         var size: SIMD2<Float>
         var popAt: SIMD2<Float>
+        var pointer: SIMD2<Float>
         var time: Float
         var act: Float
         var closing: Float
         var rest: Float
-        var drift: Float
+        /// How far the contour field has travelled, integrated from the
+        /// eased drift, so a change of speed never moves the pattern.
+        var travel: Float
+        /// How much of the breath to take, 0 to 1.
         var pulse: Float
+        /// Where in the breath, in cycles, integrated from the eased rate.
+        var beat: Float
         var alpha: Float
+        /// How far the band has parted round the pointer, 0 to 1.
+        var part: Float
     }
 
     let device: MTLDevice?
@@ -360,6 +408,36 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
     /// in a second, which is slow enough to see and fast enough that a task
     /// finishing in under a second still shows its colour.
     private static let tintTau = 0.30
+
+    /// The rest of the state vector, each following its target the same way
+    /// the tint does. Depth and drift take a little longer than colour so a
+    /// state change reads as the liquid settling rather than switching; the
+    /// two-beat alpha pulse is quick so it still reads as a beat. All
+    /// guessed against the eye on 2026-09-19, never measured.
+    private var rest = Chase(shown: 0, tau: 0.35)
+    private var drift = Chase(shown: 0, tau: 0.50)
+    private var pulseRate = Chase(shown: 0, tau: 0.40)
+    private var pulseDepth = Chase(shown: 0, tau: 0.40)
+    private var alpha = Chase(shown: 1, tau: 0.12)
+    /// The voice. Attack is fast so a syllable lands, release slower so the
+    /// band does not flicker between them.
+    private var heard = Chase(shown: 0, tau: 0.04)
+    private var part = Chase(shown: 0, tau: 0.18)
+    /// Integrals of the eased drift and pulse rate, in the units the shader
+    /// multiplies by time. Wrapped on a long period for the same float
+    /// resolution reason `time` is.
+    private var travel: Double = 0
+    private var beat: Double = 0
+
+    /// How far from the band, in screen heights, the pointer starts to part
+    /// it, and the radius of the parting itself. 0.16 of a 982pt display is
+    /// about 157pt, which is a hand's width round the cursor. Guessed against
+    /// the eye on 2026-09-19, never measured. The shader's PART_RADIUS is the
+    /// same number and the two have to move together.
+    static let partRadius: Float = 0.16
+    /// How much more transparent the band goes while the pointer is in it.
+    /// Asked for as "10% more transparent" on 2026-09-19.
+    static let partFade: Float = 0.10
 
     var frame = PresenceFrame(
         style: Presence.dormant.field, awokeAt: nil, closingAt: nil,
@@ -418,41 +496,78 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
         let time = now.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 86_400)
         let act: Double = frame.awokeAt.map { max(now.timeIntervalSince($0), 0) } ?? 0
         let closing: Double = frame.closingAt.map { now.timeIntervalSince($0) } ?? -1
+        // Exponential, off real elapsed time rather than a per-frame constant:
+        // the four live rates in this file run from 20 to 60fps, and a fixed
+        // step per frame would make the same transition take three times
+        // longer in one state than in another.
+        // A gap longer than this is a parked view waking up, not a slow frame,
+        // and easing across it would replay the whole transition on the first
+        // frame after a hover. Half a second is well over the slowest live
+        // rate's 50ms and well under any pause.
+        let dt = min(lastDrawn.map { now.timeIntervalSince($0) } ?? 0, 0.5)
+        lastDrawn = now
+        let tintTarget = frame.style.tint
+        if dt <= 0 {
+            shownTint = tintTarget
+        } else {
+            let k = Float(1 - exp(-dt / Self.tintTau))
+            shownTint += (tintTarget - shownTint) * k
+        }
+
+        let style = frame.style
+        let W = Float(size.width / max(size.height, 1))
+        let partTarget = Self.parting(
+            pointer: frame.pointer, aspect: W, rest: Float(style.rest))
+        let heardTarget = Float(frame.heard)
+        // Release slower than attack, or the band shakes between syllables.
+        heard.tau = heardTarget > heard.shown ? 0.04 : 0.16
+
+        rest.step(toward: Float(style.rest), dt: dt)
+        drift.step(toward: Float(style.drift), dt: dt)
+        pulseRate.step(toward: Float(style.pulse), dt: dt)
+        pulseDepth.step(toward: style.pulse > 0 ? 1 : 0, dt: dt)
+        alpha.step(toward: Float(frame.alpha), dt: dt)
+        heard.step(toward: heardTarget, dt: dt)
+        part.step(toward: partTarget, dt: dt)
+        travel = (travel + Double(drift.shown) * dt).truncatingRemainder(dividingBy: 100_000)
+        beat = (beat + Double(pulseRate.shown) * dt).truncatingRemainder(dividingBy: 100_000)
+
+        let settled = rest.settled(at: Float(style.rest))
+            && drift.settled(at: Float(style.drift))
+            && pulseRate.settled(at: Float(style.pulse))
+            && pulseDepth.settled(at: style.pulse > 0 ? 1 : 0)
+            && alpha.settled(at: Float(frame.alpha))
+            && heard.settled(at: heardTarget)
+            && part.settled(at: partTarget)
+            && simd_length(shownTint - tintTarget) < 0.002
+            && frame.closingAt == nil
+        if !settled && frame.closingAt == nil {
+            // A still state's own rate is one frame a second, which would
+            // draw its arrival in three steps. Thirty is the slowest rate a
+            // transition reads as continuous at.
+            view.preferredFramesPerSecond = max(style.fps, 30)
+        }
+
         // The voice rides on top of the floor. 0.08 rather than the old 0.18,
         // because `rest` is now the visible depth rather than a number with
         // the screen edge buried in it, and 0.18 on top of a 0.022 floor is a
         // band that goes from a hairline to thicker than `attention` on one
         // loud syllable.
-        // Exponential, off real elapsed time rather than a per-frame constant:
-        // the four live rates in this file run from 20 to 60fps, and a fixed
-        // step per frame would make the same transition take three times
-        // longer in one state than in another.
-        let dt = lastDrawn.map { now.timeIntervalSince($0) } ?? 0
-        lastDrawn = now
-        let target = frame.style.tint
-        if parkWhenDrawn || dt <= 0 {
-            // A state that draws one frame and parks has nowhere to run the
-            // chase, so it takes its colour immediately. Same for reduce
-            // motion, which arrives here as the same flag.
-            shownTint = target
-        } else {
-            let k = Float(1 - exp(-dt / Self.tintTau))
-            shownTint += (target - shownTint) * k
-        }
-
-        let rest: Double = frame.style.rest + 0.08 * frame.heard
-
+        let pointer = frame.pointer ?? CGPoint(x: -10, y: -10)
         var uniforms = Uniforms(
             tint: shownTint,
             size: SIMD2(Float(size.width), Float(size.height)),
             popAt: SIMD2(Float(frame.popAt.x), Float(frame.popAt.y)),
+            pointer: SIMD2(Float(pointer.x), Float(pointer.y)),
             time: Float(time),
             act: Float(act),
             closing: Float(closing),
-            rest: Float(rest),
-            drift: Float(frame.style.drift),
-            pulse: Float(frame.style.pulse),
-            alpha: Float(frame.alpha))
+            rest: rest.shown + 0.08 * heard.shown,
+            travel: Float(travel),
+            pulse: pulseDepth.shown,
+            beat: Float(beat),
+            alpha: alpha.shown * (1 - Self.partFade * part.shown),
+            part: part.shown)
 
         encoder.setRenderPipelineState(pipeline)
         encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
@@ -461,6 +576,25 @@ final class PresenceFieldRenderer: NSObject, MTKViewDelegate {
         buffer.present(drawable)
         buffer.commit()
 
-        if parkWhenDrawn { view.isPaused = true }
+        // Park only once nothing is still on its way somewhere. Parking on
+        // the first frame of `done` would freeze the ease from `acting` at
+        // its first step, which is the jump this file was rewritten to remove.
+        if parkWhenDrawn && settled { view.isPaused = true }
+    }
+
+    /// How far the band should part for a pointer at `pointer`.
+    ///
+    /// 1 with the pointer inside the band, falling to 0 one parting radius
+    /// beyond its free surface, so the liquid starts to move as the cursor
+    /// approaches rather than the moment it crosses in. Distances are in
+    /// screen heights, which is what the shader measures depth in.
+    nonisolated static func parting(pointer: CGPoint?, aspect: Float, rest: Float) -> Float {
+        guard let pointer else { return 0 }
+        let x = Float(pointer.x), y = Float(pointer.y)
+        let near = min(x * aspect, (1 - x) * aspect, y, 1 - y)
+        let inner = rest + 0.02
+        let outer = rest + partRadius
+        let t = min(max((near - inner) / (outer - inner), 0), 1)
+        return 1 - t * t * (3 - 2 * t)
     }
 }
