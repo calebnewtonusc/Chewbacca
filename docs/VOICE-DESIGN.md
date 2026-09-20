@@ -65,7 +65,9 @@ The bridge makes the pointer mean it: a spoken sentence that names the hyper
 bar ends the spoken part of that block, and a long block that never pointed is
 cut at `SPOKEN_CAP` words with "The rest is in the hyper bar." said after it.
 The glass holds twenty seconds rather than ten after such a reply, for the
-click that opens it.
+click that opens it. The read-aloud button on an answer in the panel starts
+at the answer: the pointer sentence is taken off the front first, because
+whoever pressed it has already found the hyper bar.
 
 It is the person's call, not the bridge's. The panel's header has a switch,
 "Speech off for long answers", on by default and kept across launches. Off,

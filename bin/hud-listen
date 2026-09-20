@@ -468,6 +468,30 @@ def subtitle(text: str, limit: int = SUBTITLE_LIMIT) -> str:
     return line[: cut if cut > 0 else limit].rstrip(",;:") + "…"
 
 
+def without_pointer(text: str) -> str:
+    """The answer with its hyper bar pointer taken off the front.
+
+    The pointer is the one sentence written to be spoken instead of the
+    answer. The read-aloud button on the panel is pressed by someone who
+    has already opened the hyper bar, so for them it is the one sentence
+    with nothing in it. Asked for on 2026-09-20: "if the user does want to
+    listen and clicks the audio button at the bottom of the response the
+    assistant should start at the response content and not reply the line
+    'Its ready for you in the hyperbar'". Only the first paragraph is
+    looked at, because the answer itself may say the words.
+    """
+    parts = re.split(r"\n\s*\n", text.strip(), maxsplit=1)
+    sentences = SENTENCE_END.split(" ".join(parts[0].split()))
+    kept = [s for s in sentences if not HYPER_BAR.search(s)]
+    if len(kept) == len(sentences):
+        return text
+    lead = " ".join(kept)
+    rest = parts[1] if len(parts) > 1 else ""
+    if lead and rest:
+        return f"{lead}\n\n{rest}"
+    return lead or rest or text
+
+
 def spoken(text: str) -> str:
     """Prose for the voice: Markdown taken off, whitespace folded.
 
@@ -1327,7 +1351,7 @@ class Listener:
         return False
 
     def read_aloud(self, rest: str) -> None:
-        """Speak the text in an `e say` line's `text=` field, as written."""
+        """Speak the text in an `e say` line's `text=` field, minus its pointer."""
         marker = rest.find("text=")
         if marker < 0:
             return
@@ -1336,7 +1360,7 @@ class Listener:
         except json.JSONDecodeError:
             return
         if isinstance(text, str) and text.strip():
-            self.speak(spoken(text))
+            self.speak(spoken(without_pointer(text)))
 
     def speak(self, text: str) -> None:
         """Say the reply out loud, cutting off whatever was still being said.
