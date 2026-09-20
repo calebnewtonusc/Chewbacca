@@ -1943,10 +1943,11 @@ class Listener:
             if not path.exists():
                 return True
             time.sleep(self.ASK_POLL_S)
-        if not path.exists():
-            return True
         try:
             path.unlink()
+        except FileNotFoundError:
+            # The hook took it between the last look and this unlink.
+            return True
         except OSError as err:
             self.log("stale answer left behind:", err)
         return False
