@@ -55,7 +55,7 @@ c <id> <Type> prop=value ...
 d /pointer <json>
 r <id>
 - <surface>
-s "<text>"                         say one line on the pill under the panels
+s "<text>" [step=true]             say one line on the pill under the panels; step marks a tool call
 w "<text>" [done=true]             the written answer, whole, for the conversation panel
 q <n>                              how many requests are waiting
 listen                             ask to receive events on this connection
@@ -455,7 +455,12 @@ answer of the session, selectable, with a field to type the next one. A typed
 request comes up the socket as `h "<text>" via=typed` and is answered in
 writing. `w "<text>"` is the answer so far for that panel, the whole text each
 time rather than a delta, and `w "<text>" done=true` closes it; hud-listen
-sends these itself from what the model writes, one per sentence.
+sends these itself from what the model writes, one per sentence. The panel
+draws Markdown in full (lists, headings, quotes, tables, fenced code with a
+copy button), keeps each tool call (`s "<text>" step=true`, which hud-listen
+sends for every tool use) as a folded list of steps under the answer with how
+long it took, and gives each answer copy, read aloud and ask-again buttons.
+Read aloud comes up as `e say turn text="<answer>"` and hud-listen speaks it.
 
 Send `p acting` before the thing that takes time, not after. A state that
 arrives once the work is finished is a state nobody ever saw, and the colour

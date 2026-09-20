@@ -361,11 +361,14 @@ class Run:
         self.last_pulse = now
         return [f"p {self.state}"]
 
-    def say(self, phrase: str) -> list[str]:
+    def say(self, phrase: str, step: bool = False) -> list[str]:
+        """A line for the pill. `step` marks a tool call, which the panel
+        keeps on the answer as what was done to get it, apart from the
+        answer's own lines."""
         if not phrase or phrase == self.said:
             return []
         self.said = phrase
-        return ["s " + json.dumps(phrase)]
+        return ["s " + json.dumps(phrase) + (" step=true" if step else "")]
 
     def answer(self) -> str:
         """The written answer so far: every prose block, paragraph by paragraph."""
@@ -475,7 +478,7 @@ class Run:
                 elif btype == "tool_use":
                     self.state = "acting"
                     self.note_draw(block)
-                    out += self.say(breadcrumb(block))
+                    out += self.say(breadcrumb(block), step=True)
                     out += self.pulse(now, force=True)
         elif kind == "user":
             # A plain user turn has a string here; tool results are a list.
@@ -733,6 +736,11 @@ class Listener:
                 # otherwise hand "the user pressed stop on run" to the model
                 # as a fresh request.
                 self.stop()
+            elif action == "say":
+                # `e say turn text="<answer>"`: the read-aloud button on an
+                # answer in the conversation panel. Spoken here, not asked,
+                # because the words already exist.
+                self.read_aloud(component)
             else:
                 # A control was used. Same path: the press is a request in words.
                 self.ask(f"The user pressed {action} on {component}. Respond by updating the display.")
@@ -920,6 +928,18 @@ class Listener:
             self.voiced = True
             return True
         return False
+
+    def read_aloud(self, rest: str) -> None:
+        """Speak the text in an `e say` line's `text=` field, as written."""
+        marker = rest.find("text=")
+        if marker < 0:
+            return
+        try:
+            text, _ = json.JSONDecoder().raw_decode(rest[marker + len("text="):])
+        except json.JSONDecodeError:
+            return
+        if isinstance(text, str) and text.strip():
+            self.speak(spoken(text))
 
     def speak(self, text: str) -> None:
         """Say the reply out loud, cutting off whatever was still being said.

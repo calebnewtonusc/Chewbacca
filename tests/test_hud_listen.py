@@ -172,9 +172,9 @@ def test_translate_recorded_stream(m) -> None:
     def index(line: str) -> int:
         return lines.index(line) if line in lines else -1
 
-    first_crumb = index('s "Display current date and time"')
+    first_crumb = index('s "Display current date and time" step=true')
     acting = index("p acting")
-    second_crumb = index('s "Display OS type"')
+    second_crumb = index('s "Display OS type" step=true')
     reply = index('s "Building ship-ready work today. It\'s Saturday, September 19, 2026."')
     check("the first tool call is its description", first_crumb >= 0, f"got {lines}")
     check("acting follows the first breadcrumb", 0 <= first_crumb < acting, f"got {lines}")
@@ -204,7 +204,7 @@ def test_translate_recorded_stream(m) -> None:
     call = {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "mac calendar list", "description": "List today's events"}}]}}
     twice = run.translate(call, now=20.0) + run.translate(call, now=23.0)
     check("the same phrase twice is said once, pulsed twice",
-          twice == ['s "List today\'s events"', "p acting", "p acting"], f"got {twice}")
+          twice == ['s "List today\'s events" step=true', "p acting", "p acting"], f"got {twice}")
     child = dict(call, parent_tool_use_id="toolu_01")
     check("a subagent's calls are ignored", run.translate(child, now=30.0) == [])
     check("a thinking block says nothing",
@@ -322,6 +322,14 @@ def test_speak_kokoro(m) -> None:
     check("say and hush are one JSON object per line",
           speaker.stdin.lines == ['{"say": "Booked."}\n', '{"hush": true}\n'],
           f"got {speaker.stdin.lines}")
+    speaker.stdin.lines.clear()
+    listener.handle('e say turn text="Two things.\\n\\n- **Origin Story** is due Tuesday"')
+    check("the read-aloud button speaks the answer as prose, Markdown stripped",
+          speaker.stdin.lines == ['{"say": "Two things.\\n\\nOrigin Story is due Tuesday"}\n'],
+          f"got {speaker.stdin.lines}")
+    listener.handle("e say turn")
+    listener.handle('e say turn text=""')
+    check("a say with nothing to say is nothing", len(speaker.stdin.lines) == 1, f"got {speaker.stdin.lines}")
     speaker.stdin.broken = True
     listener.speak("Again.")
     check("a dead speaker means say, not silence",
