@@ -580,7 +580,7 @@ def test_end_to_end() -> None:
     check("it left the glass", received[-1] == "p dormant", f"got {received[-1:]}")
 
 
-def run_against(model: str, say: list, until, timeout: float = 40.0):
+def run_against(model: str, say: list, until, timeout: float = 40.0, name: str = "fake-model"):
     """Stand up a fake display, run the real script against `model` as its
     model command, and return (received, sent): (seconds after connecting,
     line) pairs, until `until(lines)` holds or `timeout` passes.
@@ -590,7 +590,7 @@ def run_against(model: str, say: list, until, timeout: float = 40.0):
     """
     directory = tempfile.mkdtemp()
     path = os.path.join(directory, "hud.sock")
-    fake = os.path.join(directory, "fake-model")
+    fake = os.path.join(directory, name)
     Path(fake).write_text(model, encoding="utf-8")
     os.chmod(fake, 0o755)
 
@@ -683,6 +683,41 @@ def test_queue_end_to_end() -> None:
     check("thinking was shown again for the second",
           "p thinking" in lines[first:second], f"got {lines[first:second]}")
     check("it ended by leaving", lines and lines[-1] == "p dormant", f"got {lines[-1:]}")
+
+
+# A stand-in for Claude Code over `--input-format stream-json`: one process,
+# one user message per turn on stdin, an init, a text and a result per turn.
+# It counts its launches so the test can see there was one.
+FAKE_CLAUDE = """#!/usr/bin/env python3
+import json, re, sys
+with open("LAUNCHES", "a") as f:
+    f.write("launch\\n")
+print(json.dumps({"type": "system", "subtype": "init"}), flush=True)
+for line in sys.stdin:
+    text = json.loads(line)["message"]["content"][0]["text"]
+    m = re.search(r"to their screen: '([^']*)'", text)
+    reply = "Here is " + m.group(1) if m else "ready"
+    print(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": reply}]}}), flush=True)
+    print(json.dumps({"type": "result", "subtype": "success", "result": reply}), flush=True)
+"""
+
+
+def test_one_model_process() -> None:
+    """Two spoken requests, and the warm-up before them, are three turns of
+    one Claude process, not three processes."""
+    launches = os.path.join(tempfile.mkdtemp(), "launches")
+    received, _ = run_against(
+        FAKE_CLAUDE.replace("LAUNCHES", launches),
+        [(0.0, 'h "first"'), (3.0, 'h "second"')],
+        lambda lines: 's "Here is second"' in lines and "p dormant" in lines,
+        name="claude",
+    )
+    lines = [line for _, line in received]
+    check("both requests were answered by the model",
+          's "Here is first"' in lines and 's "Here is second"' in lines, f"got {lines}")
+    count = len(Path(launches).read_text().splitlines()) if os.path.exists(launches) else 0
+    check("and it was one process for the warm-up and both", count == 1, f"launched {count} times")
+    check("every turn went through thinking", lines.count("p thinking") >= 2, f"got {lines}")
 
 
 def test_stop_end_to_end() -> None:

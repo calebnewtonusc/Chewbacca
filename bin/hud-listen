@@ -246,6 +246,10 @@ def breadcrumb(block: dict) -> str:
         return f"Looking up {inp.get('url') or inp.get('query') or 'the web'}"
     if name == "Skill" and inp.get("skill"):
         return f"Using the {inp['skill']} skill"
+    if name == "ToolSearch":
+        # Loading a tool's schema is plumbing, and "toolsearch" on the pill
+        # (seen 2026-09-19 during a weather request) is a word nobody said.
+        return ""
     if name.startswith("mcp__"):
         return name.split("__")[-1].replace("_", " ")
     return name.lower() or "working"
@@ -449,6 +453,10 @@ class Listener:
         # The model process in flight, so a stop from the glass has something
         # to signal. None between requests.
         self.proc: subprocess.Popen[str] | None = None
+        # The one Claude Code process for the session, kept between requests
+        # and fed each one as a stream-json turn. See `spawn`. Dead or None
+        # means the next request starts another and resumes the session.
+        self.model: subprocess.Popen[str] | None = None
         # The run stopped on purpose, kept until the next prompt has told the
         # model what actually reached the screen.
         self.cancelled: Request | None = None
@@ -805,16 +813,85 @@ class Listener:
             "not send anything, and do not write a session opener. Reply with "
             "only the word: ready\n"
         )
-        try:
-            result = subprocess.run(
-                argv, input=prompt, capture_output=True, text=True,
-                timeout=120, cwd=str(Path.home()),
-            )
-        except (OSError, subprocess.TimeoutExpired) as err:
-            self.log("prime failed:", err)
+        proc = self.spawn()
+        if proc is None or not self.turn(proc, prompt):
+            self.log("prime failed: the model did not start")
             return
-        self.started = self.started or (SESSIONS / f"{self.session}.jsonl").exists()
-        self.log(f"primed in {time.monotonic() - started:.0f}s: {result.stdout.strip()[:60]!r}")
+        killer = later(120.0, proc.kill)
+        reply = ""
+        for raw in proc.stdout or []:
+            try:
+                event = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "result":
+                reply = str(event.get("result") or "")
+                break
+        killer.cancel()
+        if proc.poll() is not None:
+            self.log(f"prime failed: the model exited ({proc.returncode})")
+            return
+        self.started = True
+        self.log(f"primed in {time.monotonic() - started:.0f}s: {reply.strip()[:60]!r}")
+
+    def spawn(self) -> subprocess.Popen[str] | None:
+        """Start the model process that answers every request of the session.
+
+        One process for the session, taking each request as a turn over
+        `--input-format stream-json`, rather than one process per request.
+        Measured 2026-09-19 on this Mac: a fresh `claude -p` took 1.9s to its
+        init event (eleven SessionStart hooks in that) and 5.0s to a one-word
+        reply; a second turn on the same process took 2.1s. Three seconds off
+        every request before the model has said a word, which was most of
+        the 4 to 6s the person waited for the first spoken sentence.
+        """
+        argv = self.command()
+        try:
+            proc = subprocess.Popen(
+                argv + [
+                    "--input-format", "stream-json",
+                    "--output-format", "stream-json", "--verbose",
+                ],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                # Answer from home, never from wherever the listener was
+                # started. Started inside a repo, the answering agent reads
+                # that repo's CLAUDE.md and takes its doctrine as the job:
+                # asked out loud for an unread message count from
+                # `~/dev/bob-the-builder`, it spent the whole turn on whether
+                # the branch should be pushed and drew nothing. A spoken
+                # request is not a task in the current project.
+                cwd=str(Path.home()),
+            )
+        except OSError as err:
+            self.log("the model did not start:", err)
+            return None
+        self.model = proc
+        return proc
+
+    def model_process(self) -> subprocess.Popen[str] | None:
+        """The live model process, or a fresh one resuming the session."""
+        proc = self.model
+        if proc is not None and proc.poll() is None:
+            return proc
+        return self.spawn()
+
+    @staticmethod
+    def turn(proc: subprocess.Popen[str], prompt: str) -> bool:
+        """Hand the process one request, as the user message of a new turn."""
+        message = {
+            "type": "user",
+            "message": {"role": "user", "content": [{"type": "text", "text": prompt}]},
+        }
+        try:
+            assert proc.stdin is not None
+            proc.stdin.write(json.dumps(message) + "\n")
+            proc.stdin.flush()
+            return True
+        except (BrokenPipeError, OSError, AssertionError):
+            return False
 
     def ask(self, said: str) -> None:
         self.hush()
@@ -1131,27 +1208,24 @@ class Listener:
         Falls back to whatever text arrived if the stream never produced a
         result event, because a missing final event is not a reason to throw
         away an answer the model already gave.
+
+        The process is the session's one model process (`spawn`), and the
+        request is one turn of it: the loop reads until that turn's result
+        and leaves the process running for the next. A stop kills it, and
+        the next request starts another that resumes the session.
         """
-        proc = subprocess.Popen(
-            argv + ["--output-format", "stream-json", "--verbose"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            # Answer from home, never from wherever the listener was started.
-            # Started inside a repo, the answering agent reads that repo's
-            # CLAUDE.md and takes its doctrine as the job: asked out loud for
-            # an unread message count from `~/dev/bob-the-builder`, it spent
-            # the whole turn on whether the branch should be pushed and drew
-            # nothing. A spoken request is not a task in the current project.
-            cwd=str(Path.home()),
-        )
+        proc = self.model_process()
+        if proc is None:
+            return False, "", None, None
         with self.state:
             self.proc = proc
-            # A stop that landed between `_run`'s check and Popen.
+            # A stop that landed between `_run`'s check and here. Nothing has
+            # been sent, so there is nothing to kill.
             late = self.cancelled is not None and self.cancelled is self.running
-        if late:
-            proc.terminate()
+        if late or not self.turn(proc, prompt):
+            with self.state:
+                self.proc = None
+            return False, "", None, None
         # A watchdog rather than a read timeout, because the read loop is
         # what is blocked. 240s: a request that chains four CLI calls and then
         # draws runs to about a minute, and killing a working answer at 180
@@ -1177,13 +1251,6 @@ class Listener:
 
         threading.Thread(target=keepalive, daemon=True).start()
         try:
-            try:
-                proc.stdin.write(prompt)
-                proc.stdin.close()
-            except BrokenPipeError:
-                # Terminated before it read the prompt. Nothing follows, and
-                # the stdout loop below ends at once.
-                pass
             for raw in proc.stdout:
                 try:
                     event = json.loads(raw)
@@ -1198,13 +1265,16 @@ class Listener:
                     self.speak(run.first_text)
                 with self.state:
                     self.drawn = list(run.drawn)
+                if event.get("type") == "result":
+                    break
         finally:
             stop.set()
             killer.cancel()
-            proc.wait()
             with self.state:
                 self.proc = None
-        ok = run.ok and proc.returncode == 0
+        # A process that is gone before its result was read was stopped or
+        # timed out, whatever text got through first.
+        ok = run.ok and proc.poll() is None
         return ok, run.text, run.said, run.first_text
 
 
