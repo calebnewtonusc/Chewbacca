@@ -6,11 +6,17 @@ remembered tab: idle, running, waiting on you, or done. Pure: no I/O except
 `tail`, so the fold is tested with dicts.
 """
 import json
+import os
 from pathlib import Path
 
-# Matches WARM_S in voice_memory: ten minutes of silence and the terminal
-# is no longer "the thing you are doing".
+# Guessed, never measured: nothing has timed how long a tab sits quiet before
+# the strip is stale rather than informative. Ten minutes because it matches
+# WARM_S in voice_memory, where the same guess decides when the last project
+# stops being "the thing you are doing".
 IDLE_AFTER_S = 600.0
+
+# Where a cursor starts: no inode seen yet, no bytes read. See `tail`.
+START = (0, 0)
 
 
 def initial() -> dict:
@@ -57,20 +63,14 @@ def strip_line(state: dict) -> str:
     return f"t {json.dumps(text, ensure_ascii=False)} state={kind}"
 
 
-def tail(path: Path, offset: int) -> tuple[list[dict], int]:
-    """Entries appended since `offset`, and the new offset. A file shorter
-    than the offset was rewritten (the cap), so it is read from the top."""
+def _read(path: Path, offset: int) -> tuple[list[dict], int]:
+    """Whole entries after `offset`, and how many bytes were consumed."""
     try:
-        size = path.stat().st_size
+        with path.open("rb") as f:
+            f.seek(offset)
+            chunk = f.read()
     except OSError:
         return [], 0
-    if size < offset:
-        offset = 0
-    if size == offset:
-        return [], offset
-    with path.open("rb") as f:
-        f.seek(offset)
-        chunk = f.read()
     out = []
     for line in chunk.decode("utf-8", "replace").splitlines():
         try:
@@ -79,4 +79,47 @@ def tail(path: Path, offset: int) -> tuple[list[dict], int]:
             continue
         if isinstance(entry, dict):
             out.append(entry)
-    return out, offset + len(chunk)
+    return out, len(chunk)
+
+
+def tail(path: Path, cursor: tuple[int, int]) -> tuple[list[dict], tuple[int, int]]:
+    """Entries appended since `cursor`, and the new cursor.
+
+    The cursor is `(inode, offset)`, not a bare offset. The hook appends to
+    this file and renames it to `<name>.1` past its size cap, so a bare
+    offset cannot tell "nothing new" from "a different file that happens to
+    be this long". On a new inode the rotated file is drained from the old
+    offset first, so the entries written just before the rename are read
+    exactly once rather than lost.
+
+    A file shorter than the offset under the same inode was truncated by
+    something other than the hook, and is read from the top.
+    """
+    ino, offset = cursor
+    try:
+        st: os.stat_result | None = path.stat()
+    except OSError:
+        st = None
+
+    if st is None or st.st_ino != ino:
+        out = []
+        if ino:
+            rotated = path.with_name(path.name + ".1")
+            try:
+                same = rotated.stat().st_ino == ino
+            except OSError:
+                same = False
+            if same:
+                drained, _ = _read(rotated, offset)
+                out.extend(drained)
+        if st is None:
+            return out, START
+        fresh, read = _read(path, 0)
+        return out + fresh, (st.st_ino, read)
+
+    if st.st_size < offset:
+        offset = 0
+    if st.st_size == offset:
+        return [], cursor
+    entries, read = _read(path, offset)
+    return entries, (ino, offset + read)

@@ -8,6 +8,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ts = SourceFileLoader("terminal_state", str(ROOT / "bin" / "lib" / "terminal_state.py")).load_module()
+# The writer, so the rotation is exercised through the code that does it
+# rather than through a rename this file performs itself.
+te = SourceFileLoader("terminal_events", str(ROOT / "mac" / "lib" / "terminal_events.py")).load_module()
 
 PASSED = 0
 FAILED = 0
@@ -61,20 +64,62 @@ def main() -> int:
 
     print("tail")
     tmp = Path(tempfile.mkdtemp()) / "events.jsonl"
-    got, off = ts.tail(tmp, 0)
-    check("no file: nothing, offset 0", got == [] and off == 0)
+    got, cur = ts.tail(tmp, ts.START)
+    check("no file: nothing, the cursor stays at the start", got == [] and cur == ts.START)
     tmp.write_text(json.dumps(ev("PreToolUse")) + "\n")
-    got, off = ts.tail(tmp, 0)
-    check("one line read", len(got) == 1 and off == tmp.stat().st_size)
-    got2, off2 = ts.tail(tmp, off)
-    check("nothing new: nothing", got2 == [] and off2 == off)
+    got, cur = ts.tail(tmp, ts.START)
+    check("one line read", len(got) == 1 and cur == (tmp.stat().st_ino, tmp.stat().st_size), str(cur))
+    got2, cur2 = ts.tail(tmp, cur)
+    check("nothing new: nothing", got2 == [] and cur2 == cur)
     with tmp.open("a") as f:
         f.write("garbage\n" + json.dumps(ev("Stop")) + "\n")
-    got3, off3 = ts.tail(tmp, off)
-    check("appended lines read, garbage skipped", [g["event"] for g in got3] == ["Stop"] and off3 == tmp.stat().st_size)
+    got3, cur3 = ts.tail(tmp, cur)
+    check("appended lines read, garbage skipped",
+          [g["event"] for g in got3] == ["Stop"] and cur3[1] == tmp.stat().st_size)
     tmp.write_text(json.dumps(ev("SessionEnd")) + "\n")
-    got4, off4 = ts.tail(tmp, off3)
-    check("a rewritten shorter file restarts from the top", [g["event"] for g in got4] == ["SessionEnd"])
+    got4, cur4 = ts.tail(tmp, cur3)
+    check("a truncated file under the same inode restarts from the top",
+          [g["event"] for g in got4] == ["SessionEnd"])
+
+    print("rotation")
+    # The bug this cursor exists for: the writer rotates the file past its
+    # size cap, and a bare byte offset could not tell a new file from more
+    # bytes in the old one. Every entry has to arrive exactly once.
+    te.MEMORY = Path(tempfile.mkdtemp())
+    te.EVENTS = te.MEMORY / "terminal-events.jsonl"
+    te.EVENTS_MAX_BYTES = 400
+
+    def line(i: int) -> dict:
+        return {"t": 100.0 + i, "event": "PreToolUse", "tool": "Bash", "summary": str(i)}
+
+    seen: list[str] = []
+    cursor = ts.START
+    for i in range(12):
+        te.append(line(i))
+        entries, cursor = ts.tail(te.EVENTS, cursor)
+        seen.extend(e["summary"] for e in entries)
+    check("polling every append: every entry exactly once across the rotations",
+          seen == [str(i) for i in range(12)], str(seen))
+    check("the log did rotate", te.EVENTS.with_name(te.EVENTS.name + ".1").exists())
+
+    te.EVENTS = te.MEMORY / "batch.jsonl"
+    te.EVENTS_MAX_BYTES = 10_000
+    te.append(line(0))
+    got5, cursor = ts.tail(te.EVENTS, ts.START)
+    te.append(line(1))
+    te.append(line(2))
+    te.EVENTS_MAX_BYTES = 1  # the next append crosses the cap and rotates
+    te.append(line(3))
+    got6, cursor = ts.tail(te.EVENTS, cursor)
+    check("entries written between polls are drained from .1, from the old offset",
+          [e["summary"] for e in got6] == ["1", "2", "3"], str([e["summary"] for e in got6]))
+    te.EVENTS_MAX_BYTES = 10_000
+    te.append(line(4))
+    got7, cursor = ts.tail(te.EVENTS, cursor)
+    check("the file that replaced it is read from the top, once",
+          [e["summary"] for e in got7] == ["4"], str([e["summary"] for e in got7]))
+    got8, cursor8 = ts.tail(te.EVENTS, cursor)
+    check("and then there is nothing new", got8 == [] and cursor8 == cursor)
 
     print(f"\n{PASSED} passed, {FAILED} failed")
     return 1 if FAILED else 0
