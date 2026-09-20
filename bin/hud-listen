@@ -290,6 +290,9 @@ class Request:
     # writing: the person chose not to speak, and a reply read aloud to
     # someone who typed because they could not be heard is the wrong reply.
     typed: bool = False
+    # What the bridge already knows about the request, for the prompt: a
+    # music request the quick path could not settle says so here.
+    hint: str = ""
     # Sent by the display about something the person did, not something they
     # said: a click on a guide bubble, a press on a control. The model is
     # told so, because "the user said this out loud" would be a lie.
@@ -1707,6 +1710,24 @@ class Listener:
         self.send(f"q {depth}")
         req.seen = looking_at()
 
+    # What the model is told when the quick path understood "music" but not
+    # which. "Give it reasoning": a name the recogniser mangled, or words
+    # that describe rather than name, take knowing, and the model knows.
+    MUSIC_HINT = (
+        "This is a music request the quick lookup could not settle: the words describe "
+        "rather than name, or speech may have misheard a name (it hears 'Fred again..' as "
+        "'freddie again'). Work out what they most likely mean, then run exactly one "
+        "command: hud-music play --anyway \"<song> by <artist>\", or \"<artist>\", or "
+        "\"the album <album> by <artist>\". Say its first line and nothing more. Do not "
+        "search the web, and do not script Spotify yourself."
+    )
+
+    def to_model(self, req: Request) -> None:
+        """Hand a music request the quick path could not settle to the model."""
+        with self.state:
+            self.current = Request(said=req.said, spoken_at=req.spoken_at, pointed=None, typed=req.typed, hint=self.MUSIC_HINT)
+        self._drain()
+
     def music_request(self, said: str, typed: bool, bare_stop: bool = False) -> bool:
         """Play, pause, skip or ask what is on, without the model.
 
@@ -1743,6 +1764,11 @@ class Listener:
         with self.state:
             self.current = req
             self.queue.clear()
+        if getattr(command, "fuzzy", False):
+            self.log("music: described, not named; to the model:", said)
+            threading.Thread(target=self.to_model, args=(req,), daemon=True).start()
+            return True
+        command.quiet_miss = True
         threading.Thread(target=self._play, args=(req, command), daemon=True).start()
         return True
 
@@ -1774,9 +1800,13 @@ class Listener:
                     pass
                 outcome = module.Outcome(True, "Stopped.")
         self.log(f"music: [{time.monotonic() - started:.1f}s] {command.verb}:", outcome.line)
-        self.remember(req, outcome.line, outcome.ok, "cancelled" if stopped else "done" if outcome.ok else "failed")
         if superseded:
             return
+        if getattr(outcome, "unsure", False) and not stopped:
+            # Understood as music, not which: the model works out the rest.
+            self.to_model(req)
+            return
+        self.remember(req, outcome.line, outcome.ok, "cancelled" if stopped else "done" if outcome.ok else "failed")
         note = getattr(outcome, "note", "")
         self.send("w " + json.dumps(outcome.line + ("\n\n" + note if note else "")) + " done=true")
         self.send("s " + json.dumps(outcome.line))
@@ -2005,6 +2035,8 @@ class Listener:
             asked = f"The user typed this into the conversation panel on their screen: {req.said!r}\n\n"
         else:
             asked = f"The user said this out loud, to their screen: {req.said!r}\n\n"
+        if req.hint:
+            asked += req.hint + "\n\n"
         heard = (
             "Reply in writing: nothing is read aloud for a typed request. "
             if req.typed
