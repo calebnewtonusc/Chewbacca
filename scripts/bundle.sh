@@ -15,7 +15,11 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp ".build/arm64-apple-macosx/$CONFIG/BobHUD" "$APP/Contents/MacOS/BobHUD"
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+# The commit count, so two builds of different code never share a version
+# and a bundle can be matched back to the commit it came from.
+BUILD="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
+
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -27,7 +31,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleExecutable</key>      <string>BobHUD</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>
   <key>CFBundleShortVersionString</key> <string>0.1.0</string>
-  <key>CFBundleVersion</key>         <string>1</string>
+  <key>CFBundleVersion</key>         <string>$BUILD</string>
   <key>LSMinimumSystemVersion</key>  <string>14.0</string>
   <!-- Accessory: no Dock icon, no app switcher entry, never steals focus. -->
   <key>LSUIElement</key>             <true/>
@@ -44,7 +48,18 @@ PLIST
 
 # Ad-hoc signing is enough to run locally and keeps macOS from re-prompting
 # about an unsigned binary on every launch.
-codesign --force --sign - "$APP" 2>/dev/null || echo "  (unsigned; it will still run)"
+#
+# The designated requirement is spelled out because the default one for an
+# ad-hoc signature is the binary's own hash, and that is what macOS keys the
+# microphone and speech grants to. On 2026-09-19 every rebuild came up with a
+# new hash, tccd logged "Failed to match existing code requirement" for
+# dev.bobthebuilder.hud, and the app prompted for both permissions again; with
+# nobody at the Mac to click, `authorized` stayed false and a press of the
+# globe key opened nothing. Pinning the requirement to the bundle identifier
+# is what a signing certificate would do, without needing one in the keychain.
+codesign --force --sign - --identifier dev.bobthebuilder.hud \
+  --requirements '=designated => identifier "dev.bobthebuilder.hud"' "$APP" 2>/dev/null \
+  || echo "  (unsigned; it will still run)"
 
 echo "Built $APP"
 echo

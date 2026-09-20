@@ -119,14 +119,29 @@ struct Uniforms {
     float4 tint;
     float2 size;
     float2 popAt;
+    /// Unit coordinates, top-left origin. Off screen when there is no pointer.
+    float2 pointer;
     float time;
     float act;
     float closing;
     float rest;
-    float drift;
+    /// How far the contour field has travelled, already integrated on the
+    /// Swift side from an eased drift. Multiplying `time` by a drift that had
+    /// just changed moved the whole pattern in one frame.
+    float travel;
+    /// How much of the breath to take, 0 to 1, eased in and out.
     float pulse;
+    /// Where in the breath, in cycles, integrated from an eased rate.
+    float beat;
     float alpha;
+    /// How far the band has parted round the pointer, 0 to 1.
+    float part;
 };
+
+/// How far round the pointer the band parts, in screen heights. The same
+/// number as `PresenceFieldRenderer.partRadius`, which decides when the
+/// parting starts; the two have to move together.
+constant float PART_RADIUS = 0.16;
 
 /// A full-screen triangle with no vertex buffer. Three vertices covering the
 /// clip cube beat two triangles covering the quad: no shared edge down the
@@ -141,7 +156,7 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     float2 size = U.size;
     float time = U.time, act = U.act, closing = U.closing;
     float2 popAt = U.popAt;
-    float rest = U.rest, drift = U.drift, pulse = U.pulse;
+    float rest = U.rest, pulse = U.pulse;
     float2 uv = float2(fragPos.x / size.x, fragPos.y / size.y);
     float t = act;
     float W = size.x / max(size.y, 1.0);
@@ -156,10 +171,11 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     // brightness gives a band that blinks, and driving only the hue gives one
     // that changes colour without ever seeming to move. Together they read as
     // something running.
-    float wave = 1.0;
-    if (pulse > 0.001) {
-        wave = 0.5 + 0.5 * sin(time * 6.2831853 * pulse);
-    }
+    // Faded in by `pulse` rather than switched on, and run off `beat`, which
+    // the Swift side integrates from an eased rate: a breath that starts at
+    // whatever phase the clock is on lands as a brightness jump, and one that
+    // starts at full depth lands as a flash.
+    float wave = mix(1.0, 0.5 + 0.5 * sin(U.beat * 6.2831853), pulse);
 
     float bp = time * 0.72;
     float breath = sin(bp + 0.45 * sin(bp));
@@ -186,8 +202,17 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
 
     float depth = rest * clamp(t / 0.45, 0.0, 1.0);
 
-    float band = MARGIN + depth;
     float born = smoothstep(0.0, 0.02, depth);
+
+    // The band parts round the pointer so what is under it can be read. The
+    // pool thins to nothing at the cursor and is back to full depth one
+    // radius away, on a dome with no edge at either end, so the free surface
+    // bows out toward the glass around the hand rather than showing a hole
+    // cut in it. Thinning the depth rather than the alpha is what moves the
+    // surface: every term below measures itself against `depth`.
+    float2 toPointer = (uv - U.pointer) * float2(W, 1.0);
+    float hole = U.part * (1.0 - smoothstep(0.0, PART_RADIUS, length(toPointer)));
+    depth *= 1.0 - hole;
 
     // Domain warped noise. The field is sampled at coordinates that are
     // themselves displaced by another sample of it, twice. Plain noise gives
@@ -195,7 +220,7 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     // because the thickness of a real film is not sitting still, it is being
     // carried around by convection and the streaks are the flow.
     float2 p = uv * float2(W, 1.0) * 1.25;
-    float dt = time * 0.035 * drift;
+    float dt = U.travel * 0.035;
     float2 w1 = float2(fbm(p + float2(0.0, dt)), fbm(p + float2(5.2, 1.3) - dt * 0.7));
     float2 w2 = float2(fbm(p + 3.4 * w1 + float2(1.7, 9.2) + dt * 0.5),
                        fbm(p + 3.4 * w1 + float2(8.3, 2.8)));

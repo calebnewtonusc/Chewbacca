@@ -34,7 +34,8 @@ public struct OverlayView: View {
             //
             // Under everything. This is the state of the assistant rather than
             // content, and content wins any pixel they both want.
-            PresenceField(presence: model.presence, amplitude: model.amplitude)
+            PresenceField(
+                presence: model.presence, amplitude: model.amplitude, pointer: model.pointer)
                 .zIndex(0)
 
             // Marks sit under the panels: a panel is something the person

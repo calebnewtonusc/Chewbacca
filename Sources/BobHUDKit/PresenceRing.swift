@@ -92,7 +92,7 @@ struct PresenceRing: View {
         .opacity(presence == .dormant ? 0.25 : 1)
         .scaleEffect(breathScale)
         .shadow(color: presence.tint.opacity(glow), radius: 6)
-        .animation(.easeInOut(duration: 0.25), value: presence)
+        .animation(.easeInOut(duration: 0.35), value: presence)
         .onAppear { restart() }
         .onChange(of: presence) { _, _ in restart() }
         .accessibilityLabel("Assistant \(presence.rawValue)")
@@ -120,34 +120,32 @@ struct PresenceRing: View {
                 .stroke(presence.tint, lineWidth: 1.5 + 2.5 * min(max(amplitude, 0), 1))
                 .animation(.linear(duration: 0.06), value: amplitude)
 
-        case .thinking:
+        case .thinking, .acting:
             // One arc, eased rather than linear. A linear spinner reads as a
             // progress bar that is not progressing.
+            //
+            // Acting is the same view with the arc grown to segments, stepping.
+            // Distinct from thinking on purpose: the person should be able to
+            // tell that something is being *done* to their machine, not
+            // merely considered. One view for both rather than one each,
+            // because the bridge goes thinking, acting, thinking, acting
+            // through a run and a fresh view starts its turn from zero: the
+            // arc snapped back to the top on every tool call.
+            let acting = presence == .acting
             Circle()
-                .trim(from: 0, to: 0.3)
-                .stroke(presence.tint, style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
-                .rotationEffect(.degrees(spinning ? 360 : 0))
-                .animation(
-                    Motion.repeating(
-                        .easeInOut(duration: 1.1).repeatForever(autoreverses: false),
-                        reduced: reduceMotion),
-                    value: spinning)
-
-        case .acting:
-            // Segments, stepping. Distinct from thinking on purpose: the person
-            // should be able to tell that something is being *done* to their
-            // machine, not merely considered.
-            Circle()
-                .trim(from: 0, to: 0.62)
+                .trim(from: 0, to: acting ? 0.62 : 0.3)
                 .stroke(
                     presence.tint,
-                    style: StrokeStyle(lineWidth: 1.8, lineCap: .butt, dash: [2.4, 2.4]))
+                    style: StrokeStyle(
+                        lineWidth: 1.8, lineCap: acting ? .butt : .round,
+                        dash: acting ? [2.4, 2.4] : []))
                 .rotationEffect(.degrees(spinning ? 360 : 0))
                 .animation(
                     Motion.repeating(
-                        .linear(duration: 1.6).repeatForever(autoreverses: false),
+                        .easeInOut(duration: 1.2).repeatForever(autoreverses: false),
                         reduced: reduceMotion),
                     value: spinning)
+                .animation(.easeInOut(duration: 0.3), value: acting)
 
         case .attention, .failed:
             // Two pulses, then hold at high contrast. Never more than two: a
@@ -174,7 +172,10 @@ struct PresenceRing: View {
     }
 
     private func restart() {
-        spinning = false
+        // Only stop the turn when the next state does not turn. Stopping and
+        // starting it on the way from thinking to acting is the snap the
+        // shared spinner above exists to remove.
+        if presence != .thinking && presence != .acting { spinning = false }
         pulses = 0
         breathing = false
 
@@ -189,7 +190,7 @@ struct PresenceRing: View {
                 breathing = true
             }
         case .thinking, .acting:
-            spinning = true
+            if !spinning { spinning = true }
         case .attention, .failed:
             Task { @MainActor in
                 for _ in 0..<2 {
