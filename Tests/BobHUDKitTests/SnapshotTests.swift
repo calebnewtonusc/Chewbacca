@@ -337,10 +337,11 @@ struct SnapshotTests {
 
     @Test("the pill draws in every visible phase", arguments: Ground.allCases)
     func pillDraws(ground: Ground) {
-        // Over both grounds on purpose: this is the one light surface in the
-        // project, and a white capsule over a white document is exactly the
-        // mud the cards force dark to avoid. The wash, the shadow and the ink
-        // are what keep it separate, and this is the check on them.
+        // Over both grounds on purpose: the pill carries half the wash the
+        // cards do, so a capsule over a dark desktop and one over a white
+        // document both have to stay visible. The wash, the rim, the shadow
+        // and the ink are what keep it separate, and this is the check on
+        // them.
         for phase in PillState.Phase.allCases where phase != .hidden {
             var state = PillState()
             state.phase = phase

@@ -34,18 +34,22 @@ struct FieldTests {
     @Test("the band parts for a pointer in it and not for one across the room")
     func parting() {
         let rest: Float = 0.039
+        // Thirty points on a 982pt display.
+        let reach: Float = 30 / 982
         // Over the band at the left edge, a third of the way down.
         #expect(PresenceFieldRenderer.parting(
-            pointer: CGPoint(x: 0.01, y: 0.33), aspect: 1.54, rest: rest) == 1)
+            pointer: CGPoint(x: 0.01, y: 0.33), aspect: 1.54, rest: rest, reach: reach) == 1)
         // Dead centre of the display.
         #expect(PresenceFieldRenderer.parting(
-            pointer: CGPoint(x: 0.5, y: 0.5), aspect: 1.54, rest: rest) == 0)
+            pointer: CGPoint(x: 0.5, y: 0.5), aspect: 1.54, rest: rest, reach: reach) == 0)
         // Nothing to part for.
-        #expect(PresenceFieldRenderer.parting(pointer: nil, aspect: 1.54, rest: rest) == 0)
-        // Halfway between the band and one radius out is somewhere in between,
+        #expect(PresenceFieldRenderer.parting(
+            pointer: nil, aspect: 1.54, rest: rest, reach: reach) == 0)
+        // Halfway between the band and the reach is somewhere in between,
         // which is what lets it start moving before the cursor arrives.
         let between = PresenceFieldRenderer.parting(
-            pointer: CGPoint(x: 0.5, y: Double(rest) + 0.02 + 0.07), aspect: 1.54, rest: rest)
+            pointer: CGPoint(x: 0.5, y: Double(rest + reach / 2)), aspect: 1.54, rest: rest,
+            reach: reach)
         #expect(between > 0.3 && between < 0.7)
     }
 
@@ -53,10 +57,11 @@ struct FieldTests {
     @MainActor
     func quantised() {
         let model = OverlayModel()
-        model.point(at: CGPoint(x: 0.10004, y: 0.5), aspect: 1.5)
+        // Near the left edge, within reach of the band.
+        model.point(at: CGPoint(x: 0.05004, y: 0.5), aspect: 1.5)
         let first = model.pointer
         #expect(first != nil)
-        model.point(at: CGPoint(x: 0.10006, y: 0.5), aspect: 1.5)
+        model.point(at: CGPoint(x: 0.05006, y: 0.5), aspect: 1.5)
         #expect(model.pointer == first)
         // The middle of the display is nobody's business.
         model.point(at: CGPoint(x: 0.5, y: 0.5), aspect: 1.5)

@@ -136,12 +136,11 @@ struct Uniforms {
     float alpha;
     /// How far the band has parted round the pointer, 0 to 1.
     float part;
+    /// The parting's clear radius and its soft edge, in screen heights,
+    /// converted from points on the Swift side.
+    float partRadius;
+    float partFeather;
 };
-
-/// How far round the pointer the band parts, in screen heights. The same
-/// number as `PresenceFieldRenderer.partRadius`, which decides when the
-/// parting starts; the two have to move together.
-constant float PART_RADIUS = 0.16;
 
 /// A full-screen triangle with no vertex buffer. Three vertices covering the
 /// clip cube beat two triangles covering the quad: no shared edge down the
@@ -205,13 +204,15 @@ fragment half4 presenceFragment(float4 fragPos [[position]],
     float born = smoothstep(0.0, 0.02, depth);
 
     // The band parts round the pointer so what is under it can be read. The
-    // pool thins to nothing at the cursor and is back to full depth one
-    // radius away, on a dome with no edge at either end, so the free surface
-    // bows out toward the glass around the hand rather than showing a hole
-    // cut in it. Thinning the depth rather than the alpha is what moves the
-    // surface: every term below measures itself against `depth`.
+    // pool thins to nothing inside the clear radius and is back to full
+    // depth one feather further out, with no edge at either end, so the free
+    // surface bows out toward the glass around the cursor rather than
+    // showing a hole cut in it. Thinning the depth rather than the alpha is
+    // what moves the surface: every term below measures itself against
+    // `depth`.
     float2 toPointer = (uv - U.pointer) * float2(W, 1.0);
-    float hole = U.part * (1.0 - smoothstep(0.0, PART_RADIUS, length(toPointer)));
+    float hole = U.part * (1.0 - smoothstep(U.partRadius, U.partRadius + U.partFeather,
+                                             length(toPointer)));
     depth *= 1.0 - hole;
 
     // Domain warped noise. The field is sampled at coordinates that are

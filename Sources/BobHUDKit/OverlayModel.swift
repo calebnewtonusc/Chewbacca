@@ -418,21 +418,22 @@ public final class OverlayModel {
     }
 
     /// Beyond this distance from the nearest edge, in screen heights, the
-    /// pointer is nobody's business: the deepest band (0.075) plus the
-    /// parting radius (0.16), rounded up.
-    public static let pointerReach: CGFloat = 0.26
+    /// pointer is nobody's business: the deepest band (0.075) plus a 30pt
+    /// parting on the shortest display this runs on (982pt), rounded up.
+    public static let pointerReach: CGFloat = 0.12
 
     /// The mouse moved. `unit` is where, in unit coordinates with a top-left
     /// origin; `aspect` is the display's width over its height, so the
     /// distance to a side edge can be measured in the same screen heights
-    /// the shader uses. Quantised to a thousandth of the screen so a pointer
-    /// that has not really moved does not wake the field, and nil across the
-    /// middle of the display, where the field draws nothing.
+    /// the shader uses. Quantised to a four-thousandth of the screen, under
+    /// a point on any display here, so a pointer that has not really moved
+    /// does not wake the field; nil across the middle of the display, where
+    /// the field draws nothing.
     public func point(at unit: CGPoint?, aspect: CGFloat) {
         let next: CGPoint? = unit.flatMap { p in
             let near = min(p.x * aspect, (1 - p.x) * aspect, p.y, 1 - p.y)
             guard near < Self.pointerReach else { return nil }
-            return CGPoint(x: (p.x * 1000).rounded() / 1000, y: (p.y * 1000).rounded() / 1000)
+            return CGPoint(x: (p.x * 4000).rounded() / 4000, y: (p.y * 4000).rounded() / 4000)
         }
         guard next != pointer else { return }
         pointer = next
