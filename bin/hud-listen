@@ -429,6 +429,10 @@ class Listener:
         # line sent that was not the voice's, for `heard_speaker` to restore.
         self.talking = False
         self.shown: str | None = None
+        # A reply handed to hud-speak that has not yet reported quiet. Set
+        # before the first level arrives, because synthesis takes most of a
+        # second and the leave timer must not start in that gap.
+        self.voiced = False
 
         # One lock for everything the reader thread and the worker both touch.
         self.state = threading.Lock()
@@ -591,6 +595,13 @@ class Listener:
     # Failed needs to be seen before the ring goes white again. Guessed, never
     # measured.
     NEXT_HOLD_FAILED = 3.0
+    # How long a finished exchange stays on the glass after the reply has been
+    # said, with nothing else asked, before the display leaves. Ten, from the
+    # ask on 2026-09-19: "if the user doesnt respond back after the task has
+    # been complete for 10s, execute the exit animation". Counted from the end
+    # of the voice, not from `p done`: an eight-second hold from done used to
+    # take a twelve-second reply down mid-sentence.
+    LEAVE_AFTER = 10.0
     # How long "Stopped." stays up with nothing waiting. The pill's own X path
     # hides the same line after 3 s (OverlayModel.swift cancelRun, marked
     # guessed there too); matching it makes a spoken stop and a pressed one
@@ -640,11 +651,11 @@ class Listener:
         later(self.NEXT_HOLD_FAILED, self.release)
 
     def release(self) -> None:
-        """Back to attentive, unless a request started during the hold."""
+        """Leave the glass, unless a request started during the hold."""
         with self.state:
             idle = self.running is None
         if idle:
-            self.send("p attentive")
+            self.send("p dormant")
 
     def start_speaker(self, voice: str) -> subprocess.Popen[str] | None:
         """Start `hud-speak` and keep it. Its first line, "ready", means the
@@ -706,11 +717,17 @@ class Listener:
             self.talking = True
             self.send(f"p speaking amp={level:.2f}")
         elif message.get("quiet"):
+            self.voiced = False
             if not self.talking:
                 return
             self.talking = False
             if self.shown:
                 self.send(self.shown)
+
+    def voice_active(self) -> bool:
+        """Whether a reply is being said, or is about to be."""
+        proc = self.saying
+        return self.voiced or self.talking or (proc is not None and proc.poll() is None)
 
     def tell_speaker(self, message: dict) -> bool:
         proc = self.speaker
@@ -736,6 +753,7 @@ class Listener:
         if not self.voice or not text:
             return
         if self.speaker is not None and self.tell_speaker({"say": text}):
+            self.voiced = True
             return
         self.hush()
         try:
@@ -754,6 +772,7 @@ class Listener:
         # hush, a new request or a stop, so the quiet that follows a cut-off
         # must not put an older state back over it.
         self.talking = False
+        self.voiced = False
         if self.speaker is not None:
             self.tell_speaker({"hush": True})
         proc, self.saying = self.saying, None
@@ -842,14 +861,11 @@ class Listener:
             elif outcome == "done":
                 # Say how it went, and then stop saying it. A field that holds
                 # `done` forever is a field that stops meaning finished, and
-                # one that drops straight back to `attentive` never showed the
-                # person that their errand worked at all. 8 s for the reply's
-                # dwell: guessed, never measured. Twenty words at 240 wpm is
-                # 5 s plus the time to notice the pill changed, and 8 is also
-                # the ring's own thinking patience, a number already on screen.
-                state, hold = "done", 8.0
+                # one that leaves the moment the reply lands never showed the
+                # person that their errand worked at all.
+                state, hold = "done", self.LEAVE_AFTER
             else:
-                state, hold = "failed", 10.0
+                state, hold = "failed", self.LEAVE_AFTER
             if has_next:
                 self.send(f"p {state}")
                 time.sleep(self.NEXT_HOLD_DONE if state == "done" else self.NEXT_HOLD_FAILED)
@@ -1069,10 +1085,29 @@ class Listener:
         return proc.returncode == 0, out, None
 
     def settle(self, state: str, hold: float) -> None:
-        """Show an outcome, hold it, then go back to waiting."""
+        """Show an outcome, hold it for `hold` seconds of silence, then leave.
+
+        The hold restarts whenever the voice is active, so it is measured
+        from the end of the reply. A request spoken during it ends the hold
+        at once with nothing sent: its own run takes the glass next, and
+        `p dormant` under a `p thinking` would play the exit over the
+        arrival. `p dormant` is what runs the exit: the band ruptures and the
+        pill goes (PresenceField.sync, OverlayModel.setPresence).
+        """
         self.send(f"p {state}")
-        time.sleep(hold)
-        self.send("p attentive")
+        deadline = time.monotonic() + hold
+        # Never longer than this, however the voice reports. Guessed, never
+        # measured: a reply is under twenty words and hud-speak says quiet
+        # within a frame of the last one.
+        limit = time.monotonic() + hold + 60.0
+        while time.monotonic() < deadline:
+            with self.state:
+                if self.queue:
+                    return
+            if self.voice_active() and time.monotonic() < limit:
+                deadline = time.monotonic() + hold
+            time.sleep(0.1)
+        self.send("p dormant")
 
     def run_streamed(
         self, argv: list[str], prompt: str

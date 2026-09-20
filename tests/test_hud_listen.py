@@ -360,6 +360,33 @@ def test_voice_moves_the_ring(m) -> None:
     check("a bad level is ignored", sock.lines[-1] == "p speaking amp=0.50")
 
 
+def test_leaves_after_the_reply(m) -> None:
+    """The hold is counted from the end of the voice; a new request ends it."""
+
+    class FakeSock:
+        def __init__(self) -> None:
+            self.lines: list[str] = []
+
+        def sendall(self, data: bytes) -> None:
+            self.lines.append(data.decode().rstrip("\n"))
+
+    listener = m.Listener("claude -p", False, False)
+    listener.sock = sock = FakeSock()
+    listener.voiced = True
+    threading.Timer(0.4, lambda: setattr(listener, "voiced", False)).start()
+    started = time.monotonic()
+    listener.settle("done", 0.3)
+    elapsed = time.monotonic() - started
+    check("done, then the voice, then the hold, then it leaves",
+          sock.lines == ["p done", "p dormant"] and 0.6 <= elapsed < 3.0,
+          f"got {sock.lines} after {elapsed:.2f}s")
+    sock.lines.clear()
+    listener.queue.append(m.Request(said="and then", spoken_at=0.0, pointed=None))
+    listener.settle("done", 0.3)
+    check("a request spoken during the hold ends it with nothing sent",
+          sock.lines == ["p done"], f"got {sock.lines}")
+
+
 def test_stop_words(m) -> None:
     """The whole utterance is the gesture; a sentence that starts with it is not."""
     check("case and punctuation are ignored", m.normalise("Stop!") == "stop")
@@ -494,11 +521,11 @@ def test_end_to_end() -> None:
         conn.settimeout(30)
         buffer = b""
         try:
-            # Until the second `p attentive`: the first is the greeting, the
-            # second is the settle after the answer. Counting lines instead
-            # stopped early whenever the draw lines and `p done` arrived in
-            # one chunk, which they do, and the test failed on its last check.
-            while received.count("p attentive") < 2:
+            # Until `p dormant`, the settle after the answer. Counting lines
+            # instead stopped early whenever the draw lines and `p done`
+            # arrived in one chunk, which they do, and the test failed on its
+            # last check.
+            while "p dormant" not in received:
                 chunk = conn.recv(4096)
                 if not chunk:
                     break
@@ -550,7 +577,7 @@ def test_end_to_end() -> None:
     check("the subtitle lands before done",
           's "Here you go:"' in received and "p done" in received
           and received.index('s "Here you go:"') < received.index("p done"), f"got {received}")
-    check("it went back to attentive", received[-1] == "p attentive", f"got {received[-1:]}")
+    check("it left the glass", received[-1] == "p dormant", f"got {received[-1:]}")
 
 
 def run_against(model: str, say: list, until, timeout: float = 40.0):
@@ -635,10 +662,10 @@ def test_queue_end_to_end() -> None:
     received, _ = run_against(
         SLOW_ECHO,
         [(0.0, 'h "first"'), (0.2, 'h "second"')],
-        # The greeting is the first `p attentive`; the settle after the second
-        # answer is the second. The first answer holds `done` for a second and
-        # goes straight on, without an attentive in between.
-        lambda lines: lines.count("p attentive") >= 2,
+        # `p dormant` is the settle after the second answer. The first answer
+        # holds `done` for a second and goes straight on, without leaving in
+        # between.
+        lambda lines: "p dormant" in lines,
     )
     lines = [line for _, line in received]
 
@@ -655,7 +682,7 @@ def test_queue_end_to_end() -> None:
     check("done was shown between the two", first < index("p done") < second, f"got {lines}")
     check("thinking was shown again for the second",
           "p thinking" in lines[first:second], f"got {lines[first:second]}")
-    check("it ended attentive", lines and lines[-1] == "p attentive", f"got {lines[-1:]}")
+    check("it ended by leaving", lines and lines[-1] == "p dormant", f"got {lines[-1:]}")
 
 
 def test_stop_end_to_end() -> None:
@@ -667,18 +694,18 @@ def test_stop_end_to_end() -> None:
     received, sent = run_against(
         model,
         [(0.0, 'h "wait"'), (lambda: os.path.exists(pidfile), 'h "stop"')],
-        lambda lines: lines.count("p attentive") >= 2,
+        lambda lines: "p dormant" in lines,
         timeout=20.0,
     )
     lines = [line for _, line in received]
     stopped_at = next((at for at, line in sent if line == 'h "stop"'), None)
-    attentive = [at for at, line in received if line == "p attentive"]
+    left = [at for at, line in received if line == "p dormant"]
     check("the stop word reached the run", stopped_at is not None)
     check("the stop was not a failure on the ring", "p failed" not in lines, f"got {lines}")
     check("the pill was told in the X's own words", 's "Stopped. What was drawn stays."' in lines, f"got {lines}")
-    check("attentive again within 5 s of the stop",
-          stopped_at is not None and len(attentive) >= 2 and attentive[1] - stopped_at <= 5.0,
-          f"stop at {stopped_at}, attentive at {attentive}")
+    check("it left within 5 s of the stop",
+          stopped_at is not None and left and left[0] - stopped_at <= 5.0,
+          f"stop at {stopped_at}, left at {left}")
     check("the stop was never queued as a request", "q 1" not in lines)
     alive = True
     try:
