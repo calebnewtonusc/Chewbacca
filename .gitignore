@@ -37,3 +37,8 @@ plynn/build/
 # kits/apply-kit carries its own .git. Left untracked so the Stop auto-commit
 # hook cannot sweep an embedded repo into a Chewbacca commit.
 kits/
+
+# Swift build artifacts, which bob-the-builder ignored at its root and
+# came here without when the hud moved in
+hud/.build/
+hud/build/
