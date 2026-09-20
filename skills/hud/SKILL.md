@@ -467,14 +467,14 @@ nothing will tell you.
 **Set the ring.** It is the only signal the user has that you are alive, and
 it costs one line:
 
-| Line                 | When                                                                                                           | What they see                                                       |
-| -------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `p thinking`         | you took a request and are working out what to do                                                              | white, thin, moving fast                                            |
-| `p acting`           | you are running something on their machine                                                                     | green, breathing                                                    |
-| `p done`             | it worked                                                                                                      | darker green, still                                                 |
-| `p failed`           | it did not                                                                                                     | red                                                                 |
-| `p attention`        | you are blocked on them                                                                                        | white, thick, two pulses                                            |
-| `p dormant`          | nothing in flight                                                                                              | nothing at all                                                      |
+| Line | When | What they see |
+| ---- | ---- | ------------- |
+| `p thinking` | you took a request and are working out what to do | white, thin, moving fast |
+| `p acting` | you are running something on their machine | green, breathing |
+| `p done` | it worked | darker green, still |
+| `p failed` | it did not | red |
+| `p attention` | you are blocked on them | white, thick, two pulses |
+| `p dormant` | nothing in flight | nothing at all |
 | `p speaking amp=0.6` | the voice is playing; hud-listen sends this itself, twenty times a second, from the level of what it is saying | white, thickness moving with the voice, the same as while they talk |
 
 The pill opens into the conversation panel when clicked: every request and
