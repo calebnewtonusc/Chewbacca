@@ -43,6 +43,15 @@ prompt = (payload.get("prompt") or "").strip()
 if len(prompt) < 12 or prompt.startswith("/"):
     raise SystemExit(0)
 
+# Machine traffic is not a request. On its first live firing, 2026-09-21, this
+# routed a background-task completion notice to skill-creator. A notification
+# is prose about the tooling, so it is full of words like test, run and file,
+# and it will match something almost every time. Nobody asked it anything.
+NOISE = ("SYSTEM NOTIFICATION", "task-notification", "<task-id>",
+         "exited with code", "hookSpecificOutput", "task notification")
+if any(marker in prompt for marker in NOISE):
+    raise SystemExit(0)
+
 ROOTS = [os.path.expanduser("~/.claude/skills")]
 here = payload.get("cwd") or os.getcwd()
 d = here
@@ -88,6 +97,22 @@ def stem_seq(text):
 
 def bigrams(seq):
     return {(seq[i], seq[i + 1]) for i in range(len(seq) - 1)}
+
+# Words that are common in any description of software work and therefore say
+# nothing about WHICH skill. Rarity weighting alone cannot catch these: across
+# 104 installed skills, `test` and `users` are each claimed by exactly one, so
+# they score as maximally distinctive while carrying no routing information.
+# That pair alone put a task-completion notice into skill-creator.
+#
+# A match needs at least one hit from outside this set. Generic words can still
+# add weight, they just cannot carry a route on their own.
+GENERIC = {
+    "test", "tests", "run", "runs", "file", "files", "code", "work", "data",
+    "user", "users", "time", "take", "never", "refer", "scrip", "him",
+    "proje", "conte", "outpu", "input", "comma", "scrip", "tool", "tools",
+    "task", "tasks", "check", "add", "creat", "updat", "chang", "resul",
+    "syste", "proce", "sessi", "promp", "agent", "claud",
+}
 
 def frontmatter(path):
     """name and description out of the YAML head, without a yaml dependency.
@@ -180,7 +205,12 @@ for name, desc, path in skills:
     # than the repo's, so every stem is claimed more often and the same match
     # scores lower there than in a repo-only test.
     weight = sum(1.0 / claims.get(h, 1) for h in hits)
-    strong = len(hits) >= 2 and (weight >= 0.7 or phrase_hit)
+    specific = hits - GENERIC
+    strong = (
+        len(hits) >= 2
+        and specific
+        and (weight >= 0.7 or phrase_hit)
+    )
     if not strong:
         continue
     score = weight * 10 + (10 if phrase_hit else 0)
