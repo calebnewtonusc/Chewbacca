@@ -68,3 +68,38 @@ A hook can verify that a falsifier was WRITTEN. It cannot verify that it was
 believed, or that it was the right one, or that the work actually tested it.
 That gap is real and no amount of prompt text closes it. The gate raises the
 cost of skipping the step; it does not make the thinking happen.
+
+## Prior art, checked 2026-09-20
+
+This layer is **not novel** and the search took two minutes, which is two
+minutes that should have happened before it was built.
+
+- **PreFlect**: prospective reflection, LLM agents proactively identifying
+  critical failures before execution, with reported consistent gains.
+- **CoSQ** (Chain-of-Self-Questioning): prompt-only, makes answer commitment
+  conditional on an explicit information check.
+- **Self-Ask**: decompose into sub-questions before answering.
+- **Reflexion / Self-Refine**: the reflection family generally.
+- Commercial pre-mortem skills already ship as importable agent procedures
+  with meta-reflection self-checks and output-discipline gates.
+
+What is different here is the enforcement shape, not the idea: a hook that
+injects rather than a document that is retrieved, a deterministic classifier
+with no model call, and once-per-process-per-session so it does not become
+noise. That is engineering on a known technique.
+
+Recorded rather than quietly omitted, because the alternative is somebody
+claiming this as new later and being wrong in front of someone who reads.
+
+## Its own falsifier, which it shipped without
+
+The gate demands a falsifier and was committed without stating one. Fixed
+here:
+
+> **If turns that receive the injection produce work no better than turns
+> that do not, this is theater and should be deleted.**
+
+Untested. The honest bar is the same one every other component in this
+family has to clear, and most of them have not: one measured change all
+night actually improved output (universal refusals in every generation
+prompt, 26 emoji to 0 on an identical brief). Everything else is unvalidated.
