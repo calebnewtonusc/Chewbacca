@@ -616,7 +616,6 @@
   var openGapFrom = 0;
   var openCcw = false;
   var mirrorAmt = 0;
-  var recognisedLatch = false;
   var lastFill = 0;
   var holdOld = 0;
   var settleX = 0;
@@ -625,15 +624,11 @@
   var arcV = 0;
   var lastFrameMs = 0;
   var lastMaskCheck = 0;
-  var lastInsideCheck = 0;
-  var strokeDrawnThisFrame = false;
   var stepSpring = (x, v, k, dt) => {
     const c = 2 * Math.sqrt(k);
     const a = k * (1 - x) - c * v;
     const nv = v + a * dt;
-    const nx = Math.min(1, x + nv * dt);
-    if (1 - nx < 0.01 && Math.abs(nv) < 0.35) return { x: 1, v: 0 };
-    return { x: nx, v: nv };
+    return { x: Math.min(1, x + nv * dt), v: nv };
   };
   var stroke = [];
   var softFit = null;
@@ -726,14 +721,6 @@
     return trailPx;
   };
   var placedOk = false;
-  var camW = 352;
-  var camH = 288;
-  window.chewbaccaCamera = (w, h) => {
-    if (w > 0 && h > 0) {
-      camW = w;
-      camH = h;
-    }
-  };
   window.chewbaccaPlaced = (ok) => {
     placedOk = !!ok;
   };
@@ -766,14 +753,11 @@
     ctx.fillStyle = "rgba(0, 0, 0, 0.20)";
     ctx.fillRect(0, 0, W, H);
     const lm = now - lastSeen < 300 ? latest : null;
-    const camK = H / camH / (W / camW);
-    const ax = Math.sqrt(camK);
-    const ay = 1 / Math.sqrt(camK);
-    const fit = (v, a) => Math.max(0.02, Math.min(0.98, 0.5 + (v - 0.5) * reachScale * a));
+    const fit = (v) => Math.max(0.02, Math.min(0.98, 0.5 + (v - 0.5) * reachScale));
     const toScreen = (p2, hub) => {
       const sx = hub ? hub.x + (p2.x - hub.x) * handScale : p2.x;
       const sy = hub ? hub.y + (p2.y - hub.y) * handScale : p2.y;
-      return { x: fit(1 - sx, ax), y: fit(sy, ay) };
+      return { x: fit(1 - sx), y: fit(sy) };
     };
     const mx = (nx) => nx * W;
     const my = (ny) => ny * H;
@@ -812,7 +796,7 @@
     const maskCtx = maskCv.getContext("2d");
     const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw, cloud, fill, spiral) => {
       if (!mirrorReady || !maskCtx || strength <= 4e-3 || Rp < 3) return;
-      const blurPx = cloud > 2e-3 ? Math.max(Rp * 0.09, Rp * 0.16 * cloud) : 0;
+      const blurPx = Rp * 0.16 * cloud;
       const pad = Math.max(16, blurPx * 2.6);
       const size = Math.ceil(2 * Rp + pad * 2);
       if (maskCv.width !== size || maskCv.height !== size) {
@@ -834,7 +818,7 @@
       const lead = Math.pow(f, 2.5);
       const depthAt = (u) => {
         const wind = 1 + 1.6 * Math.pow(1 - u, 1.6) * spiral;
-        const rough = 1 + 0.045 * Math.sin(u * 9.1) + 0.028 * Math.sin(u * 15.7);
+        const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950) + 0.028 * Math.sin(u * 15.7 - now / 1500);
         return Math.max(0, Math.min(1, Math.pow(lead, wind))) * rough;
       };
       m.save();
@@ -848,71 +832,24 @@
         m.shadowBlur = blurPx;
         m.shadowOffsetX = OFF;
       }
-      const ptAt = (u, r) => {
-        const th = aOld + dir * u * drawnAng;
-        return { x: mx0 + Math.cos(th) * r - OFF, y: my0 + Math.sin(th) * r };
-      };
-      const capTo = (from, to, out) => {
-        const cx2 = (from.x + to.x) / 2, cy2 = (from.y + to.y) / 2;
-        const rad = Math.hypot(to.x - from.x, to.y - from.y) / 2;
-        if (rad < 0.5) {
-          m.lineTo(to.x, to.y);
-          return;
-        }
-        const a0c = Math.atan2(from.y - cy2, from.x - cx2);
-        for (let k = 1; k <= 14; k++) {
-          const a = a0c + out * (k / 14) * Math.PI;
-          m.lineTo(cx2 + Math.cos(a) * rad, cy2 + Math.sin(a) * rad);
-        }
-      };
       m.fillStyle = "#fff";
       m.beginPath();
       for (let i = 0; i <= STEPS; i++) {
-        const q = ptAt(i / STEPS, Rp);
-        if (i) m.lineTo(q.x, q.y);
-        else m.moveTo(q.x, q.y);
+        const th = aOld + dir * (i / STEPS) * drawnAng;
+        const x = mx0 + Math.cos(th) * Rp - OFF, y = my0 + Math.sin(th) * Rp;
+        if (i) m.lineTo(x, y);
+        else m.moveTo(x, y);
       }
-      capTo(ptAt(1, Rp), ptAt(1, Math.max(0, Rp * (1 - depthAt(1)))), dir);
       for (let i = STEPS; i >= 0; i--) {
         const u = i / STEPS;
-        const q = ptAt(u, Math.max(0, Rp * (1 - depthAt(u))));
-        m.lineTo(q.x, q.y);
+        const th = aOld + dir * u * drawnAng;
+        const rr = Math.max(0, Rp * (1 - depthAt(u)));
+        m.lineTo(mx0 + Math.cos(th) * rr - OFF, my0 + Math.sin(th) * rr);
       }
-      capTo(ptAt(0, Math.max(0, Rp * (1 - depthAt(0)))), ptAt(0, Rp), -dir);
       m.closePath();
       m.fill();
       m.shadowBlur = 0;
       m.shadowOffsetX = 0;
-      const dissolve = (u, _spanR, strength2, seedI) => {
-        const inner = Math.max(0, Rp * (1 - depthAt(u)));
-        const midR = (Rp + inner) / 2;
-        const th = aOld + dir * u * drawnAng;
-        const bx = mx0 + Math.cos(th) * midR, by = my0 + Math.sin(th) * midR;
-        const rad = Math.max(6, (Rp - inner) / 2);
-        m.globalCompositeOperation = "destination-out";
-        for (let j = 0; j < 3; j++) {
-          const t = drawnAng * 1.7 + seedI * 2.3 + j * 1.9;
-          const jx = bx + Math.cos(t) * rad * 0.2;
-          const jy = by + Math.sin(t * 1.3) * rad * 0.2;
-          const rr = rad * (0.6 + 0.2 * ((Math.cos(t * 0.8) + 1) / 2));
-          const g4 = m.createRadialGradient(jx, jy, 0, jx, jy, rr);
-          g4.addColorStop(0, `rgba(0,0,0,${strength2})`);
-          g4.addColorStop(0.3, `rgba(0,0,0,${strength2 * 0.72})`);
-          g4.addColorStop(0.6, `rgba(0,0,0,${strength2 * 0.38})`);
-          g4.addColorStop(0.82, `rgba(0,0,0,${strength2 * 0.14})`);
-          g4.addColorStop(1, "rgba(0,0,0,0)");
-          m.fillStyle = g4;
-          m.beginPath();
-          m.arc(jx, jy, rr, 0, Math.PI * 2);
-          m.fill();
-        }
-        m.globalCompositeOperation = "source-over";
-      };
-      if (cloud > 0.01 && gapSize > 2e-3) {
-        const leadThick = Rp * depthAt(1);
-        dissolve(1, Math.max(Rp * 0.14, leadThick * 0.8), 0.38, 0);
-        dissolve(0, Math.max(Rp * 0.1, Rp * depthAt(0) * 0.8), 0.26, 5);
-      }
       m.restore();
       const veil = (1 - f) * 0.75;
       if (veil > 4e-3) {
@@ -1118,7 +1055,6 @@
       softFit = null;
       trimmedAtLatch = false;
       announcedAtLatch = false;
-      recognisedLatch = false;
     }
     if (!portalUp) placedOk = false;
     if (!portalUp) {
@@ -1218,23 +1154,15 @@
       }
       const REVEAL_AT = 0.5;
       const reveal = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / (1 - REVEAL_AT)));
-      if (!pinched || p.progress < REVEAL_AT - 0.05) recognisedLatch = false;
-      else if (p.roundness >= 0.55) recognisedLatch = true;
-      else if (p.roundness < 0.44) recognisedLatch = false;
-      const recognised = recognisedLatch && pinched && p.progress >= REVEAL_AT;
+      const recognised = pinched && p.roundness >= 0.55 && p.progress >= REVEAL_AT;
       const want = !portalUp && fitC && recognised ? 0.12 + 0.88 * reveal : 0;
       mirrorAmt += (want - mirrorAmt) * (want > mirrorAmt ? 0.15 : 0.09);
       if (recognised) {
         const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
-        const gapTarget = Math.max(0, 1 - doneTurns);
-        openGap += (gapTarget - openGap) * 0.3;
+        openGap = Math.max(0, 1 - doneTurns);
         openCcw = p.sweep < 0;
-        lastFill += (doneTurns - lastFill) * 0.3;
-        const oldTarget = (p.endAngle ?? 0) - (openCcw ? -1 : 1) * doneTurns * Math.PI * 2;
-        let d = oldTarget - holdOld;
-        while (d > Math.PI) d -= Math.PI * 2;
-        while (d < -Math.PI) d += Math.PI * 2;
-        holdOld += d * 0.3;
+        lastFill = doneTurns;
+        holdOld = (p.endAngle ?? 0) - (openCcw ? -1 : 1) * doneTurns * Math.PI * 2;
       } else if (mirrorAmt > 6e-3) {
         lastFill += (0 - lastFill) * 0.1;
         openGap += (1 - openGap) * 0.1;
@@ -1257,40 +1185,21 @@
         ctx.moveTo(SP[0].x, SP[0].y);
         for (let i = 1; i < SP.length; i++) ctx.lineTo(SP[i].x, SP[i].y);
       };
-      strokeDrawnThisFrame = !portalUp;
-      const hideInside = fitC && mirrorAmt > 0.01;
-      if (hideInside) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(0, 0, W, H);
-        const innerEdge = Math.min(0.88, 1 - Math.pow(lastFill, 2.5));
-        ctx.arc(
-          mx(fitC.cx),
-          my(fitC.cy),
-          Math.max(2, fitC.r * RPX * innerEdge),
-          0,
-          Math.PI * 2
-        );
-        ctx.clip("evenodd");
-      }
-      if (!portalUp) {
-        ctx.shadowBlur = 10 + 22 * k;
-        ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
-        ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.18 + k * 0.45})`;
-        ctx.lineWidth = Math.max(2.5, rBase * RPX * 0.05);
-        path();
-        ctx.stroke();
-        ctx.shadowBlur = 6 + 10 * k;
-        ctx.strokeStyle = `rgba(${CORE}, ${0.3 + k * 0.6})`;
-        ctx.lineWidth = Math.max(1, rBase * RPX * 0.016);
-        path();
-        ctx.stroke();
-      }
+      ctx.shadowBlur = 10 + 22 * k;
+      ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
+      ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.18 + k * 0.45})`;
+      ctx.lineWidth = Math.max(2.5, rBase * RPX * 0.05);
+      path();
+      ctx.stroke();
+      ctx.shadowBlur = 6 + 10 * k;
+      ctx.strokeStyle = `rgba(${CORE}, ${0.3 + k * 0.6})`;
+      ctx.lineWidth = Math.max(1, rBase * RPX * 0.016);
+      path();
+      ctx.stroke();
       ctx.shadowBlur = 0;
-      if (hideInside) ctx.restore();
       const boundShare = Math.min(0.4, conf * conf * 0.45);
       const bindMaybe = () => Math.random() < boundShare;
-      if (fitC && conf > 0.05 && !portalUp) {
+      if (fitC && conf > 0.05) {
         const step = Math.max(4, Math.round(22 - conf * 18));
         for (let i = 0; i < stroke.length; i += step) {
           const q = stroke[i];
@@ -1314,7 +1223,7 @@
       let tx = hp.x - pp.x;
       let ty = hp.y - pp.y;
       const tm = Math.hypot(tx, ty) || 1;
-      const n = portalUp ? 0 : Math.round(1 + k * 9);
+      const n = Math.round(1 + k * 9);
       for (let i = 0; i < n; i++) {
         spawnAt(
           mx(head.rx),
@@ -1326,7 +1235,7 @@
           bindMaybe()
         );
       }
-      if (SP && SP.length > 4 && !portalUp) {
+      if (SP && SP.length > 4) {
         const heat = Math.min(1, p.progress / 0.85);
         const per = 8 + Math.round(30 * heat);
         const halfBand = Math.max(2.5, (fitC ? fitC.r * RPX : 120) * 0.045);
@@ -1405,10 +1314,8 @@
           );
         }
         ctx.globalCompositeOperation = "lighter";
-        const bloom = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, rpx * 1.22);
-        bloom.addColorStop(0, "rgba(0,0,0,0)");
-        bloom.addColorStop(0.9 / 1.22, "rgba(0,0,0,0)");
-        bloom.addColorStop(1 / 1.22, `rgba(${SPARK_MID}, ${0.16 * vis})`);
+        const bloom = ctx.createRadialGradient(cx0, cy0, rpx * 0.9, cx0, cy0, rpx * 1.22);
+        bloom.addColorStop(0, `rgba(${SPARK_MID}, ${0.16 * vis})`);
         bloom.addColorStop(1, "rgba(0,0,0,0)");
         ctx.fillStyle = bloom;
         disc(cn, rn * 1.22);
@@ -1461,13 +1368,6 @@
       }
     }
     ctx.globalCompositeOperation = "lighter";
-    const drawnFit = drawing ?? softFit;
-    const holeUp = portalUp || !!drawnFit && mirrorAmt > 0.01;
-    const holeCx = portalUp ? px(geom.cx) : drawnFit ? mx(drawnFit.cx) : 0;
-    const holeCy = portalUp ? py(geom.cy) : drawnFit ? my(drawnFit.cy) : 0;
-    const holeR = (portalUp ? rpxOf(clampRN(geom.r)) : drawnFit ? drawnFit.r * RPX : 0) * 0.97;
-    const insidePortal = (x, y) => (x - holeCx) ** 2 + (y - holeCy) ** 2 < holeR * holeR;
-    let sparksInHole = 0;
     const alive = [];
     for (const sp of sparks) {
       const c = Math.cos(0.035), sn = Math.sin(0.035);
@@ -1508,10 +1408,6 @@
       sp.life -= 4e-3;
       if (sp.life <= 0) continue;
       alive.push(sp);
-      if (holeUp && insidePortal(sp.x, sp.y)) {
-        sparksInHole++;
-        continue;
-      }
       const speed = Math.hypot(sp.vx, sp.vy) || 1;
       const len = Math.max(5, Math.min(20, speed * 2.4));
       const h = sp.heat * sp.life;
@@ -1523,13 +1419,6 @@
       ctx.moveTo(sp.x, sp.y);
       ctx.lineTo(sp.x - sp.vx / speed * len, sp.y - sp.vy / speed * len);
       ctx.stroke();
-    }
-    if (pinched && p.progress > 0.75 && now - lastInsideCheck > 700) {
-      lastInsideCheck = now;
-      window.webkit?.messageHandlers?.portal?.postMessage({
-        event: "log",
-        text: `phase=${S.phase} progress=${p.progress.toFixed(2)} sweep=${Math.abs(p.sweep).toFixed(2)}/5.40 round=${p.roundness.toFixed(2)}/0.55 r=${p.radius.toFixed(3)} sparksInHole=${sparksInHole}`
-      });
     }
     sparks = alive.length > 1400 ? alive.slice(-1400) : alive;
   }
