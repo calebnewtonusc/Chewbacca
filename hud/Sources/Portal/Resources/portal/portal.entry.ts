@@ -2144,8 +2144,32 @@ function frame(now: number) {
     // and doesn't look like another dimension." It was drawing a thing on top
     // of this dimension instead of showing a different one.
     //
-    const REVEAL_AT = 0.5;
-    const reveal = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / (1 - REVEAL_AT)));
+    // A SMALLER CIRCLE WAITS LONGER BEFORE THE REVEAL STARTS.
+    //
+    // "It should take longer along the circle on smaller circles to
+    // initiate the beginning of the arc tracing."
+    //
+    // At a fixed fraction of a turn, a small circle reaches the threshold
+    // after very little hand travel, so the reveal commits on almost no
+    // evidence and looks like a guess. A big circle has covered a lot of
+    // screen by the same point and can be trusted sooner. Scaled by the
+    // fitted radius, which by now has settled:
+    //
+    //   radius 0.08 of the screen   reveal starts at 66% of a turn
+    //   radius 0.18                 at 55%
+    //   radius 0.32 and up          at 42%
+    const rSeen = fitC ? fitC.r : 0;
+    const REVEAL_AT = Math.max(0.42, Math.min(0.75, 0.75 - 1.1 * rSeen));
+    // AND IT STARTS FROM NOTHING. A linear ramp from the threshold still
+    // leaves a corner at the moment it begins, and the opacity below used
+    // to add a 0.12 floor on top of that, so the other side appeared at
+    // 12% instantly: "out of nowhere the animation starts". Smoothstepped,
+    // so it leaves zero at zero speed, and the floor is gone.
+    const reveal = (() => {
+      const span = Math.max(0.12, 1 - REVEAL_AT);
+      const t = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / span));
+      return t * t * (3 - 2 * t);
+    })();
 
     // NOT BEFORE A CIRCLE IS ACTUALLY BEING DRAWN. "portal see through
     // shouldn't start until initiation of the circle starts!"
@@ -2233,7 +2257,10 @@ function frame(now: number) {
     // the reverse of how it was drawn. That means the angle to hold across a
     // cancel is where the circle BEGAN, not where the fingers were, and the
     // leading edge is recomputed from it as the arc shortens.
-    const want = !portalUp && fitC && recognised ? 0.12 + 0.88 * reveal : 0;
+    // No floor. See the smoothstep above: this used to jump to 0.12 the
+    // frame the latch tripped, and since arriving is assigned rather than
+    // eased it landed in a single frame.
+    const want = !portalUp && fitC && recognised ? reveal : 0;
     // 0.09 out against 0.15 in: an unspiral wants to be seen, and something
     // arriving can afford to be quicker than something leaving.
     // Arriving is a function of the arc, so it is assigned. LEAVING is an

@@ -2022,8 +2022,13 @@ void main() {
           q.ry = ny / H;
         }
       }
-      const REVEAL_AT = 0.5;
-      const reveal = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / (1 - REVEAL_AT)));
+      const rSeen = fitC ? fitC.r : 0;
+      const REVEAL_AT = Math.max(0.42, Math.min(0.75, 0.75 - 1.1 * rSeen));
+      const reveal = (() => {
+        const span = Math.max(0.12, 1 - REVEAL_AT);
+        const t = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / span));
+        return t * t * (3 - 2 * t);
+      })();
       if (!pinched || p.progress < REVEAL_AT - 0.05) recognisedLatch = false;
       const rNow = fitC ? fitC.r : 0;
       if (fitRRef <= 0 || Math.abs(rNow - fitRRef) / Math.max(rNow, 1e-4) > 0.12) {
@@ -2035,7 +2040,7 @@ void main() {
       else if (p.roundness >= 0.42) recognisedLatch = true;
       else if (p.roundness < 0.34) recognisedLatch = false;
       const recognised = recognisedLatch && pinched && p.progress >= REVEAL_AT;
-      const want = !portalUp && fitC && recognised ? 0.12 + 0.88 * reveal : 0;
+      const want = !portalUp && fitC && recognised ? reveal : 0;
       mirrorAmt = want > mirrorAmt ? want : mirrorAmt + (want - mirrorAmt) * 0.09;
       if (recognised) {
         if (ccwLatch === null && p.direction) ccwLatch = p.direction === "ccw";
