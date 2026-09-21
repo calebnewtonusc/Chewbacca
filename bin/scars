@@ -38,7 +38,16 @@ FAILURE = re.compile(
     r"A BUG WORTH|the bug|silently|swallow|swallowed|"
     r"I (?:got|had) .{0,30}(?:wrong|backwards)|"
     r"CORRECTION|AND A CORRECTION|which was wrong|did it again|"
-    r"never fires?|did nothing|vacuous|false positive)", re.I)
+    r"never fires?|did nothing|vacuous|false positive|"
+    # Added 2026-09-20. Five of six commits that night carried a real postmortem
+    # and only one indexed, because the pattern matched how failures get NAMED
+    # and not how they get NARRATED. These are lifted from the misses.
+    r"was wrong|were wrong|got it wrong|reported .{0,40}finished|"
+    r"shipped .{0,20}(?:times|anyway)|nearly shipped|almost shipped|"
+    r"slipped past|leaked|missed (?:it|that|the)|"
+    r"nobody (?:read|checked|looked)|without (?:saying|anyone)|"
+    r"should have|cost (?:an hour|a day|real time)|"
+    r"discard(?:ed|ing)?|only helps? when)", re.I)
 
 STOP = set("""the a an and or of to in for on with that this it is was were be
 been are as at by from but not no if then than so such very can will would
