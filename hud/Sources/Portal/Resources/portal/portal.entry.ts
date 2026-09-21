@@ -104,7 +104,7 @@ let trimmedAtLatch = false;
 // right shape with no motion in it, because a point's drawn position was a
 // pure function of how far round the hand had got rather than of where the
 // point was a frame ago.
-let stroke: { x: number; y: number; rx: number; ry: number }[] = [];
+let stroke: { x: number; y: number; rx: number; ry: number; t: number }[] = [];
 // The circle the line is bending toward, smoothed across frames.
 //
 // Latching alone was not enough: below the latch threshold the target was
@@ -508,7 +508,7 @@ function frame(now: number) {
     const sm = last
       ? { x: last.x + (cursor.x - last.x) * 0.45, y: last.y + (cursor.y - last.y) * 0.45 }
       : cursor;
-    stroke.push({ x: sm.x, y: sm.y, rx: sm.x, ry: sm.y });
+    stroke.push({ x: sm.x, y: sm.y, rx: sm.x, ry: sm.y, t: now });
     // Hard cap only. The real trim happens after the detector has run,
     // because it depends on this frame's progress and `p` does not exist
     // yet here. Reading it from here threw a ReferenceError every frame,
@@ -574,6 +574,31 @@ function frame(now: number) {
     // turn, which is visibly an arc, and on a fast sweep across a 1512px
     // display it is still a comet rather than a stripe.
     const circling = p.progress > 0.4 && p.roundness > 0.55;
+
+    // BOTH A LENGTH AND AN AGE, WHICHEVER BITES FIRST.
+    //
+    // "the line still should disappear time based, small lines take forever
+    // to go away." Trimming by distance alone was the fix for a fast hand
+    // leaving a stripe across the display, and it opened this hole: a hand
+    // that barely moves never travels the 300px that would trim anything, so
+    // its line sits there indefinitely.
+    //
+    // 550ms is where the two rules cross at about 550px a second, which is
+    // an ordinary drawing speed. Slower than that and the age decides, so a
+    // nearly still hand keeps a short fading tail instead of a permanent
+    // one. Faster and the length decides, which is the case that produced
+    // the stripe.
+    //
+    // Not while circling. Once the path is becoming a ring the whole of it
+    // is the ring, and ageing it out would eat the thing being drawn.
+    const TRAIL_MS = 550;
+    if (!circling) {
+      const cutoff = now - TRAIL_MS;
+      let drop = 0;
+      while (drop < stroke.length - 2 && stroke[drop].t < cutoff) drop++;
+      if (drop) stroke.splice(0, drop);
+    }
+
     const maxPx = circling ? 4000 : trailPx;
     let run = 0;
     for (let i = stroke.length - 1; i > 0; i--) {

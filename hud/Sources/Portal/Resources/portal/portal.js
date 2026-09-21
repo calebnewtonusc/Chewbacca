@@ -747,7 +747,7 @@
     if (cursor) {
       const last = stroke[stroke.length - 1];
       const sm = last ? { x: last.x + (cursor.x - last.x) * 0.45, y: last.y + (cursor.y - last.y) * 0.45 } : cursor;
-      stroke.push({ x: sm.x, y: sm.y, rx: sm.x, ry: sm.y });
+      stroke.push({ x: sm.x, y: sm.y, rx: sm.x, ry: sm.y, t: now });
       while (stroke.length > 260) stroke.shift();
     } else if (stroke.length) {
       stroke = [];
@@ -762,6 +762,13 @@
     }
     if (stroke.length) {
       const circling = p.progress > 0.4 && p.roundness > 0.55;
+      const TRAIL_MS = 550;
+      if (!circling) {
+        const cutoff = now - TRAIL_MS;
+        let drop = 0;
+        while (drop < stroke.length - 2 && stroke[drop].t < cutoff) drop++;
+        if (drop) stroke.splice(0, drop);
+      }
       const maxPx = circling ? 4e3 : trailPx;
       let run = 0;
       for (let i = stroke.length - 1; i > 0; i--) {
