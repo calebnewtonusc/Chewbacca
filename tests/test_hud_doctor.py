@@ -82,7 +82,7 @@ check(
 for needle, why in [
     ("below the 14.0 floor", "macOS too old to launch the app"),
     ("nothing to draw on", "no app installed"),
-    ("is at $head", "app older than the code that was merged"),
+    ("moved at $head", "app older than the code that was merged"),
     ("installed but not running", "app present, never launched"),
     ("no socket at", "nothing can reach the glass"),
     ("newer than the installed binary", "sources edited since the build"),
