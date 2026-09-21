@@ -499,6 +499,28 @@ def agent_flags(profile: str, settings: dict, prompt: Path = AGENT_PROMPT) -> li
     exactly the posture they chose for every Claude Code session, nothing
     looser and nothing new. A mode this build does not know is left off.
     """
+    # `kit` is lean plus the kit's skills, and nothing else. Measured
+    # 2026-09-21, same question, same model, warm:
+    #
+    #   lean   53,700 tokens   6.2s   brain, doctrine, Bash
+    #   kit   135,700 tokens  14.7s   + all 105 skills
+    #   full  156,200 tokens  24.9s   + 15 MCP servers
+    #
+    # The 80k between lean and kit is the skill descriptions themselves;
+    # disabling hooks changed the total by 64 tokens, so the session briefing
+    # is not what costs here. The 20k and ten seconds between kit and full are
+    # the MCP servers, and a spoken question never needs Blender or Supabase.
+    #
+    # Caleb asked for everything the kit has. This is everything minus the part
+    # that buys nothing out loud. Fifteen seconds is still a long time to hold
+    # a key, so lean stays the default and HUD_PROFILE=kit is one word to flip.
+    if profile == "kit":
+        return [
+            "--strict-mcp-config",
+            "--mcp-config", json.dumps({"mcpServers": {}}),
+            "--permission-mode", str(settings.get("permissions", {}).get(
+                "defaultMode", "acceptEdits")),
+        ]
     if profile != "lean":
         return []
     flags = [
@@ -2956,10 +2978,12 @@ def main() -> int:
     )
     parser.add_argument(
         "--profile",
-        choices=["lean", "full"],
+        choices=["lean", "kit", "full"],
         default=os.environ.get("HUD_AGENT_PROFILE", "lean"),
-        help="lean: Claude Code with its own short system prompt and one tool (see agent_flags); "
-        "full: as claude -p runs at a terminal",
+        help="lean: own short system prompt, one tool, the brain and the doctrine "
+        "(~54k tokens, 6s). kit: lean plus all the kit's skills, no MCP "
+        "(~136k, 15s). full: as claude -p runs at a terminal, MCP and all "
+        "(~156k, 25s). Measured 2026-09-21, same question, warm.",
     )
     args = parser.parse_args()
     voice = None if args.voice.lower() in {"off", "none", ""} else args.voice

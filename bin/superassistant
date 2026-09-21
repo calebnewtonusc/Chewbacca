@@ -337,6 +337,56 @@ def doctrine() -> str:
     return "\n".join(DOCTRINE_HEAD) + "\n\n" + sep.join(parts)
 
 
+SKILLS_DIRS = (
+    Path.home() / ".claude" / "skills",
+    Path(__file__).resolve().parent.parent / "skills",
+)
+
+
+def skill_index() -> str:
+    """The names of the installed skills, and how to read one.
+
+    Caleb, 2026-09-21: "Some things it doesn't hv to load each response, it just
+    needs an understanding of how to navigate it. Isn't that what we had setup
+    chewbacca?"
+
+    He was right and this file was about to break the kit's own architecture.
+    CLAUDE.md says the stack-specific standards are deliberately NOT imported,
+    because "importing all eighteen would cost roughly 16,000 tokens on every
+    session". MEMORY.md is an index and the memories are read on demand.
+    domains/ is read on demand. Loading all 104 skill descriptions into every
+    spoken turn is the exact thing the design exists to prevent.
+
+    Measured: the full descriptions cost about 80,000 tokens a turn and took a
+    voice answer from 6 seconds to 15. The names alone cost 368. The agent has
+    Bash and can read any SKILL.md the moment one looks relevant, which is what
+    a session at the terminal does too.
+    """
+    names = set()
+    for root in SKILLS_DIRS:
+        try:
+            for entry in root.iterdir():
+                if (entry / "SKILL.md").is_file():
+                    names.add(entry.name)
+        except OSError:
+            continue
+    if not names:
+        return ""
+    listing = ", ".join(sorted(names))
+    where = " or ".join(str(d) for d in SKILLS_DIRS)
+    return (
+        "## Skills you can read\n\n"
+        f"{len(names)} skills are installed. These are the names only. Each is a "
+        "folder with a SKILL.md holding what somebody already worked out, "
+        "including the failures they paid for.\n\n"
+        f"{listing}\n\n"
+        f"They live in {where}. When a name looks like it covers what was "
+        "asked, read it first: `cat ~/.claude/skills/<name>/SKILL.md`. That is "
+        "one Bash call and it beats improvising. Do not read one on every "
+        "request, and do not list them at him; read the one that fits."
+    )
+
+
 def agent_prompt(base: Path = AGENT_PROMPT, out: Path = PROMPT_OUT) -> Path:
     """The prompt file for the voice assistant: `base` plus the digest.
 
@@ -350,6 +400,9 @@ def agent_prompt(base: Path = AGENT_PROMPT, out: Path = PROMPT_OUT) -> Path:
         rules = doctrine()
         if rules:
             pieces.append(rules)
+        skills = skill_index()
+        if skills:
+            pieces.append(skills)
         pieces.append(digest())
         text = "\n\n".join(pieces)
     except OSError:
