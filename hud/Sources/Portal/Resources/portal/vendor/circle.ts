@@ -47,9 +47,13 @@ import type { Landmark } from "./types";
 
 export interface CircleGestureOptions {
   /**
-   * Radians of accumulated turning before the gesture fires. Default 5.35,
-   * about 306 degrees: a circle you can close casually rather than one you
-   * have to land precisely, since the hand nearly always stops short.
+   * Radians of accumulated turning before the gesture fires. Default 4.6,
+   * about 264 degrees, so three quarters of a turn is enough.
+   *
+   * It was 306 degrees and he could not close one: "Still really hard to
+   * draw circles." An arm sweeping in the air runs out of comfortable range
+   * before it comes all the way round, and the last quarter turn is the
+   * part where the wrist is fighting itself.
    */
   sweepThreshold?: number;
   /** Trail length in samples. Default 240, enough to hold a whole slow
@@ -97,6 +101,22 @@ export interface CircleProgress {
   startAngle: number | null;
   /** Angle of the most recent point about the fitted centre, radians. */
   endAngle: number | null;
+  /**
+   * How well the path actually lies on the circle that was fitted to it,
+   * 0 to 1. 1 is every sample at the same radius.
+   *
+   * WHY TURNING IS NOT ENOUGH. `sweep` says the path curved. It does not
+   * say the path curved CONSISTENTLY, and a hand wandering across the
+   * frame accumulates turning without ever being round. Caleb, three
+   * thresholds into trying to fix this by requiring more turning: "Still
+   * too easily starting the circle."
+   *
+   * Raising the turning threshold cannot separate them, because a meander
+   * reaches any threshold eventually. Roundness can: it is the spread of
+   * the sample radii about their mean, which is small for an arc and large
+   * for a wander, whatever either of them has turned through.
+   */
+  roundness: number;
 }
 
 const EMPTY: CircleProgress = {
@@ -108,6 +128,7 @@ const EMPTY: CircleProgress = {
   direction: null,
   startAngle: null,
   endAngle: null,
+  roundness: 0,
 };
 
 interface Sample {
@@ -227,7 +248,30 @@ export class CircleGestureDetector {
     const { center, radius } = this.fit();
     const first = this.trail[0];
     const last = this.trail[this.trail.length - 1];
+    // Spread of the sample radii about their mean, inverted. A coefficient
+    // of variation over about 0.35 is a wander rather than an arc.
+    //
+    // MEASURED AGAINST THE SPREAD OF THE POINTS, NOT THE FITTED RADIUS.
+    // Dividing the residual by the fitted radius scores a wander as round,
+    // because a wander fits a huge circle and any deviation looks small
+    // beside it. A sine curve across the frame scored 0.78 that way. The
+    // spread about the centroid is what the samples actually occupy, so an
+    // arc has a residual far smaller than its spread and a wander has one
+    // comparable to it, whatever either fit came out as.
+    let roundness = 0;
+    if (this.trail.length >= 4) {
+      const m = this.centroid();
+      const spread = Math.sqrt(
+        this.trail.reduce(
+          (a, q) => a + (q.x - m.x) ** 2 + (q.y - m.y) ** 2, 0) / this.trail.length);
+      const radii = this.trail.map((q) => Math.hypot(q.x - center.x, q.y - center.y));
+      const mean = radii.reduce((a, b) => a + b, 0) / radii.length;
+      const sd = Math.sqrt(
+        radii.reduce((a, r) => a + (r - mean) ** 2, 0) / radii.length);
+      if (spread > 1e-6) roundness = Math.max(0, 1 - (sd / spread) / 0.45);
+    }
     return {
+      roundness,
       startAngle: Math.atan2(first.y - center.y, first.x - center.x),
       endAngle: Math.atan2(last.y - center.y, last.x - center.x),
       progress: Math.min(1, Math.abs(this.sweep) / this.o.sweepThreshold),

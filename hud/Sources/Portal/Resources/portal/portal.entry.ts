@@ -485,7 +485,7 @@ function frame(now: number) {
     // Shorter. "the line before the circle should go away quicker": a plain
     // stroke is a pointer trail, not a drawing, so it should read as a few
     // frames of motion behind the fingers.
-    const keep = p.progress > 0.34 ? 260 : 16;
+    const keep = p.progress > 0.4 && p.roundness > 0.55 ? 260 : 16;
     while (stroke.length > keep) stroke.shift();
   }
 
@@ -673,7 +673,16 @@ function frame(now: number) {
     // of it to look like the start of a circle without being one. Requiring
     // real curvature first is the difference between a line that bends
     // because it is becoming a circle and one that bends because it moved.
-    const conf = Math.max(0, Math.min(1, (p.progress - 0.34) / 0.26));
+    // TURNING AND ROUNDNESS, BOTH. Progress alone reaches any threshold
+    // eventually, however the hand moved, which is why three rounds of
+    // raising it did not help: "Still too easily starting the circle."
+    // Roundness is the residual of the fit against the spread of the
+    // samples, so a path has to have curved AND curved consistently.
+    //
+    // Slightly later as well, at four tenths of a turn.
+    const turned = Math.max(0, Math.min(1, (p.progress - 0.4) / 0.26));
+    const round = Math.max(0, Math.min(1, (p.roundness - 0.55) / 0.3));
+    const conf = turned * round;
     const k = Math.pow(conf, 0.9);
 
     // Ease every point toward the circle, a fraction of the remaining
