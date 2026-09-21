@@ -737,6 +737,52 @@ function frame(now: number) {
     m.closePath();
     m.fill();
     m.shadowBlur = 0; m.shadowOffsetX = 0;
+
+    // THE ENDS DISSOLVE, THEY ARE NOT CAPPED. "The edge of the radial cut
+    // that you made curved is supposed to be cloudy, not outline with
+    // sparks."
+    //
+    // Rounding the cap fixed the pie and left an edge: a crisp curve is
+    // still a cut, and the ring's sparks run right along it, which is what
+    // makes it read as an outline. A cap is a shape. What belongs there is
+    // weather.
+    //
+    // So the geometry is eaten back with soft gradients at each end,
+    // strongest at the very tip and gone within a cap's width. The ribbon
+    // stops having an end and starts thinning out.
+    //
+    // Gradients, not a blur: ctx.filter is ignored by this engine, and the
+    // shadow trick only softens the shape as a whole, which cannot treat one
+    // end differently from the middle.
+    const dissolve = (u: number, spanR: number, strength: number, seedI: number) => {
+      const inner = Math.max(0, Rp * (1 - depthAt(u)));
+      const midR = (Rp + inner) / 2;
+      const th = aOld + dir * u * drawnAng;
+      const bx = mx0 + Math.cos(th) * midR, by = my0 + Math.sin(th) * midR;
+      const rad = Math.max(6, spanR);
+      m.globalCompositeOperation = "destination-out";
+      // Three overlapping, drifting slowly, so the thinning is uneven.
+      for (let j = 0; j < 3; j++) {
+        const t = now / 2600 + seedI * 2.3 + j * 1.9;
+        const jx = bx + Math.cos(t) * rad * 0.35;
+        const jy = by + Math.sin(t * 1.3) * rad * 0.35;
+        const rr = rad * (0.7 + 0.5 * ((Math.cos(t * 0.8) + 1) / 2));
+        const g4 = m.createRadialGradient(jx, jy, 0, jx, jy, rr);
+        g4.addColorStop(0, `rgba(0,0,0,${strength})`);
+        g4.addColorStop(0.55, `rgba(0,0,0,${strength * 0.45})`);
+        g4.addColorStop(1, "rgba(0,0,0,0)");
+        m.fillStyle = g4;
+        m.beginPath();
+        m.arc(jx, jy, rr, 0, Math.PI * 2);
+        m.fill();
+      }
+      m.globalCompositeOperation = "source-over";
+    };
+    if (cloud > 0.01 && gapSize > 0.002) {
+      const leadThick = Rp * depthAt(1);
+      dissolve(1, Math.max(Rp * 0.14, leadThick * 0.8), 0.9, 0);
+      dissolve(0, Math.max(Rp * 0.10, Rp * depthAt(0) * 0.8), 0.7, 5);
+    }
     m.restore();
 
     // Faded overall, most at the rim, and the fade goes as the circle
