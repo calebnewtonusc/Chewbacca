@@ -330,6 +330,34 @@
   var MIN_SEPARATION_MM = 120;
   var MAX_RAY_GAIN = 8;
   var DEFAULT_ANTHRO = { ipdMm: 63, palmMm: 97 };
+  var ROUGH_EYE_MM = 600;
+  var ROUGH_HAND_MM = 350;
+  var DEPTH_ADAPT = 0.02;
+  var EYE_RANGE_MM = [300, 1100];
+  var HAND_RANGE_MM = [150, 700];
+  var clamp = (v, [lo, hi]) => Math.max(lo, Math.min(hi, v));
+  var DepthTracker = class {
+    constructor() {
+      __publicField(this, "eyeMm", ROUGH_EYE_MM);
+      __publicField(this, "handMm", ROUGH_HAND_MM);
+    }
+    /** Feed the per-frame measurements; get the steady values back. */
+    update(measuredEye, measuredHand, adapt = DEPTH_ADAPT) {
+      if (isFinite(measuredEye)) {
+        const target = clamp(measuredEye, EYE_RANGE_MM);
+        this.eyeMm += (target - this.eyeMm) * adapt;
+      }
+      if (isFinite(measuredHand)) {
+        const target = clamp(measuredHand, HAND_RANGE_MM);
+        this.handMm += (target - this.handMm) * adapt;
+      }
+      return { eyeMm: this.eyeMm, handMm: this.handMm };
+    }
+    reset() {
+      this.eyeMm = ROUGH_EYE_MM;
+      this.handMm = ROUGH_HAND_MM;
+    }
+  };
   var MACBOOK_14 = {
     widthMm: 302.4,
     heightMm: 196.4,
@@ -375,7 +403,7 @@
       y: (-yMm - screen.cameraYMm) / screen.heightMm * screen.heightPx
     };
   }
-  function pointingPoint(input, screen = MACBOOK_14, cam = MAC_CAMERA, anthro = DEFAULT_ANTHRO) {
+  function pointingPoint(input, screen = MACBOOK_14, cam = MAC_CAMERA, anthro = DEFAULT_ANTHRO, depths2) {
     const { leftEye, rightEye, hand } = input;
     if (!hand || hand.length < 21) return null;
     const ipdApparent = Math.hypot(rightEye.x - leftEye.x, (rightEye.y - leftEye.y) / cam.aspect);
@@ -384,12 +412,13 @@
     const palmApparent = Math.hypot(hand[9].x - hand[0].x, (hand[9].y - hand[0].y) / cam.aspect);
     const fingerDepth = depthFromApparentSize(anthro.palmMm, palmApparent, cam);
     if (!isFinite(fingerDepth)) return null;
+    const steady = depths2 ? depths2.update(eyeDepth, fingerDepth) : { eyeMm: ROUGH_EYE_MM, handMm: ROUGH_HAND_MM };
     const eyeMid = { x: (leftEye.x + rightEye.x) / 2, y: (leftEye.y + rightEye.y) / 2 };
-    const eye = cameraSpace(eyeMid.x, eyeMid.y, eyeDepth, cam);
+    const eye = cameraSpace(eyeMid.x, eyeMid.y, steady.eyeMm, cam);
     const t = hand[input.tip ?? 8];
-    const finger = cameraSpace(t.x, t.y, fingerDepth, cam);
+    const finger = cameraSpace(t.x, t.y, steady.handMm, cam);
     const p = rayToScreen(eye, finger, screen);
-    return { x: p.x, y: p.y, eyeMm: eyeDepth, fingerMm: fingerDepth };
+    return { x: p.x, y: p.y, eyeMm: steady.eyeMm, fingerMm: steady.handMm };
   }
 
   // portal.entry.ts
@@ -423,6 +452,7 @@
   var spin = 0;
   var latest = null;
   var latestEyes = null;
+  var depths = new DepthTracker();
   var lastSeen = 0;
   var armed = null;
   window.chewbaccaArm = (label) => {
@@ -505,7 +535,10 @@
         };
         const r = pointingPoint(
           { leftEye: latestEyes.left, rightEye: latestEyes.right, hand: lm },
-          screen
+          screen,
+          void 0,
+          void 0,
+          depths
         );
         if (r) {
           return { x: 1 - r.x / window.innerWidth, y: r.y / window.innerHeight };

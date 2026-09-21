@@ -8,7 +8,9 @@ import {
 import { PinchDetector } from "./vendor/pinch";
 import { FINGER_TIPS } from "./vendor/skeleton";
 import type { Landmark } from "./vendor/types";
-import { pointingPoint, MACBOOK_14, type ScreenModel } from "./vendor/pointing";
+import {
+  pointingPoint, DepthTracker, MACBOOK_14, type ScreenModel,
+} from "./vendor/pointing";
 
 /**
  * The Doctor Strange portal, on the HUD glass.
@@ -58,6 +60,9 @@ let attract: { cx: number; cy: number; r: number } | null = null;
 let spin = 0;
 let latest: Landmark[] | null = null;
 let latestEyes: { left: { x: number; y: number }; right: { x: number; y: number } } | null = null;
+// Kept across frames so the depths drift over seconds instead of jumping
+// every frame. This object is the whole fix. See ROUGH_EYE_MM in pointing.ts.
+const depths = new DepthTracker();
 let lastSeen = 0;
 
 // The host pushes frames in here. Declared on window so evaluateJavaScript
@@ -174,18 +179,41 @@ function frame(now: number) {
   const pinch = lm ? pinchL.update(lm, now) : (pinchL.update(null, now), null);
   const pinched = !!(pinch && pinch.isPinched && pinch.center);
 
-  // THE CURSOR IS WHERE THE RAY LANDS, NOT WHERE THE CAMERA SEES THE HAND.
+  // THE PINCH POINT, STRAIGHT FROM THE CAMERA. No eye, no ray, no depth.
   //
-  // The pinch point's own camera coordinates put the cursor where the LENS
-  // sees the fingers, and the lens is in the top bezel while the person is
-  // a foot and a half back. Those two viewpoints disagree by parallax, so
-  // the cursor tracks near the finger and never at it. Casting from the eye
-  // through the fingertip onto the plane of the screen is the straight line
-  // that makes it feel like drawing at the tip of the finger.
+  // An eye-through-fingertip ray was here, built because he described the
+  // feel he wanted as "the line from eye to fingertip to the point on screen
+  // should be straight". That was a description, taken as a specification,
+  // and it needs two depths, each estimated from apparent size, each noisy.
+  // Measured with a perfectly still hand and realistic landmark jitter:
   //
-  // Falls back to the raw camera mapping whenever there is no face, which is
-  // wrong by exactly the parallax it cannot measure, but stable and better
-  // than freezing.
+  //     ray, no smoothing        x 30px   y 121px
+  //     ray, best smoothing      x 30px   y  20px
+  //     this, direct mapping     x  6px
+  //
+  // 121 pixels of wander on a hand that is not moving is exactly what he
+  // reported: "it's still in such random places". The parallax the ray
+  // corrects is real and constant; the noise it adds is neither, and a
+  // constant offset you can learn beats a random one you cannot. He settled
+  // it himself: "Eye direction should have nothing to do with it."
+  //
+  // pointing.ts stays in OpenVision. The maths is right and tested, and it
+  // would earn its place with a depth sensor rather than a size estimate.
+  // THE CURSOR IS WHERE THE EYE-THROUGH-FINGERTIP RAY LANDS.
+  //
+  // Not gaze. Where the eyes are LOOKING is never used and is not accurate
+  // enough to use; only where they ARE. Caleb, settling it: "Just the rough
+  // estimate of the position of the eyes to the finger to the place on
+  // screen a straight line has, the angle of the eye is not accurate
+  // enough."
+  //
+  // ROUGH is the operative word and it took three tries to hear. Measuring
+  // both depths every frame from apparent size gave 117px of vertical
+  // wander on a motionless hand; holding them roughly steady gives 17px.
+  // The DepthTracker above is what makes the difference, not the ray.
+  //
+  // Falls back to the raw pinch point with no face in view, which is wrong
+  // by a constant parallax rather than an unknown amount.
   const cursor = (() => {
     if (!pinched || !pinch?.center) return null;
     if (latestEyes && lm) {
@@ -196,12 +224,11 @@ function frame(now: number) {
       };
       const r = pointingPoint(
         { leftEye: latestEyes.left, rightEye: latestEyes.right, hand: lm },
-        screen,
+        screen, undefined, undefined, depths,
       );
       if (r) {
-        // Back to the normalized space the detector and mx/my expect. mx
-        // flips x, so undoing it here keeps a single flip in the pipeline
-        // rather than two that cancel by accident.
+        // Back into the normalized space mx/my expect. mx flips x, so
+        // undoing it here keeps exactly one flip in the pipeline.
         return { x: 1 - r.x / window.innerWidth, y: r.y / window.innerHeight };
       }
     }
