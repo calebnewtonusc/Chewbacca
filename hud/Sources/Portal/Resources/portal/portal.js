@@ -772,10 +772,11 @@
       path();
       ctx.stroke();
       ctx.shadowBlur = 0;
-      const boundShare = Math.min(0.35, conf * 0.45);
+      const boundShare = Math.min(0.4, conf * conf * 0.45);
       const bindMaybe = () => Math.random() < boundShare;
       if (fitC && conf > 0.05) {
-        for (let i = 0; i < stroke.length; i += 6) {
+        const step = Math.max(4, Math.round(22 - conf * 18));
+        for (let i = 0; i < stroke.length; i += step) {
           const q = stroke[i];
           const gap = Math.hypot(mx(q.rx) - mx(q.x), my(q.ry) - my(q.y));
           if (gap < 6) continue;
@@ -807,7 +808,7 @@
           bindMaybe()
         );
       }
-      if (fitC && conf > 0.08) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
+      if (fitC && conf > 0.15) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
     }
     if (S.phase === "drawing" && p.center && p.startAngle !== null && p.progress > 0.16) {
       const LATCH_AT = 0.45;
