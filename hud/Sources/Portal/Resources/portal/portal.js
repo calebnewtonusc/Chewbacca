@@ -1438,8 +1438,11 @@
       }
     }
     ctx.globalCompositeOperation = "lighter";
-    const holeCx = px(geom.cx), holeCy = py(geom.cy);
-    const holeR = rpxOf(clampRN(geom.r)) * 0.94;
+    const drawnFit = drawing ?? softFit;
+    const holeUp = portalUp || !!drawnFit && mirrorAmt > 0.01;
+    const holeCx = portalUp ? px(geom.cx) : drawnFit ? mx(drawnFit.cx) : 0;
+    const holeCy = portalUp ? py(geom.cy) : drawnFit ? my(drawnFit.cy) : 0;
+    const holeR = (portalUp ? rpxOf(clampRN(geom.r)) : drawnFit ? drawnFit.r * RPX : 0) * 0.97;
     const insidePortal = (x, y) => (x - holeCx) ** 2 + (y - holeCy) ** 2 < holeR * holeR;
     let sparksInHole = 0;
     const alive = [];
@@ -1482,7 +1485,7 @@
       sp.life -= 4e-3;
       if (sp.life <= 0) continue;
       alive.push(sp);
-      if (portalUp && insidePortal(sp.x, sp.y)) {
+      if (holeUp && insidePortal(sp.x, sp.y)) {
         sparksInHole++;
         continue;
       }
