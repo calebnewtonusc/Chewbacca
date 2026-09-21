@@ -625,6 +625,17 @@
   var mirrorReady = false;
   mirror.onload = () => {
     mirrorReady = true;
+    try {
+      const probe = document.createElement("canvas").getContext("2d");
+      if (probe) {
+        probe.filter = "blur(5px)";
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "log",
+          text: `ctx.filter reads back as "${probe.filter}"`
+        });
+      }
+    } catch (e) {
+    }
     window.webkit?.messageHandlers?.portal?.postMessage({
       event: "log",
       text: `mirror loaded ${mirror.width}x${mirror.height}`
@@ -786,35 +797,45 @@
         };
         ctx.globalCompositeOperation = "destination-out";
         ctx.filter = `blur(${Math.max(7, Rp * 0.17).toFixed(1)}px)`;
-        const ring = [];
-        for (let i = 0; i <= STEPS; i++) {
-          const u = i / STEPS;
-          const th = aOld + dir * u * drawnAng;
-          const rr = Rp * (1 - depthAt(u));
-          ring.push({ x: cxp + Math.cos(th) * rr, y: cyp + Math.sin(th) * rr });
-        }
-        if (gapAng > 1e-3) {
+        const ringAt = (off) => {
+          const out = [];
           for (let i = 0; i <= STEPS; i++) {
-            const th = aNew + dir * (i / STEPS) * gapAng;
-            ring.push({ x: cxp + Math.cos(th) * Rp, y: cyp + Math.sin(th) * Rp });
+            const u = i / STEPS;
+            const th = aOld + dir * u * drawnAng;
+            const rr = Math.max(0, Rp * (1 - depthAt(u)) - off);
+            out.push({ x: cxp + Math.cos(th) * rr, y: cyp + Math.sin(th) * rr });
           }
-        }
-        let ring2 = ring;
-        for (let pass = 0; pass < 12; pass++) {
-          const out = ring2.slice();
-          const n = ring2.length;
-          for (let i = 0; i < n; i++) {
-            const a = ring2[(i - 1 + n) % n], c = ring2[i], b = ring2[(i + 1) % n];
-            out[i] = { x: (a.x + c.x * 2 + b.x) / 4, y: (a.y + c.y * 2 + b.y) / 4 };
+          if (gapAng > 1e-3) {
+            const gr = Math.max(0, Rp - off);
+            for (let i = 0; i <= STEPS; i++) {
+              const th = aNew + dir * (i / STEPS) * gapAng;
+              out.push({ x: cxp + Math.cos(th) * gr, y: cyp + Math.sin(th) * gr });
+            }
           }
-          ring2 = out;
+          let r = out;
+          for (let pass = 0; pass < 6; pass++) {
+            const o = r.slice(), n = r.length;
+            for (let i = 0; i < n; i++) {
+              const a = r[(i - 1 + n) % n], c = r[i], b = r[(i + 1) % n];
+              o[i] = { x: (a.x + c.x * 2 + b.x) / 4, y: (a.y + c.y * 2 + b.y) / 4 };
+            }
+            r = o;
+          }
+          return r;
+        };
+        const LAYERS = 9;
+        const band = Math.max(8, Rp * 0.22);
+        for (let j = 0; j < LAYERS; j++) {
+          const r = ringAt(j / (LAYERS - 1) * band);
+          ctx.globalAlpha = 0.3;
+          ctx.fillStyle = "rgb(0,0,0)";
+          ctx.beginPath();
+          ctx.moveTo(r[0].x, r[0].y);
+          for (let i = 1; i < r.length; i++) ctx.lineTo(r[i].x, r[i].y);
+          ctx.closePath();
+          ctx.fill();
         }
-        ctx.beginPath();
-        ctx.moveTo(ring2[0].x, ring2[0].y);
-        for (let i = 1; i < ring2.length; i++) ctx.lineTo(ring2[i].x, ring2[i].y);
-        ctx.closePath();
-        ctx.fillStyle = "rgba(0,0,0,0.93)";
-        ctx.fill();
+        ctx.globalAlpha = 1;
         for (let i = 0; i < 6; i++) {
           const t = now / 3e3 + i * 1.7;
           const u = (Math.sin(t) + 1) / 2;
