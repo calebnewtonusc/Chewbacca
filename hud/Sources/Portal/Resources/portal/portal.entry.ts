@@ -1720,8 +1720,20 @@ function frame(now: number) {
       }
 
       ctx.globalCompositeOperation = "lighter";
-      const bloom = ctx.createRadialGradient(cx0, cy0, rpx * 0.9, cx0, cy0, rpx * 1.22);
-      bloom.addColorStop(0, `rgba(${SPARK_MID}, ${0.16 * vis})`);
+      // A RING, NOT A DISC. A radial gradient with a non-zero INNER radius
+      // fills everything inside that radius with its first stop, so starting
+      // at 0.9 R with orange and filling a whole disc under `lighter` washed
+      // the entire interior orange. Over the mirror that is a warm tint and
+      // easy to miss; over the part not yet revealed there is nothing
+      // underneath, so it reads as solid orange where a pass-through should
+      // be.
+      //
+      // Starting at 0 and putting the colour at a stop makes the inside
+      // genuinely transparent. The glow band itself is untouched.
+      const bloom = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, rpx * 1.22);
+      bloom.addColorStop(0, "rgba(0,0,0,0)");
+      bloom.addColorStop(0.9 / 1.22, "rgba(0,0,0,0)");
+      bloom.addColorStop(1 / 1.22, `rgba(${SPARK_MID}, ${0.16 * vis})`);
       bloom.addColorStop(1, "rgba(0,0,0,0)");
       ctx.fillStyle = bloom;
       disc(cn, rn * 1.22); ctx.fill();
