@@ -83,6 +83,11 @@ of them that walks into the exam knowing the material.
 
 ## Reading a syllabus into the ledger
 
+**If the school runs Blackboard Ultra, do not start from a PDF.** `course-ingest`
+reads every enrolled course, its gradebook with exact due timestamps, its
+document bodies and its syllabus file, in one pass, and writes the deadlines to
+Apple Calendar. See `references/lms-ingest.md`.
+
 Full procedure, including what to do about the fields syllabi routinely omit:
 `references/syllabus-intake.md`. Read it before ingesting a syllabus, not after.
 
@@ -134,3 +139,4 @@ and grading weights that do not sum to 100.
 | `references/syllabus-intake.md` | Ingesting a syllabus into the ledger                                 |
 | `references/grading-models.md`  | Weighted, points-based, or labor-contract grading math               |
 | `references/integrity.md`       | Deciding what help a course actually permits, and how to disclose it |
+| `references/lms-ingest.md`      | The school runs Blackboard Ultra, so the term can be read directly   |
