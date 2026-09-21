@@ -1,0 +1,85 @@
+#!/bin/bash
+# Refuse a commit whose index contains ANOTHER session's staged work.
+#
+# THE FAILURE THIS EXISTS FOR, 2026-09-20. Two Claude sessions ran in this
+# repo the same day. A handoff note warned in writing: "Stage by filename,
+# never git add -A. Two sessions ran in this repo today and one commit already
+# absorbed the other's files under an unrelated message."
+#
+# The next commit did it again. Commit a99042a, about methods/, swallowed
+# README.md, setup.sh and SHA256SUMS.txt from the other session.
+#
+# STAGING BY FILENAME DOES NOT PREVENT THIS. `git add <my files>` is careful
+# and irrelevant, because `git commit` commits the whole index and the other
+# session's files were already in it, staged hours earlier.
+#
+# The real fixes are `git commit -- <paths>`, which commits only those paths,
+# or this hook. Use both.
+#
+# HOW GOOD IS THIS, HONESTLY. The heuristic is staged files whose mtime is far
+# older than the newest staged file. It catches a tab that closed hours ago,
+# which is the case that happened. It does NOT catch a file regenerated
+# moments ago by a build step, which is how SHA256SUMS.txt slipped through
+# even after this hook existed.
+#
+# So this is a backstop, not the fix. The fix is a habit:
+#
+#     git commit -- path/one path/two
+#
+# which commits ONLY those paths regardless of what else sits in the index.
+# The hook exists because habits fail at 2am and a printed list does not.
+#
+# Enable:  git config core.hooksPath .githooks
+# Bypass:  ALLOW_STALE_STAGED=1 git commit ...   (say why in the message)
+set -uo pipefail
+[ -n "${ALLOW_STALE_STAGED:-}" ] && exit 0
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+[ -n "$STAGED" ] || exit 0
+
+WINDOW=${STALE_STAGED_MINUTES:-45}
+NEWEST=0
+declare -a TIMES=() NAMES=()
+while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  m=$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo 0)
+  [ "$m" -gt "$NEWEST" ] && NEWEST=$m
+  TIMES+=("$m"); NAMES+=("$f")
+done <<< "$STAGED"
+
+[ "$NEWEST" -gt 0 ] || exit 0
+CUTOFF=$(( NEWEST - WINDOW * 60 ))
+
+STALE=""
+for i in "${!NAMES[@]}"; do
+  if [ "${TIMES[$i]}" -lt "$CUTOFF" ]; then
+    STALE="$STALE  ${NAMES[$i]}"$'\n'
+  fi
+done
+
+# Always print what is about to be committed. The absorbed-files failure was
+# invisible both times it happened; a list on stderr makes it visible even
+# when the heuristic below does not fire.
+printf 'pre-commit: committing %s file(s):\n' "$(printf '%s\n' "$STAGED" | wc -l | tr -d ' ')" >&2
+printf '%s\n' "$STAGED" | sed 's/^/  /' >&2
+
+[ -z "$STALE" ] && exit 0
+
+cat >&2 <<MSG
+
+pre-commit: refusing. The index holds files last touched over ${WINDOW} minutes
+before the newest staged file, which usually means another session staged them.
+
+$STALE
+Commit only your own paths:
+
+  git commit -- path/one path/two
+
+or unstage theirs:
+
+  git restore --staged <path>
+
+If they really are yours:  ALLOW_STALE_STAGED=1 git commit ...
+and say why in the message.
+MSG
+exit 1
