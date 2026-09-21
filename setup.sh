@@ -1118,12 +1118,37 @@ else:
     print(f"Unknown session opener {opener!r}, leaving it off. "
           f"Known: {', '.join(sorted(OPENERS))}")
 
-h["PostToolUse"] = [{"matcher": "Write|Edit", "hooks": [{
-    "type": "command",
-    "command": hooks_dir + "/format-and-sync.sh",
-    "statusMessage": "Formatting and syncing...",
-    "async": True,
-}]}]
+h["PostToolUse"] = [
+    {"matcher": "Write|Edit", "hooks": [{
+        "type": "command",
+        "command": hooks_dir + "/format-and-sync.sh",
+        "statusMessage": "Formatting and syncing...",
+        "async": True,
+    }]},
+    # write-log records which session wrote which path. Both authorship
+    # guards read ~/.chewbacca/write-log.tsv: .githooks/pre-commit refuses an
+    # index holding two authors, and stop-check attributes dirty files.
+    #
+    # THIS WAS MISSING UNTIL 2026-09-21 AND BOTH GUARDS WERE INERT EVERYWHERE.
+    # The kit's settings/settings.json registered it; this installer never did,
+    # so ~/.chewbacca/write-log.tsv did not exist on the author's own machine
+    # and pre-commit silently allowed every commit. Its own test covers that
+    # state as "no write log: stays silent", so nothing failed and nothing said
+    # anything. Three commits swallowed another session's work while the guard
+    # meant to stop it had never run once.
+    #
+    # Matcher includes Bash and NotebookEdit because this kit tells agents to
+    # edit through Bash heredocs and sed, so Write|Edit alone misses the
+    # dominant write path. That was the first version's bug: it logged nothing.
+    #
+    # $HOME, not $CLAUDE_PROJECT_DIR. Two sessions can collide in any repo, not
+    # only one that happens to ship this hook, and the other three hooks here
+    # are already installed to $HOME.
+    {"matcher": "Write|Edit|Bash|NotebookEdit", "hooks": [{
+        "type": "command",
+        "command": hooks_dir + "/write-log.sh",
+    }]},
+]
 
 h["SessionStart"] = [{"hooks": [{
     "type": "command",
