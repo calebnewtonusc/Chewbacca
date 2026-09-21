@@ -31,6 +31,7 @@ echo "stays out of the way otherwise:"
 probe "reports a change"     "I changed the exponent from 2.5 to 1.35." 0
 probe "reports a failure"    "Still a wedge, so my fix was partial."    0
 probe "asks a question"      "Which of these two should it be?"         0
+probe "reports NOT safe"     "The last run said not safe to close: one test fails." 0
 
 echo
 [ "$fail" = 0 ] && echo "the guard fires when it should and not otherwise   ok" || echo "$fail failed"
