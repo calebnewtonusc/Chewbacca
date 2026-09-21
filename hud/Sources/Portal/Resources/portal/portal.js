@@ -1002,6 +1002,8 @@ void main() {
   var ccwLatch = null;
   var lastPinchAt = 0;
   var heldCursor = null;
+  var breaking = false;
+  var formingLast = false;
   var arcStart = null;
   var arcSpan = 0;
   var cancelEat = 0;
@@ -1615,7 +1617,9 @@ void main() {
     if (cursorRaw) heldCursor = cursorRaw;
     else if (!pinched) heldCursor = null;
     const cursor = cursorRaw ?? heldCursor;
-    if (cursor) {
+    if (formingLast && !recognisedLatch && stroke.length > 2) breaking = true;
+    formingLast = recognisedLatch;
+    if (cursor && !breaking) {
       const last = stroke[stroke.length - 1];
       const sm = last ? { x: last.x + (cursor.x - last.x) * 0.45, y: last.y + (cursor.y - last.y) * 0.45 } : cursor;
       stroke.push({ x: sm.x, y: sm.y, rx: sm.x, ry: sm.y, t: now });
@@ -1630,6 +1634,12 @@ void main() {
         softFit = null;
         arcStart = null;
         arcSpan = 0;
+        if (breaking) {
+          breaking = false;
+          detector.reset();
+          drawnMax = 0;
+          ccwLatch = null;
+        }
       }
     } else if (cancelling) {
       cancelling = false;
@@ -1648,7 +1658,7 @@ void main() {
     lastProgress = p;
     lastPinched = pinched;
     if (stroke.length) {
-      const circling = p.progress > 0.4 && p.roundness > 0.55;
+      const circling = recognisedLatch || p.progress > 0.3 && p.roundness > 0.42;
       const LIFE_BASE = 650, LIFE_REF = 400, LIFE_MIN = 180, LIFE_MAX = 800;
       if (!circling && stroke.length > 3) {
         const k = Math.max(0, stroke.length - 6);

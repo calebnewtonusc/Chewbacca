@@ -138,6 +138,11 @@ let ccwLatch: boolean | null = null;
 // When the pinch last genuinely read true, and where the cursor was then.
 let lastPinchAt = 0;
 let heldCursor: { x: number; y: number } | null = null;
+// True from the frame a forming portal stops being a circle, until the line
+// has finished reeling back in. Distinct from `cancelling`, which is the
+// fingers opening; this one happens with the hand still down.
+let breaking = false;
+let formingLast = false;
 // WHERE THE SPIRAL BEGINS. The angle at which the drawn line first joined
 // the circle, held for the life of the gesture.
 //
@@ -1583,7 +1588,24 @@ function frame(now: number) {
   //
   // So the gesture is measured in the hand's own full range and only the
   // result is pulled toward the middle of the screen.
-  if (cursor) {
+  // A PORTAL THAT BREAKS REELS ITS LINE BACK IN. "If that breaks the arc
+  // fades away in reverse as the animation plays in reverse, breaking off
+  // from the pointer and whatever it is drawing."
+  //
+  // Letting go was already handled: the stroke is eaten from the head, so
+  // the line detaches from the fingertip and retracts the way it was drawn.
+  // But a circle can also stop BEING a circle with the hand still down, and
+  // that did nothing at all: the other side unwound and the line carried on
+  // following the finger as if nothing had happened.
+  //
+  // recognisedLatch has not been recomputed yet this frame, so reading it
+  // here gives the previous frame's answer, which is what a transition test
+  // needs. While breaking, no new points are taken, so the line comes off
+  // the pointer and reels home on the same constant rate a cancel uses.
+  if (formingLast && !recognisedLatch && stroke.length > 2) breaking = true;
+  formingLast = recognisedLatch;
+
+  if (cursor && !breaking) {
     // SMOOTH THE INPUT. Raw landmarks jump a few pixels a frame, and a
     // polyline through them is a jagged wireframe, which is exactly what it
     // looked like. An exponential average on the way in costs one lerp and
@@ -1631,6 +1653,9 @@ function frame(now: number) {
     stroke.length = Math.max(0, stroke.length - cancelEat);
     if (stroke.length < 3) {
       stroke = []; cancelling = false; softFit = null; arcStart = null; arcSpan = 0;
+      // A break ends with a clean slate, so the next circle starts from
+      // nothing rather than from the wreckage of the one that failed.
+      if (breaking) { breaking = false; detector.reset(); drawnMax = 0; ccwLatch = null; }
     }
   } else if (cancelling) {
     cancelling = false;
@@ -1695,7 +1720,24 @@ function frame(now: number) {
     // as a straight stub however smoothly it is drawn. 300 is a third of a
     // turn, which is visibly an arc, and on a fast sweep across a 1512px
     // display it is still a comet rather than a stripe.
-    const circling = p.progress > 0.4 && p.roundness > 0.55;
+    // ONCE A PORTAL IS FORMING, THE LINE STAYS. "Arc shouldn't fade away if
+    // it is starting to make a portal."
+    //
+    // The trim exists so a hand wandering around the screen leaves a comet
+    // and not a scribble, and that is right until a circle is actually
+    // happening, at which point the line IS the circle and eating its tail
+    // is eating the thing being built.
+    //
+    // This gate was left at 0.55 roundness while the reveal moved down to
+    // 0.42, so there is a band where the other side is visibly coming
+    // through and the line that summoned it is still being trimmed away
+    // behind the hand.
+    //
+    // Tied to the same latch that decides a portal is forming, read from
+    // the previous frame because it is computed later in this one. A frame
+    // of lag on "stop trimming" is not visible; the mismatch was.
+    const circling = recognisedLatch
+      || (p.progress > 0.3 && p.roundness > 0.42);
 
     // HOW LONG A POINT LIVES DEPENDS ON HOW FAST THE HAND IS GOING.
     //
