@@ -36,7 +36,7 @@ out vec4 outColor;
 uniform vec2  uC;
 uniform float uR;
 uniform float uAStart, uASpan, uDir;
-uniform float uLead, uSpiral, uFog, uVeil, uStrength;
+uniform float uLead, uSpiral, uFog, uVeil, uStrength, uInset;
 uniform vec4  uImg;
 uniform sampler2D uTex;
 
@@ -325,8 +325,11 @@ void main() {
 
   float fBody = 1.0 - smoothstep(0.0, 1.0, edge + wisp);
 
-  // A pixel of softness at the rim, so it is not a jagged cut.
-  float fRim = smoothstep(uR, uR - 1.5, r);
+  // STOPS SHORT OF THE RING. "The image should NEVER overlap the arc."
+  // The rim is where the ring's own stroke is drawn, so painting the other
+  // side out to it put the city underneath the fire. Held inside the ring's
+  // inner edge, with a couple of pixels of softness so it is not a cut.
+  float fRim = smoothstep(uR - uInset, uR - uInset - 2.5, r);
 
   // Fades toward the rim while the circle is still filling.
   float veil = 1.0 - uVeil * mix(0.3, 1.0, clamp(r / uR, 0.0, 1.0));
@@ -411,6 +414,7 @@ void main() {
           "uFog",
           "uVeil",
           "uStrength",
+          "uInset",
           "uImg",
           "uTex"
         ]) {
@@ -467,6 +471,7 @@ void main() {
       gl.uniform1f(this.loc.uFog, f.fog);
       gl.uniform1f(this.loc.uVeil, f.veil);
       gl.uniform1f(this.loc.uStrength, f.strength);
+      gl.uniform1f(this.loc.uInset, f.inset);
       gl.uniform4f(
         this.loc.uImg,
         f.img.x,
@@ -1102,6 +1107,8 @@ void main() {
   var heldCursor = null;
   var breaking = false;
   var formingLast = false;
+  var fitRRef = 0;
+  var fitJumpAt = 0;
   var arcStart = null;
   var arcSpan = 0;
   var cancelEat = 0;
@@ -1390,7 +1397,7 @@ void main() {
     const camK = H / camH / (W / camW);
     const ax = Math.sqrt(camK);
     const ay = 1 / Math.sqrt(camK);
-    const fit = (v, a) => Math.max(0.02, Math.min(0.98, 0.5 + (v - 0.5) * reachScale * a));
+    const fit = (v, a) => Math.max(-0.3, Math.min(1.3, 0.5 + (v - 0.5) * reachScale * a));
     const toScreen = (p2, hub) => {
       const sx = hub ? hub.x + (p2.x - hub.x) * handScale : p2.x;
       const sy = hub ? hub.y + (p2.y - hub.y) * handScale : p2.y;
@@ -1465,6 +1472,13 @@ void main() {
           // A fraction of the hole, so it cannot touch the middle early and
           // cannot outlive completion.
           fog: 0.3,
+          // THE IMAGE NEVER OVERLAPS THE ARC. The other side used to be
+          // painted right out to the rim, which is where the ring's own
+          // stroke sits, so the two shared those pixels and the city showed
+          // through the fire. Held inside the ring's inner edge instead: the
+          // widest ring pass is about a tenth of the radius wide and centred
+          // on the rim, so half of that plus a little is clear of it.
+          inset: Math.max(3, Rp * 0.075),
           veil: (1 - gf) * 0.75,
           strength,
           img: {
@@ -1848,6 +1862,10 @@ void main() {
     }
     if (!pinched && !cancelling) arcStart = null;
     if (!pinched && !cancelling) ccwLatch = null;
+    if (!pinched && !cancelling) {
+      fitRRef = 0;
+      fitJumpAt = 0;
+    }
     if (!pinched && !cancelling) softFit = null;
     if (!portalUp) placedOk = false;
     if (!portalUp) {
@@ -1948,6 +1966,13 @@ void main() {
       const REVEAL_AT = 0.5;
       const reveal = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / (1 - REVEAL_AT)));
       if (!pinched || p.progress < REVEAL_AT - 0.05) recognisedLatch = false;
+      const rNow = fitC ? fitC.r : 0;
+      if (fitRRef <= 0 || Math.abs(rNow - fitRRef) / Math.max(rNow, 1e-4) > 0.12) {
+        fitRRef = rNow;
+        fitJumpAt = arcSpan;
+      }
+      const fitSettled = arcSpan - fitJumpAt > 0.6;
+      if (!fitSettled) recognisedLatch = false;
       else if (p.roundness >= 0.42) recognisedLatch = true;
       else if (p.roundness < 0.34) recognisedLatch = false;
       const recognised = recognisedLatch && pinched && p.progress >= REVEAL_AT;

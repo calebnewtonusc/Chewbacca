@@ -54,6 +54,8 @@ export interface MirrorFrame {
   fog: number;
   /** Overall rim fade, 0 none. */
   veil: number;
+  /** Pixels to hold the image inside the rim, so it never meets the ring. */
+  inset: number;
   /** Overall opacity. */
   strength: number;
   /** Where the full bleed image sits in canvas px. */
@@ -77,7 +79,7 @@ out vec4 outColor;
 uniform vec2  uC;
 uniform float uR;
 uniform float uAStart, uASpan, uDir;
-uniform float uLead, uSpiral, uFog, uVeil, uStrength;
+uniform float uLead, uSpiral, uFog, uVeil, uStrength, uInset;
 uniform vec4  uImg;
 uniform sampler2D uTex;
 
@@ -366,8 +368,11 @@ void main() {
 
   float fBody = 1.0 - smoothstep(0.0, 1.0, edge + wisp);
 
-  // A pixel of softness at the rim, so it is not a jagged cut.
-  float fRim = smoothstep(uR, uR - 1.5, r);
+  // STOPS SHORT OF THE RING. "The image should NEVER overlap the arc."
+  // The rim is where the ring's own stroke is drawn, so painting the other
+  // side out to it put the city underneath the fire. Held inside the ring's
+  // inner edge, with a couple of pixels of softness so it is not a cut.
+  float fRim = smoothstep(uR - uInset, uR - uInset - 2.5, r);
 
   // Fades toward the rim while the circle is still filling.
   float veil = 1.0 - uVeil * mix(0.3, 1.0, clamp(r / uR, 0.0, 1.0));
@@ -458,6 +463,7 @@ export class MirrorGL {
         "uFog",
         "uVeil",
         "uStrength",
+        "uInset",
         "uImg",
         "uTex",
       ]) {
@@ -529,6 +535,7 @@ export class MirrorGL {
     gl.uniform1f(this.loc.uFog, f.fog);
     gl.uniform1f(this.loc.uVeil, f.veil);
     gl.uniform1f(this.loc.uStrength, f.strength);
+    gl.uniform1f(this.loc.uInset, f.inset);
     gl.uniform4f(
       this.loc.uImg,
       f.img.x,
