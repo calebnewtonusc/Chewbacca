@@ -1246,7 +1246,7 @@
       ctx.shadowBlur = 0;
       const boundShare = Math.min(0.4, conf * conf * 0.45);
       const bindMaybe = () => Math.random() < boundShare;
-      if (fitC && conf > 0.05) {
+      if (fitC && conf > 0.05 && !portalUp) {
         const step = Math.max(4, Math.round(22 - conf * 18));
         for (let i = 0; i < stroke.length; i += step) {
           const q = stroke[i];
@@ -1270,7 +1270,7 @@
       let tx = hp.x - pp.x;
       let ty = hp.y - pp.y;
       const tm = Math.hypot(tx, ty) || 1;
-      const n = Math.round(1 + k * 9);
+      const n = portalUp ? 0 : Math.round(1 + k * 9);
       for (let i = 0; i < n; i++) {
         spawnAt(
           mx(head.rx),
