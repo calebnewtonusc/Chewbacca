@@ -137,7 +137,32 @@ cat <<INTRO
 INTRO
 
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "  --dry-run: stopping here, nothing was changed."
+  # A dry run that only says "nothing was changed" answers the wrong
+  # question. The question a careful person has is what WOULD change, and
+  # this script is 440 lines in front of another 2,404 arriving from a URL.
+  # Sagar called this installer malware and quit after two hours, which is a
+  # reasonable response to being asked to trust that much unseen shell.
+  #
+  # So: fetch only the two files needed to describe the install, into a temp
+  # directory, print the manifest, and delete them. Nothing is installed and
+  # nothing outside the temp directory is touched.
+  _dry="$(mktemp -d)"
+  trap 'rm -rf "$_dry"' EXIT
+  mkdir -p "$_dry/bin"
+  _base="https://raw.githubusercontent.com/$REPO/${REF:-$BRANCH}"
+  # A local checkout is authoritative when there is one: it is the code
+  # about to run, and it works with no network at all.
+  _here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
+  if [ -n "$_here" ] && [ -x "$_here/bin/preflight" ] && [ -f "$_here/setup.sh" ]; then
+    python3 "$_here/bin/preflight" || true
+  elif curl -fsSL --max-time 30 "$_base/setup.sh" -o "$_dry/setup.sh" \
+     && curl -fsSL --max-time 30 "$_base/bin/preflight" -o "$_dry/bin/preflight"; then
+    chmod +x "$_dry/bin/preflight"
+    python3 "$_dry/bin/preflight" || true
+  else
+    echo "  --dry-run: could not reach GitHub, so nothing can be described."
+    echo "  Nothing was changed."
+  fi
   exit 0
 fi
 

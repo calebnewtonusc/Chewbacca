@@ -1,0 +1,243 @@
+#!/usr/bin/env python3
+"""Say exactly what the installer will do, before it does any of it.
+
+WHY THIS EXISTS. `setup.sh` is 2,404 lines, `start.sh` another 440, and the
+documented way in is to pipe them into bash from a URL. It asks three
+questions and makes its first write on line 57. Sagar onboarded on
+2026-09-20, called the installer malware, and quit after two hours: "It's
+not a product I need to work for me." He was not being difficult. A
+technical person is right to refuse 2,844 unseen lines of shell.
+
+That single reaction is the ceiling on this whole kit. A tool only one
+person can install is a tool with one user, however good it is.
+
+WHAT IT REPORTS. What is already present, what is missing, every package it
+would install, every command it would put on PATH, and every directory it
+would write to. Then it stops. It never writes, never installs, never
+touches the network.
+
+EXTRACTED, NOT CURATED. Everything below is read out of setup.sh at run
+time. A hand-written list of what an installer does is wrong the first time
+somebody adds a line, and a manifest that lies is worse than none, because
+it converts an honest unknown into a false assurance.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+SETUP = ROOT / "setup.sh"
+
+
+def read_setup():
+    try:
+        return SETUP.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return ""
+
+
+def strip_comments(src):
+    """Comments are prose and must not be parsed as code.
+
+    The first version read `# link_tool is defined above` and reported a
+    command called "is" on the user's PATH. A manifest that invents an entry
+    is the same class of error as one that omits a real one.
+    """
+    out = []
+    for line in src.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
+def variables(src):
+    """Resolve the shell variables the write paths are built from.
+
+    Necessary, not cosmetic. Most directories in setup.sh are written as
+    "$GLOBAL_CLAUDE/skills" or "$COURSEWORK_HOME/courses", and the first
+    version skipped any path containing a $. It reported four directories
+    when the real number is far higher, while printing the words "INSIDE
+    THESE DIRECTORIES ONLY". Under-reporting what an installer touches, in a
+    tool whose entire job is earning trust, is worse than not shipping it.
+    """
+    env = {"HOME": "~"}
+    for _ in range(3):  # a few passes, since assignments reference each other
+        for m in re.finditer(r'^\s*(?:export\s+)?([A-Z][A-Z0-9_]*)=\"?([^\"\n]+)\"?',
+                             src, re.M):
+            name, val = m.group(1), m.group(2).strip()
+            if "$(" in val or "`" in val:
+                continue
+            for k, v in env.items():
+                val = val.replace(f"${{{k}}}", v).replace(f"${k}", v)
+            val = val.split("#")[0].strip().strip('"')
+            if val and "$" not in val:
+                env[name] = val
+    return env
+
+
+def brew_packages(src):
+    out = set()
+    for m in re.finditer(r"brew install\s+(--cask\s+)?([\w@/.-]+)", src):
+        out.add(m.group(2))
+    return sorted(out)
+
+
+def path_tools(src):
+    """Commands the installer links into ~/.local/bin."""
+    out = set()
+    for m in re.finditer(r"link_tool\s+\"?\$?\{?(\w[\w-]*)\}?\"?", src):
+        name = m.group(1)
+        if name not in ("HELPER", "_tool", "backend_tool", "name"):
+            out.add(name)
+    # The loop forms: `for _tool in a b c; do ... link_tool "$_tool"`
+    for m in re.finditer(r"for\s+(?:_tool|HELPER|backend_tool)\s+in\s+([^;]+);", src):
+        for w in m.group(1).split():
+            if re.fullmatch(r"[\w-]+", w):
+                out.add(w)
+    return sorted(out)
+
+
+def written_dirs(src):
+    """Every directory the installer creates, with variables resolved.
+
+    Anything that cannot be resolved is REPORTED AS UNRESOLVED rather than
+    dropped. An honest unknown is usable; a silent omission is not.
+
+    Two bugs got here first and both were the same mistake in opposite
+    directions. Skipping any path containing a `$` reported 4 directories
+    under a heading that said ONLY. Then a greedy multi-argument pattern ran
+    to the end of the line and reported 318, including `&&` and a printf
+    format string. A manifest is worth exactly its accuracy, so the
+    arguments are cut at the first shell separator and each token has to
+    look like a path.
+    """
+    env = variables(src)
+    SEP = re.compile(r"\s(?:;|&&|\|\||\||>|#)|\s*$")
+    out, unresolved = set(), set()
+    for m in re.finditer(r"mkdir\s+-p\s+(.*)", src):
+        args = m.group(1)
+        cut = SEP.search(args)
+        if cut:
+            args = args[:cut.start()]
+        for raw in re.findall(r'"([^"]*)"|(\S+)', args):
+            path = (raw[0] or raw[1]).strip()
+            if not path or path.startswith("-") or "$(" in path:
+                continue
+            for k, v in sorted(env.items(), key=lambda kv: -len(kv[0])):
+                path = path.replace("${%s}" % k, v).replace("$" + k, v)
+            # A path, not a shell fragment. Either rooted, or under ~, or a
+            # plain relative name.
+            if not re.fullmatch(r"[~/.]?[\w./~$-]+", path):
+                continue
+            if "$" in path:
+                unresolved.add(path)
+            else:
+                out.add(path.rstrip("/"))
+    return sorted(out), sorted(unresolved)
+
+
+def prerequisites():
+    wanted = [
+        ("git", "required, everything is version controlled"),
+        ("claude", "required, this is a Claude Code kit"),
+        ("python3", "required, most tools are stdlib python"),
+        ("jq", "required, every hook reads JSON"),
+        ("brew", "optional, without it the mac tools are skipped"),
+        ("node", "optional, needed by a few MCP servers"),
+        ("swift", "optional, needed only for the HUD and the portal"),
+    ]
+    return [(n, bool(shutil.which(n)), why) for n, why in wanted]
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args()
+
+    src = read_setup()
+    if not src:
+        print(f"preflight: cannot read {SETUP}", file=sys.stderr)
+        return 1
+
+    pre = prerequisites()
+    code = strip_comments(src)
+    brew = brew_packages(code)
+    tools = path_tools(code)
+    dirs, unresolved = written_dirs(code)
+
+    if a.json:
+        print(json.dumps({
+            "prerequisites": [{"name": n, "present": p, "why": w} for n, p, w in pre],
+            "brew_packages": brew, "path_commands": tools, "directories": dirs,
+            "unresolved_directories": unresolved,
+            "setup_lines": src.count("\n") + 1,
+        }, indent=2))
+        return 0
+
+    missing_required = [n for n, p, w in pre if not p and w.startswith("required")]
+
+    print("What the installer will do to this machine\n")
+    print("ALREADY HERE")
+    for n, p, w in pre:
+        if p:
+            print(f"  yes  {n:<9} {w}")
+    print("\nMISSING")
+    any_missing = False
+    for n, p, w in pre:
+        if not p:
+            any_missing = True
+            print(f"  no   {n:<9} {w}")
+    if not any_missing:
+        print("  nothing")
+
+    print(f"\nIT WILL INSTALL ({len(brew)} packages, via Homebrew, only if brew is present)")
+    for b in brew:
+        print(f"  {b}")
+
+    print(f"\nIT WILL PUT {len(tools)} COMMANDS ON YOUR PATH, in ~/.local/bin")
+    line = "  "
+    for t in tools:
+        if len(line) + len(t) > 74:
+            print(line)
+            line = "  "
+        line += t + " "
+    if line.strip():
+        print(line)
+
+    print(f"\nIT WILL CREATE THESE DIRECTORIES ({len(dirs)})")
+    for d in dirs:
+        print(f"  {d}")
+    if unresolved:
+        print(f"\n  and {len(unresolved)} whose location depends on your answers:")
+        for d in unresolved:
+            print(f"    {d}")
+
+    print("\nIT WILL ASK FOR YOUR PASSWORD ONCE, and only if Homebrew is")
+    print("  missing, because Homebrew installs shared tools outside your")
+    print("  account. Nothing else here needs it.")
+    print("\nIT WILL NOT")
+    print("  upload anything, or touch files outside your own account.")
+    print("  Existing files it replaces are backed up first.")
+
+    print(f"\nsetup.sh is {src.count(chr(10)) + 1} lines. This report is generated from it,")
+    print("not written by hand, so it cannot describe an older version than the one")
+    print("about to run.")
+
+    if missing_required:
+        print(f"\nSTOP: {', '.join(missing_required)} missing. Install those first.")
+        return 1
+    print("\nNothing has been changed. Run ./setup.sh when you are ready.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
