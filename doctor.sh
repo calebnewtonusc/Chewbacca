@@ -494,6 +494,31 @@ else
     warn "mac missing, no Calendar/Contacts/Messages/Notes access"
   fi
 
+  # A STALE BobHUD.app is invisible: setup.sh warns only when the app is
+  # MISSING, so a bundle built weeks ago keeps running and reports nothing.
+  # Found 2026-09-21 with a binary dated Sep 5 against sources dated Sep 20:
+  # the globe talk key did nothing because the app listening for it predated
+  # the code that handles it, and 159 of Gavin's commits were not running.
+  KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  HUD_APP=""
+  for c in "/Applications/BobHUD.app" "$HOME/Applications/BobHUD.app"; do
+    [ -d "$c" ] && HUD_APP="$c" && break
+  done
+  if [ -n "$HUD_APP" ] && [ -d "$KIT_DIR/hud/Sources" ]; then
+    NEWEST_SRC="$(find "$KIT_DIR/hud/Sources" -name '*.swift' -print0 2>/dev/null |
+      xargs -0 stat -f '%m' 2>/dev/null | sort -rn | head -1)"
+    BIN_AT="$(stat -f '%m' "$HUD_APP/Contents/MacOS/BobHUD" 2>/dev/null || echo 0)"
+    if [ -n "$NEWEST_SRC" ] && [ "$BIN_AT" -gt 0 ] && [ "$NEWEST_SRC" -gt "$BIN_AT" ]; then
+      bad "BobHUD.app is $(( (NEWEST_SRC - BIN_AT) / 86400 )) day(s) older than hud/Sources, so every Swift change since is not running" \
+          "cd $KIT_DIR/hud && ./scripts/bundle.sh && cp -R build/BobHUD.app /Applications/" major
+    else
+      ok "BobHUD.app is at least as new as hud/Sources"
+    fi
+  fi
+  if [ -d "$KIT_DIR/voice/Sources" ] && [ ! -x "$HOME/.local/bin/hud-voice" ]; then
+    warn "hud-voice is not built, so replies use the hud-speak fallback (cd $KIT_DIR/voice && swift build -c release)"
+  fi
+
   # "Play X" by voice plays whatever Spotify's own search puts at the top,
   # read off its web player by Playwright's headless Chromium. Without it
   # hud-music falls back to Deezer, Wikidata and MusicBrainz, which miss a
