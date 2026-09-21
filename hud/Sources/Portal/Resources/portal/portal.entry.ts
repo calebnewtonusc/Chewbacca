@@ -955,6 +955,14 @@ function frame(now: number) {
         // widest ring pass is about a tenth of the radius wide and centred
         // on the rim, so half of that plus a little is clear of it.
         inset: Math.max(3, Rp * 0.075),
+        // HOW LIQUID THE BOUNDARY STILL IS. The larger of what is left to
+        // fill and what is left to close, so the treatment survives into
+        // the ignition, where the depth is already full but a quarter turn
+        // of arc is still running shut. It reaches zero only when both do.
+        wet: Math.max(
+          1 - Math.pow(gf, 1.35),
+          Math.min(1, gapSize * 4),
+        ),
         veil: (1 - gf) * 0.75,
         strength,
         img: {

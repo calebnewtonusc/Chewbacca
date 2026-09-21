@@ -36,7 +36,7 @@ out vec4 outColor;
 uniform vec2  uC;
 uniform float uR;
 uniform float uAStart, uASpan, uDir;
-uniform float uLead, uSpiral, uFog, uVeil, uStrength, uInset;
+uniform float uLead, uSpiral, uFog, uVeil, uStrength, uInset, uWet;
 uniform vec4  uImg;
 uniform sampler2D uTex;
 
@@ -172,7 +172,7 @@ void main() {
               + sin(a2 * 8.0 + 2.3) * 0.15;
   // Heavier, so the front reads as something spreading rather than a curve
   // being swept. Still faded out by the fill, so it is gone by the end.
-  inner *= 1.0 + 0.16 * lobes * (1.0 - uLead);
+  inner *= 1.0 + 0.16 * lobes * uWet;
   inner = max(inner, 0.0);
 
   // THE BAND IS A FRACTION OF THE HOLE, NOT OF THE REVEALED RIBBON.
@@ -315,7 +315,7 @@ void main() {
   float endWave = sin(r * 0.055 + 2.1) * 0.55
                 + sin(r * 0.033 - 0.9) * 0.30
                 + sin(r * 0.019 + 1.7) * 0.15;
-  float reachHere = reach + uR * 0.13 * endWave * (1.0 - uLead);
+  float reachHere = reach + uR * 0.13 * endWave * uWet;
   // THE TWO ENDS COMBINE INTO EACH OTHER, THEY DO NOT MEET. "What happened
   // to clouds/liquid that combine INTO each other not just next to each
   // other."
@@ -366,7 +366,19 @@ void main() {
   //
   // Faded out by the fill, like every other irregularity here, so a
   // finished portal has a clean rim and nothing survives completion.
-  float wispy = 1.0 - uLead;
+  // THE LAST QUARTER IS STILL LIQUID. "The last 90 degrees still need to be
+  // the smooth liquid/cloud animation, INTO each other, not next to."
+  //
+  // Every irregularity here used to fade on 1 - uLead, the depth. By the
+  // ignition the depth is full, so uLead is 1 and the lobes, the ragged
+  // ends and the noise in the falloff were all switched off exactly when
+  // the two ends were closing on each other. The one moment they most need
+  // to look like liquid merging was the one moment they were a clean arc
+  // meeting a clean arc.
+  //
+  // Driven by what is still OPEN instead, so the treatment survives the
+  // handover into the ignition and only leaves when there is no gap left.
+  float wispy = uWet;
   float nCoarse = fbm(vPix * (2.6 / uR) + vec2(11.3, 7.9));
   float nFine   = fbm(vPix * (9.0 / uR) + vec2(31.7, 2.4));
   float wisp = ((nCoarse - 0.5) * 1.15 + (nFine - 0.5) * 0.45) * wispy;
@@ -486,6 +498,7 @@ void main() {
           "uVeil",
           "uStrength",
           "uInset",
+          "uWet",
           "uImg",
           "uTex"
         ]) {
@@ -543,6 +556,7 @@ void main() {
       gl.uniform1f(this.loc.uVeil, f.veil);
       gl.uniform1f(this.loc.uStrength, f.strength);
       gl.uniform1f(this.loc.uInset, f.inset);
+      gl.uniform1f(this.loc.uWet, f.wet);
       gl.uniform4f(
         this.loc.uImg,
         f.img.x,
@@ -1555,6 +1569,14 @@ void main() {
           // widest ring pass is about a tenth of the radius wide and centred
           // on the rim, so half of that plus a little is clear of it.
           inset: Math.max(3, Rp * 0.075),
+          // HOW LIQUID THE BOUNDARY STILL IS. The larger of what is left to
+          // fill and what is left to close, so the treatment survives into
+          // the ignition, where the depth is already full but a quarter turn
+          // of arc is still running shut. It reaches zero only when both do.
+          wet: Math.max(
+            1 - Math.pow(gf, 1.35),
+            Math.min(1, gapSize * 4)
+          ),
           veil: (1 - gf) * 0.75,
           strength,
           img: {
