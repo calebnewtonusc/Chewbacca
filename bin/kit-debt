@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""Did this session teach the kit anything, or just the transcript?
+
+    kit-debt                 report, exit 1 if the session owes the kit
+    kit-debt --terse         the lines a Stop hook injects
+    kit-debt --hours 12
+
+WHY THIS EXISTS. On 2026-09-20 Caleb asked four separate times whether Chewbacca
+had been updated with what the session learned, and said "I shouldn't hv to keep
+asking this bruv". He was right. The standing rule was written into memory as
+prose, which is the same mistake craft-gate and list-gate already exist to name:
+judgment in markdown does not fire.
+
+So the rule is a program. It compares what the session changed OUT THERE against
+what it committed to the kit, and if real work happened in a project while the
+kit learned nothing, it says so before anyone calls the session finished.
+
+It cannot know whether a lesson is worth keeping. It only knows the shape that
+has been wrong every time: hours of work somewhere else, nothing here.
+"""
+import argparse, json, os, pathlib, subprocess, sys, time
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+def git(args, cwd=ROOT):
+    r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+def kit_commits(hours):
+    out = git(["log", f"--since={hours} hours ago", "--format=%h %s"])
+    return [l for l in out.splitlines() if l.strip()]
+
+def work_dirs(hours):
+    """Project repos touched recently, excluding the kit and the context store."""
+    roots = [pathlib.Path.home() / "Desktop/2026-Code/projects",
+             pathlib.Path.home() / "Desktop/2026-Code"]
+    cutoff = time.time() - hours * 3600
+    seen = {}
+    for base in roots:
+        if not base.is_dir():
+            continue
+        for d in base.iterdir():
+            if not (d / ".git").exists() or d.resolve() == ROOT.resolve():
+                continue
+            if d.name == "second-brain":
+                continue
+            n = git(["log", f"--since={hours} hours ago", "--format=%h"], cwd=d)
+            n = len([x for x in n.splitlines() if x.strip()])
+            if n:
+                seen[d.name] = n
+            elif d.stat().st_mtime > cutoff:
+                seen.setdefault(d.name, 0)
+    return seen
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--hours", type=int, default=12)
+    ap.add_argument("--terse", action="store_true")
+    a = ap.parse_args()
+
+    kit = kit_commits(a.hours)
+    work = work_dirs(a.hours)
+    busy = {k: v for k, v in work.items() if v >= 2}
+
+    owes = bool(busy) and not kit
+    if a.terse:
+        if owes:
+            where = ", ".join(f"{k} ({v} commits)" for k, v in sorted(busy.items(), key=lambda x: -x[1]))
+            print("This session shipped work but taught the kit nothing.")
+            print(f"  worked in: {where}")
+            print(f"  chewbacca commits in the last {a.hours}h: 0")
+            print("  Name one thing that went wrong or got learned, and make it a tool, a")
+            print("  gate, a test or a skill section. Prose in a memory file does not fire.")
+        return 1 if owes else 0
+
+    print(f"\nkit-debt, last {a.hours}h")
+    print(f"  chewbacca commits : {len(kit)}")
+    for l in kit[:8]:
+        print(f"      {l[:78]}")
+    print(f"  project work      : {', '.join(f'{k}={v}' for k, v in work.items()) or 'none'}")
+    if owes:
+        print("\n  OWED. Real work happened elsewhere and the kit learned nothing.")
+        print("  What would have caught tonight's failure? Build that.")
+    elif kit:
+        print("\n  clear. The kit learned something this session.")
+    else:
+        print("\n  clear. No substantial project work to learn from.")
+    return 1 if owes else 0
+
+if __name__ == "__main__":
+    sys.exit(main())

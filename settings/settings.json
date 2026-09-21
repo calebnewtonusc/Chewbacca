@@ -165,6 +165,14 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/list-guard.sh"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/kit-debt.sh"
+          }
+        ]
       }
     ],
     "PreToolUse": [

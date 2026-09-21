@@ -344,6 +344,10 @@ if group "installer"; then
   check  "list-gate refuses the defects it exists for" \
     bash "$ROOT/tests/list_gate.sh" "$ROOT"
 
+  # The rule Caleb had to state four times in one session. A gate, not a note.
+  check  "kit-debt fires when a session taught the kit nothing" \
+    bash "$ROOT/tests/kit_debt.sh" "$ROOT"
+
   check  "committed checksums describe the committed tree" \
     python3 "$ROOT/tools/committed_checksums.py"
 
