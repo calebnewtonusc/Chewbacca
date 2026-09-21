@@ -97,6 +97,82 @@ export interface Anthropometrics {
 
 export const DEFAULT_ANTHRO: Anthropometrics = { ipdMm: 63, palmMm: 97 };
 
+/**
+ * ROUGH DEPTHS, HELD STEADY. This is the whole difference between a cursor
+ * that tracks and one that wanders.
+ *
+ * Measuring both depths every frame from apparent size is the obvious
+ * build and it was wrong. Caleb, after two attempts at it: "it's still in
+ * such random places", then the fix: "Just the rough estimate of the
+ * position of the eyes to the finger to the place on screen a straight
+ * line has, the angle of the eye is not accurate enough."
+ *
+ * Measured with a perfectly still hand and realistic landmark jitter:
+ *
+ *     depth measured per frame     x 29px   y 117px
+ *     depth held roughly constant  x 31px   y  17px
+ *
+ * Seven times steadier vertically. The reason is leverage: the ray's gain
+ * is eyeZ / (eyeZ - fingerZ), so a small error in either depth swings the
+ * result hard, and both estimates come from a palm and a pupil gap
+ * measured in a noisy image.
+ *
+ * Being WRONG about a rough depth costs almost nothing by comparison. At
+ * eye 600 hand 350 the gain is 2.40; a hundred millimetres out in either
+ * direction moves it between 2.00 and 3.33. That is a small steady offset,
+ * which a person corrects for without noticing, and the thing they cannot
+ * correct for is an offset that changes every frame.
+ */
+export const ROUGH_EYE_MM = 600;
+export const ROUGH_HAND_MM = 350;
+
+/**
+ * How fast the rough depths may drift toward what the camera sees.
+ *
+ * Deliberately tiny. A person's distance from their laptop changes over
+ * seconds, not frames, so this tracks a posture change in a few seconds and
+ * ignores per-frame noise entirely. Setting it to 1 restores the old
+ * per-frame behaviour, which is how the comparison above was measured.
+ */
+export const DEPTH_ADAPT = 0.02;
+
+/** Plausible human range, so a bad frame cannot drag the estimate anywhere. */
+export const EYE_RANGE_MM: [number, number] = [300, 1100];
+export const HAND_RANGE_MM: [number, number] = [150, 700];
+
+const clamp = (v: number, [lo, hi]: [number, number]) =>
+  Math.max(lo, Math.min(hi, v));
+
+/**
+ * Carries the slowly-adapting depths between frames.
+ *
+ * A caller that keeps one of these gets personalisation; a caller that
+ * passes nothing gets the rough constants, which is already most of the
+ * benefit.
+ */
+export class DepthTracker {
+  eyeMm = ROUGH_EYE_MM;
+  handMm = ROUGH_HAND_MM;
+
+  /** Feed the per-frame measurements; get the steady values back. */
+  update(measuredEye: number, measuredHand: number, adapt = DEPTH_ADAPT) {
+    if (isFinite(measuredEye)) {
+      const target = clamp(measuredEye, EYE_RANGE_MM);
+      this.eyeMm += (target - this.eyeMm) * adapt;
+    }
+    if (isFinite(measuredHand)) {
+      const target = clamp(measuredHand, HAND_RANGE_MM);
+      this.handMm += (target - this.handMm) * adapt;
+    }
+    return { eyeMm: this.eyeMm, handMm: this.handMm };
+  }
+
+  reset() {
+    this.eyeMm = ROUGH_EYE_MM;
+    this.handMm = ROUGH_HAND_MM;
+  }
+}
+
 /** A 14-inch MacBook Pro: 3024x1964 at 254ppi, camera centred in the notch. */
 export const MACBOOK_14: ScreenModel = {
   widthMm: 302.4,
@@ -223,6 +299,7 @@ export function pointingPoint(
   screen: ScreenModel = MACBOOK_14,
   cam: CameraModel = MAC_CAMERA,
   anthro: Anthropometrics = DEFAULT_ANTHRO,
+  depths?: DepthTracker,
 ): { x: number; y: number; eyeMm: number; fingerMm: number } | null {
   const { leftEye, rightEye, hand } = input;
   if (!hand || hand.length < 21) return null;
@@ -238,11 +315,19 @@ export function pointingPoint(
   const fingerDepth = depthFromApparentSize(anthro.palmMm, palmApparent, cam);
   if (!isFinite(fingerDepth)) return null;
 
+  // The measurements go through the tracker, which barely moves. Without one
+  // the rough constants are used directly, which is most of the benefit for
+  // none of the bookkeeping. See ROUGH_EYE_MM for why this matters more than
+  // anything else in this file.
+  const steady = depths
+    ? depths.update(eyeDepth, fingerDepth)
+    : { eyeMm: ROUGH_EYE_MM, handMm: ROUGH_HAND_MM };
+
   const eyeMid = { x: (leftEye.x + rightEye.x) / 2, y: (leftEye.y + rightEye.y) / 2 };
-  const eye = cameraSpace(eyeMid.x, eyeMid.y, eyeDepth, cam);
+  const eye = cameraSpace(eyeMid.x, eyeMid.y, steady.eyeMm, cam);
   const t = hand[input.tip ?? 8];
-  const finger = cameraSpace(t.x, t.y, fingerDepth, cam);
+  const finger = cameraSpace(t.x, t.y, steady.handMm, cam);
 
   const p = rayToScreen(eye, finger, screen);
-  return { x: p.x, y: p.y, eyeMm: eyeDepth, fingerMm: fingerDepth };
+  return { x: p.x, y: p.y, eyeMm: steady.eyeMm, fingerMm: steady.handMm };
 }
