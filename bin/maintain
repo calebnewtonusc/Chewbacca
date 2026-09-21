@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""Run every loop the kit has, repair what is safe, and surface only the rest.
+
+    maintain              run the cycle, print the digest
+    maintain --quiet      digest only if something needs a human
+    maintain --install    install the nightly launchd agent
+    maintain --uninstall  remove it
+
+WHY THIS IS LAST AND NOT FIRST. Caleb asked for a kit that keeps building
+itself, and the first instinct was to write this scheduler. That would have
+been churn. The Darwin Godel Machine (Zhang et al., ICLR 2026, arXiv
+2505.22954) works because every self-modification is validated against a
+benchmark; without a fitness function a loop that runs unattended is just
+unattended. So the order was benchmark (bin/fitness), then the propose-measure
+loop (bin/evolve), then this.
+
+WHAT IT WILL NEVER DO. It does not commit, push, promote a rule, or merge an
+experiment. Three reasons, and the third is the one that bites:
+
+  1. fitness measures coverage and conformance, not quality, so acting on the
+     number alone optimises toward a proxy.
+  2. consolidate PROPOSES rules; a rule nobody read teaches people to skip
+     rules.
+  3. Two sessions ran in this repo on 2026-09-20 and three commits swallowed
+     another session's files. An unattended committer in that environment is
+     a data-loss machine.
+
+So it repairs only what doctor --fix already proved it can repair safely, and
+writes everything else down.
+
+THE DIGEST IS THE POINT. A maintenance run that prints 80 passing checks
+teaches you to stop reading it. This prints nothing unless something needs a
+human, which is the only way a recurring report stays read.
+"""
+import argparse
+import json
+import pathlib
+import plistlib
+import re
+import subprocess
+import sys
+import time
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+STATE = pathlib.Path.home() / ".chewbacca"
+DIGEST = STATE / "maintain.md"
+LOG = STATE / "logs" / "maintain.log"
+LABEL = "com.calebnewton.chewbacca-maintain"
+PLIST = pathlib.Path.home() / "Library/LaunchAgents" / f"{LABEL}.plist"
+
+
+def run(cmd, timeout=1800):
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                           timeout=timeout, cwd=str(ROOT))
+        return r.returncode, (r.stdout or "") + (r.stderr or "")
+    except subprocess.TimeoutExpired:
+        return 124, "timed out"
+    except Exception as e:                                 # noqa: BLE001
+        return 1, str(e)
+
+
+def step(name, cmd, needs_human, timeout=1800):
+    rc, out = run(cmd, timeout)
+    return {"name": name, "rc": rc, "out": out.strip()[-2500:],
+            "needs_human": needs_human(rc, out)}
+
+
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+NOISE = re.compile(r"^\s*(pass|ok)\b", re.I)
+
+
+def distil(out):
+    """Only the lines a person would act on.
+
+    The first version pasted the last 1200 characters of doctor's output into
+    the digest, which meant a wall of passing checks. That is exactly what
+    this file's own docstring says destroys a recurring report: print enough
+    noise and people stop reading it, at which point the real finding is
+    invisible. Strip the colour codes and drop everything that passed.
+    """
+    keep = []
+    for line in ANSI.sub("", out).splitlines():
+        t = line.strip()
+        if not t or NOISE.match(t):
+            continue
+        if re.search(r"\b(FAIL|warn|could not|error|missing|stale|needs fixing|"
+                     r"earned and methods|down)\b", t, re.I):
+            keep.append(t)
+        elif keep and t.startswith("fix:"):
+            keep.append("   " + t)
+    return "\n".join(keep[-25:]) if keep else "(nothing actionable parsed)"
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--install", action="store_true")
+    ap.add_argument("--uninstall", action="store_true")
+    ap.add_argument("--hour", type=int, default=4)
+    a = ap.parse_args()
+
+    if a.uninstall:
+        subprocess.run(["launchctl", "unload", "-w", str(PLIST)],
+                       capture_output=True)
+        PLIST.unlink(missing_ok=True)
+        print(f"removed {LABEL}")
+        return 0
+
+    if a.install:
+        PLIST.parent.mkdir(parents=True, exist_ok=True)
+        LOG.parent.mkdir(parents=True, exist_ok=True)
+        plist = {
+            "Label": LABEL,
+            "ProgramArguments": [sys.executable, str(ROOT / "bin/maintain"), "--quiet"],
+            # Offline on purpose. The brain consolidates during sleep because
+            # the operation cannot run while the system is behaving.
+            "StartCalendarInterval": {"Hour": a.hour, "Minute": 17},
+            "StandardOutPath": str(LOG),
+            "StandardErrorPath": str(LOG),
+            "RunAtLoad": False,
+        }
+        PLIST.write_bytes(plistlib.dumps(plist))
+        subprocess.run(["launchctl", "unload", str(PLIST)], capture_output=True)
+        r = subprocess.run(["launchctl", "load", "-w", str(PLIST)],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            print(f"load failed: {r.stderr.strip()[:200]}", file=sys.stderr)
+            return 1
+        print(f"installed {LABEL}, runs daily at {a.hour:02d}:17")
+        print(f"  digest: {DIGEST}")
+        print(f"  log:    {LOG}")
+        print(f"  remove: maintain --uninstall")
+        return 0
+
+    STATE.mkdir(parents=True, exist_ok=True)
+    t0 = time.time()
+    steps = []
+
+    # 1. Repair what is provably safe to repair.
+    steps.append(step("doctor --fix", ["bash", str(ROOT / "doctor.sh"), "--fix"],
+                      lambda rc, out: "needs fixing" in out))
+
+    # 2. Refresh the episodic store.
+    if (ROOT / "bin/scars").exists():
+        steps.append(step("scars reindex", [sys.executable, str(ROOT / "bin/scars"), "reindex"],
+                          lambda rc, out: rc != 0))
+
+    # 3. Ask what the episodes are becoming. PROPOSE ONLY.
+    if (ROOT / "bin/consolidate").exists():
+        steps.append(step("consolidate", [sys.executable, str(ROOT / "bin/consolidate")],
+                          lambda rc, out: "earned and methods/" in out))
+
+    # 4. Score, and remember the score.
+    if (ROOT / "bin/fitness").exists():
+        steps.append(step("fitness", [sys.executable, str(ROOT / "bin/fitness"), "--compare"],
+                          lambda rc, out: "down" in out))
+
+    human = [s for s in steps if s["needs_human"]]
+    lines = [f"# Chewbacca maintenance, {time.strftime('%Y-%m-%d %H:%M')}", "",
+             f"{len(steps)} step(s) in {time.time()-t0:.0f}s. "
+             f"Nothing was committed, pushed, promoted or merged.", ""]
+
+    fixed = sum(1 for s in steps
+                if "fixed" in s["out"] and s["name"].startswith("doctor"))
+    if fixed:
+        lines += ["## Repaired automatically", ""]
+        for s in steps:
+            for l in s["out"].splitlines():
+                if "fixed" in l:
+                    lines.append(f"- {l.strip()}")
+        lines.append("")
+
+    if human:
+        lines += ["## Needs a human", ""]
+        for s in human:
+            lines.append(f"### {s['name']}")
+            lines += ["```", distil(s["out"]), "```", ""]
+    else:
+        lines += ["Nothing needs a human.", ""]
+
+    DIGEST.write_text("\n".join(lines))
+
+    if a.quiet and not human:
+        return 0
+    print("\n".join(lines))
+    print(f"digest: {DIGEST}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
