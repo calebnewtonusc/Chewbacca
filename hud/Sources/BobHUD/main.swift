@@ -448,15 +448,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Say that the request went nowhere.
+    /// Start the listener rather than asking for it to be started.
+    ///
+    /// "Bro this should never happen, activating the fn key should by default
+    /// mean it is listening."
+    ///
+    /// He is right, and the old behaviour broke the kit's own first rule: it
+    /// printed "Run: hud listen" at him. Handing somebody a command is the
+    /// single most common way an agent turns finished work into unfinished
+    /// work, and a front door that answers a keypress with homework is the
+    /// same failure wearing a UI.
+    ///
+    /// Pressing the key IS the request to listen. So the socket having nobody
+    /// on the other end is not a thing to report, it is a thing to fix: spawn
+    /// the listener, detached, and let the next event go through.
+    ///
+    /// Spawned at most once every few seconds. Without that, a listener that
+    /// crashes on launch would be respawned on every keystroke, which is a
+    /// fork bomb driven by a person's typing.
+    private static var lastSpawn = Date.distantPast
+    private static let spawnCooldown: TimeInterval = 4
+
+    private func startListener() -> Bool {
+        guard Date().timeIntervalSince(Self.lastSpawn) > Self.spawnCooldown else {
+            return false
+        }
+        // Where the installer puts it, then the PATH, so this works on a
+        // machine that laid the kit down somewhere else.
+        let candidates = [
+            FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".local/bin/hud-listen").path,
+            "/usr/local/bin/hud-listen",
+            "/opt/homebrew/bin/hud-listen",
+        ]
+        guard let exe = candidates.first(where: {
+            FileManager.default.isExecutableFile(atPath: $0)
+        }) else { return false }
+
+        Self.lastSpawn = Date()
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: exe)
+        // Detached, and with its output discarded: this is a daemon being
+        // started, not a command being run for an answer.
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { return false }
+        return true
+    }
+
+    /// Say that the request went nowhere, once starting it has been tried.
     ///
     /// Drawn by the display itself, which is the only thing in this system that
     /// can still speak when the other end is gone. It expires on its own,
     /// because the pill is a notice rather than something to dismiss, and the
     /// ring stays red after it.
     private func reportNobodyListening() {
+        if startListener() {
+            // Starting takes a moment, and the event that triggered this is
+            // already gone. Say what is happening rather than nothing, and do
+            // not colour the ring red for a state that is being resolved.
+            model.setPresence(.thinking, amplitude: 0)
+            model.fail("Starting the listener, say that again", hold: Self.nobodyHold)
+            return
+        }
         model.setPresence(.failed, amplitude: 0)
-        model.fail("Nothing is listening. Run: hud listen", hold: Self.nobodyHold)
+        model.fail("The listener will not start", hold: Self.nobodyHold)
     }
 
     /// Give the app back the focus the bar took.
