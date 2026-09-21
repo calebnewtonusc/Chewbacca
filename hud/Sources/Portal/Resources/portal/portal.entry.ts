@@ -754,19 +754,30 @@ function frame(now: number) {
     // Gradients, not a blur: ctx.filter is ignored by this engine, and the
     // shadow trick only softens the shape as a whole, which cannot treat one
     // end differently from the middle.
-    const dissolve = (u: number, spanR: number, strength: number, seedI: number) => {
+    // THE MIDDLE IS NOT TOUCHED UNTIL THE END. That rule is the whole shape
+    // of this thing and the dissolve broke it the moment it was added: it
+    // was centred on the middle of the ribbon with a radius up to 0.8 of the
+    // ribbon's thickness, so at the end of a draw it ate inward to 0.12 R,
+    // well past the spiral's own inner edge.
+    //
+    // Bounded to half the ribbon's thickness, so it reaches exactly the
+    // spiral edge and no further. The ends still thin out; they just cannot
+    // thin out into territory the circle has not earned yet.
+    const dissolve = (u: number, _spanR: number, strength: number, seedI: number) => {
       const inner = Math.max(0, Rp * (1 - depthAt(u)));
       const midR = (Rp + inner) / 2;
       const th = aOld + dir * u * drawnAng;
       const bx = mx0 + Math.cos(th) * midR, by = my0 + Math.sin(th) * midR;
-      const rad = Math.max(6, spanR);
+      const rad = Math.max(6, (Rp - inner) / 2);
       m.globalCompositeOperation = "destination-out";
       // Three overlapping, drifting slowly, so the thinning is uneven.
       for (let j = 0; j < 3; j++) {
         const t = now / 2600 + seedI * 2.3 + j * 1.9;
-        const jx = bx + Math.cos(t) * rad * 0.35;
-        const jy = by + Math.sin(t * 1.3) * rad * 0.35;
-        const rr = rad * (0.7 + 0.5 * ((Math.cos(t * 0.8) + 1) / 2));
+        // The drift and the size are both kept inside the ribbon, or the
+        // wander puts back what the bound above takes away.
+        const jx = bx + Math.cos(t) * rad * 0.2;
+        const jy = by + Math.sin(t * 1.3) * rad * 0.2;
+        const rr = rad * (0.6 + 0.2 * ((Math.cos(t * 0.8) + 1) / 2));
         const g4 = m.createRadialGradient(jx, jy, 0, jx, jy, rr);
         g4.addColorStop(0, `rgba(0,0,0,${strength})`);
         g4.addColorStop(0.55, `rgba(0,0,0,${strength * 0.45})`);

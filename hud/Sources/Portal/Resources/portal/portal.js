@@ -867,18 +867,18 @@
       m.fill();
       m.shadowBlur = 0;
       m.shadowOffsetX = 0;
-      const dissolve = (u, spanR, strength2, seedI) => {
+      const dissolve = (u, _spanR, strength2, seedI) => {
         const inner = Math.max(0, Rp * (1 - depthAt(u)));
         const midR = (Rp + inner) / 2;
         const th = aOld + dir * u * drawnAng;
         const bx = mx0 + Math.cos(th) * midR, by = my0 + Math.sin(th) * midR;
-        const rad = Math.max(6, spanR);
+        const rad = Math.max(6, (Rp - inner) / 2);
         m.globalCompositeOperation = "destination-out";
         for (let j = 0; j < 3; j++) {
           const t = now / 2600 + seedI * 2.3 + j * 1.9;
-          const jx = bx + Math.cos(t) * rad * 0.35;
-          const jy = by + Math.sin(t * 1.3) * rad * 0.35;
-          const rr = rad * (0.7 + 0.5 * ((Math.cos(t * 0.8) + 1) / 2));
+          const jx = bx + Math.cos(t) * rad * 0.2;
+          const jy = by + Math.sin(t * 1.3) * rad * 0.2;
+          const rr = rad * (0.6 + 0.2 * ((Math.cos(t * 0.8) + 1) / 2));
           const g4 = m.createRadialGradient(jx, jy, 0, jx, jy, rr);
           g4.addColorStop(0, `rgba(0,0,0,${strength2})`);
           g4.addColorStop(0.55, `rgba(0,0,0,${strength2 * 0.45})`);
