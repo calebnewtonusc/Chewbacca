@@ -735,6 +735,34 @@
       camH = h;
     }
   };
+  var demoUntil = 0;
+  var demoT = 0;
+  var demoTurns = 1.15;
+  var demoR = 0.3;
+  window.chewbaccaDemo = (secs, turns, r) => {
+    demoUntil = performance.now() + (secs || 3) * 1e3;
+    demoT = 0;
+    demoTurns = turns || 1.15;
+    demoR = r || 0.3;
+  };
+  function demoHand(px, py) {
+    const S = 0.1;
+    const lm = [];
+    lm[0] = { x: px - 0.02, y: py + S * 1.5, z: 0 };
+    for (let i = 1; i <= 3; i++) lm[i] = { x: px - 0.01 + i * 2e-3, y: py + S * (1 - i * 0.25), z: 0 };
+    lm[4] = { x: px, y: py, z: 0 };
+    lm[5] = { x: px + 0.01, y: py + S * 0.7, z: 0 };
+    lm[6] = { x: px + 8e-3, y: py + S * 0.45, z: 0 };
+    lm[7] = { x: px + 4e-3, y: py + S * 0.2, z: 0 };
+    lm[8] = { x: px + 15e-4, y: py + 1e-3, z: 0 };
+    lm[9] = { x: px + 0.02, y: py + S * 0.75, z: 0 };
+    for (let i = 10; i <= 12; i++) lm[i] = { x: px + 0.022, y: py + S * (0.75 - (i - 9) * 0.22), z: 0 };
+    lm[13] = { x: px + 0.035, y: py + S * 0.8, z: 0 };
+    for (let i = 14; i <= 16; i++) lm[i] = { x: px + 0.037, y: py + S * (0.8 - (i - 13) * 0.2), z: 0 };
+    lm[17] = { x: px + 0.05, y: py + S * 0.9, z: 0 };
+    for (let i = 18; i <= 20; i++) lm[i] = { x: px + 0.052, y: py + S * (0.9 - (i - 17) * 0.18), z: 0 };
+    return lm;
+  }
   window.chewbaccaArm = (label) => {
     armed = label ? { label } : null;
   };
@@ -756,12 +784,20 @@
   window.addEventListener("resize", resize);
   function frame(now) {
     requestAnimationFrame(frame);
+    if (now < demoUntil) {
+      demoT += 1 / 30;
+      const th = demoT / 3 * Math.PI * 2 * demoTurns;
+      const wob = 1 + 0.03 * Math.sin(demoT * 7);
+      window.chewbaccaHands(
+        demoHand(0.5 + Math.cos(th) * demoR * wob, 0.5 + Math.sin(th) * demoR * wob)
+      );
+    }
     const frameDt = Math.min(0.05, Math.max(1e-3, (now - lastFrameMs) / 1e3));
     lastFrameMs = now;
     const W = window.innerWidth;
     const H = window.innerHeight;
     ctx.globalCompositeOperation = "destination-out";
-    ctx.fillStyle = "rgba(0, 0, 0, 0.20)";
+    ctx.fillStyle = "rgba(0, 0, 0, 1)";
     ctx.fillRect(0, 0, W, H);
     const lm = now - lastSeen < 300 ? latest : null;
     const camK = H / camH / (W / camW);
@@ -810,7 +846,7 @@
     const maskCtx = maskCv.getContext("2d");
     const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw, cloud, fill, spiral) => {
       if (!mirrorReady || !maskCtx || strength <= 4e-3 || Rp < 3) return;
-      const blurPx = Rp * 0.16 * cloud;
+      const blurPx = cloud > 2e-3 ? Math.max(Rp * 0.09, Rp * 0.38 * cloud) : 0;
       const pad = Math.max(16, blurPx * 2.6);
       const size = Math.ceil(2 * Rp + pad * 2);
       if (maskCv.width !== size || maskCv.height !== size) {
@@ -832,7 +868,7 @@
       const lead = Math.pow(f, 2.5);
       const depthAt = (u) => {
         const wind = 1 + 1.6 * Math.pow(1 - u, 1.6) * spiral;
-        const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950) + 0.028 * Math.sin(u * 15.7 - now / 1500);
+        const rough = 1 + 0.045 * Math.sin(u * 9.1) + 0.028 * Math.sin(u * 15.7);
         return Math.max(0, Math.min(1, Math.pow(lead, wind))) * rough;
       };
       m.save();
@@ -1107,25 +1143,6 @@
         ctx.fill();
       }
       ctx.shadowBlur = 0;
-      if (pinched && pinch?.center) {
-        const q = toScreen(pinch.center, hub);
-        const cx0 = mx(q.x);
-        const cy0 = my(q.y);
-        const k = Math.max(0, Math.min(1, p.progress));
-        ctx.strokeStyle = `rgba(${SPARK_MID}, 0.25)`;
-        ctx.lineWidth = 2;
-        ctx.lineCap = "round";
-        ctx.beginPath();
-        ctx.arc(cx0, cy0, 16, 0, Math.PI * 2);
-        ctx.stroke();
-        if (k > 0.01) {
-          ctx.strokeStyle = `rgba(${CORE}, 0.95)`;
-          ctx.lineWidth = 2.8;
-          ctx.beginPath();
-          ctx.arc(cx0, cy0, 16, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2);
-          ctx.stroke();
-        }
-      }
     }
     if (!portalUp && pinched && pinch?.center && p.progress < 0.1) {
       attract = null;

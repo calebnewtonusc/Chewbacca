@@ -62,11 +62,16 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         .appendingPathComponent(".chewbacca/portal-hand")
     private static let trailFile = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".chewbacca/portal-trail")
+    // Writing seconds here replays a circle with no hand, so the result can
+    // be screenshotted and looked at instead of described.
+    private static let demoFile = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".chewbacca/portal-demo")
     private var gain: Double?
     private var size: Double?
     private var reach: Double?
     private var hand: Double?
     private var trail: Double?
+    private var demoSeen: Double?
     private var sentCameraSize = false
 
     func applicationDidFinishLaunching(_: Notification) {
@@ -152,6 +157,7 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
                 self.readReach()
                 self.readHand()
             self.readTrail()
+            self.readDemo()
             }
         }
 
@@ -254,6 +260,17 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         trail = value
         guard ready, let web else { return }
         web.evaluateJavaScript("window.chewbaccaTrail&&window.chewbaccaTrail(\(value))")
+    }
+
+    private func readDemo() {
+        let text = (try? String(contentsOf: Self.demoFile, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let text, let value = Double(text), demoSeen != value, value > 0 else { return }
+        demoSeen = value
+        guard ready, let web else { return }
+        try? "".write(to: Self.demoFile, atomically: true, encoding: .utf8)
+        web.evaluateJavaScript("window.chewbaccaDemo&&window.chewbaccaDemo(\(value))")
+        FileHandle.standardError.write(Data("portal: replaying a circle for \(value)s\n".utf8))
     }
 
     private func applyArm() {

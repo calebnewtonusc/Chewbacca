@@ -283,6 +283,7 @@ declare global {
     ) => void;
     chewbaccaPortalState: () => string;
     chewbaccaArm: (label: string | null) => void;
+    chewbaccaDemo: (secs?: number, turns?: number, r?: number) => void;
     chewbaccaCamera: (w: number, h: number) => void;
     chewbaccaGain: (k?: number) => number;
     chewbaccaSize: (k?: number) => number;
@@ -359,6 +360,45 @@ window.chewbaccaCamera = (w, h) => {
   if (w > 0 && h > 0) { camW = w; camH = h; }
 };
 
+// A CIRCLE WITHOUT A HAND.
+//
+// Every visual judgement on this feature has come from somebody looking at
+// the screen and describing it, which has cost a dozen rounds of guessing
+// at what a description meant. This replays a pinched hand tracing a circle
+// so the result can be captured and looked at directly.
+//
+// It pushes the same landmark frames the camera would, through the same
+// mapping, so what it exercises is the real path and not a simulation of it.
+let demoUntil = 0, demoT = 0, demoTurns = 1.15, demoR = 0.3;
+window.chewbaccaDemo = (secs, turns, r) => {
+  demoUntil = performance.now() + (secs || 3) * 1000;
+  demoT = 0;
+  demoTurns = turns || 1.15;
+  demoR = r || 0.3;
+};
+
+// A hand with real proportions, pinched, centred on (px, py) in camera
+// normalised space. Index tip and thumb tip together at the drawing point,
+// the rest spread behind it so the pinch has a hand size to measure against.
+function demoHand(px: number, py: number) {
+  const S = 0.10;
+  const lm: { x: number; y: number; z: number }[] = [];
+  lm[0] = { x: px - 0.02, y: py + S * 1.5, z: 0 };
+  for (let i = 1; i <= 3; i++) lm[i] = { x: px - 0.01 + i * 0.002, y: py + S * (1 - i * 0.25), z: 0 };
+  lm[4] = { x: px, y: py, z: 0 };
+  lm[5] = { x: px + 0.01, y: py + S * 0.7, z: 0 };
+  lm[6] = { x: px + 0.008, y: py + S * 0.45, z: 0 };
+  lm[7] = { x: px + 0.004, y: py + S * 0.2, z: 0 };
+  lm[8] = { x: px + 0.0015, y: py + 0.001, z: 0 };
+  lm[9] = { x: px + 0.02, y: py + S * 0.75, z: 0 };
+  for (let i = 10; i <= 12; i++) lm[i] = { x: px + 0.022, y: py + S * (0.75 - (i - 9) * 0.22), z: 0 };
+  lm[13] = { x: px + 0.035, y: py + S * 0.8, z: 0 };
+  for (let i = 14; i <= 16; i++) lm[i] = { x: px + 0.037, y: py + S * (0.8 - (i - 13) * 0.2), z: 0 };
+  lm[17] = { x: px + 0.05, y: py + S * 0.9, z: 0 };
+  for (let i = 18; i <= 20; i++) lm[i] = { x: px + 0.052, y: py + S * (0.9 - (i - 17) * 0.18), z: 0 };
+  return lm;
+}
+
 window.chewbaccaArm = (label) => {
   armed = label ? { label } : null;
 };
@@ -383,6 +423,15 @@ window.addEventListener("resize", resize);
 
 function frame(now: number) {
   requestAnimationFrame(frame);
+  // Replay, if one is running. Pushed through window.chewbaccaHands so it
+  // takes the identical path a camera frame does.
+  if (now < demoUntil) {
+    demoT += 1 / 30;
+    const th = (demoT / 3) * Math.PI * 2 * demoTurns;
+    const wob = 1 + 0.03 * Math.sin(demoT * 7);
+    window.chewbaccaHands(
+      demoHand(0.5 + Math.cos(th) * demoR * wob, 0.5 + Math.sin(th) * demoR * wob));
+  }
   // The springs integrate against this. Clamped, because a frame dropped
   // while the window was occluded would otherwise arrive as a single huge
   // step and fling them.
@@ -395,8 +444,20 @@ function frame(now: number) {
   // frames into the streaks the eye reads as sparks. On the HUD it must also
   // be transparent, so the desktop shows through: `destination-out` erases a
   // fraction of the alpha each frame instead of painting black over it.
+  // A FULL CLEAR. This used to erase 20% of the alpha per frame instead, as
+  // motion blur for the sparks. The cost was that EVERYTHING bright which
+  // moves smears for about a third of a second, and the drawn line moves
+  // every frame, both because the hand does and because the bend slides its
+  // points onto the ring. So the line was redrawn ten times at ten slightly
+  // different positions and the result was a thick orange band with a blob
+  // at its head. That is what a dozen reports of an "orange blob" and an
+  // "orange arc" inside the portal were.
+  //
+  // The sparks do not need it. Each one is already drawn as a streak from
+  // its position back along its own velocity, so the motion blur is in the
+  // shape of the spark rather than in the history of the canvas.
   ctx.globalCompositeOperation = "destination-out";
-  ctx.fillStyle = "rgba(0, 0, 0, 0.20)";
+  ctx.fillStyle = "rgba(0, 0, 0, 1)";
   ctx.fillRect(0, 0, W, H);
 
   // A hand that stopped arriving is a hand that left. Without this the last
@@ -624,7 +685,12 @@ function frame(now: number) {
     // gives a 39px ramp, about 2.4x its value. So the shape is drawn far off
     // the canvas with a shadow offset that lands its SHADOW where the shape
     // should be. The shadow is blurred; the shape itself never appears.
-    const blurPx = Rp * 0.16 * cloud;
+    // A much wider edge, with a floor. 0.16 R at most was abrupt next to the
+    // thing it is dissolving into, and being proportional to cloud with no
+    // floor it sharpened into a hard cut exactly as the circle closed and
+    // the boundary was at its largest. It still reaches exactly zero once
+    // the portal is open, because cloud does.
+    const blurPx = cloud > 0.002 ? Math.max(Rp * 0.09, Rp * 0.38 * cloud) : 0;
     const pad = Math.max(16, blurPx * 2.6);
     const size = Math.ceil(2 * Rp + pad * 2);
     if (maskCv.width !== size || maskCv.height !== size) {
@@ -696,8 +762,11 @@ function frame(now: number) {
     const lead = Math.pow(f, 2.5);
     const depthAt = (u: number) => {
       const wind = 1 + 1.6 * Math.pow(1 - u, 1.6) * spiral;
-      const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950)
-                      + 0.028 * Math.sin(u * 15.7 - now / 1500);
+      // IRREGULAR, NOT ANIMATED. This carried `now`, so the radius rippled
+      // 7% on a 6 to 9 second cycle: about 17px of boundary sliding back and
+      // forth forever with the hand still. Roughness ALONG the arc gives the
+      // same irregularity and stops when the hand does.
+      const rough = 1 + 0.045 * Math.sin(u * 9.1) + 0.028 * Math.sin(u * 15.7);
       return Math.max(0, Math.min(1, Math.pow(lead, wind))) * rough;
     };
 
@@ -1208,25 +1277,22 @@ function frame(now: number) {
     // not, so a sweep that registered 40% and one that registered nothing
     // look identical and there is nothing to correct toward. A ring that
     // fills as the turning accumulates makes the gesture learnable.
-    if (pinched && pinch?.center) {
-      const q = toScreen(pinch.center, hub);
-      const cx0 = mx(q.x);
-      const cy0 = my(q.y);
-      const k = Math.max(0, Math.min(1, p.progress));
-      ctx.strokeStyle = `rgba(${SPARK_MID}, 0.25)`;
-      ctx.lineWidth = 2;
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.arc(cx0, cy0, 16, 0, Math.PI * 2);
-      ctx.stroke();
-      if (k > 0.01) {
-        ctx.strokeStyle = `rgba(${CORE}, 0.95)`;
-        ctx.lineWidth = 2.8;
-        ctx.beginPath();
-        ctx.arc(cx0, cy0, 16, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2);
-        ctx.stroke();
-      }
-    }
+    // THE PROGRESS RING IS GONE. It was a 16px hoop drawn at the pinch
+    // point every frame, with an arc showing how much of the circle had
+    // registered.
+    //
+    // This canvas does not clear. It erases 20% of the alpha per frame so
+    // that sparks streak, which means anything bright that MOVES smears for
+    // about a third of a second. The ring sits on the fingertips, which move
+    // constantly, so it left a chain of ghost hoops along the whole path.
+    //
+    // Seen directly, by replaying a circle with no hand and screenshotting
+    // it, after a dozen rounds of trying to work out from descriptions what
+    // the blobs in the screenshots were.
+    //
+    // The line and the mirror already say how far round the hand has got,
+    // and they say it without smearing, because they are redrawn in the same
+    // place each frame.
   }
 
   // ── The line, bending into the circle ────────────────────────────────────
