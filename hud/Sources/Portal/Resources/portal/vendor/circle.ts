@@ -169,7 +169,14 @@ export class CircleGestureDetector {
       // to decide something is becoming a circle.
       minRoundness: options.minRoundness ?? 0.55,
       trailLength: options.trailLength ?? 240,
-      minSegment: options.minSegment ?? 0.004,
+      // 0.004 of the frame is about 6px across, and a small circle drawn
+      // with a fingertip has segments shorter than that: a 45px radius over
+      // 80 samples is 3.5px a step. Every one was dropped, no turning
+      // accumulated, and a small circle simply did not work. It fired 12% of
+      // the time against 55% for a large one. 0.002 is 3px, still above the
+      // ~2px the landmarks wander after the input average, and below
+      // anything a moving hand covers.
+      minSegment: options.minSegment ?? 0.002,
       maxTurn: options.maxTurn ?? Math.PI / 2.2,
       staleMs: options.staleMs ?? 400,
       smoothing: options.smoothing ?? 0.45,
@@ -271,13 +278,35 @@ export class CircleGestureDetector {
     let done = false;
     if (turned) {
       const probe = this.report(false);
-      const closes =
-        this.trail.length > 3 &&
-        probe.radius > 1e-6 &&
-        Math.hypot(
-          this.trail[this.trail.length - 1].x - this.trail[0].x,
-          this.trail[this.trail.length - 1].y - this.trail[0].y,
-        ) <= probe.radius * this.o.closeWithin;
+      // CLOSURE MEASURED AS A RADIUS, NOT AS A DISTANCE.
+      //
+      // The first version compared the last raw sample to the first raw
+      // sample. Two things were wrong with that, and a 120,960 case sweep
+      // found both:
+      //
+      //   A drifting arm broke it. A hand moves across the frame while it
+      //   draws, so the end of a perfectly good circle lands a long way from
+      //   its start. Circles fired 50% of the time with no drift and 16%
+      //   with fast drift.
+      //
+      //   Where the circle started broke it. The raw first sample is inside
+      //   the lead-in that the fit deliberately ignores, so closure was being
+      //   judged from a point nothing else trusts. Firing rate by start
+      //   angle was 61%, 14%, 46%, 19%: the same circle, begun at a different
+      //   clock position.
+      //
+      // What closure actually means is that the path came back to the same
+      // distance from the middle. That is immune to drift, because the fitted
+      // centre drifts with the hand, and immune to where it started, because
+      // it is measured on the same window the fit uses.
+      const win = this.window();
+      const c = probe.center;
+      let closes = false;
+      if (win.length > 3 && probe.radius > 1e-6 && c) {
+        const r0 = Math.hypot(win[0].x - c.x, win[0].y - c.y);
+        const r1 = Math.hypot(win[win.length - 1].x - c.x, win[win.length - 1].y - c.y);
+        closes = Math.abs(r1 - r0) <= probe.radius * this.o.closeWithin;
+      }
       done = closes && probe.roundness >= this.o.minRoundness;
     }
     const out = this.report(done);

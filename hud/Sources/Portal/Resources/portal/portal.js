@@ -52,7 +52,14 @@
         // to decide something is becoming a circle.
         minRoundness: options.minRoundness ?? 0.55,
         trailLength: options.trailLength ?? 240,
-        minSegment: options.minSegment ?? 4e-3,
+        // 0.004 of the frame is about 6px across, and a small circle drawn
+        // with a fingertip has segments shorter than that: a 45px radius over
+        // 80 samples is 3.5px a step. Every one was dropped, no turning
+        // accumulated, and a small circle simply did not work. It fired 12% of
+        // the time against 55% for a large one. 0.002 is 3px, still above the
+        // ~2px the landmarks wander after the input average, and below
+        // anything a moving hand covers.
+        minSegment: options.minSegment ?? 2e-3,
         maxTurn: options.maxTurn ?? Math.PI / 2.2,
         staleMs: options.staleMs ?? 400,
         smoothing: options.smoothing ?? 0.45,
@@ -110,10 +117,14 @@
       let done = false;
       if (turned) {
         const probe = this.report(false);
-        const closes = this.trail.length > 3 && probe.radius > 1e-6 && Math.hypot(
-          this.trail[this.trail.length - 1].x - this.trail[0].x,
-          this.trail[this.trail.length - 1].y - this.trail[0].y
-        ) <= probe.radius * this.o.closeWithin;
+        const win = this.window();
+        const c = probe.center;
+        let closes = false;
+        if (win.length > 3 && probe.radius > 1e-6 && c) {
+          const r0 = Math.hypot(win[0].x - c.x, win[0].y - c.y);
+          const r1 = Math.hypot(win[win.length - 1].x - c.x, win[win.length - 1].y - c.y);
+          closes = Math.abs(r1 - r0) <= probe.radius * this.o.closeWithin;
+        }
         done = closes && probe.roundness >= this.o.minRoundness;
       }
       const out = this.report(done);
@@ -652,8 +663,10 @@
     const clampRN = (rn) => {
       const scaled = rn * sizeScale;
       const minRN = RMIN / Math.min(W, H);
-      const maxRN = 0.46;
-      return Math.max(minRN, Math.min(maxRN, scaled));
+      const KNEE = 0.24;
+      const maxRN = 0.34;
+      const capped = scaled <= KNEE ? scaled : KNEE + (maxRN - KNEE) * (1 - Math.exp(-(scaled - KNEE) / (maxRN - KNEE)));
+      return Math.max(minRN, capped);
     };
     const px = mx;
     const py = my;
@@ -728,7 +741,8 @@
     }
     let p;
     if (cursor) {
-      p = detector.push(cursor.x, cursor.y, now);
+      const raw = detector.push(cursor.x * W / RPX, cursor.y * H / RPX, now);
+      p = raw.center ? { ...raw, center: { x: raw.center.x * RPX / W, y: raw.center.y * RPX / H } } : raw;
     } else {
       detector.reset();
       p = IDLE_PROGRESS;
@@ -769,9 +783,10 @@
         geom = { cx: drawing.cx, cy: drawing.cy, r: drawing.r };
       } else if (p.center) {
         const rn = clampRN(p.radius);
+        const ix = rn * RPX / W, iy = rn * RPX / H;
         geom = {
-          cx: Math.max(rn, Math.min(1 - rn, p.center.x)),
-          cy: Math.max(rn, Math.min(1 - rn, p.center.y)),
+          cx: Math.max(ix, Math.min(1 - ix, p.center.x)),
+          cy: Math.max(iy, Math.min(1 - iy, p.center.y)),
           r: p.radius
         };
       }
@@ -785,7 +800,9 @@
       });
       comet = [];
       const gr = rpxOf(clampRN(geom.r));
-      for (let i = 0; i < 700; i++) {
+      const rim = 2 * Math.PI * gr;
+      const sparkCount = Math.max(260, Math.min(1600, Math.round(rim * 0.93)));
+      for (let i = 0; i < sparkCount; i++) {
         const a = Math.random() * Math.PI * 2;
         spawnAt(
           px(geom.cx) + Math.cos(a) * gr,

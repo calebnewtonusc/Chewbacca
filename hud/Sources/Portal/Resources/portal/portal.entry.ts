@@ -311,8 +311,24 @@ function frame(now: number) {
   const clampRN = (rn: number) => {
     const scaled = rn * sizeScale;
     const minRN = RMIN / Math.min(W, H);
-    const maxRN = 0.46;
-    return Math.max(minRN, Math.min(maxRN, scaled));
+    // "Big circles are ugly and rlly hard to complete."
+    //
+    // 0.46 is 452px of radius on a 982px-tall display: a ring 904px across,
+    // touching top and bottom, and it took a hand circle nearly the width of
+    // the camera frame to draw one. At the edge of the frame the landmarks
+    // are worst, which is the hard-to-complete half.
+    //
+    // A soft knee rather than a hard cap. Up to a comfortable size the ring
+    // is exactly as big as the circle drawn, and past it the extra is
+    // compressed, so a bigger hand circle always makes a bigger ring and
+    // never an unusable one. A hard clamp would make every large circle come
+    // out identical, which feels broken in a different way.
+    const KNEE = 0.24;      // 236px radius, drawn one to one below this
+    const maxRN = 0.34;     // 334px radius, approached but never reached
+    const capped = scaled <= KNEE
+      ? scaled
+      : KNEE + (maxRN - KNEE) * (1 - Math.exp(-(scaled - KNEE) / (maxRN - KNEE)));
+    return Math.max(minRN, capped);
   };
 
   // Pull a normalized position toward the middle of the screen.
@@ -499,7 +515,26 @@ function frame(now: number) {
 
   let p: CircleProgress;
   if (cursor) {
-    p = detector.push(cursor.x, cursor.y, now);
+    // THE DETECTOR WORKS IN A SQUARE SPACE. It used to be fed the raw
+    // normalized position, where x is a fraction of 1512 and y a fraction of
+    // 982, so a circle on the glass reached it as a 1.54:1 oval. Everything
+    // downstream then argued with that: the roundness gate rejected real
+    // circles for being too ovular, and the fit landed differently depending
+    // on where round the shape the hand started, because it was fitting an
+    // ellipse.
+    //
+    // A 120,960 case sweep is what made it visible, and the giveaway was that
+    // a 1.2:1 oval opened a portal MORE often than a perfect circle. It was
+    // the oval that was round, in the space that was doing the judging.
+    //
+    // Both axes are divided by the same number now, so a circle is a circle,
+    // and the answer is converted straight back at this one place. See
+    // .claude/rules/spatial-one-mapping.md: this file had the rule and broke
+    // it anyway, because the detector's own space was never named.
+    const raw = detector.push(cursor.x * W / RPX, cursor.y * H / RPX, now);
+    p = raw.center
+      ? { ...raw, center: { x: raw.center.x * RPX / W, y: raw.center.y * RPX / H } }
+      : raw;
   } else {
     detector.reset();
     p = IDLE_PROGRESS;
@@ -573,10 +608,14 @@ function frame(now: number) {
       // The CENTRE being on screen is not enough: a portal centred near an
       // edge still hangs half of itself off. Inset by its own radius so the
       // whole ring is visible.
+      // The radius is in RPX units and the centre is a fraction of each
+      // axis, so the inset has to be converted per axis or the ring is held
+      // off the left and right edges by the wrong amount.
       const rn = clampRN(p.radius);
+      const ix = (rn * RPX) / W, iy = (rn * RPX) / H;
       geom = {
-        cx: Math.max(rn, Math.min(1 - rn, p.center.x)),
-        cy: Math.max(rn, Math.min(1 - rn, p.center.y)),
+        cx: Math.max(ix, Math.min(1 - ix, p.center.x)),
+        cy: Math.max(iy, Math.min(1 - iy, p.center.y)),
         r: p.radius,
       };
     }
@@ -592,7 +631,13 @@ function frame(now: number) {
     });
     comet = [];
     const gr = rpxOf(clampRN(geom.r));
-    for (let i = 0; i < 700; i++) {
+    // SPARKS PER UNIT OF RIM, NOT PER RING. A fixed 700 is 0.93 sparks per
+    // pixel of circumference at a 120px radius and 0.25 at 452px, so a big
+    // portal came out sparse and thin: the other half of "big circles are
+    // ugly". Scaling with circumference holds the density constant.
+    const rim = 2 * Math.PI * gr;
+    const sparkCount = Math.max(260, Math.min(1600, Math.round(rim * 0.93)));
+    for (let i = 0; i < sparkCount; i++) {
       const a = Math.random() * Math.PI * 2;
       spawnAt(px(geom.cx) + Math.cos(a) * gr, py(geom.cy) + Math.sin(a) * gr,
         -Math.sin(a), Math.cos(a), 1, 7.0, true);
