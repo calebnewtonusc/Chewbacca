@@ -12,7 +12,8 @@
     completed: false,
     direction: null,
     startAngle: null,
-    endAngle: null
+    endAngle: null,
+    roundness: 0
   };
   var CircleGestureDetector = class {
     constructor(options = {}) {
@@ -92,7 +93,24 @@
       const { center, radius } = this.fit();
       const first = this.trail[0];
       const last = this.trail[this.trail.length - 1];
+      let roundness = 0;
+      if (this.trail.length >= 4) {
+        const m = this.centroid();
+        const spread = Math.sqrt(
+          this.trail.reduce(
+            (a, q) => a + (q.x - m.x) ** 2 + (q.y - m.y) ** 2,
+            0
+          ) / this.trail.length
+        );
+        const radii = this.trail.map((q) => Math.hypot(q.x - center.x, q.y - center.y));
+        const mean = radii.reduce((a, b) => a + b, 0) / radii.length;
+        const sd = Math.sqrt(
+          radii.reduce((a, r) => a + (r - mean) ** 2, 0) / radii.length
+        );
+        if (spread > 1e-6) roundness = Math.max(0, 1 - sd / spread / 0.45);
+      }
       return {
+        roundness,
         startAngle: Math.atan2(first.y - center.y, first.x - center.x),
         endAngle: Math.atan2(last.y - center.y, last.x - center.x),
         progress: Math.min(1, Math.abs(this.sweep) / this.o.sweepThreshold),
@@ -613,7 +631,7 @@
       p = IDLE_PROGRESS;
     }
     if (stroke.length) {
-      const keep = p.progress > 0.34 ? 260 : 16;
+      const keep = p.progress > 0.4 && p.roundness > 0.55 ? 260 : 16;
       while (stroke.length > keep) stroke.shift();
     }
     const prevPhase = state.phase;
@@ -734,7 +752,9 @@
         } : raw;
       }
       const fitC = drawing ?? softFit;
-      const conf = Math.max(0, Math.min(1, (p.progress - 0.34) / 0.26));
+      const turned = Math.max(0, Math.min(1, (p.progress - 0.4) / 0.26));
+      const round = Math.max(0, Math.min(1, (p.roundness - 0.55) / 0.3));
+      const conf = turned * round;
       const k = Math.pow(conf, 0.9);
       if (fitC) {
         const rate = 0.12 + 0.3 * conf;
