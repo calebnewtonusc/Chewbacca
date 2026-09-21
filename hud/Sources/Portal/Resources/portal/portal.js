@@ -463,6 +463,7 @@
   var depths = new DepthTracker();
   var parallaxStrength = PARALLAX_STRENGTH;
   var sizeScale = 0.45;
+  var reachScale = 0.5;
   var lastSeen = 0;
   var armed = null;
   window.chewbaccaGain = (k) => {
@@ -476,6 +477,12 @@
       sizeScale = Math.max(0.05, Math.min(3, k));
     }
     return sizeScale;
+  };
+  window.chewbaccaReach = (k) => {
+    if (typeof k === "number" && isFinite(k)) {
+      reachScale = Math.max(0.05, Math.min(2, k));
+    }
+    return reachScale;
   };
   window.chewbaccaArm = (label) => {
     armed = label ? { label } : null;
@@ -510,6 +517,10 @@
     const RMIN = 24;
     const RMAX = Math.min(W, H) * 0.42;
     const clampR = (r) => Math.max(RMIN, Math.min(RMAX, r * sizeScale));
+    const squeeze = (p2) => ({
+      x: Math.max(0.02, Math.min(0.98, 0.5 + (p2.x - 0.5) * reachScale)),
+      y: Math.max(0.02, Math.min(0.98, 0.5 + (p2.y - 0.5) * reachScale))
+    });
     const px = mx;
     const py = my;
     const arcPath = (cn, r, a0, a1, segs = 96, jitterPx = 0) => {
@@ -564,10 +575,10 @@
           { strength: parallaxStrength }
         );
         if (r) {
-          return { x: 1 - r.x / window.innerWidth, y: r.y / window.innerHeight };
+          return squeeze({ x: r.x / window.innerWidth, y: r.y / window.innerHeight });
         }
       }
-      return pinch.center;
+      return squeeze(pinch.center);
     })();
     let p;
     if (cursor) {
@@ -592,7 +603,14 @@
     const S = state;
     const portalUp = S.phase === "igniting" || S.phase === "open" || S.phase === "closing";
     if (S.phase === "igniting" && prevPhase !== "igniting") {
-      if (p.center) geom = { cx: p.center.x, cy: p.center.y, r: p.radius };
+      if (p.center) {
+        const rn = clampR(p.radius * RSCALE) / RSCALE;
+        geom = {
+          cx: Math.max(rn, Math.min(1 - rn, p.center.x)),
+          cy: Math.max(rn, Math.min(1 - rn, p.center.y)),
+          r: p.radius
+        };
+      }
       attract = { cx: geom.cx, cy: geom.cy, r: clampR(geom.r * RSCALE) };
       window.webkit?.messageHandlers?.portal?.postMessage({
         event: "opened",

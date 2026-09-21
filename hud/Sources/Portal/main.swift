@@ -56,8 +56,11 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         .appendingPathComponent(".chewbacca/portal-gain")
     private static let sizeFile = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".chewbacca/portal-size")
+    private static let reachFile = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".chewbacca/portal-reach")
     private var gain: Double?
     private var size: Double?
+    private var reach: Double?
 
     func applicationDidFinishLaunching(_: Notification) {
         // Bundle.main first, because that is where bundle-portal.sh puts the
@@ -132,11 +135,13 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         readArm()
         readGain()
         readSize()
+        readReach()
         armTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
             Task { @MainActor in
                 self.readArm()
                 self.readGain()
                 self.readSize()
+                self.readReach()
             }
         }
 
@@ -159,6 +164,9 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         }
         if let sz = size {
             web?.evaluateJavaScript("window.chewbaccaSize&&window.chewbaccaSize(\(sz))")
+        }
+        if let rh = reach {
+            web?.evaluateJavaScript("window.chewbaccaReach&&window.chewbaccaReach(\(rh))")
         }
     }
 
@@ -203,6 +211,15 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         size = value
         guard ready, let web else { return }
         web.evaluateJavaScript("window.chewbaccaSize&&window.chewbaccaSize(\(value))")
+    }
+
+    private func readReach() {
+        let text = (try? String(contentsOf: Self.reachFile, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let text, let value = Double(text), reach != value else { return }
+        reach = value
+        guard ready, let web else { return }
+        web.evaluateJavaScript("window.chewbaccaReach&&window.chewbaccaReach(\(value))")
     }
 
     private func applyArm() {

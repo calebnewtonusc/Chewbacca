@@ -8,6 +8,7 @@
 #   portal open                  a plain portal, opening onto nothing
 #   portal gain 0.4              how much the portal follows your head, 0 to 1
 #   portal size 0.3              how big it is next to the circle you drew
+#   portal reach 0.4             how far from centre your hand can push it
 #   portal close                 disarm and quit
 #   portal status                is it running, and what is it armed with
 #
@@ -27,6 +28,7 @@ APP="$ROOT/hud/build/Portal.app"
 TARGET="$HOME/.chewbacca/portal-target"
 GAIN="$HOME/.chewbacca/portal-gain"
 SIZE="$HOME/.chewbacca/portal-size"
+REACH="$HOME/.chewbacca/portal-reach"
 mkdir -p "$(dirname "$TARGET")"
 
 running() { pgrep -f "Portal.app/Contents/MacOS/Portal" >/dev/null 2>&1; }
@@ -134,6 +136,17 @@ case "${1:-status}" in
     fi
     printf '%s' "$2" > "$SIZE"
     echo "Portal size set to $2. It takes effect within a quarter second."
+    ;;
+  reach)
+    # 1 maps the camera's whole field to the whole display, which runs off
+    # both edges on a normal arm sweep. Lower pulls everything toward the
+    # middle: less of the screen reachable, none of it off it.
+    if [ -z "${2:-}" ]; then
+      echo "reach: $(cat "$REACH" 2>/dev/null || echo 0.5)"
+      exit 0
+    fi
+    printf '%s' "$2" > "$REACH"
+    echo "Reach set to $2. It takes effect within a quarter second."
     ;;
   close)
     : > "$TARGET"
