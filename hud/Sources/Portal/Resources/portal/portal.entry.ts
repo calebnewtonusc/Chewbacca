@@ -138,7 +138,21 @@ const stepSpring = (x: number, v: number, k: number, dt: number) => {
   const c = 2 * Math.sqrt(k);            // critical damping, so it never overshoots
   const a = k * (1 - x) - c * v;
   const nv = v + a * dt;
-  return { x: Math.min(1, x + nv * dt), v: nv };
+  const nx = Math.min(1, x + nv * dt);
+  // IT HAS TO ARRIVE, NOT APPROACH. "There should be 0 dissolve at the end
+  // anywhere 0 gradient any where no see through anywhere."
+  //
+  // A spring is asymptotic. Everything that has to vanish when the portal
+  // finishes is driven by these, so nothing ever reached zero: a second in
+  // there was still 4px of blur and a veil holding the mirror slightly
+  // transparent, and it took several more seconds to fade out of sight
+  // without ever actually being off.
+  //
+  // Snapped at a hundredth from the target, which is under a pixel of blur
+  // and invisible to cross, so the last of the animation lands on exact
+  // zero instead of trailing.
+  if (1 - nx < 0.01 && Math.abs(nv) < 0.35) return { x: 1, v: 0 };
+  return { x: nx, v: nv };
 };
 // The raw path the pinch has taken this stroke, in screen-normalized space.
 // It is drawn as a line from the first frame and BENDS onto the fitted
