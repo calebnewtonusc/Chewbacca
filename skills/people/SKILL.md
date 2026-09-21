@@ -203,6 +203,35 @@ run it again and it skips everyone already done.
 For anyone already connected, a fresh export is the cheapest job-change feed
 there is, and no paid lookup is needed.
 
+### Shortlists: one filter hides most of the network
+
+"Everyone I talk to, narrowed down to X" is a different question from `people
+who`. Who to invite, who to beta test, who to ask for a favour. The filter is
+the easy half. The enumeration underneath it is where this goes wrong.
+
+Measured on a real address book, a single sweep of one-to-one iMessage with a
+volume floor and a recency cutoff dropped most of the network:
+
+- one-to-one only: hid 109 people active in group chats that year
+- 40 or more messages sent: hid 161 quieter threads
+- last three months only: hid 34 strong threads that had gone cold in spring
+
+Both of the strongest candidates sat in the discarded set. One fell four weeks
+past the recency cutoff. The other was a single message under the volume floor.
+
+Enumerate all of these before applying any filter:
+
+1. one-to-one threads, no volume floor and no recency cutoff
+2. group chats, where the people who never text directly live
+3. quiet threads, far below whatever floor looks reasonable
+4. threads that went cold, because cold and unimportant are different things
+5. the `people` store, and the other messaging apps on the machine
+
+Then name the sources checked and the ones skipped. WhatsApp is usually on the
+machine and usually thin; Instagram DMs are usually not there at all. The user
+is the only one who knows who is still missing, and they can only tell you that
+if they can see what was swept.
+
 ## Questions that need more than one source
 
 `people who` filters one table. Most interesting questions are not one filter,
