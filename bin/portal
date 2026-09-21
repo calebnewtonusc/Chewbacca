@@ -7,6 +7,7 @@
 #   portal open --url <url>      a page; the portal frames that window
 #   portal open                  a plain portal, opening onto nothing
 #   portal gain 0.4              how much the portal follows your head, 0 to 1
+#   portal size 0.3              how big it is next to the circle you drew
 #   portal close                 disarm and quit
 #   portal status                is it running, and what is it armed with
 #
@@ -25,6 +26,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="$ROOT/hud/build/Portal.app"
 TARGET="$HOME/.chewbacca/portal-target"
 GAIN="$HOME/.chewbacca/portal-gain"
+SIZE="$HOME/.chewbacca/portal-size"
 mkdir -p "$(dirname "$TARGET")"
 
 running() { pgrep -f "Portal.app/Contents/MacOS/Portal" >/dev/null 2>&1; }
@@ -122,6 +124,16 @@ case "${1:-status}" in
     fi
     printf '%s' "$2" > "$GAIN"
     echo "Parallax gain set to $2. It takes effect within a quarter second."
+    ;;
+  size)
+    # Your arm sweeps a much wider arc than the hole you want on screen, so
+    # this is well under 1. Lower is smaller.
+    if [ -z "${2:-}" ]; then
+      echo "size: $(cat "$SIZE" 2>/dev/null || echo 0.45)"
+      exit 0
+    fi
+    printf '%s' "$2" > "$SIZE"
+    echo "Portal size set to $2. It takes effect within a quarter second."
     ;;
   close)
     : > "$TARGET"

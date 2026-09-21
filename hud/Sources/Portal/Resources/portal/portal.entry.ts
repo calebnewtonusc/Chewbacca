@@ -69,6 +69,11 @@ const depths = new DepthTracker();
 // the right value can be found by moving a hand rather than by rebuilding:
 //   window.chewbaccaGain(0.4)
 let parallaxStrength = PARALLAX_STRENGTH;
+// How big the portal is relative to the circle drawn. Well under 1 on
+// purpose: the fitted circle is the path the HAND took, and an arm sweeps a
+// far wider arc than the hole anybody wants on screen. Tunable live:
+//   portal size 0.4
+let sizeScale = 0.45;
 let lastSeen = 0;
 
 // The host pushes frames in here. Declared on window so evaluateJavaScript
@@ -82,6 +87,7 @@ declare global {
     chewbaccaPortalState: () => string;
     chewbaccaArm: (label: string | null) => void;
     chewbaccaGain: (k?: number) => number;
+    chewbaccaSize: (k?: number) => number;
     webkit?: { messageHandlers?: { portal?: { postMessage: (m: unknown) => void } } };
   }
 }
@@ -100,6 +106,12 @@ window.chewbaccaGain = (k) => {
     parallaxStrength = Math.max(0, Math.min(1, k));
   }
   return parallaxStrength;
+};
+window.chewbaccaSize = (k) => {
+  if (typeof k === "number" && isFinite(k)) {
+    sizeScale = Math.max(0.05, Math.min(3, k));
+  }
+  return sizeScale;
 };
 window.chewbaccaArm = (label) => {
   armed = label ? { label } : null;
@@ -143,9 +155,9 @@ function frame(now: number) {
   const mx = (nx: number) => (1 - nx) * W;
   const my = (ny: number) => ny * H;
   const RSCALE = (W + H) / 2;
-  const RMIN = 40;
+  const RMIN = 24;
   const RMAX = Math.min(W, H) * 0.42;
-  const clampR = (r: number) => Math.max(RMIN, Math.min(RMAX, r));
+  const clampR = (r: number) => Math.max(RMIN, Math.min(RMAX, r * sizeScale));
   const px = mx;
   const py = my;
 
