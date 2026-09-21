@@ -645,7 +645,13 @@ function frame(now: number) {
     // gives a 39px ramp, about 2.4x its value. So the shape is drawn far off
     // the canvas with a shadow offset that lands its SHADOW where the shape
     // should be. The shadow is blurred; the shape itself never appears.
-    const blurPx = Rp * 0.16 * cloud;
+    // "the background see through part is a hard cutoff." The blur was
+    // proportional to cloud with no floor, and cloud falls away as the
+    // circle closes, so the edge sharpened into a cut exactly when the
+    // boundary is at its largest and most visible. A floor keeps it soft
+    // while any of the circle is unfilled, and it still reaches exactly zero
+    // once the portal is open, because cloud does.
+    const blurPx = cloud > 0.002 ? Math.max(Rp * 0.09, Rp * 0.16 * cloud) : 0;
     const pad = Math.max(16, blurPx * 2.6);
     const size = Math.ceil(2 * Rp + pad * 2);
     if (maskCv.width !== size || maskCv.height !== size) {
@@ -717,8 +723,16 @@ function frame(now: number) {
     const lead = Math.pow(f, 2.5);
     const depthAt = (u: number) => {
       const wind = 1 + 1.6 * Math.pow(1 - u, 1.6) * spiral;
-      const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950)
-                      + 0.028 * Math.sin(u * 15.7 - now / 1500);
+      // IRREGULAR, NOT ANIMATED. "that blue semi circle cutout on the right
+      // keeps oscillating back and forth, revealing the desktop behind it in
+      // waves."
+      //
+      // This carried `now`, so the radius rippled 7% on a 6 to 9 second
+      // cycle: about 17px of boundary sliding back and forth on a 300px
+      // portal, forever. It went in to stop the spiral looking like a
+      // compass arc, and roughness ALONG the arc does that by itself. Time
+      // was never needed and only made it move.
+      const rough = 1 + 0.045 * Math.sin(u * 9.1) + 0.028 * Math.sin(u * 15.7);
       return Math.max(0, Math.min(1, Math.pow(lead, wind))) * rough;
     };
 

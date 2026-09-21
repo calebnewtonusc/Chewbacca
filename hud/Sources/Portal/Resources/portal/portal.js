@@ -812,7 +812,7 @@
     const maskCtx = maskCv.getContext("2d");
     const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw, cloud, fill, spiral) => {
       if (!mirrorReady || !maskCtx || strength <= 4e-3 || Rp < 3) return;
-      const blurPx = Rp * 0.16 * cloud;
+      const blurPx = cloud > 2e-3 ? Math.max(Rp * 0.09, Rp * 0.16 * cloud) : 0;
       const pad = Math.max(16, blurPx * 2.6);
       const size = Math.ceil(2 * Rp + pad * 2);
       if (maskCv.width !== size || maskCv.height !== size) {
@@ -834,7 +834,7 @@
       const lead = Math.pow(f, 2.5);
       const depthAt = (u) => {
         const wind = 1 + 1.6 * Math.pow(1 - u, 1.6) * spiral;
-        const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950) + 0.028 * Math.sin(u * 15.7 - now / 1500);
+        const rough = 1 + 0.045 * Math.sin(u * 9.1) + 0.028 * Math.sin(u * 15.7);
         return Math.max(0, Math.min(1, Math.pow(lead, wind))) * rough;
       };
       m.save();
