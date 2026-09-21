@@ -578,7 +578,7 @@
   var SPARK_HOT = "255, 196, 94";
   var SPARK_MID = "255, 141, 44";
   var SPARK_COLD = "214, 74, 16";
-  var IGNITE_MS = 820;
+  var IGNITE_MS = 1150;
   var CLOSE_MS = 380;
   var MIN_OPEN_MS = 600;
   var ease = (t) => 1 - Math.pow(1 - t, 3);
@@ -617,6 +617,17 @@
   var mirrorAmt = 0;
   var lastFill = 0;
   var holdOld = 0;
+  var settleX = 0;
+  var settleV = 0;
+  var arcX = 0;
+  var arcV = 0;
+  var lastFrameMs = 0;
+  var stepSpring = (x, v, k, dt) => {
+    const c = 2 * Math.sqrt(k);
+    const a = k * (1 - x) - c * v;
+    const nv = v + a * dt;
+    return { x: Math.min(1, x + nv * dt), v: nv };
+  };
   var stroke = [];
   var softFit = null;
   var reachScale = 1;
@@ -629,10 +640,35 @@
     try {
       const probe = document.createElement("canvas").getContext("2d");
       if (probe) {
-        probe.filter = "blur(5px)";
+        probe.canvas.width = 120;
+        probe.canvas.height = 40;
+        probe.filter = "blur(8px)";
+        probe.fillStyle = "#fff";
+        probe.fillRect(0, 0, 60, 40);
+        probe.filter = "none";
+        const px = probe.getImageData(0, 20, 120, 1).data;
+        let ramp = 0;
+        for (let i = 0; i < 120; i++) {
+          const a = px[i * 4 + 3];
+          if (a > 12 && a < 243) ramp++;
+        }
+        probe.clearRect(0, 0, 120, 40);
+        probe.shadowColor = "rgba(255,255,255,1)";
+        probe.shadowBlur = 16;
+        probe.shadowOffsetX = 200;
+        probe.fillStyle = "#fff";
+        probe.fillRect(-200, 0, 60, 40);
+        probe.shadowBlur = 0;
+        probe.shadowOffsetX = 0;
+        const px2 = probe.getImageData(0, 20, 120, 1).data;
+        let ramp2 = 0;
+        for (let i = 0; i < 120; i++) {
+          const a = px2[i * 4 + 3];
+          if (a > 12 && a < 243) ramp2++;
+        }
         window.webkit?.messageHandlers?.portal?.postMessage({
           event: "log",
-          text: `ctx.filter reads back as "${probe.filter}"`
+          text: `filter ramp ${ramp}px, shadowBlur ramp ${ramp2}px (0 = ignored)`
         });
       }
     } catch (e) {
@@ -703,6 +739,8 @@
   window.addEventListener("resize", resize);
   function frame(now) {
     requestAnimationFrame(frame);
+    const frameDt = Math.min(0.05, Math.max(1e-3, (now - lastFrameMs) / 1e3));
+    lastFrameMs = now;
     const W = window.innerWidth;
     const H = window.innerHeight;
     ctx.globalCompositeOperation = "destination-out";
@@ -752,8 +790,8 @@
     const maskCtx = maskCv.getContext("2d");
     const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw, cloud, fill, spiral) => {
       if (!mirrorReady || !maskCtx || strength <= 4e-3 || Rp < 3) return;
-      const blurPx = Rp * 0.38 * cloud;
-      const pad = Math.max(16, blurPx * 2.5);
+      const blurPx = Rp * 0.16 * cloud;
+      const pad = Math.max(16, blurPx * 2.6);
       const size = Math.ceil(2 * Rp + pad * 2);
       if (maskCv.width !== size || maskCv.height !== size) {
         maskCv.width = size;
@@ -777,12 +815,21 @@
         const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950) + 0.028 * Math.sin(u * 15.7 - now / 1500);
         return Math.max(0, Math.min(1, Math.pow(lead, wind))) * rough;
       };
-      if (blurPx > 0.5) m.filter = `blur(${blurPx.toFixed(1)}px)`;
+      m.save();
+      m.beginPath();
+      m.arc(mx0, my0, Rp, 0, Math.PI * 2);
+      m.clip();
+      const OFF = size + 64;
+      if (blurPx > 0.5) {
+        m.shadowColor = "rgba(255,255,255,1)";
+        m.shadowBlur = blurPx;
+        m.shadowOffsetX = OFF;
+      }
       m.fillStyle = "#fff";
       m.beginPath();
       for (let i = 0; i <= STEPS; i++) {
         const th = aOld + dir * (i / STEPS) * drawnAng;
-        const x = mx0 + Math.cos(th) * Rp, y = my0 + Math.sin(th) * Rp;
+        const x = mx0 + Math.cos(th) * Rp - OFF, y = my0 + Math.sin(th) * Rp;
         if (i) m.lineTo(x, y);
         else m.moveTo(x, y);
       }
@@ -790,91 +837,13 @@
         const u = i / STEPS;
         const th = aOld + dir * u * drawnAng;
         const rr = Math.max(0, Rp * (1 - depthAt(u)));
-        m.lineTo(mx0 + Math.cos(th) * rr, my0 + Math.sin(th) * rr);
+        m.lineTo(mx0 + Math.cos(th) * rr - OFF, my0 + Math.sin(th) * rr);
       }
       m.closePath();
       m.fill();
-      if (cloud > 0.01) {
-        const atBoundary = (u, inward) => {
-          const th = aOld + dir * u * drawnAng;
-          const rr = Math.max(0, Rp * (1 - depthAt(u))) * (1 - inward);
-          return { x: mx0 + Math.cos(th) * rr, y: my0 + Math.sin(th) * rr };
-        };
-        for (let i = 0; i < 5; i++) {
-          const t = now / 3400 + i * 2.1;
-          const u = (Math.sin(t) + 1) / 2;
-          const inward = 0.1 + 0.26 * ((Math.sin(t * 0.7 + i * 1.3) + 1) / 2);
-          const q = atBoundary(u, inward);
-          const rad = Rp * (0.12 + 0.16 * ((Math.cos(t * 0.55 + i) + 1) / 2));
-          m.fillStyle = `rgba(255,255,255,${(0.16 + 0.2 * cloud) * cloud})`;
-          m.beginPath();
-          m.arc(q.x, q.y, rad, 0, Math.PI * 2);
-          m.fill();
-        }
-        for (let i = 0; i < 7; i++) {
-          const t = now / 2800 + i * 1.7;
-          const u = (Math.sin(t) + 1) / 2;
-          const q = atBoundary(u, 0);
-          const rad = Rp * (0.07 + 0.1 * ((Math.cos(t * 0.9 + i) + 1) / 2));
-          const a = (0.5 + 0.35 * cloud) * cloud;
-          if (i % 2 === 0) {
-            m.fillStyle = `rgba(255,255,255,${a})`;
-            m.beginPath();
-            m.arc(q.x, q.y, rad, 0, Math.PI * 2);
-            m.fill();
-          } else {
-            m.globalCompositeOperation = "destination-out";
-            const g2 = m.createRadialGradient(q.x, q.y, 0, q.x, q.y, rad);
-            g2.addColorStop(0, `rgba(0,0,0,${a})`);
-            g2.addColorStop(1, "rgba(0,0,0,0)");
-            m.fillStyle = g2;
-            m.beginPath();
-            m.arc(q.x, q.y, rad, 0, Math.PI * 2);
-            m.fill();
-            m.globalCompositeOperation = "source-over";
-          }
-        }
-        const atRim = (u, inward) => {
-          const th = aOld + dir * u * drawnAng;
-          const rr = Rp * (1 - inward);
-          return { x: mx0 + Math.cos(th) * rr, y: my0 + Math.sin(th) * rr };
-        };
-        for (let i = 0; i < 5; i++) {
-          const t = now / 3100 + i * 2.4;
-          const u = (Math.sin(t) + 1) / 2;
-          const inward = 0.04 + 0.2 * ((Math.sin(t * 0.8 + i * 1.1) + 1) / 2);
-          const q = atRim(u, inward);
-          const rad = Rp * (0.1 + 0.14 * ((Math.cos(t * 0.6 + i) + 1) / 2));
-          m.fillStyle = `rgba(255,255,255,${(0.14 + 0.18 * cloud) * cloud})`;
-          m.beginPath();
-          m.arc(q.x, q.y, rad, 0, Math.PI * 2);
-          m.fill();
-        }
-        for (let i = 0; i < 6; i++) {
-          const t = now / 2500 + i * 1.9;
-          const u = (Math.sin(t) + 1) / 2;
-          const q = atRim(u, 0);
-          const rad = Rp * (0.06 + 0.09 * ((Math.cos(t * 1.1 + i) + 1) / 2));
-          const a = (0.45 + 0.3 * cloud) * cloud;
-          if (i % 2 === 0) {
-            m.fillStyle = `rgba(255,255,255,${a})`;
-            m.beginPath();
-            m.arc(q.x, q.y, rad, 0, Math.PI * 2);
-            m.fill();
-          } else {
-            m.globalCompositeOperation = "destination-out";
-            const g3 = m.createRadialGradient(q.x, q.y, 0, q.x, q.y, rad);
-            g3.addColorStop(0, `rgba(0,0,0,${a})`);
-            g3.addColorStop(1, "rgba(0,0,0,0)");
-            m.fillStyle = g3;
-            m.beginPath();
-            m.arc(q.x, q.y, rad, 0, Math.PI * 2);
-            m.fill();
-            m.globalCompositeOperation = "source-over";
-          }
-        }
-      }
-      m.filter = "none";
+      m.shadowBlur = 0;
+      m.shadowOffsetX = 0;
+      m.restore();
       const veil = (1 - f) * 0.75;
       if (veil > 4e-3) {
         m.globalCompositeOperation = "destination-out";
@@ -903,15 +872,15 @@
       ctx.restore();
     };
     const spawnBand = (x, y, tx, ty, heat) => {
-      const spread = (Math.random() - 0.5) * 0.3;
-      const sp = 0.45 + Math.random() * 1;
+      const spread = (Math.random() < 0.5 ? -1 : 1) * Math.pow(Math.random(), 0.55) * 1.15;
+      const sp = 0.3 + Math.pow(Math.random(), 2.4) * 3.2;
       sparks.push({
         x,
         y,
         vx: (tx + spread * -ty) * sp,
         vy: (ty + spread * tx) * sp,
         life: 1,
-        decay: 0.1 + Math.random() * 0.1,
+        decay: 0.05 + Math.pow(Math.random(), 1.6) * 0.3,
         heat: 0.4 + Math.random() * 0.6 * heat,
         width: 0.2 + Math.random() * 0.4,
         bind: false
@@ -919,15 +888,15 @@
     };
     const spawnAt = (x, y, tangentX, tangentY, count, speed, bind = false) => {
       for (let i = 0; i < count; i++) {
-        const spread = (Math.random() - 0.5) * 0.9;
-        const sp = speed * (0.4 + Math.random() * 1.1);
+        const spread = (Math.random() < 0.5 ? -1 : 1) * Math.pow(Math.random(), 0.5) * 1.5;
+        const sp = speed * (0.25 + Math.pow(Math.random(), 2) * 2.4);
         sparks.push({
           x,
           y,
           vx: (tangentX + spread * -tangentY) * sp,
           vy: (tangentY + spread * tangentX) * sp,
           life: 1,
-          decay: 0.03 + Math.random() * 0.05,
+          decay: 0.02 + Math.pow(Math.random(), 1.5) * 0.14,
           heat: Math.random(),
           width: 0.35 + Math.random() * 0.85,
           bind
@@ -1064,6 +1033,12 @@
       softFit = null;
       trimmedAtLatch = false;
       announcedAtLatch = false;
+    }
+    if (!portalUp) {
+      settleX = 0;
+      settleV = 0;
+      arcX = 0;
+      arcV = 0;
     }
     if (portalUp) stroke = [];
     if (!portalUp && prevPhase === "closing") {
@@ -1293,15 +1268,22 @@
           ctx.globalCompositeOperation = "source-over";
         } else {
           const shut2 = ease(shut);
-          const closing = ease(ignite);
-          const clearing = ignite * ignite;
+          const a1 = stepSpring(settleX, settleV, 26, frameDt);
+          settleX = a1.x;
+          settleV = a1.v;
+          const a2 = stepSpring(arcX, arcV, 12, frameDt);
+          arcX = a2.x;
+          arcV = a2.v;
+          const closing = settleX;
+          const arcClose = arcX;
+          const clearing = settleX * settleX;
           paintMirror(
             cx0,
             cy0,
             rpx,
             1 - shut2,
             openGapFrom,
-            openGap * (1 - closing),
+            openGap * (1 - arcClose),
             openCcw,
             1 - clearing,
             lastFill + (1 - lastFill) * closing,

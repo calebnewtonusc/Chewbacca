@@ -36,7 +36,11 @@ const SPARK_COLD = "214, 74, 16";
 // "now the portal spawning feels so abrupt". 520ms with an ease-OUT curve
 // was 27% open in the first 52ms, and the hole was full size from the first
 // frame besides, so the portal did not open at all: it appeared and faded in.
-const IGNITE_MS = 820;
+// "it so suddenly goes from spiral to circle bro." 820ms on an ease-out is
+// half unwound in 160ms and done in 700, which is a snap with a tail. 1150ms
+// on a smoothstep spends its time in the middle where the shape is actually
+// changing.
+const IGNITE_MS = 1150;
 const CLOSE_MS = 380;
 const MIN_OPEN_MS = 600;
 
@@ -110,6 +114,29 @@ let lastFill = 0;
 // point, so the angle that has to survive the cancel is the start and not the
 // leading edge.
 let holdOld = 0;
+
+// HOW THE PORTAL SETTLES WHEN IT OPENS.
+//
+// "It should be a natual animatoin." Everything here was hand-picked power
+// curves on a fixed timer: an ease-out, then a smoothstep, then t^1.9, each
+// one chosen because the last looked wrong. That is why it kept reading as
+// engineered. A curve fitted to a complaint is still a curve.
+//
+// These are critically damped springs instead. A spring has no overshoot at
+// critical damping and no fixed duration: it accelerates, carries, and eases
+// into rest because that is what the equation does, not because someone
+// picked the exponent. Two of them, at different stiffness, so the shape
+// settles before the last of the circle closes, and the stagger comes out of
+// the physics rather than being timed by hand.
+let settleX = 0, settleV = 0;   // the spiral relaxing, and the middle filling
+let arcX = 0, arcV = 0;         // the last of the circle closing
+let lastFrameMs = 0;
+const stepSpring = (x: number, v: number, k: number, dt: number) => {
+  const c = 2 * Math.sqrt(k);            // critical damping, so it never overshoots
+  const a = k * (1 - x) - c * v;
+  const nv = v + a * dt;
+  return { x: Math.min(1, x + nv * dt), v: nv };
+};
 // The raw path the pinch has taken this stroke, in screen-normalized space.
 // It is drawn as a line from the first frame and BENDS onto the fitted
 // circle as the detector starts to recognise one, which is what he asked
@@ -173,9 +200,37 @@ mirror.onload = () => {
   try {
     const probe = document.createElement("canvas").getContext("2d");
     if (probe) {
-      probe.filter = "blur(5px)";
+      // Reading the property back only proves the value stuck. Whether a
+      // fill is actually blurred has to be measured in pixels.
+      probe.canvas.width = 120; probe.canvas.height = 40;
+      probe.filter = "blur(8px)";
+      probe.fillStyle = "#fff";
+      probe.fillRect(0, 0, 60, 40);
+      probe.filter = "none";
+      const px = probe.getImageData(0, 20, 120, 1).data;
+      let ramp = 0;
+      for (let i = 0; i < 120; i++) {
+        const a = px[i * 4 + 3];
+        if (a > 12 && a < 243) ramp++;
+      }
+      // shadowBlur is a different implementation entirely. If filter is a
+      // no-op here, this is the only blur canvas has left.
+      probe.clearRect(0, 0, 120, 40);
+      probe.shadowColor = "rgba(255,255,255,1)";
+      probe.shadowBlur = 16;
+      probe.shadowOffsetX = 200;
+      probe.fillStyle = "#fff";
+      probe.fillRect(-200, 0, 60, 40);
+      probe.shadowBlur = 0; probe.shadowOffsetX = 0;
+      const px2 = probe.getImageData(0, 20, 120, 1).data;
+      let ramp2 = 0;
+      for (let i = 0; i < 120; i++) {
+        const a = px2[i * 4 + 3];
+        if (a > 12 && a < 243) ramp2++;
+      }
       window.webkit?.messageHandlers?.portal?.postMessage({
-        event: "log", text: `ctx.filter reads back as "${probe.filter}"` });
+        event: "log",
+        text: `filter ramp ${ramp}px, shadowBlur ramp ${ramp2}px (0 = ignored)` });
     }
   } catch (e) { /* nothing to report */ }
   window.webkit?.messageHandlers?.portal?.postMessage({
@@ -291,6 +346,11 @@ window.addEventListener("resize", resize);
 
 function frame(now: number) {
   requestAnimationFrame(frame);
+  // The springs integrate against this. Clamped, because a frame dropped
+  // while the window was occluded would otherwise arrive as a single huge
+  // step and fling them.
+  const frameDt = Math.min(0.05, Math.max(0.001, (now - lastFrameMs) / 1000));
+  lastFrameMs = now;
   const W = window.innerWidth;
   const H = window.innerHeight;
 
@@ -506,17 +566,21 @@ function frame(now: number) {
     //
     // Still nearly crisp once the portal is open, because a finished portal
     // is a hole and not a cloud.
-    // EVERY GRADIENT SCALES TO NOTHING. "make sure all gradients are gone at
-    // the end." Each softness here had a constant term, so at cloud 0 a
-    // finished portal still carried 12px of blur and four sets of blobs at
-    // alphas between 0.14 and 0.50. Only the rim veil actually reached zero.
-    // They are all proportional to cloud now, and cloud is zero once the
-    // portal is open, so a finished portal is a clean hole.
-    const blurPx = Rp * 0.38 * cloud;
-    // The padding has to clear the blur or the canvas edge cuts it back into
-    // the hard line it was there to remove. A canvas blur spreads about two
-    // and a half times its own value before it vanishes.
-    const pad = Math.max(16, blurPx * 2.5);
+    // EVERY GRADIENT SCALES TO NOTHING, and it is shadowBlur that makes it.
+    //
+    // ctx.filter is IGNORED by this WebKit. Not dropped under destination-out
+    // as previously believed: ignored outright. Measured by blurring a rect
+    // and counting the alpha ramp across its edge, `blur(8px)` gives a ramp
+    // of 0px. Every soft edge claimed here for several commits was fiction,
+    // and reading the property back to check was the mistake: it proves the
+    // value stuck, not that anything renders.
+    //
+    // shadowBlur is a separate implementation and it works: shadowBlur 16
+    // gives a 39px ramp, about 2.4x its value. So the shape is drawn far off
+    // the canvas with a shadow offset that lands its SHADOW where the shape
+    // should be. The shadow is blurred; the shape itself never appears.
+    const blurPx = Rp * 0.16 * cloud;
+    const pad = Math.max(16, blurPx * 2.6);
     const size = Math.ceil(2 * Rp + pad * 2);
     if (maskCv.width !== size || maskCv.height !== size) {
       maskCv.width = size; maskCv.height = size;
@@ -592,14 +656,27 @@ function frame(now: number) {
       return Math.max(0, Math.min(1, Math.pow(lead, wind))) * rough;
     };
 
-    // The mask, blurred for real. Source-over, so the filter is honoured.
-    if (blurPx > 0.5) m.filter = `blur(${blurPx.toFixed(1)}px)`;
+    // The mask. Clipped to the rim first, because "the outward gradient
+    // shouldn't go outside the circumference": a blur spreads both ways and
+    // the half that spreads outward has to be cut off at the rim, or the
+    // portal has a halo instead of an edge.
+    m.save();
+    m.beginPath();
+    m.arc(mx0, my0, Rp, 0, Math.PI * 2);
+    m.clip();
+
+    const OFF = size + 64;      // far enough that the shape itself misses the canvas
+    if (blurPx > 0.5) {
+      m.shadowColor = "rgba(255,255,255,1)";
+      m.shadowBlur = blurPx;
+      m.shadowOffsetX = OFF;
+    }
     m.fillStyle = "#fff";
     m.beginPath();
-    // Outer boundary: the rim, but only across the part already drawn.
+    // Outer boundary: the rim, across the part already drawn.
     for (let i = 0; i <= STEPS; i++) {
       const th = aOld + dir * (i / STEPS) * drawnAng;
-      const x = mx0 + Math.cos(th) * Rp, y = my0 + Math.sin(th) * Rp;
+      const x = mx0 + Math.cos(th) * Rp - OFF, y = my0 + Math.sin(th) * Rp;
       if (i) m.lineTo(x, y); else m.moveTo(x, y);
     }
     // Inner boundary: the spiral, back the other way.
@@ -607,122 +684,12 @@ function frame(now: number) {
       const u = i / STEPS;
       const th = aOld + dir * u * drawnAng;
       const rr = Math.max(0, Rp * (1 - depthAt(u)));
-      m.lineTo(mx0 + Math.cos(th) * rr, my0 + Math.sin(th) * rr);
+      m.lineTo(mx0 + Math.cos(th) * rr - OFF, my0 + Math.sin(th) * rr);
     }
     m.closePath();
     m.fill();
-
-    // WEATHER THAT REACHES BOTH WAYS.
-    //
-    // "The gradient shouldn't just be fading inward, it should push a little
-    //  bit out towards the middle deploying it's cloudyness over the
-    //  surrounding area, mix of both."
-    //
-    // A blur spreads evenly, so the boundary dissolved symmetrically and
-    // still read as an edge with fuzz on it. Cloud does not do that. It
-    // reaches: thin where it is thinning out, and further in than its own
-    // boundary in places.
-    //
-    // So three kinds, all drifting on slow clocks at different rates so they
-    // never line up into a pattern:
-    //
-    //   REACHING     centred well inside the boundary, toward the middle,
-    //                faint and wide. This is the cloud deploying over ground
-    //                it has not taken yet.
-    //   BLEEDING     sitting on the boundary, pushing it outward a little.
-    //   EATING       sitting on the boundary, taking a bite back.
-    //
-    // All of them go into the mask while the blur is on, except the biting
-    // ones, which have to be gradients because destination-out is where
-    // WebKit drops the filter.
-    if (cloud > 0.01) {
-    const atBoundary = (u: number, inward: number) => {
-      const th = aOld + dir * u * drawnAng;
-      const rr = Math.max(0, Rp * (1 - depthAt(u))) * (1 - inward);
-      return { x: mx0 + Math.cos(th) * rr, y: my0 + Math.sin(th) * rr };
-    };
-    // Reaching inward, toward the middle.
-    for (let i = 0; i < 5; i++) {
-      const t = now / 3400 + i * 2.1;
-      const u = (Math.sin(t) + 1) / 2;
-      const inward = 0.10 + 0.26 * ((Math.sin(t * 0.7 + i * 1.3) + 1) / 2);
-      const q = atBoundary(u, inward);
-      const rad = Rp * (0.12 + 0.16 * ((Math.cos(t * 0.55 + i) + 1) / 2));
-      m.fillStyle = `rgba(255,255,255,${(0.16 + 0.2 * cloud) * cloud})`;
-      m.beginPath();
-      m.arc(q.x, q.y, rad, 0, Math.PI * 2);
-      m.fill();
-    }
-    // Bleeding out past the boundary, and biting back into it.
-    for (let i = 0; i < 7; i++) {
-      const t = now / 2800 + i * 1.7;
-      const u = (Math.sin(t) + 1) / 2;
-      const q = atBoundary(u, 0);
-      const rad = Rp * (0.07 + 0.1 * ((Math.cos(t * 0.9 + i) + 1) / 2));
-      const a = (0.5 + 0.35 * cloud) * cloud;
-      if (i % 2 === 0) {
-        m.fillStyle = `rgba(255,255,255,${a})`;
-        m.beginPath();
-        m.arc(q.x, q.y, rad, 0, Math.PI * 2);
-        m.fill();
-      } else {
-        m.globalCompositeOperation = "destination-out";
-        const g2 = m.createRadialGradient(q.x, q.y, 0, q.x, q.y, rad);
-        g2.addColorStop(0, `rgba(0,0,0,${a})`);
-        g2.addColorStop(1, "rgba(0,0,0,0)");
-        m.fillStyle = g2;
-        m.beginPath();
-        m.arc(q.x, q.y, rad, 0, Math.PI * 2);
-        m.fill();
-        m.globalCompositeOperation = "source-over";
-      }
-    }
-    // AND ON THE INSIDE. The opening has two boundaries and only the spiral
-    // had weather on it, so the rim edge stayed a clean arc and the whole
-    // thing still read as a shape with a soft outline rather than as cloud.
-    // Same three kinds, anchored on the rim instead, reaching in toward the
-    // middle from the outside.
-    const atRim = (u: number, inward: number) => {
-      const th = aOld + dir * u * drawnAng;
-      const rr = Rp * (1 - inward);
-      return { x: mx0 + Math.cos(th) * rr, y: my0 + Math.sin(th) * rr };
-    };
-    for (let i = 0; i < 5; i++) {
-      const t = now / 3100 + i * 2.4;
-      const u = (Math.sin(t) + 1) / 2;
-      const inward = 0.04 + 0.2 * ((Math.sin(t * 0.8 + i * 1.1) + 1) / 2);
-      const q = atRim(u, inward);
-      const rad = Rp * (0.1 + 0.14 * ((Math.cos(t * 0.6 + i) + 1) / 2));
-      m.fillStyle = `rgba(255,255,255,${(0.14 + 0.18 * cloud) * cloud})`;
-      m.beginPath();
-      m.arc(q.x, q.y, rad, 0, Math.PI * 2);
-      m.fill();
-    }
-    for (let i = 0; i < 6; i++) {
-      const t = now / 2500 + i * 1.9;
-      const u = (Math.sin(t) + 1) / 2;
-      const q = atRim(u, 0);
-      const rad = Rp * (0.06 + 0.09 * ((Math.cos(t * 1.1 + i) + 1) / 2));
-      const a = (0.45 + 0.3 * cloud) * cloud;
-      if (i % 2 === 0) {
-        m.fillStyle = `rgba(255,255,255,${a})`;
-        m.beginPath();
-        m.arc(q.x, q.y, rad, 0, Math.PI * 2);
-        m.fill();
-      } else {
-        m.globalCompositeOperation = "destination-out";
-        const g3 = m.createRadialGradient(q.x, q.y, 0, q.x, q.y, rad);
-        g3.addColorStop(0, `rgba(0,0,0,${a})`);
-        g3.addColorStop(1, "rgba(0,0,0,0)");
-        m.fillStyle = g3;
-        m.beginPath();
-        m.arc(q.x, q.y, rad, 0, Math.PI * 2);
-        m.fill();
-        m.globalCompositeOperation = "source-over";
-      }
-    }
-    }
-    m.filter = "none";
+    m.shadowBlur = 0; m.shadowOffsetX = 0;
+    m.restore();
 
     // Faded overall, most at the rim, and the fade goes as the circle
     // progresses. Separate from the spiral: the spiral says how MUCH of the
@@ -762,14 +729,26 @@ function frame(now: number) {
   };
 
   const spawnBand = (x: number, y: number, tx: number, ty: number, heat: number) => {
-    const spread = (Math.random() - 0.5) * 0.3;
-    const sp = 0.45 + Math.random() * 1.0;
+    // ANGLE AND DISTANCE BOTH VARY, AND NOT EVENLY. "more variation in the
+    // angles at which the sparks curve off of the circle it is too uniform
+    // and also variation in the distance they go."
+    //
+    // A uniform random spread gives every angle the same chance, which reads
+    // as a fan. Real sparks mostly follow the line with a few peeling off
+    // hard, so the angle is a uniform sign times a power of a uniform: most
+    // land near zero, a few reach the edges.
+    //
+    // Distance is life times speed and both were narrow bands, so every
+    // streak came out the same length. Speed is now a 2.4 power, which makes
+    // most of them short and a handful long, and the decay range is trebled.
+    const spread = (Math.random() < 0.5 ? -1 : 1) * Math.pow(Math.random(), 0.55) * 1.15;
+    const sp = 0.3 + Math.pow(Math.random(), 2.4) * 3.2;
     sparks.push({
       x, y,
       vx: (tx + spread * -ty) * sp,
       vy: (ty + spread * tx) * sp,
       life: 1,
-      decay: 0.10 + Math.random() * 0.10,
+      decay: 0.05 + Math.pow(Math.random(), 1.6) * 0.30,
       heat: 0.4 + Math.random() * 0.6 * heat,
       width: 0.2 + Math.random() * 0.4,
       bind: false,
@@ -781,14 +760,16 @@ function frame(now: number) {
     count: number, speed: number, bind = false,
   ) => {
     for (let i = 0; i < count; i++) {
-      const spread = (Math.random() - 0.5) * 0.9;
-      const sp = speed * (0.4 + Math.random() * 1.1);
+      // Same shape as the band: mostly along the line, a few peeling wide,
+      // and a long tail on the speed so the streaks are not all one length.
+      const spread = (Math.random() < 0.5 ? -1 : 1) * Math.pow(Math.random(), 0.5) * 1.5;
+      const sp = speed * (0.25 + Math.pow(Math.random(), 2.0) * 2.4);
       sparks.push({
         x, y,
         vx: (tangentX + spread * -tangentY) * sp,
         vy: (tangentY + spread * tangentX) * sp,
         life: 1,
-        decay: 0.03 + Math.random() * 0.05,
+        decay: 0.02 + Math.pow(Math.random(), 1.5) * 0.14,
         heat: Math.random(),
         width: 0.35 + Math.random() * 0.85,
         bind,
@@ -1084,6 +1065,7 @@ function frame(now: number) {
   }
   if (S.phase !== "drawing" && drawing) drawing = null;
   if (!pinched) { softFit = null; trimmedAtLatch = false; announcedAtLatch = false; }
+  if (!portalUp) { settleX = 0; settleV = 0; arcX = 0; arcV = 0; }
   if (portalUp) stroke = [];
   if (!portalUp && prevPhase === "closing") {
     detector.reset(); comet = []; attract = null;
@@ -1658,14 +1640,41 @@ function frame(now: number) {
         //      820     0.00      0.00
         //
         // So the portal sits there still hazed at its edge, and then resolves.
-        const closing = ease(ignite);
-        const clearing = ignite * ignite;
+        // Smoothstep, not the ease-out used elsewhere. An ease-out is fastest
+        // at the start, so the spiral flattened almost entirely in the first
+        // fifth of a second and then sat there:
+        //
+        //     ms      ease-out   smoothstep
+        //      80        27%         1%
+        //     160        48%         5%
+        //     300        74%        17%
+        //     500        94%        40%
+        //     700       100%        66%
+        //    1150       100%       100%
+        //
+        // Easing in AND out is what makes it read as a shape relaxing rather
+        // than a cut between two states.
+        // Settle time is what the stiffness says, not what a timer says.
+        // k = 26 comes to rest in about 0.9s, k = 12 in about 1.4s, so the
+        // spiral has relaxed well before the last arc finishes closing.
+        const a1 = stepSpring(settleX, settleV, 26, frameDt);
+        settleX = a1.x; settleV = a1.v;
+        const a2 = stepSpring(arcX, arcV, 12, frameDt);
+        arcX = a2.x; arcV = a2.v;
+        const closing = settleX;
+        const arcClose = arcX;
+        const clearing = settleX * settleX;
+        // The outside line closes last. "the outside line so quickly goes to
+        // almost circle to circle." It was on the same curve as the spiral,
+        // and they are different events: the spiral relaxing is the portal
+        // settling, the last arc closing is it becoming a circle, and that is
+        // the moment worth holding. The softer spring does that on its own.
         // The last of the middle fills in on the same curve the sector does.
         // The spiral unwinds as it opens: the deep end stays deep, the
         // leading end catches up, and by the end the depth is uniform and the
         // whole circle is the other side.
         paintMirror(cx0, cy0, rpx, 1 - shut2,
-          openGapFrom, openGap * (1 - closing), openCcw, 1 - clearing,
+          openGapFrom, openGap * (1 - arcClose), openCcw, 1 - clearing,
           lastFill + (1 - lastFill) * closing, 1 - closing);
       }
 
