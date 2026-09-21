@@ -91,7 +91,25 @@ const float TAU = 6.283185307179586;
 // and what is left at the end is a disc in the middle rather than a crescent
 // lying against the rim.
 float depthAt(float u) {
-  float wind = 1.0 + 1.6 * pow(max(0.0, 1.0 - u), 1.6) * uSpiral * (1.0 - uLead);
+  // A GREAT DIFFERENCE BETWEEN THE TWO ENDS, CONVERGING LATE.
+  //
+  // "There's supposed to be a great difference between the length of the
+  // starting radii to the ending radii from the outside, and they
+  // exponentially reach the same distance of hitting the middle at the end."
+  //
+  // Two knobs, both measured rather than felt. The coefficient sets how far
+  // apart the ends get, and the exponent on the convergence sets how long
+  // they stay apart before meeting. Gap between the two ends, as a fraction
+  // of the radius, at fills of 0.3 / 0.5 / 0.7 / 0.85 / 0.95 / 1.0:
+  //
+  //   1.6, linear      5  16  23  13   2  0     peak 23% at 0.70
+  //   6.0, ^0.55       5  18  40  49  19  0     peak 49% at 0.85
+  //
+  // The first was a lean; the second is a spiral that is still visibly a
+  // spiral at 85% drawn and then closes up fast. Both still arrive at
+  // exactly zero, so the two ends hit the middle together.
+  float wind = 1.0 + 6.0 * pow(max(0.0, 1.0 - u), 1.6)
+                   * uSpiral * pow(max(0.0, 1.0 - uLead), 0.55);
   return clamp(pow(max(uLead, 1e-5), wind), 0.0, 1.0);
 }
 
@@ -106,7 +124,25 @@ void main() {
   float span = max(uASpan, 1e-4);
   float u = rel / span;
 
-  float depth = depthAt(clamp(u, 0.0, 1.0));
+  // THE WEDGE TAKES THE DEPTH OF THE END IT IS NEAR.
+  //
+  // "There's this weird ledge at the starting radii that is sharp and
+  // sticks out towards the middle."
+  //
+  // clamp(u, 0, 1) hands every pixel in the undrawn wedge the depth of the
+  // LEADING edge, which is the deepest point of the spiral. That includes
+  // the pixels sitting right beside where the circle STARTED, where the
+  // spiral is at its shallowest. So the inner edge jumped from shallow to
+  // deepest across that boundary, and a jump in the inner edge is a ledge
+  // pointing at the middle. It is worst exactly when the spiral is widest,
+  // which is now.
+  //
+  // Each half of the wedge belongs to the end it is nearer, so the depth
+  // carries on continuously round both sides instead of stepping.
+  float toEnd = rel - span;
+  float toStart = TAU - rel;
+  float uSafe = rel <= span ? u : (toEnd < toStart ? 1.0 : 0.0);
+  float depth = depthAt(uSafe);
   float inner = uR * (1.0 - depth);
 
   // LIQUID, NOT A COMPASS ARC. "It should feel like liquid on a table,
@@ -165,7 +201,17 @@ void main() {
   // anyway, because the distance into the hole is at most the hole itself,
   // so a wider band there just means the last scrap dissolves rather than
   // being cut out.
-  float band = max(uR * 0.10, min(uR * uFog, inner));
+  // BLURRED, THEN PROGRESSIVELY SHARP. "We're not having the edges blur and
+  // then progressively unblur."
+  //
+  // The band is a fraction of the hole, so it is at its widest while the
+  // hole is, and narrows with it: soft at the start, crisp by the end, with
+  // nothing to switch off. A floor of a tenth of the radius was holding it
+  // soft to the last frame, which is what stopped it ever sharpening. The
+  // floor was there to keep the ends rounded once the hole got small, and
+  // it is not needed any more: the spill's over-reach closes the gap before
+  // the hole is small enough to matter, so there is no wedge left to round.
+  float band = max(1.0, min(uR * uFog, inner));
 
   // ONE DISTANCE, NOT TWO FADES MULTIPLIED. THIS IS WHAT STOPS IT BEING A
   // PIE.

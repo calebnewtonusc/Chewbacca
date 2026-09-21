@@ -135,6 +135,9 @@ let drawnMax = 0;
 let cancelling = false;
 // Which way round the circle is being drawn, decided once per gesture.
 let ccwLatch: boolean | null = null;
+// When the pinch last genuinely read true, and where the cursor was then.
+let lastPinchAt = 0;
+let heldCursor: { x: number; y: number } | null = null;
 // WHERE THE SPIRAL BEGINS. The angle at which the drawn line first joined
 // the circle, held for the life of the gesture.
 //
@@ -384,6 +387,8 @@ const LATCH_AT = 0.8;
 // the reveal is scaled to this so that completing the circle changes nothing
 // about the other side, it only lights the ring.
 const SWEEP_TO_OPEN = 5.4;
+// How long a gesture survives the pinch reading false. See the pinch gate.
+const PINCH_GRACE_MS = 200;
 let lastSeen = 0;
 
 // The host pushes frames in here. Declared on window so evaluateJavaScript
@@ -858,7 +863,17 @@ function frame(now: number) {
         aStart: gapFrom - gdir * gspan,
         aSpan: gspan,
         dir: gdir,
-        lead: Math.pow(gf, 2.5),
+        // SPREAD ACROSS THE DRAW. "More of the progress has to happen
+        // throughout the process." At ^2.5 the depth was 2% arrived a
+        // fifth of the way round and 10% at two fifths, so almost all of
+        // it landed in the last third. At ^1.35 it is 11% and 29%.
+        //
+        //   round    ^2.5    ^1.35
+        //     20%      2%      11%
+        //     40%     10%      29%
+        //     60%     28%      50%
+        //     80%     57%      74%
+        lead: Math.pow(gf, 1.35),
         spiral,
         // A fraction of the hole, so it cannot touch the middle early and
         // cannot outlive completion.
@@ -1010,7 +1025,7 @@ function frame(now: number) {
     // leading edge has got, so it is necessarily smaller early now and peaks
     // later. That is geometry rather than a choice: the start cannot be
     // further out than the rim.
-    const lead = Math.pow(f, 2.5);
+    const lead = Math.pow(f, 1.35);
     const depthAt = (u: number) => {
       // AND IT UNWINDS INTO A CIRCLE AS IT FINISHES, OR THE HOLE CLOSES
       // AGAINST THE RIM. "The completion animation is going the opposite
@@ -1454,7 +1469,28 @@ function frame(now: number) {
 
   // The pinch is the gate and the pen. Same detector the browser build uses.
   const pinch = lm ? pinchL.update(lm, now) : (pinchL.update(null, now), null);
-  const pinched = !!(pinch && pinch.isPinched && pinch.center);
+  // A DROPPED FRAME OF TRACKING DOES NOT END THE GESTURE.
+  //
+  // "Make it way easier to draw a circle, I'm having to lock in hard."
+  //
+  // It was not the shape. Twenty synthetic circles with a 1.3:1 tilt, a
+  // drifting centre, 12% radius wobble and tracking noise all opened on the
+  // current thresholds. The difficulty was that `cursor` goes null the
+  // instant the pinch reads false, and the next line calls
+  // detector.reset(). One flickery frame, from a finger turning slightly
+  // away from the camera or a landmark jumping, threw away the whole circle
+  // and started over with nothing on screen to say why. Holding a pinch
+  // perfectly steady for a two second arm sweep is the thing that was
+  // actually hard.
+  //
+  // Held for a fifth of a second. Long enough to ride out the dropouts a
+  // real hand produces, short enough that letting go still reads as letting
+  // go. Under the detector's own 400ms staleness window, so the gesture
+  // survives the gap there too.
+  const pinchRaw = !!(pinch && pinch.isPinched && pinch.center);
+  if (pinchRaw) lastPinchAt = now;
+  const pinched = pinchRaw
+    || (stroke.length > 2 && now - lastPinchAt < PINCH_GRACE_MS);
 
   // THE PINCH POINT, STRAIGHT FROM THE CAMERA. No eye, no ray, no depth.
   //
@@ -1491,7 +1527,7 @@ function frame(now: number) {
   //
   // Falls back to the raw pinch point with no face in view, which is wrong
   // by a constant parallax rather than an unknown amount.
-  const cursor = (() => {
+  const cursorRaw = (() => {
     if (!pinched || !pinch?.center) return null;
     // AT GAIN 0, DO NOT GO NEAR pointingPoint.
     //
@@ -1526,6 +1562,13 @@ function frame(now: number) {
     }
     return pinch.center;
   })();
+
+  // And the cursor survives the same gap. Without this the grace above
+  // keeps `pinched` true while `cursor` still goes null, which lands in the
+  // very branch that calls detector.reset(), so the gesture dies anyway.
+  if (cursorRaw) heldCursor = cursorRaw;
+  else if (!pinched) heldCursor = null;
+  const cursor = cursorRaw ?? heldCursor;
 
   // THE DETECTOR SEES THE RAW PATH. Compression is a display choice and it
   // must not reach the measurement.
@@ -2086,7 +2129,9 @@ function frame(now: number) {
     const want = !portalUp && fitC && recognised ? 0.12 + 0.88 * reveal : 0;
     // 0.09 out against 0.15 in: an unspiral wants to be seen, and something
     // arriving can afford to be quicker than something leaving.
-    mirrorAmt += (want - mirrorAmt) * (want > mirrorAmt ? 0.15 : 0.09);
+    // Arriving is a function of the arc, so it is assigned. LEAVING is an
+    // animation that runs after the gesture, so it may ease.
+    mirrorAmt = want > mirrorAmt ? want : mirrorAmt + (want - mirrorAmt) * 0.09;
 
     if (recognised) {
       // A RATCHET. THIS IS THE OSCILLATION.
@@ -2181,19 +2226,38 @@ function frame(now: number) {
       // Followed, not assigned. The fit moves a little every frame and the
       // boundary is a big shape, so even a correct change reads as a jerk
       // when it lands in one step.
-      const gapTarget = Math.max(0, 1 - doneTurns);
-      openGap += (gapTarget - openGap) * 0.3;
-      lastFill += (doneTurns - lastFill) * 0.3;
+      // THE ARC, DIRECTLY. NOT CHASED FRAME BY FRAME.
+      //
+      // "Remember, none of this is time based! Just arc."
+      //
+      // The targets were arc based and then chased with
+      // `value += (target - value) * 0.3` every frame, which is a time
+      // filter with a frame rate in it. Two things follow from that, and he
+      // reported both:
+      //
+      //   Hold the hand still and the boundary keeps moving, because the
+      //   filter is still converging on a target that stopped changing.
+      //   That is the rule this breaks.
+      //
+      //   The lag accumulates through the draw and is paid back at the end,
+      //   so the reveal looks like it does most of its work in the last
+      //   moment. "It is too quickly ramping up at the end."
+      //
+      // Assigned straight from the arc now. The easing existed to smooth
+      // jitter in the measurement, and the ratchet above already removed
+      // that jitter by refusing to let the extent go backwards, so nothing
+      // is left for it to do.
+      openGap = Math.max(0, 1 - doneTurns);
+      lastFill = doneTurns;
       // HELD, NOT DERIVED. This was headAng minus everything measured, so
       // every correction to the measurement moved the trailing edge. It is
       // now the recorded origin, and the easing below only absorbs drift in
       // the fitted centre. Angles take the short way round, or the boundary
       // sweeps the long way whenever the fit crosses PI.
-      const oldTarget = arcStart ?? (headAng - dirS * doneTurns * Math.PI * 2);
-      let d = oldTarget - holdOld;
-      while (d > Math.PI) d -= Math.PI * 2;
-      while (d < -Math.PI) d += Math.PI * 2;
-      holdOld += d * 0.3;
+      // Also direct. This eased toward a RECORDED angle, so the easing was
+      // only ever absorbing drift in the fitted centre, and paying for it
+      // with motion on a still hand.
+      holdOld = arcStart ?? (headAng - dirS * doneTurns * Math.PI * 2);
     } else if (mirrorAmt > 0.006) {
       // UNWINDING, LINEARLY, AND THE SPIRAL PLAYED BACKWARDS.
       //
