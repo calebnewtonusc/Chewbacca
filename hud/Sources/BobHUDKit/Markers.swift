@@ -141,12 +141,38 @@ struct MarkerView: View {
                         .foregroundStyle(HUD.ink)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .background(Color.black.opacity(0.55), in: Capsule())
-                        .overlay {
-                            Capsule().strokeBorder(tint.opacity(0.65), lineWidth: 0.8)
+                        // Glass, not a flat gray chip: the same three-layer
+                        // treatment as the pill, so every mark on the glass
+                        // reads as one material. 2026-09-20 feedback: the
+                        // gray pop-ups didn't match the rest of the surface.
+                        .background {
+                            ZStack {
+                                Color.white.opacity(0.14)
+                                LinearGradient(
+                                    colors: [.white.opacity(0.30), .clear],
+                                    startPoint: .topLeading, endPoint: .center)
+                                LinearGradient(
+                                    colors: [.clear, .black.opacity(0.16)],
+                                    startPoint: .center, endPoint: .bottom)
+                            }
                         }
-                        .shadow(color: .black.opacity(0.55), radius: 6, y: 2)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .clipShape(Capsule())
+                        .modifier(LiquidGlass(
+                            shape: RoundedRectangle(cornerRadius: 24, style: .continuous),
+                            tint: tint.opacity(0.28)))
+                        .overlay {
+                            Capsule().strokeBorder(
+                                LinearGradient(
+                                    stops: [
+                                        .init(color: .white.opacity(0.8), location: 0),
+                                        .init(color: tint.opacity(0.55), location: 0.4),
+                                        .init(color: .white.opacity(0.45), location: 1),
+                                    ],
+                                    startPoint: .top, endPoint: .bottom),
+                                lineWidth: 0.8)
+                        }
+                        .shadow(color: .black.opacity(0.4), radius: 6, y: 2)
                         .fixedSize()
                         // Above the region, not inside it. A label inside covers
                         // the thing the mark exists to point at, which is the
@@ -186,7 +212,7 @@ struct GuideView: View {
 
     var body: some View {
         let tint = HUD.accent
-        ZStack {
+        let ring = ZStack {
             // The halo: a second ring that grows and fades, over and over.
             // The only moving part, and the part Reduce Motion removes.
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -200,13 +226,23 @@ struct GuideView: View {
         // rather than sitting on its border.
         .padding(-Marker.guideReach)
         .frame(width: marker.rect.width, height: marker.rect.height)
-        .overlay(alignment: bubbleBelow ? .bottom : .top) {
-            if !marker.label.isEmpty {
-                bubble(tint: tint)
-                    // Clear of the ring, whichever side it is on: the ring's
-                    // reach plus a gap for the bubble's tail.
-                    .alignmentGuide(.top) { $0[.bottom] + Marker.guideReach + 8 }
-                    .alignmentGuide(.bottom) { $0[.top] - Marker.guideReach - 8 }
+        Group {
+            if marker.label.isEmpty {
+                ring
+            } else {
+                // The `if` stays out here. An alignment guide set on a view
+                // inside a conditional inside an overlay is dropped, and the
+                // bubble then centres on the control it exists to point at,
+                // covering it. It had done that since the bubble shipped;
+                // the snapshot test only caught it on 2026-09-20, once its
+                // tolerance stopped passing on ground-text noise.
+                ring.overlay(alignment: bubbleBelow ? .bottom : .top) {
+                    bubble(tint: tint)
+                        // Clear of the ring, whichever side it is on: the
+                        // ring's reach plus a gap for the bubble's tail.
+                        .alignmentGuide(.top) { $0[.bottom] + Marker.guideReach + 8 }
+                        .alignmentGuide(.bottom) { $0[.top] - Marker.guideReach - 8 }
+                }
             }
         }
         .onAppear {
@@ -226,17 +262,49 @@ struct GuideView: View {
             .foregroundStyle(HUD.ink)
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
+            // The same glass as the pill, not a flat gray card: a white
+            // tint so it reads over anything behind it, light entering
+            // top left, an underside that darkens like a lens. 2026-09-20
+            // feedback: the gray pop-ups and bubbles didn't match the rest
+            // of the surface, which is meant to be glass throughout.
+            .background {
+                ZStack {
+                    Color.white.opacity(0.16)
+                    LinearGradient(
+                        colors: [.white.opacity(0.34), .clear],
+                        startPoint: .topLeading, endPoint: .center)
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.20)],
+                        startPoint: .center, endPoint: .bottom)
+                }
+            }
             .background(.ultraThinMaterial, in: shape)
-            .background(Color.black.opacity(0.62), in: shape)
-            .overlay { shape.strokeBorder(tint.opacity(0.7), lineWidth: 1) }
-            // The tail, aimed at the control.
+            .clipShape(shape)
+            .modifier(LiquidGlass(shape: shape, tint: tint.opacity(0.3)))
+            .overlay {
+                shape.strokeBorder(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .white.opacity(0.85), location: 0),
+                            .init(color: tint.opacity(0.55), location: 0.4),
+                            .init(color: .white.opacity(0.5), location: 1),
+                        ],
+                        startPoint: .top, endPoint: .bottom),
+                    lineWidth: 1)
+            }
+            // The tail, aimed at the control, frosted like the body it
+            // hangs off rather than a flat black wedge.
             .overlay(alignment: bubbleBelow ? .top : .bottom) {
                 Tail(down: !bubbleBelow)
-                    .fill(Color.black.opacity(0.78))
+                    .fill(.ultraThinMaterial)
+                    .overlay {
+                        Tail(down: !bubbleBelow)
+                            .fill(Color.white.opacity(0.12))
+                    }
                     .frame(width: 16, height: 8)
                     .offset(y: bubbleBelow ? -8 : 8)
             }
-            .shadow(color: .black.opacity(0.5), radius: 10, y: 3)
+            .shadow(color: .black.opacity(0.35), radius: 14, y: 5)
             // Its own width, not the control's: a bubble on a 30-point
             // button would otherwise wrap one word per line.
             .fixedSize()

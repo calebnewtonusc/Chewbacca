@@ -395,7 +395,14 @@ struct SnapshotTests {
                 let delta = abs(left.redComponent - right.redComponent)
                     + abs(left.greenComponent - right.greenComponent)
                     + abs(left.blueComponent - right.blueComponent)
-                if delta > 0.02 { return false }
+                // 0.02 passed on noise. A glass bubble anywhere in the frame
+                // re-rasterises the ground text's glyph edges by up to 7
+                // levels a channel (2026-09-20: 6,800 differing pixels above
+                // the ring, all on glyphs, with the bubble sitting on the
+                // control), so "no bubble above" held without a bubble and
+                // "none below" broke without a leak. A bubble pixel differs
+                // by 40 levels or more; 0.1 sits between.
+                if delta > 0.1 { return false }
             }
         }
         return true
