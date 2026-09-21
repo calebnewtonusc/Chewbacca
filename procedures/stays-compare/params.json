@@ -1,0 +1,10 @@
+{
+  "city":     {"type": "string", "example": "Valencia, Spain", "required": true},
+  "from":     {"type": "date",   "example": "2026-11-01", "required": true, "note": "check-in"},
+  "to":       {"type": "date",   "example": "2026-12-01", "required": true, "note": "check-out"},
+  "guests":   {"type": "int",    "example": 3, "default": 2},
+  "budget":   {"type": "number", "example": 3500, "note": "for the whole stay, in --currency"},
+  "currency": {"type": "string", "example": "USD", "default": "USD"},
+  "sites":    {"type": "list",   "example": ["airbnb", "booking"], "default": ["airbnb", "booking"]},
+  "out":      {"type": "path",   "example": "~/Desktop/valencia-stays", "default": "~/Desktop/stays"}
+}

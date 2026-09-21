@@ -18,6 +18,9 @@ Thumbs.db
 __pycache__/
 *.pyc
 
+# What is said to the voice assistant. Personal, stays on the machine.
+superassistant/*.jsonl
+
 # Vendored Plynn build output. Both of them: only .build was listed, so
 # DerivedData sat in git status as untracked noise forever.
 plynn/.build/
@@ -31,3 +34,17 @@ plynn/build/
 # and the Stop hook auto-commits, so leaving this untracked means a second
 # session's entire checkout can get swept into a commit here.
 .worktrees/
+
+# Kits cloned for local use. Chewbacca's own doctrine (skills/kit-builder) says a
+# kit is a separate repo discovered by its .kit marker, not vendored here, and
+# kits/apply-kit carries its own .git. Left untracked so the Stop auto-commit
+# hook cannot sweep an embedded repo into a Chewbacca commit.
+kits/
+
+# Swift build artifacts, which bob-the-builder ignored at its root and
+# came here without when the hud moved in
+hud/.build/
+hud/build/
+
+# The Swift voice server's build, same as the display's
+voice/.build/

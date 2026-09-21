@@ -6,6 +6,38 @@ real commit; nothing here is written by hand.
 ## Unreleased
 
 ### Added
+- guide mode puts a bubble on the control they need to click
+- superassistant, the voice's memory both ways
+- a switch on the panel for speech off for long answers
+- long answers go to the hyper bar, and the voice says so in one line
+- the release tone is off unless turned on
+- the band covers less of the corners
+- the voice says back what it is doing, then acts, and fills a silence past two seconds
+- hud-voice, the reply read aloud by Kokoro on the Neural Engine with nothing to install
+- names the recogniser expects, a tone when heard, and a choice of talk key
+- names for the recogniser, and a cache of short spoken lines
+- lean agent profile and a timing line per turn
+- an accidental globe press leaves on its own after three seconds
+- two quick globe presses are the way out of the HUD
+- hud-listen marks tool calls as steps and speaks an answer on request
+- conversation panel draws Markdown, steps, actions and follows the answer
+- full answers, read a sentence at a time and written to the conversation panel
+- the pill opens into a conversation panel, and the answer arrives in full
+- the pill is clear glass with white ink, the cards a quarter less wash, and the display name is Chewbacca
+- hud-listen keeps one Claude process for the session
+- the field leaves the way it arrived
+- hud-listen leaves the glass ten seconds after the reply ends
+- a speaking presence state that draws like hearing
+- the ring moves with the reply's voice as it does with the person's
+- hud-listen answers on the pill alone, never with a panel
+- glass pill and a twenty-point hover parting that follows the cursor
+- drive the field off what Claude is actually doing, and stop waiting three minutes
+- generate both tuning pages from the Swift, and read the new state shape
+- colour states, all four edges, linear arrival
+- track the steel palette in the tuner and the gallery
+- steel palette and a quieter field
+- chewbacca open puts the whole kit on one screen
+- finished work pushes itself to your own fork at end of turn
 - claude-tab, so Chewbacca can hold a conversation with another Claude
 - craft-gate, so the demo rules fire instead of sitting in a file
 - land the four process skills that had been sitting untracked
@@ -31,11 +63,35 @@ real commit; nothing here is written by hand.
 - people who, ask the store a question and hear what it cannot answer
 - people linkedin, match an export to Contacts without inventing anyone
 - people dashboard, who you texted ranked and categorised
+- the display tells you when you got it wrong
 - it speaks first
 - Chewie can draw on the screen
+- every surface uses the capsule's glass
+- diagrams get a layout convention
+- a bare dash clears the glass, and root early
 - hud demo
+- point at something and it becomes the subject
+- the HUD vocabulary comes from a catalog now, not from prose
+- a command bar, so it can be asked in writing
+- it can hear you, and it can mark your screen
+- presence, files, grids, thresholds
+- every component animates, not only diagrams
+- surfaces that are not windows, and drawings that morph
+- dashboard components, urgency levels, and a model-facing HUD reference
+- one sheet of glass over the whole screen, many surfaces on it
+- a floating panel that draws streamed interfaces as native SwiftUI
 
 ### Fixed
+- the panel's read-aloud button starts at the answer, not the pointer
+- the fallback subtitle stops at the hyper bar pointer
+- done stays alive instead of parking on one frame until the exit
+- the band froze for a second, then jumped, every time a task finished
+- the conversation panel keeps a saved frame only on the main display
+- the HUD stays on the main display instead of following the pointer
+- holding the key now means holding the turn
+- the audio tap and the recognition callback were main-actor isolated too
+- stop the display crashing the moment speech recognition is granted
+- settings rules were silently skipped, prereq check looked for a command named CLI
 - doctor judges the last 24 hours, not the whole log
 - claude-tab says what is wrong instead of hanging 90s and dumping a traceback
 - stop every write to second-brain blocking on a git push
@@ -64,16 +120,32 @@ real commit; nothing here is written by hand.
 - stop-check repeated the same warning against unchanged state
 - polish was a no-op, and Chewie paid for the whole kit on every turn
 - stop counting untracked siblings as work
+- the accessibility contract the catalog promised
+- a transcript of your speech went to every connected process
 - subscribe before receiving events
+- the display was hiding from its own owner
 - a course with no attendance grade is not a gap
 - the changelog was eating its own tail
 - Chewie answered once and then went deaf
 - a Chewie answer was crammed into the badge
 - a request dropped while busy said nothing
 - hud clear no longer needs Accessibility
+- one client at a time broke the entire design
+- three things found by rereading rather than by using
+- taking one marker down froze every other expiry
 - the listener died when the display restarted
+- the eval was measuring a CLAUDE.md, and then found a real bug
+- asking with nothing listening did nothing at all
+- the glass follows the display you are actually on
+- the presence ring was behind the Dock
+- diagram nodes are glass, and a bound prop actually binds
+- controls on the glass actually work now
 
 ### Changed
+- pin the voice server's dependencies
+- ignore the HUD's Swift build output
+- the field skips empty pixels, draws at 1x and takes the pointer directly
+- ignore kits/, which holds a second repo's checkout
 - a merge carries every column, not the ones somebody listed
 - resolve who somebody is before saying anything about them
 - drop em dashes from the new tap log lines
@@ -91,16 +163,56 @@ real commit; nothing here is written by hand.
 - add mute, and let update rename a contact
 - stop the event scan writing the same event twice
 - ignore the coverage file swift test leaves behind
+- drop a force unwrap from the wake-word search
 
 ### Documentation
+- the talk key, the names, the tone, the lean profile and hud-voice
+- what the voice loop is actually spending, and where the budget goes
 - research the craft before producing the artifact
 - teach the demo skill what a demo video actually is
 - record that Cap recording needs no account but its MCP server does
 - teach the skill to synthesise across sources instead of running one filter
 - teach the skill to answer "who do I know who ...", with no command to learn
+- file the remaining work rather than leaving it as a list
+- mark the 38 fixed so far in the audit
+- 1000 ways this falls short
+- 7/7, and what the one failure taught
+- the wire format comment had drifted
 - send the root early
+- the README understated the tests and missed how to clear the glass
 
 ### Other
+- feat(hud-listen): kokoro voice through hud-speak, first line spoken as it lands, primed session, barge-in words
+- feat(hud): ease every field state change, part the band round the pointer, keep permission grants across rebuilds
+- fix(hud): see the globe key in the app's own events and log why a press declines
+- feat(hud-listen): read each reply aloud, cut off by the next request or a stop
+- fix(hud): send the sentence on release, and stop blaming the person for a dead recogniser
+- chore(tests): run the pytest-only cases through uv when pytest is absent
+- feat(hud-listen): subtitles, breadcrumbs, and a queue instead of a drop
+- feat(hud): a pill that says what it heard and what it is doing
+- feat(hud): a demo shoot that cuts on the state changes
+- feat(hud): see all seven presence states at once, and which two collide
+- feat(hud): a tuner that runs the real shader, with the palette and the transparency on sliders
+- feat(hud): a presence field on the edge of the whole screen
+- feat(hud): one mass at the edge that bulges, never a second object
+- feat(hud): blue filaments in a clear film, rimmed yellow to inferno orange
+- feat(hud): a drop and its neck are one body, shaded once
+- feat(hud): the edge flows instead of pulsing, and a drop can never lie on it
+- feat(hud): the edge gets too heavy and drops leave it
+- feat(hud): the film runs off every edge and beads into foam
+- feat(hud): the frame is a rounded liquid boundary, not a rectangle
+- feat(hud): the intro is the bubble being blown
+- feat(hud): the rim is the film now, not a glow with a tint on it
+- feat(hud): the chromatic bubble pops when you close it
+- feat(hud): the chromatic rim idles as a thin film
+- feat(hud): chromatic takes the interference choreography
+- feat(hud): aperture, interference and chromatic, with real bloom
+- feat(hud): ten presence models, idle and activation
+- fix(hud): the woosh no longer leaves the screen edges black
+- feat(hud): presence field, the woosh and the resting glow
+- feat(hud): rebuilt as an instrument instead of an admin dashboard
+- fix(plynn): would not compile on the macOS 15 it claims to support
+- fix(people): Clay search returned current roles only, not work history
 - tools: export every people-db record to one CSV
 - tools: export the whole people db to one wide CSV and XLSX
 - locate one named person, and read the balance with the stored key
@@ -123,6 +235,7 @@ real commit; nothing here is written by hand.
 - identify writes as it goes, not at the end
 - amber-pull: what Karthik and Sagar shipped since you last looked
 - stop-check: a home directory under git is not unfinished work
+- test: render every surface to a bitmap, and fix what that showed
 - setup: --skip, and say what did not run
 
 ## v1.1.0 - 2026-09-04

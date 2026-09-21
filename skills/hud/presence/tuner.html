@@ -1,0 +1,1114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Presence field tuner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        font-family: Inter, sans-serif;
+      }
+      body {
+        margin: 0;
+      }
+      input[type="range"] {
+        accent-color: #6366f1;
+      }
+      input[type="color"] {
+        appearance: none;
+        border: 0;
+        padding: 0;
+        background: none;
+        width: 100%;
+        height: 1.75rem;
+        border-radius: 0.5rem;
+        cursor: pointer;
+      }
+      input[type="color"]::-webkit-color-swatch-wrapper {
+        padding: 0;
+      }
+      input[type="color"]::-webkit-color-swatch {
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 0.5rem;
+      }
+      .panel::-webkit-scrollbar {
+        width: 8px;
+      }
+      .panel::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.14);
+        border-radius: 99px;
+      }
+    </style>
+  </head>
+  <body class="antialiased text-zinc-100">
+    <!-- What the field composites over. Translucency cannot be judged against
+         nothing, and the overlay spends its life on top of whatever the person
+         had open. -->
+    <div id="backdrop" class="fixed inset-0 -z-10"></div>
+    <canvas id="gl" class="fixed inset-0 w-full h-full"></canvas>
+
+    <aside
+      class="panel fixed left-4 top-4 bottom-4 z-10 w-[19rem] overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/80 p-5 backdrop-blur-xl shadow-2xl"
+    >
+      <h1 class="text-base font-semibold tracking-tight">Presence field</h1>
+      <p class="mt-1 text-xs text-zinc-500">
+        The same shader the overlay runs, converted from
+        <span class="text-zinc-400">PresenceFieldShader.swift</span>.
+      </p>
+
+      <div class="mt-5">
+        <div
+          class="text-[11px] font-medium uppercase tracking-wider text-zinc-500"
+        >
+          State
+        </div>
+        <div id="states" class="mt-2 flex flex-wrap gap-1.5"></div>
+      </div>
+
+      <div class="mt-5">
+        <div
+          class="text-[11px] font-medium uppercase tracking-wider text-zinc-500"
+        >
+          Behind it
+        </div>
+        <div id="backdrops" class="mt-2 flex flex-wrap gap-1.5"></div>
+      </div>
+
+      <div class="mt-6">
+        <div
+          class="text-[11px] font-medium uppercase tracking-wider text-zinc-500"
+        >
+          Transparency
+        </div>
+        <p class="mt-1 text-[11px] leading-relaxed text-zinc-500">
+          Translucent at 0 is a film that only exists where it glows. At 1 it is
+          tinted glass over the whole band. Judge it against Document or Photo,
+          never against the black desktop.
+        </p>
+        <div id="alpha" class="mt-3 space-y-3"></div>
+      </div>
+
+      <div class="mt-6">
+        <div
+          class="text-[11px] font-medium uppercase tracking-wider text-zinc-500"
+        >
+          Palette
+        </div>
+        <div id="colors" class="mt-3 space-y-3"></div>
+      </div>
+
+      <div class="mt-6">
+        <div
+          class="text-[11px] font-medium uppercase tracking-wider text-zinc-500"
+        >
+          Shape
+        </div>
+        <div id="sliders" class="mt-3 space-y-3"></div>
+      </div>
+
+      <div class="mt-6 flex gap-2">
+        <button
+          id="export"
+          class="flex-1 cursor-pointer rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all duration-200 hover:bg-indigo-500 active:bg-indigo-700"
+        >
+          Copy Metal
+        </button>
+        <button
+          id="reset"
+          class="cursor-pointer rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-sm font-medium text-zinc-100 transition-all duration-200 hover:bg-zinc-700"
+        >
+          Reset
+        </button>
+      </div>
+      <textarea
+        id="out"
+        readonly
+        class="mt-3 hidden h-56 w-full resize-none rounded-xl border border-zinc-800 bg-zinc-900 p-3 font-mono text-[10px] leading-relaxed text-zinc-300 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
+      ></textarea>
+      <p id="note" class="mt-2 hidden text-xs text-emerald-400">
+        On the clipboard. Paste over the block in PresenceFieldShader.swift.
+      </p>
+    </aside>
+
+    <script id="fs" type="x-shader/x-fragment">
+      #version 300 es
+precision highp float;
+out vec4 fragColor;
+
+uniform vec2 u_size;
+uniform vec2 u_popAt;
+uniform float u_time, u_act, u_closing;
+uniform float u_rest, u_drift, u_pulse, u_alpha;
+uniform vec4 u_tint;
+
+uniform vec3 u_clear, u_pool, u_blueDeep, u_bluePale, u_yel, u_org;
+uniform float u_rimA, u_rimB, u_blueA, u_blueB;
+uniform float u_glow, u_glowW, u_fresA, u_fresB, u_lip, u_expose;
+uniform float u_gain, u_sheet, u_translucency;
+
+// The presence field: the other half of the presence surface.
+//
+// PresenceRing.swift answers "is it there" in sixteen points in one corner.
+// This answers it in peripheral vision across the whole edge of the display,
+// which is the only place a person is actually looking when they are working.
+// Both are driven by the same `p <state> [amp=]` op and the same seven states,
+// and the rule from the ring applies here twice over: each state must have a
+// distinct motion signature identifiable without looking at it. Six states
+// that all breathe are one state.
+//
+// What it draws is a pool of liquid banked against every edge of the screen,
+// with one free surface facing in. The mass bulges, the bulges stretch and
+// come home, and it is one connected body at every moment. The colour is a
+// contour field over that body: a near transparent ground, blue filaments,
+// and a rim on each filament running yellow out to an inferno orange.
+//
+// Ported from the WebGL prototype in the Chewbacca repo at
+// skills/hud/presence/refined.html. The shading is the same arithmetic; the
+// browser's separable bloom and Reinhard pass are not here, because a
+// `colorEffect` is one pass with no render targets. The tonemap is folded in
+// below. The glow is not, and the field is a little flatter for it.
+
+float hash11(float p) { return fract(sin(p * 127.1) * 43758.5453); }
+
+float hash21(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float vnoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash21(i), hash21(i + vec2(1.0, 0.0)), f.x),
+               mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+
+float fbm(vec2 p) {
+    float s = 0.0, a = 0.5;
+    for (int i = 0; i < 4; i++) {
+        s += a * vnoise(p);
+        p *= 2.03;
+        a *= 0.5;
+    }
+    return s;
+}
+
+float stage(float t, float a, float b) { return clamp((t - a) / (b - a), 0.0, 1.0); }
+
+/// Belcour and Barla's pre-integrated spectral response, verbatim from
+/// KHR_materials_iridescence. Only the shimmer is taken off it now, but it is
+/// still the honest version: the whole visible spectrum interfering with itself
+/// at one optical path difference, integrated against the eye's three
+/// sensitivities, rather than a hue rotated by hand.
+vec3 filmResponse(float opd) {
+    float phase = 6.2831853 * opd * 1.0e-9;
+    vec3 val = vec3(5.4856e-13, 4.4201e-13, 5.2481e-13);
+    vec3 pos = vec3(1.6810e+06, 1.7953e+06, 2.2084e+06);
+    vec3 vr = vec3(4.3278e+09, 9.3046e+09, 6.6121e+09);
+    vec3 xyz = val * sqrt(6.2831853 * vr) * cos(pos * phase) * exp(-phase * phase * vr);
+    xyz.x += 9.7470e-14 * sqrt(6.2831853 * 4.5282e+09) * cos(2.2399e+06 * phase) *
+             exp(-4.5282e+09 * phase * phase);
+    xyz /= 1.0685e-7;
+    mat3 toRGB = mat3(vec3(3.2404542, -0.9692660, 0.0556434),
+                              vec3(-1.5371385, 1.8760108, -0.2040259),
+                              vec3(-0.4985314, 0.0415560, 1.0572252));
+    return toRGB * xyz;
+}
+
+/// How deep into the liquid a point is, in screen heights, measured from a
+/// silhouette that sits a constant distance off every edge of the display.
+///
+/// The level sets of a superelliptic norm are rounded at every depth. A rounded
+/// rectangle's are not: that one only curves within its own corner radius and
+/// goes back to square corners deeper in. But the norm is taken per axis, so a
+/// fixed step in it is a longer step in points down the wide side of a screen.
+/// Dividing by its own gradient turns it back into a distance, which keeps the
+/// pool the same thickness the whole way round while still putting the four
+/// screen corners inside it. The floor on the gradient stops the estimate
+/// running away near the middle, where the norm has no useful gradient and the
+/// answer is only ever "far".
+float depthAt(vec2 uvp, float W, float margin) {
+    vec2 r2 = (uvp - 0.5) * 2.0;
+    const float SQ = 5.0;
+    float rad = pow(pow(abs(r2.x), SQ) + pow(abs(r2.y), SQ), 1.0 / SQ);
+    float gk = pow(max(rad, 1e-3), 1.0 - SQ);
+    vec2 g = vec2(gk * pow(abs(r2.x), SQ - 1.0) * (2.0 / W),
+                      gk * pow(abs(r2.y), SQ - 1.0) * 2.0);
+    return min((1.0 - rad) / max(length(g), 0.6) + margin, 0.95);
+}
+
+/// `position` is in points with a top-left origin, which is what the rest of
+/// this app measures in. `size` is the view. Everything else is state.
+///
+/// `rest` is how thick the pool sits at rest, `drift` how fast the contour
+/// field travels round the edge, `tint` is the colour the body takes and how
+/// much of it, and `pulse` is how many times a second the whole thing breathes.
+/// Those are the entire state vocabulary as far as this shader is concerned,
+/// which is deliberate: PresenceField.swift owns the mapping from the named
+/// states, so a new state is a row in a table there rather than a branch here.
+///
+/// `tint` is first because it is the only member wider than a `vec2`, and
+/// both Metal and Swift align a four-wide vector to sixteen bytes. Anywhere
+/// else in this list it would need padding that one side would have to know
+/// about and the other would get wrong.
+
+
+void main() {
+    // Metal's origin is top left and GL's is bottom up, and `popAt`
+    // is the one thing in here that would notice.
+    vec2 fragPos = vec2(gl_FragCoord.x, u_size.y - gl_FragCoord.y);
+    vec2 size = u_size;
+    float time = u_time, act = u_act, closing = u_closing;
+    vec2 popAt = u_popAt;
+    float rest = u_rest, drift = u_drift, pulse = u_pulse;
+    vec2 uv = vec2(fragPos.x / size.x, fragPos.y / size.y);
+    float t = act;
+    float W = size.x / max(size.y, 1.0);
+
+    // One breath drives the pool's thickness and its resting depth together.
+    // Two sines at their own rates read as two layers sitting on each other
+    // rather than as one object. The phase is modulated so the swing is not
+    // symmetric, because a breath is not: it moves through the thin half faster
+    // than it rests in the thick.
+    // One oscillator, read twice: once on how much of the state's colour the
+    // body takes and once on how bright the whole thing is. Driving only the
+    // brightness gives a band that blinks, and driving only the hue gives one
+    // that changes colour without ever seeming to move. Together they read as
+    // something running.
+    float wave = 1.0;
+    if (pulse > 0.001) {
+        wave = 0.5 + 0.5 * sin(time * 6.2831853 * pulse);
+    }
+
+    float bp = time * 0.72;
+    float breath = sin(bp + 0.45 * sin(bp));
+
+    // The whole arrival is one number: how far into the screen the band
+    // reaches.
+    //
+    // It used to overshoot to 3.4x and settle through a damped cosine, on the
+    // argument that a pushed volume of fluid oscillates in its second shape
+    // mode and that the wobble is what reads as liquid rather than as
+    // hardware. That was the right model for liquid and the wrong one for
+    // this: it is not a pool, it is an instrument arriving, and an instrument
+    // that bounces on arrival reads as a spring toy. A straight line to the
+    // resting depth, and then it holds.
+    // How far the silhouette sits off every edge, in the units `depthAt`
+    // returns. It is the value that field takes at the screen edge itself, so
+    // a pool shallower than this draws nothing along the straight runs and
+    // survives only in the corners, where the superellipse dips to 0.09. That
+    // is exactly what the 55% thickness cut did on 2026-09-19: every state
+    // landed under 0.2, the four edges went empty, and the field read as four
+    // smudges in the corners of the screen. So the band is measured from here
+    // rather than from zero, and `rest` is now the visible depth above it.
+    const float MARGIN = 0.200;
+
+    float depth = rest * clamp(t / 0.45, 0.0, 1.0);
+
+    float band = MARGIN + depth;
+    float born = smoothstep(0.0, 0.02, depth);
+
+    // Domain warped noise. The field is sampled at coordinates that are
+    // themselves displaced by another sample of it, twice. Plain noise gives
+    // soft round blobs; this gives drawn out filaments and folded sheets,
+    // because the thickness of a real film is not sitting still, it is being
+    // carried around by convection and the streaks are the flow.
+    vec2 p = uv * vec2(W, 1.0) * 1.25;
+    float dt = time * 0.035 * drift;
+    vec2 w1 = vec2(fbm(p + vec2(0.0, dt)), fbm(p + vec2(5.2, 1.3) - dt * 0.7));
+    vec2 w2 = vec2(fbm(p + 3.4 * w1 + vec2(1.7, 9.2) + dt * 0.5),
+                       fbm(p + 3.4 * w1 + vec2(8.3, 2.8)));
+    float flow = fbm(p + 3.2 * w2);
+
+    // The silhouette sits off every edge, so the liquid runs past all four
+    // sides and fills the corners instead of stopping short of them. The only
+    // boundary in view is the inner one, and that is the one doing the work.
+    vec2 q = (uv - 0.5) * vec2(W, 1.0);
+
+    float inward = depthAt(uv, W, MARGIN);
+
+    // Two lobes, both low, and that is the entire deformation of the surface.
+    // A blob of wax filling four hundred points has one continuous curve for an
+    // outline: no serration, no ripple, no texture at any scale. Three
+    // overlapping fbm terms put detail down to sixteen points on this boundary,
+    // and detail at sixteen points is what makes it read as torn. The second is
+    // plain noise rather than fbm for the same reason: fbm's fourth octave is
+    // exactly the detail this is trying not to have.
+    // Scaled by the band's own depth. Written as a fixed displacement these
+    // were tuned against a pool 0.268 deep, and against one 0.147 deep the
+    // same numbers are two thirds of the whole band: the boundary stops being
+    // a worked edge and becomes the shape of the noise, which is the blobby
+    // look that reads as plastic.
+    inward += ((fbm(q * 2.3 + vec2(time * 0.155, -time * 0.118)) - 0.5) * 0.24 +
+               (vnoise(q * 4.1 + vec2(-time * 0.081, time * 0.136)) - 0.5) * 0.12) * depth;
+
+    float u0 = clamp((inward - MARGIN) / max(depth, 1e-4), 0.0, 1.0);
+
+    // One more on the inner edge alone, drifting mostly vertically while the
+    // lobes run sideways, so the boundary is worked from two directions at
+    // once. Lowest in frequency of the three and the largest in amplitude,
+    // because what it is for is the long concave run: a wall of wax holds an
+    // hourglass waist, two broad convex stretches with a concave one between
+    // them, and that concave stretch is what reads as liquid rather than as a
+    // bumpy line. Bumps come free from additive noise. A waist needs amplitude
+    // at low frequency.
+    inward += (fbm(q * 1.6 + vec2(-time * 0.085, time * 0.50)) - 0.5) * 0.39 * depth *
+              smoothstep(0.30, 1.0, u0);
+
+    // Nothing leaves the edge. An earlier pass had blobs neck out of this
+    // pool on a convection cycle and get absorbed back into it; it was
+    // pulled out whole rather than tuned, so the band is the only body here
+    // and the noise above is the only thing that moves it.
+
+    // Off the silhouette there is nothing to draw. On screen this is one
+    // everywhere, because the silhouette is off the edge: it is here for the
+    // case where a lobe drags the boundary past a corner.
+    float lit = smoothstep(0.0, 0.006, inward);
+
+    // Where in the pool this pixel is: 0 at the free surface and 1 hard
+    // against the glass. `inward` runs from MARGIN at the screen edge to
+    // `band` at the surface, so this is the only normalisation that spends the
+    // full 0 to 1 on the part of the field that is actually drawn.
+    float u = clamp((inward - MARGIN) / max(depth, 1e-4), 0.0, 1.0);
+    float v = 1.0 - u;
+
+    // Mapped back onto the window the film response was calibrated over
+    // rather than handed the full 0 to 1. Taken literally the refracted angle
+    // now sweeps half again as far as it used to, and the nm comment below
+    // says what is at the ends of that: the only stretch of the cycle with no
+    // dark in it is 265 to 335, and a wider sweep walks straight out of it.
+    float cosI = mix(0.75, 1.0, u);
+    float sinT = sqrt(max(1.0 - cosI * cosI, 0.0)) / 1.33;
+    float cosT = sqrt(max(1.0 - sinT * sinT, 0.0));
+
+    // A fixed amount of liquid over a surface that is still growing, so the
+    // film thins as the pool arrives. The colour sweeps while the wall is
+    // stretching and stops sweeping when it stops.
+    float stretch = mix(1.9, 1.0, smoothstep(0.0, 0.70, t));
+
+    // Measured rather than chosen. Ramping this across the screen and reading
+    // the row back gives one full cycle every 210nm, and inside that cycle the
+    // stretch from 265 to 335 is the only part with no dark in it. The
+    // refracted angle is folded in at a sixth of its real weight: taken
+    // literally it is a 1.5x multiplier on its own, which is most of a cycle
+    // before anything else has moved.
+    float angle = mix(0.86, 1.0, cosT);
+    float nm = (296.0 + 24.0 * flow - (uv.y - 0.5) * 17.0 + 15.0 * breath) * angle * stretch;
+    vec3 refl = max(0.5 * (vec3(1.0) - filmResponse(2.0 * 1.33 * nm)), vec3(0.0));
+    float shimmer = 0.86 + 0.34 * dot(refl, vec3(0.333));
+
+    // The contour field. Level sets of the same warped flow, plus the pool's
+    // own depth, folded through a triangle wave so they repeat with no seam;
+    // fract() alone puts a hard step at every period and it reads as a cut.
+    // Weighted toward the flow and away from the depth, because depth alone
+    // draws contours parallel to the edge, and concentric rings round a screen
+    // are a racetrack.
+    // How many filaments land inside the band. At 3.4 there are a dozen of
+    // them across a band this width, all the same brightness, and a dozen
+    // parallel lines of equal weight is a topographic map or a slab of
+    // malachite: it is the one thing that stopped this reading as metal even
+    // with a neutral palette and a tight specular. At 1.5 there are two or
+    // three, and `fres` picks one of them out near the free surface, which is
+    // what a lit edge actually looks like.
+    float ctr = (flow * 1.5 + v * 1.0 + 0.16 * breath) * stretch;
+    float tri = abs(fract(ctr) - 0.5) * 2.0;
+    float d = tri - 0.5;
+
+    // Clear is nearly transparent, not white: the ground between the filaments
+    // is liquid you are meant to see through, and on a screen that is dim. The
+    // pool does not thin out toward the glass, so the ground fills in solid
+    // toward the screen edge and the only boundary in view is the inner one.
+    // Steel, not liquid colour. Every one of these is within a few percent of
+    // neutral with a slight cool cast, because that is what metal is: the hue
+    // carries almost nothing and the whole read comes from how fast it goes
+    // from dark body to hot specular. Saturate any of these and it stops being
+    // steel and becomes tinted plastic, which is the failure this palette
+    // replaced.
+    // Two greys: a mid one on a filament's shoulders and a near white one
+    // along its spine, where the liquid is thinnest and should read as clear.
+    // The specular. Near white and barely warm, which is what a polished
+    // surface returns; the falloff beside it stays cool so the highlight reads
+    // as a reflection rather than as a colour the object has.
+
+    vec3 blueC = mix(u_blueDeep, u_bluePale, smoothstep(0.26, 0.46, d));
+    vec3 ground = mix(u_clear, u_pool, smoothstep(0.22, 0.90, v));
+
+    // The rim is a quarter of the period, not a third. At a third it stops
+    // being the heat on the edge of a filament and becomes a rope running round
+    // the screen.
+    float toRim = smoothstep(u_rimA, u_rimB, d);
+    float toBlue = smoothstep(u_blueA, u_blueB, d);
+    vec3 col = mix(ground, mix(u_org, u_yel, smoothstep(-0.05, 0.03, d)), toRim);
+    col = mix(col, blueC, toBlue);
+
+    // The rim is the only part hotter than the liquid carrying it, and how
+    // hot and how wide is the whole difference between metal and moss. At 0.40
+    // over a 0.070 wide falloff it is a soft green glow along a soft edge,
+    // which is what an overgrown surface looks like. Narrow it to 0.045 and
+    // drive it to 0.95 and the same filament becomes a thin bright line with
+    // dark either side, which is what a machined one looks like. The line
+    // stays near white whatever the state's tint is, because the tint block
+    // below protects the specular core.
+    col *= (1.0 + u_glow * exp(-pow((d + 0.01) / u_glowW, 2.0))) * shimmer;
+
+    // Colour is the whole state channel and it is spent on three readings:
+    // white while it is listening or waiting, green while it is doing
+    // something, red when something failed. Steel is what is left when the
+    // amount is zero, and it is most of the time.
+    //
+    // The hue goes on the body and never on the hot part of the specular. A
+    // highlight that takes the object's own colour is the single thing that
+    // makes a surface read as plastic: metal returns the light's colour at the
+    // hot spot and tints only the falloff beside it. `core` is what holds that
+    // line, and without it the green states came back looking like a moulded
+    // toy however neutral the rest of the palette was.
+    if (u_tint.a > 0.001) {
+        // The hue breathes between 55% and 100% of its own amount, so a
+        // pulsing state is a band that keeps its colour and moves through it
+        // rather than one that switches on and off.
+        float amt = u_tint.a * mix(0.45, 1.0, wave);
+        vec3 hue = vec3(dot(col, vec3(0.42, 0.34, 0.24))) * u_tint.rgb;
+        // The window this protects is the hottest specular only. At 0.55 to
+        // 1.05 it covered the filament rims as well, which are most of the
+        // bright pixels in the band, and the measured result was a band whose
+        // green channel led its red by seven levels out of 255: grey with a
+        // rumour of green in it. Tinting those and keeping only the blown
+        // highlight neutral is what a coloured light on steel actually does.
+        float core = smoothstep(0.95, 1.60, max(max(col.r, col.g), col.b));
+        col = mix(mix(col, hue, amt), col, core * 0.85);
+    }
+
+    // A touch hotter at the free surface and flat everywhere else. Driven off
+    // the grazing angle it is a three hundred point ramp from bright to
+    // nothing, and a ramp is a vignette however it was derived.
+    //
+    // The split between the two terms is what decides whether this reads as
+    // metal or as fog. At 0.62 flat and 0.55 at the surface the body carried
+    // more light than the surface did, and a screenshot on a grey checker came
+    // back as an even haze with no highlight anywhere on the straight runs.
+    // Steel is the other way round: a dark body and a narrow hot surface.
+    float fres = u_fresA + u_fresB * exp(-v * 9.0);
+
+    // The pool ends at its surface, over about a seventh of its own depth, and
+    // is at full strength everywhere behind that.
+    float env = smoothstep(0.0, 0.14, v);
+
+    vec3 sheen = normalize(col + vec3(0.0015));
+    vec3 c = col * fres * env * born * lit;
+
+    // The surface is a lip, not a place the gradient ran out. Liquid held by
+    // surface tension beads along its own edge and the bead catches light, so
+    // the thing that reads as an edge is a bright line sitting on it. Gated by
+    // the same termination the body uses: without that gate it is the one term
+    // with no idea where the liquid ends, and at a tenth of its peak across the
+    // whole screen it reads as a haze over everything.
+    // This is the line that makes it read as a machined edge rather than as a
+    // lit slab, so it is much stronger and much narrower than it was: 0.30
+    // over a 0.038 window instead of 0.11 over 0.055. One bright streak
+    // running parallel to the screen edge, with dark on both sides of it.
+    //
+    // And it is mostly white rather than mostly the body's own colour. At 0.92
+    // toward `sheen` the highlight took the state's tint with it, and a green
+    // highlight on a green body is what plastic does. A metal one returns the
+    // light.
+    c += env * exp(-pow((v - 0.220) / 0.050, 2.0)) * u_lip * mix(vec3(1.0), sheen, 0.45) * born *
+         lit;
+
+    // --- going away ------------------------------------------------------
+    // Nothing here is eased either. A rupturing film does not decelerate: the
+    // hole opens at the speed where surface tension balances the film's own
+    // inertia, and high speed footage shows that speed holding from the first
+    // frame to the last. Straight in, straight out, and nothing in this file
+    // eases any more: the last easing function went with the arrival wobble.
+    if (closing >= 0.0) {
+        float k = closing;
+        vec2 dp = (uv - popAt) * vec2(W, 1.0);
+        float rr = length(dp), ang = atan(dp.y, dp.x);
+
+        // It thins where it is about to go. In a real bubble this is the black
+        // spot: the two surfaces come within a wavelength of each other and
+        // their reflections cancel, so the last thing you see before it bursts
+        // is darkness opening in a place that still has film in it.
+        c *= 1.0 - 0.9 * exp(-rr * 13.0) * stage(k, 0.0, 0.10);
+
+        float R = max(k - 0.10, 0.0) * 7.0;
+
+        // Smooth while the rim is thin, then shear against the still air tears
+        // indentations into it. They appear past a critical radius, which is
+        // why a pop ends in a scatter instead of starting as one.
+        float tear = smoothstep(0.30, 0.95, R);
+        float edge = R * (1.0 + 0.10 * tear * sin(ang * 13.0 + 1.7));
+
+        c *= smoothstep(edge - 0.02, edge + 0.01, rr);
+
+        // The film the hole swallowed has to go somewhere and it collects in
+        // the rim. That is why the edge of a bursting bubble is brighter than
+        // the film was, and why fading one out looks nothing like one.
+        float ring = exp(-pow((rr - edge) / 0.014, 2.0)) * (0.35 + R * 1.1) * (1.0 - tear * 0.5);
+        c += ring * mix(vec3(1.0), sheen, 0.55);
+
+        // Drops thrown out of the indentations, flying a little ahead of the
+        // rim that threw them.
+        float b = floor((ang + 3.14159265) * 15.0 / 6.2831853);
+        float sd = hash11(b * 7.31);
+        float detach = 0.30 + sd * 0.55;
+        if (R > detach) {
+            float dr = detach + (R - detach) * 1.45;
+            float da = (b + 0.5) / 15.0 * 6.2831853 - 3.14159265 + (sd - 0.5) * 0.26;
+            c += exp(-pow(length(dp - vec2(cos(da), sin(da)) * dr) / 0.011, 2.0)) * 1.5 *
+                 exp(-(R - detach) * 1.7);
+        }
+
+        c *= 1.0 - stage(k, 0.44, 0.60);
+    }
+
+    // Reinhard, folded in. The browser version tonemapped in a separate pass
+    // over a half-float target; there is one pass here and no target, so it
+    // happens on the way out.
+    c = max(c * u_expose, 0.0);
+    c = c / (1.0 + c);
+
+    // Alpha is coverage, and coverage is how much liquid is at this point.
+    // Everything on this layer composites over the person's actual screen, so
+    // the middle of the display has to come back genuinely empty rather than
+    // black: a background here, at any opacity, tints the entire display.
+    //
+    // SwiftUI wants premultiplied, and `c` is already the colour this adds over
+    // what is behind it, so the premultiplied form is `c` itself with the
+    // coverage in alpha.
+    // `acting` breathes for as long as it is acting. The two-beat pulse in
+    // PresenceField.swift is for a state that pulses and then holds; this is
+    // for one that is genuinely still running, and a thing that is still
+    // running has to keep saying so. Off the shader clock rather than off a
+    // Swift timer, because the timer would have to tick at the frame rate to
+    // drive it and that is a second clock doing the first one's job.
+    c *= mix(0.74, 1.0, wave);
+
+    // Coverage. Was 1.05, which put the film just above the noise floor on a
+    // bright desktop: the band was there and you had to look for it. A layer
+    // nobody can see without hunting is not quiet, it is broken.
+    float lum = max(max(c.r, c.g), c.b);
+    float filmA = clamp(lum * u_gain, 0.0, 1.0);
+    float sheetA = clamp(born * lit * env * u_sheet, 0.0, 1.0);
+    float a = mix(filmA, max(filmA, sheetA), u_translucency) * u_alpha;
+    fragColor = vec4(min(c, vec3(a)), a);
+}
+    </script>
+
+    <script>
+      // --- the knobs -----------------------------------------------------
+      // Colours are HDR: the palette runs past 1.0 on purpose, because the
+      // rim is meant to be hotter than anything a display can show before the
+      // tonemap pulls it back. A colour input cannot express that, so each
+      // swatch is a hue at unit scale plus its own level.
+      const COLORS = [
+        ["u_clear", "Ground", [0.13, 0.14, 0.155]],
+        ["u_pool", "Deep pool", [0.16, 0.175, 0.2]],
+        ["u_blueDeep", "Filament shoulder", [0.26, 0.28, 0.32]],
+        ["u_bluePale", "Filament spine", [0.84, 0.87, 0.92]],
+        ["u_yel", "Rim, inner", [1.0, 0.99, 0.96]],
+        ["u_org", "Rim, outer", [0.5, 0.54, 0.6]],
+        // The state colour. It multiplies the body and not the specular, so
+        // pushing it past 1 in one channel is how a tint stays readable without
+        // the highlight going with it.
+        ["u_tintRGB", "State tint", [1.0, 1.0, 1.0]],
+      ];
+
+      // The last field is which panel section the slider lands in. The four
+      // alpha terms interact with each other and with nothing else, so they
+      // are read together or not at all.
+      const SLIDERS = [
+        ["u_translucency", "Translucent", 0, 1, 0.01, 0, "alpha"],
+        ["u_sheet", "Sheet coverage", 0, 1, 0.01, 0.55, "alpha"],
+        ["u_alpha", "Opacity", 0, 1, 0.01, 1, "alpha"],
+        ["u_gain", "Film coverage", 0.5, 3, 0.01, 1.75, "alpha"],
+        ["u_expose", "Exposure", 0.5, 5, 0.01, 2.6],
+        ["u_rimA", "Rim start", -0.4, 0, 0.005, -0.13],
+        ["u_rimB", "Rim end", -0.3, 0.1, 0.005, -0.05],
+        ["u_blueA", "Blue start", -0.1, 0.3, 0.005, 0.03],
+        ["u_blueB", "Blue end", 0, 0.4, 0.005, 0.11],
+        ["u_glow", "Rim heat", 0, 3, 0.01, 0.95],
+        ["u_glowW", "Rim width", 0.01, 0.3, 0.002, 0.045],
+        ["u_fresA", "Body light", 0.1, 1.5, 0.01, 0.22],
+        ["u_fresB", "Surface light", 0, 2, 0.01, 1.05],
+        ["u_lip", "Surface lip", 0, 0.6, 0.002, 0.3],
+        ["u_rest", "Thickness", 0, 0.2, 0.002, 0.049],
+        ["u_drift", "Drift", 0, 5, 0.05, 0.5],
+        ["u_tintAmt", "Tint amount", 0, 1, 0.01, 0],
+        ["u_pulse", "Pulse, Hz", 0, 3, 0.05, 0],
+      ];
+
+      // Generated from Presence.field in PresenceField.swift at build time.
+      // This table used to be hand-copied and it drifted exactly as you would
+      // expect: `hearing` sat at 0.38 here against 0.200 in the Swift, so an
+      // evening of tuning went into a state that did not exist.
+      const STATES = [
+  {
+    "name": "dormant",
+    "note": "Nothing. Not a thin band: the assistant is not there, and a depth of zero is the one value the shader draws no pixels for.",
+    "rest": 0.0,
+    "drift": 0.0,
+    "tint": [
+      1.0,
+      1.0,
+      1.0,
+      0.0
+    ],
+    "tintName": "steel",
+    "pulse": 0.0,
+    "fps": 1,
+    "animating": false,
+    "pulses": false
+  },
+  {
+    "name": "attentive",
+    "note": "",
+    "rest": 0.049,
+    "drift": 0.5,
+    "tint": [
+      1.0,
+      1.0,
+      1.0,
+      0.0
+    ],
+    "tintName": "steel",
+    "pulse": 0.0,
+    "fps": 20,
+    "animating": true,
+    "pulses": false
+  },
+  {
+    "name": "hearing",
+    "note": "The one state driven from outside. `rest` here is a floor and the voice adds to it, so 60fps is not decoration: it is the rate the amplitude arrives at.",
+    "rest": 0.022,
+    "drift": 0.35,
+    "tint": [
+      1.0,
+      1.0,
+      1.0,
+      0.0
+    ],
+    "tintName": "steel",
+    "pulse": 0.0,
+    "fps": 60,
+    "animating": true,
+    "pulses": false
+  },
+  {
+    "name": "thinking",
+    "note": "Thin and fast. Work reads as travel round the edge rather than as weight on it, and it is still white: nothing has been done to the machine yet.",
+    "rest": 0.029,
+    "drift": 3.2,
+    "tint": [
+      1.0,
+      1.0,
+      1.0,
+      0.0
+    ],
+    "tintName": "steel",
+    "pulse": 0.0,
+    "fps": 30,
+    "animating": true,
+    "pulses": false
+  },
+  {
+    "name": "acting",
+    "note": "Green and breathing, and the only state that breathes on its own clock. Something is being done to the person's machine right now and that is the one thing in this vocabulary worth a colour they cannot miss.",
+    "rest": 0.061,
+    "drift": 1.1,
+    "tint": [
+      0.28,
+      1.45,
+      0.55,
+      0.6
+    ],
+    "tintName": "green",
+    "pulse": 0.8,
+    "fps": 30,
+    "animating": true,
+    "pulses": false
+  },
+  {
+    "name": "done",
+    "note": "Darker green, still, one frame. It is the same hue as `acting` on purpose, because it is the end of that same errand, and it is darker and stops moving because there is nothing left to wait for.",
+    "rest": 0.038,
+    "drift": 0.1,
+    "tint": [
+      0.14,
+      0.62,
+      0.3,
+      0.75
+    ],
+    "tintName": "deepGreen",
+    "pulse": 0.0,
+    "fps": 1,
+    "animating": false,
+    "pulses": false
+  },
+  {
+    "name": "attention",
+    "note": "The thickest, because this is the one that has to be noticed. It stays white: green and red are spoken for, and a third hue here would make the palette decoration again.",
+    "rest": 0.094,
+    "drift": 0.9,
+    "tint": [
+      1.0,
+      1.0,
+      1.0,
+      0.0
+    ],
+    "tintName": "steel",
+    "pulse": 0.0,
+    "fps": 30,
+    "animating": true,
+    "pulses": true
+  },
+  {
+    "name": "failed",
+    "note": "",
+    "rest": 0.072,
+    "drift": 0.3,
+    "tint": [
+      1.15,
+      0.38,
+      0.3,
+      1.0
+    ],
+    "tintName": "red",
+    "pulse": 0.0,
+    "fps": 20,
+    "animating": true,
+    "pulses": true
+  }
+];
+
+      const BACKDROPS = {
+        Desktop:
+          "radial-gradient(ellipse at 30% 20%, #1e1b4b 0%, #0a0a0b 60%), #0a0a0b",
+        Document: "#f4f4f5",
+        Photo:
+          "radial-gradient(circle at 20% 30%, #b45309 0%, transparent 45%)," +
+          "radial-gradient(circle at 75% 65%, #0f766e 0%, transparent 50%)," +
+          "radial-gradient(circle at 55% 10%, #7e22ce 0%, transparent 40%), #1c1917",
+        Checker:
+          "repeating-conic-gradient(#3f3f46 0% 25%, #71717a 0% 50%) 0 0 / 56px 56px",
+      };
+
+      // --- state ---------------------------------------------------------
+      const values = {};
+      const defaults = {};
+      for (const [k, , v] of COLORS) defaults[k] = v.slice();
+      for (const [k, , , , , v] of SLIDERS) defaults[k] = v;
+      Object.assign(values, JSON.parse(JSON.stringify(defaults)));
+
+      // Colour work happens over several sittings and a reload in the middle
+      // of one used to throw the evening away. `u_rest`, `u_drift` and
+      // `u_anger` are not saved: those are the state chips, and restoring them
+      // would mean the page opens in a state no chip is lit for.
+      const STORE = "presence-tuner-steel";
+      const TRANSIENT = ["u_rest", "u_drift", "u_tintRGB", "u_tintAmt", "u_pulse"];
+
+      const save = () => {
+        const keep = { ...values };
+        for (const k of TRANSIENT) delete keep[k];
+        try {
+          localStorage.setItem(STORE, JSON.stringify(keep));
+        } catch (e) {
+          /* private window, and losing the tuning is not worth a dialog */
+        }
+      };
+
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORE) || "null");
+        // Key by key, so a slider added to the table after the last save gets
+        // its default instead of undefined, which reaches the GL call and
+        // silently blanks the shader.
+        if (saved) {
+          for (const k of Object.keys(defaults)) {
+            if (saved[k] !== undefined) values[k] = saved[k];
+          }
+        }
+      } catch (e) {
+        /* nothing saved, or saved by an older shape of this page */
+      }
+
+      let state = "attentive";
+
+      /// Load one row of Presence.field into the knobs the state owns.
+      ///
+      /// The tint arrives as rgb plus its own amount in one four-vector,
+      /// because that is how the shader takes it, and splitting it here would
+      /// be a second place for the two halves to disagree.
+      function apply(s) {
+        values.u_rest = s.rest;
+        values.u_drift = s.drift;
+        values.u_tintRGB = s.tint.slice(0, 3);
+        values.u_tintAmt = s.tint[3];
+        values.u_pulse = s.pulse;
+      }
+      let awokeAt = performance.now() / 1000;
+
+      // --- ui --------------------------------------------------------------
+      const chip = (label, on, click) => {
+        const b = document.createElement("button");
+        b.textContent = label;
+        b.className =
+          "cursor-pointer rounded-lg px-2.5 py-1 text-xs font-medium transition-all " +
+          "duration-200 border " +
+          (on
+            ? "border-indigo-500/40 bg-indigo-500/15 text-indigo-300"
+            : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200");
+        b.onclick = click;
+        return b;
+      };
+
+      function drawStates() {
+        const host = document.getElementById("states");
+        host.replaceChildren();
+        for (const s of STATES) {
+          host.append(
+            chip(s.name, s.name === state, () => {
+              state = s.name;
+              apply(s);
+              awokeAt = performance.now() / 1000;
+              drawStates();
+              drawSliders();
+            }),
+          );
+        }
+      }
+
+      let backdrop = "Desktop";
+      function drawBackdrops() {
+        const host = document.getElementById("backdrops");
+        host.replaceChildren();
+        for (const name of Object.keys(BACKDROPS)) {
+          host.append(
+            chip(name, name === backdrop, () => {
+              backdrop = name;
+              document.getElementById("backdrop").style.background =
+                BACKDROPS[name];
+              drawBackdrops();
+            }),
+          );
+        }
+      }
+
+      const toHex = (c) => {
+        const m = Math.max(...c, 1e-6);
+        const f = (x) =>
+          Math.round(Math.min(x / m, 1) * 255)
+            .toString(16)
+            .padStart(2, "0");
+        return "#" + f(c[0]) + f(c[1]) + f(c[2]);
+      };
+
+      function drawColors() {
+        const host = document.getElementById("colors");
+        host.replaceChildren();
+        for (const [key, label] of COLORS) {
+          const level = Math.max(...values[key], 1e-6);
+          const row = document.createElement("div");
+          row.innerHTML = `
+            <div class="flex items-baseline justify-between">
+              <span class="text-xs text-zinc-300">${label}</span>
+              <span class="font-mono text-[10px] text-zinc-500">${level.toFixed(2)}</span>
+            </div>`;
+          const pick = document.createElement("input");
+          pick.type = "color";
+          pick.value = toHex(values[key]);
+          pick.className = "mt-1.5";
+          const lv = document.createElement("input");
+          lv.type = "range";
+          lv.min = 0;
+          lv.max = 2;
+          lv.step = 0.01;
+          lv.value = level;
+          lv.className = "mt-1.5 w-full";
+          const apply = () => {
+            const h = pick.value;
+            const base = [1, 3, 5].map(
+              (i) => parseInt(h.slice(i, i + 2), 16) / 255,
+            );
+            const m = Math.max(...base, 1e-6);
+            values[key] = base.map((x) => (x / m) * parseFloat(lv.value));
+            save();
+            drawColors();
+          };
+          pick.oninput = apply;
+          lv.oninput = apply;
+          row.append(pick, lv);
+          host.append(row);
+        }
+      }
+
+      function drawSliders() {
+        const hosts = {
+          alpha: document.getElementById("alpha"),
+          shape: document.getElementById("sliders"),
+        };
+        for (const h of Object.values(hosts)) h.replaceChildren();
+        for (const [key, label, min, max, step, , group] of SLIDERS) {
+          const host = hosts[group === "alpha" ? "alpha" : "shape"];
+          const row = document.createElement("div");
+          row.innerHTML = `
+            <div class="flex items-baseline justify-between">
+              <span class="text-xs text-zinc-300">${label}</span>
+              <span class="font-mono text-[10px] text-zinc-500">${values[key].toFixed(3)}</span>
+            </div>`;
+          const r = document.createElement("input");
+          r.type = "range";
+          r.min = min;
+          r.max = max;
+          r.step = step;
+          r.value = values[key];
+          r.className = "mt-1.5 w-full";
+          r.oninput = () => {
+            values[key] = parseFloat(r.value);
+            row.querySelector("span:last-child").textContent =
+              values[key].toFixed(3);
+            save();
+          };
+          row.append(r);
+          host.append(row);
+        }
+      }
+
+      // --- export ----------------------------------------------------------
+      const v3 = (c) => `float3(${c.map((x) => x.toFixed(3)).join(", ")})`;
+
+      document.getElementById("export").onclick = async () => {
+        const text = [
+          `    const float3 CLEAR = ${v3(values.u_clear)};`,
+          `    const float3 POOL = ${v3(values.u_pool)};`,
+          `    const float3 BLUE_DEEP = ${v3(values.u_blueDeep)};`,
+          `    const float3 BLUE_PALE = ${v3(values.u_bluePale)};`,
+          `    const float3 YEL = ${v3(values.u_yel)};`,
+          `    const float3 ORG = ${v3(values.u_org)};`,
+          ``,
+          `    float toRim = smoothstep(${values.u_rimA.toFixed(3)}, ${values.u_rimB.toFixed(3)}, d);`,
+          `    float toBlue = smoothstep(${values.u_blueA.toFixed(3)}, ${values.u_blueB.toFixed(3)}, d);`,
+          `    col *= (1.0 + ${values.u_glow.toFixed(3)} * exp(-pow((d + 0.01) / ${values.u_glowW.toFixed(3)}, 2.0))) * shimmer;`,
+          `    float fres = ${values.u_fresA.toFixed(3)} + ${values.u_fresB.toFixed(3)} * exp(-v * 9.0);`,
+          `    // lip: ${values.u_lip.toFixed(3)}    exposure: ${values.u_expose.toFixed(3)}`,
+          ``,
+          `    // compositing`,
+          `    float lum = max(max(c.r, c.g), c.b);`,
+          `    float filmA = clamp(lum * ${values.u_gain.toFixed(3)}, 0.0, 1.0);`,
+          `    float sheetA = clamp(born * lit * env * ${values.u_sheet.toFixed(3)}, 0.0, 1.0);`,
+          `    float a = mix(filmA, max(filmA, sheetA), ${values.u_translucency.toFixed(3)}) * U.alpha;`,
+          `    return half4(half3(min(c, float3(a))), half(a));`,
+        ].join("\n");
+        document.getElementById("out").value = text;
+        document.getElementById("out").classList.remove("hidden");
+        try {
+          await navigator.clipboard.writeText(text);
+          const n = document.getElementById("note");
+          n.classList.remove("hidden");
+          setTimeout(() => n.classList.add("hidden"), 2400);
+        } catch (e) {
+          /* the textarea is the fallback, and it is already open */
+        }
+      };
+
+      document.getElementById("reset").onclick = () => {
+        Object.assign(values, JSON.parse(JSON.stringify(defaults)));
+        apply(STATES.find((s) => s.name === state) ?? STATES[0]);
+        save();
+        drawColors();
+        drawSliders();
+      };
+
+      // --- gl ----------------------------------------------------------------
+      const canvas = document.getElementById("gl");
+      const gl = canvas.getContext("webgl2", { alpha: true, antialias: false });
+      const VS = `#version 300 es
+void main() {
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+      function compile(type, src) {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+          // Printing the log alone is useless for a generated shader: the line
+          // numbers are the only way back to the Metal it came from.
+          const log = gl.getShaderInfoLog(s);
+          console.error(log);
+          console.error(
+            src
+              .split("\n")
+              .map((l, i) => `${String(i + 1).padStart(4)} ${l}`)
+              .join("\n"),
+          );
+          throw new Error(log);
+        }
+        return s;
+      }
+
+      const program = gl.createProgram();
+      gl.attachShader(program, compile(gl.VERTEX_SHADER, VS));
+      gl.attachShader(
+        program,
+        // Trimmed: the script tag indents its contents, and `#version` is only
+        // a version directive when it is the very first thing in the source.
+        compile(
+          gl.FRAGMENT_SHADER,
+          document.getElementById("fs").textContent.trim(),
+        ),
+      );
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        throw new Error(gl.getProgramInfoLog(program));
+      }
+      gl.useProgram(program);
+
+      const loc = {};
+      const at = (n) => (loc[n] ??= gl.getUniformLocation(program, n));
+
+      function frame(ms) {
+        const t = ms / 1000;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const w = Math.round(innerWidth * dpr);
+        const h = Math.round(innerHeight * dpr);
+        if (canvas.width !== w || canvas.height !== h) {
+          canvas.width = w;
+          canvas.height = h;
+          gl.viewport(0, 0, w, h);
+        }
+
+        gl.uniform2f(at("u_size"), w, h);
+        gl.uniform2f(at("u_popAt"), 0.5, 0.5);
+        gl.uniform1f(at("u_time"), t);
+        gl.uniform1f(at("u_act"), t - awokeAt);
+        gl.uniform1f(at("u_closing"), -1);
+        gl.uniform4f(at("u_tint"), ...values.u_tintRGB, values.u_tintAmt);
+        for (const [k] of COLORS) {
+          if (k === "u_tintRGB") continue;
+          gl.uniform3fv(at(k), values[k]);
+        }
+        for (const [k] of SLIDERS) {
+          if (k === "u_tintAmt") continue;
+          gl.uniform1f(at(k), values[k]);
+        }
+
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+        requestAnimationFrame(frame);
+      }
+
+      document.getElementById("backdrop").style.background =
+        BACKDROPS[backdrop];
+      drawStates();
+      drawBackdrops();
+      drawColors();
+      drawSliders();
+      requestAnimationFrame(frame);
+    </script>
+  </body>
+</html>

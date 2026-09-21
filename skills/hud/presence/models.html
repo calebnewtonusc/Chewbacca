@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Presence models</title>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.11"
+      integrity="sha384-A1XhMANHciQ8ED89Ap5K0zOdmQKiEeXSjaN0sakNxIzq9Z2YfXV/BwHp7oP3z5ip"
+      crossorigin="anonymous"
+    ></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <script
+      src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"
+      integrity="sha384-hJnF5AwidE18GSWTAGHv3ByzzvfNZ1Tcx5y1UUV3WkauuMCEzBJBMSwSt/PUPXnM"
+      crossorigin="anonymous"
+    ></script>
+  </head>
+  <body
+    class="antialiased overflow-hidden bg-zinc-950"
+    style="font-family: Inter, sans-serif"
+  >
+    <div id="backdrop" class="fixed inset-0"></div>
+    <canvas
+      id="gl"
+      class="fixed inset-0 w-full h-full pointer-events-none"
+    ></canvas>
+
+    <div
+      id="panel"
+      class="fixed top-6 left-6 z-50 w-80 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 p-5 shadow-2xl transition-opacity duration-200"
+    >
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2 text-zinc-200">
+          <i data-lucide="layers" class="w-4 h-4 text-amber-400"></i>
+          <span class="text-sm font-semibold tracking-tight"
+            >Presence models</span
+          >
+        </div>
+        <button
+          id="hide"
+          class="text-zinc-500 hover:text-white px-2 py-1 rounded-lg hover:bg-white/5 transition-all duration-200 cursor-pointer"
+          title="Hide panel (h)"
+        >
+          <i data-lucide="chevron-up" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div id="list" class="space-y-1 mb-4"></div>
+
+      <button
+        id="replay"
+        class="w-full bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-zinc-950 font-semibold px-4 py-2.5 rounded-xl transition-all duration-200 shadow-lg shadow-amber-500/25 cursor-pointer flex items-center justify-center gap-2"
+      >
+        <i data-lucide="play" class="w-4 h-4"></i> Trigger
+      </button>
+
+      <div class="mt-4 pt-4 border-t border-white/10">
+        <div class="text-xs text-zinc-500 mb-2">Backdrop</div>
+        <div class="grid grid-cols-3 gap-2">
+          <button
+            data-bd="dark"
+            class="bd bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 text-xs font-medium px-2 py-1.5 rounded-lg transition-all duration-200 cursor-pointer"
+          >
+            Dark
+          </button>
+          <button
+            data-bd="photo"
+            class="bd bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 text-xs font-medium px-2 py-1.5 rounded-lg transition-all duration-200 cursor-pointer"
+          >
+            Photo
+          </button>
+          <button
+            data-bd="light"
+            class="bd bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 text-xs font-medium px-2 py-1.5 rounded-lg transition-all duration-200 cursor-pointer"
+          >
+            Light
+          </button>
+        </div>
+      </div>
+
+      <div
+        class="mt-4 pt-4 border-t border-white/10 flex items-center justify-between"
+      >
+        <span class="text-xs text-zinc-500">frame</span>
+        <span
+          id="fps"
+          class="text-xs text-zinc-300"
+          style="font-family: &quot;JetBrains Mono&quot;, monospace"
+        ></span>
+      </div>
+      <div
+        id="errs"
+        class="mt-2 text-xs text-rose-300"
+        style="font-family: &quot;JetBrains Mono&quot;, monospace"
+      ></div>
+    </div>
+
+    <div
+      id="hint"
+      class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 text-xs text-zinc-500 pointer-events-none"
+      style="font-family: &quot;JetBrains Mono&quot;, monospace"
+    >
+      1-9,0 switch &nbsp;&middot;&nbsp; space trigger &nbsp;&middot;&nbsp; h
+      panel
+    </div>
+
+    <script>
+      // ---------------------------------------------------------------------------
+      // Ten takes on the same two moments: what the layer looks like sitting there,
+      // and what it does when the key is pressed. Each one is a single fragment
+      // shader over a full-screen quad, so they share a harness and differ only in
+      // the idea. That is deliberate: it keeps the comparison about the idea.
+      //
+      // Everything is a pure function of (pixel, time, seconds-since-trigger,
+      // cursor). No simulation, no state, no per-frame CPU work.
+      // ---------------------------------------------------------------------------
+
+      const PRELUDE = `#version 300 es
+precision highp float;
+uniform vec2  u_res;
+uniform float u_time;
+uniform float u_act;      // seconds since the key was pressed
+uniform vec2  u_cursor;
+uniform float u_gain;
+out vec4 o;
+
+const vec3 AMBER = vec3(1.00, 0.68, 0.30);
+const vec3 COOL  = vec3(0.45, 0.72, 1.00);
+const vec3 STEEL = vec3(0.75, 0.82, 0.95);
+
+float hash11(float p){ return fract(sin(p*127.1)*43758.5453); }
+float hash21(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+vec2  hash22(vec2 p){
+  vec3 a = fract(vec3(p.xyx)*vec3(0.1031,0.1030,0.0973));
+  a += dot(a, a.yzx+33.33);
+  return fract((a.xx+a.yz)*a.zy);
+}
+float noise(vec2 p){
+  vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  return mix(mix(hash21(i), hash21(i+vec2(1.0,0.0)), f.x),
+             mix(hash21(i+vec2(0.0,1.0)), hash21(i+vec2(1.0,1.0)), f.x), f.y);
+}
+float fbm(vec2 p){
+  float s=0.0, a=0.5;
+  for(int i=0;i<5;i++){ s+=a*noise(p); p*=2.03; a*=0.5; }
+  return s;
+}
+
+// 0 at the screen edge, 0.5 at the middle of the shorter axis.
+float edgeN(vec2 uv){ vec2 d = min(uv, 1.0-uv); return min(d.x, d.y); }
+
+// The activation shape, shared by all ten so they are judged on idea and not
+// on easing: out hard, back through zero, one soft overshoot, exact rest. The
+// envelope is what forces the exact zero, so nothing settles a few pixels off.
+float burst(float t, float dur){
+  float x = clamp(t/dur, 0.0, 1.0);
+  return sin(x*3.14159265*1.35)*exp(-3.2*x)*(1.0-smoothstep(0.78,1.0,x));
+}
+// Kept for a model that wants a one-way ramp. Deliberately NOT used for
+// brightness: see the note on the activation being the surge itself.
+float gate(float t, float dur){ return smoothstep(0.0, dur, t); }
+
+// Premultiplied, and white where it is hot. Real light desaturates as it
+// climbs; a flat tint at full strength reads as a coloured sticker.
+void emit(vec3 tint, float v){
+  v = max(v, 0.0)*u_gain;
+  vec3 c = mix(tint, vec3(1.0), clamp(v, 0.0, 1.0)) * v;
+  o = vec4(clamp(c, 0.0, 1.0), clamp(v, 0.0, 1.0));
+}
+`;
+
+      const MODELS = [
+        {
+          name: "Aperture",
+          gain: 4.9,
+          note: "eight blades of light, drawn in and released",
+          src: `
+float ngon(vec2 p, float r, float n, float rot){
+  float a = atan(p.y, p.x) + rot;
+  float seg = 6.2831853/n;
+  a = mod(a, seg) - seg*0.5;
+  return cos(a)*length(p) - r;
+}
+void main(){
+  vec2 p = (gl_FragCoord.xy - 0.5*u_res)/u_res.y;
+  float b = burst(u_act, 1.10);
+  float acc = 0.0;
+  // Three rings on slightly different clocks. One ring is a shape; three that
+  // never quite line up imply a mechanism with parts inside it.
+  for(int i=0;i<3;i++){
+    float fi = float(i);
+    float rot = u_time*(0.030 + fi*0.017) + fi*0.7;
+    float r = (0.55 + fi*0.13) - b*(0.32 + fi*0.08)
+            + sin(u_time*0.25 + fi*1.9)*0.010;
+    float d = ngon(p, r, 8.0, rot);
+    acc += exp(-abs(d)*(185.0 - fi*45.0)) * (1.0 - fi*0.24);
+  }
+  emit(AMBER, acc*0.95);
+}`,
+        },
+        {
+          name: "Caustics",
+          gain: 3.4,
+          note: "pool light refracted along the frame",
+          src: `
+void main(){
+  vec2 uv = gl_FragCoord.xy/u_res;
+  float e = edgeN(uv);
+  float b = burst(u_act, 1.25);
+  // Domain warp, then a high threshold. Caustics are the bright filaments where
+  // light folds onto itself, so the threshold is the whole effect. The scale has
+  // to be fine: at low frequency this reads as smoke rather than as water, which
+  // is exactly how the first version came out.
+  vec2 q = uv*vec2(u_res.x/u_res.y, 1.0)*9.0 + vec2(u_time*0.06, -u_time*0.04);
+  vec2 w = vec2(fbm(q), fbm(q + vec2(5.2,1.3)));
+  float n = fbm(q*1.4 + w*(2.2 + abs(b)*1.6));
+  float sharp = mix(0.54, 0.44, clamp(abs(b),0.0,1.0));
+  float c = pow(smoothstep(sharp, sharp+0.16, n), 2.6);
+  emit(AMBER, c*exp(-e*(13.0 - abs(b)*5.0))*1.4);
+}
+`,
+        },
+        {
+          name: "Lattice",
+          gain: 7.3,
+          note: "frost crystallising inward from the border",
+          src: `
+float cellEdge(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  float d1 = 8.0, d2 = 8.0;
+  for(int y=-1;y<=1;y++) for(int x=-1;x<=1;x++){
+    vec2 g = vec2(float(x), float(y));
+    vec2 r = g + hash22(i+g) - f;
+    float d = dot(r,r);
+    if(d < d1){ d2 = d1; d1 = d; } else if(d < d2){ d2 = d; }
+  }
+  return sqrt(d2) - sqrt(d1);
+}
+void main(){
+  vec2 uv = gl_FragCoord.xy/u_res;
+  float e = edgeN(uv);
+  float b = burst(u_act, 1.30);
+  vec2 p = uv*vec2(u_res.x/u_res.y, 1.0)*13.0
+         + vec2(sin(u_time*0.08), cos(u_time*0.07))*0.12;
+  float line = exp(-cellEdge(p)*22.0);
+  // A growth front rather than a fade. Frost has an edge you can point at.
+  float front = 0.055 + abs(b)*0.42;
+  float grow = smoothstep(front, front-0.07, e);
+  float breathe = 0.82 + 0.18*sin(u_time*0.50 + e*14.0);
+  emit(COOL, line*grow*breathe*0.95);
+}`,
+        },
+        {
+          name: "Interference",
+          gain: 7.0,
+          note: "two standing waves beating against each other",
+          src: `
+void main(){
+  vec2 uv = gl_FragCoord.xy/u_res;
+  float e = edgeN(uv);
+  float b = burst(u_act, 1.00);
+  // Two nearly equal frequencies. The slow beat between them is the motion, and
+  // nothing in it repeats on a period anyone will notice.
+  float s1 = sin(gl_FragCoord.y*0.0850 - u_time*1.15);
+  float s2 = sin(gl_FragCoord.y*0.0905 + u_time*0.95);
+  float bands = pow(abs(s1*s2), 9.0);
+  // One hard line leaves each long edge, meets in the middle, retreats.
+  float front = abs(b)*0.5;
+  float hit = exp(-abs(abs(uv.y-0.5) - (0.5-front))*70.0)*abs(b)*1.8;
+  emit(AMBER, (bands*0.8 + hit)*exp(-e*13.0));
+}
+`,
+        },
+        {
+          name: "Fieldlines",
+          gain: 6.0,
+          note: "the screen as a dipole, drawn in level sets",
+          src: `
+void main(){
+  vec2 uv = gl_FragCoord.xy/u_res;
+  float e = edgeN(uv);
+  float b = burst(u_act, 1.15);
+  // Contours of the distance to the frame, warped by slow noise: level sets of a
+  // real scalar field, which is why they bend the way an eye expects and a
+  // hand-drawn arc does not. The two-pole version this replaces collapsed into a
+  // single blob, because atan2 of a difference is not a field anyone can read.
+  float w = fbm(uv*vec2(u_res.x/u_res.y,1.0)*3.0 + u_time*0.05)*0.07;
+  float f = (e + w)*(26.0 + abs(b)*10.0) - u_time*0.22;
+  float l = abs(fract(f) - 0.5);
+  emit(COOL, exp(-l*34.0)*exp(-e*11.0)*1.2);
+}
+`,
+        },
+        {
+          name: "Synapse",
+          gain: 25.0,
+          note: "nodes on their own clocks, fired at once",
+          src: `
+void main(){
+  vec2 uv = gl_FragCoord.xy/u_res;
+  float e = edgeN(uv);
+  float b = burst(u_act, 1.20);
+  vec2 p = uv*vec2(u_res.x/u_res.y, 1.0)*11.0;
+  vec2 i = floor(p), f = fract(p);
+  float v = 0.0;
+  for(int y=-1;y<=1;y++) for(int x=-1;x<=1;x++){
+    vec2 g = vec2(float(x), float(y));
+    vec2 id = i+g;
+    float d = length(g + hash22(id) - f);
+    // Idle, each node fires on its own offset clock and they never agree. The
+    // trigger is the one moment every node fires together.
+    float fire = pow(max(sin(u_time*0.55 + hash21(id+7.3)*6.2831), 0.0), 30.0);
+    v += exp(-d*9.0)*(0.05 + max(fire, abs(b)*0.90));
+  }
+  emit(AMBER, v*exp(-e*12.0));
+}
+`,
+        },
+        {
+          name: "Mercury",
+          gain: 1.17,
+          note: "beads riding the rim, thrown and pulled back",
+          src: `
+void main(){
+  vec2 p = gl_FragCoord.xy/u_res.y;
+  float asp = u_res.x/u_res.y;
+  float b = burst(u_act, 1.30);
+  float f = 0.0;
+  for(int k=0;k<14;k++){
+    float fk = float(k);
+    float s = fract(fk/14.0 + u_time*0.013 + hash11(fk)*0.04)*2.0*(asp+1.0);
+    vec2 c = s < asp            ? vec2(s, 0.0)
+           : s < asp+1.0        ? vec2(asp, s-asp)
+           : s < 2.0*asp+1.0    ? vec2(asp-(s-asp-1.0), 1.0)
+           :                      vec2(0.0, 1.0-(s-2.0*asp-1.0));
+    c += normalize(vec2(asp,1.0)*0.5 - c)*(0.04 + abs(b)*0.30 + sin(u_time*0.6+fk)*0.012);
+    float r = 0.075 + hash11(fk+3.1)*0.05;
+    f += r*r/max(dot(p-c, p-c), 1e-4);
+  }
+  // Body plus a bright meniscus. The rim is what makes it read as a liquid
+  // with surface tension rather than as a blurred circle.
+  float body = smoothstep(0.85, 1.25, f);
+  float rim  = smoothstep(1.35, 0.95, f)*smoothstep(0.85, 1.15, f);
+  emit(STEEL, (body*0.30 + rim*1.50));
+}`,
+        },
+        {
+          name: "Parallax",
+          gain: 18.0,
+          note: "five layers at depth, the frame as a window",
+          src: `
+void main(){
+  vec2 uv = gl_FragCoord.xy/u_res;
+  float asp = u_res.x/u_res.y;
+  float b = burst(u_act, 1.40);
+  vec2 cur = u_cursor/u_res - 0.5;
+  float v = 0.0;
+  for(int L=0;L<5;L++){
+    float fl = float(L);
+    float depth = 1.0 + fl*0.85;
+    // Near layers move more, both under the cursor and during the rush. That
+    // ratio is the only thing making this read as depth rather than as scale.
+    vec2 q = (uv - 0.5)*vec2(asp,1.0);
+    q *= 1.0 - abs(b)*0.55/depth;
+    q += cur*(0.09/depth);
+    q = q*(9.0 + fl*3.5) + vec2(u_time*0.02*depth, 0.0);
+    vec2 i = floor(q);
+    float d = length(fract(q) - hash22(i));
+    v += exp(-d*(13.0+fl*2.0))*(0.55/depth)*(0.6 + 0.4*sin(u_time*0.8 + hash21(i)*6.28));
+  }
+  emit(COOL, v*exp(-edgeN(uv)*9.0)*(1.0 + abs(b)*1.2));
+}
+`,
+        },
+        {
+          name: "Chromatic",
+          gain: 0.64,
+          note: "one glow split into three and recombined",
+          src: `
+float prof(vec2 uv, float k, float t){
+  float w = fbm(vec2(uv.x*4.0 + t*0.05, uv.y*4.0 - t*0.04));
+  return exp(-(edgeN(uv) + w*0.021)*k);
+}
+void main(){
+  vec2 uv = gl_FragCoord.xy/u_res;
+  float b = burst(u_act, 1.20);
+  // One profile sampled at three falloffs. A real lens splits colour by
+  // wavelength, so the fringe belongs to the optics and not to the palette.
+  float split = 0.55 + abs(b)*7.0;
+  vec3 c = vec3(prof(uv, 9.0-split, u_time), prof(uv, 9.0, u_time), prof(uv, 9.0+split, u_time));
+  c *= u_gain*0.90*(0.85 + 0.15*sin(u_time*0.35));
+  float a = max(max(c.r,c.g),c.b);
+  o = vec4(clamp(c,0.0,1.0), clamp(a,0.0,1.0));
+}`,
+        },
+        {
+          name: "Breath",
+          gain: 0.66,
+          note: "no structure at all, only light and a slow lung",
+          src: `
+void main(){
+  vec2 uv = gl_FragCoord.xy/u_res;
+  float b = burst(u_act, 1.50);
+  // The restraint case. Nothing to read, nothing to decode, one lung. If this
+  // holds its own against the nine busier ones then density was never the
+  // thing carrying them.
+  float k = 11.0 - abs(b)*6.5;
+  float v = exp(-edgeN(uv)*k)*(0.86 + 0.14*sin(u_time*0.30))*0.85;
+  // A trace of grain: a clean exponential ramp bands visibly on an 8-bit panel
+  // and the banding is the one thing here that would look cheap.
+  v += (hash21(gl_FragCoord.xy + fract(u_time))-0.5)*0.012;
+  emit(AMBER, v);
+}`,
+        },
+      ];
+
+      const VERT = `#version 300 es
+precision highp float;
+const vec2 V[3] = vec2[3](vec2(-1.0,-1.0), vec2(3.0,-1.0), vec2(-1.0,3.0));
+void main(){ gl_Position = vec4(V[gl_VertexID], 0.0, 1.0); }`;
+
+      const canvas = document.getElementById("gl");
+      const gl = canvas.getContext("webgl2", {
+        alpha: true,
+        premultipliedAlpha: true,
+        antialias: false,
+      });
+      if (!gl) {
+        document.body.innerHTML =
+          '<div class="fixed inset-0 grid place-items-center text-zinc-300">WebGL2 unavailable in this browser.</div>';
+        throw new Error("no webgl2");
+      }
+
+      function compile(type, src) {
+        const sh = gl.createShader(type);
+        gl.shaderSource(sh, src);
+        gl.compileShader(sh);
+        if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+          const log = gl.getShaderInfoLog(sh);
+          gl.deleteShader(sh);
+          throw new Error(log);
+        }
+        return sh;
+      }
+
+      const vs = compile(gl.VERTEX_SHADER, VERT);
+      const failures = [];
+      for (const m of MODELS) {
+        try {
+          const p = gl.createProgram();
+          gl.attachShader(p, vs);
+          gl.attachShader(p, compile(gl.FRAGMENT_SHADER, PRELUDE + m.src));
+          gl.linkProgram(p);
+          if (!gl.getProgramParameter(p, gl.LINK_STATUS))
+            throw new Error(gl.getProgramInfoLog(p));
+          m.prog = p;
+          m.u = {};
+          for (const n of ["u_res", "u_time", "u_act", "u_cursor", "u_gain"])
+            m.u[n] = gl.getUniformLocation(p, n);
+        } catch (e) {
+          // Name the model that failed. A silent black screen is the worst possible
+          // outcome here, because it is indistinguishable from a model that is dim.
+          failures.push(m.name + ": " + String(e.message).split("\n")[0]);
+          m.prog = null;
+        }
+      }
+      document.getElementById("errs").textContent = failures.join(" | ");
+
+      const vao = gl.createVertexArray();
+      gl.bindVertexArray(vao);
+      gl.disable(gl.BLEND); // shaders emit premultiplied; the page composites
+
+      let W = 0,
+        H = 0;
+      function resize() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        W = window.innerWidth;
+        H = window.innerHeight;
+        canvas.width = Math.round(W * dpr);
+        canvas.height = Math.round(H * dpr);
+        gl.viewport(0, 0, canvas.width, canvas.height);
+      }
+      window.addEventListener("resize", resize);
+      resize();
+
+      let cursor = [-9999, -9999],
+        target = [-9999, -9999];
+      window.addEventListener("mousemove", (e) => {
+        target = [
+          (e.clientX * canvas.width) / W,
+          ((H - e.clientY) * canvas.height) / H,
+        ];
+      });
+      window.addEventListener("mouseleave", () => {
+        target = [-9999, -9999];
+      });
+
+      const params = new URLSearchParams(location.search);
+      // ?freeze=0.4 pins one moment of the trigger and stops the clock, so a single
+      // frame can be compared across all ten without catching them at random phases.
+      const FREEZE = params.get("freeze");
+      const frozen = FREEZE === null ? null : parseFloat(FREEZE);
+
+      let current = Math.max(
+        0,
+        Math.min(MODELS.length - 1, parseInt(params.get("m") || "0", 10) || 0),
+      );
+      let actStart = performance.now();
+      const trigger = () => {
+        actStart = performance.now();
+      };
+
+      const list = document.getElementById("list");
+      function paintList() {
+        [...list.children].forEach((el, i) => {
+          const on = i === current;
+          el.className =
+            "w-full text-left px-3 py-2 rounded-lg transition-all duration-200 cursor-pointer flex items-baseline gap-2.5 " +
+            (on
+              ? "bg-amber-500/15 border border-amber-500/40"
+              : "border border-transparent hover:bg-white/5");
+          el.querySelector(".k").className =
+            "k text-xs " + (on ? "text-amber-400" : "text-zinc-600");
+          el.querySelector(".n").className =
+            "n text-sm font-medium " +
+            (on ? "text-amber-200" : "text-zinc-300");
+        });
+      }
+      MODELS.forEach((m, i) => {
+        const b = document.createElement("button");
+        b.innerHTML = `<span class="k" style="font-family:'JetBrains Mono',monospace">${(i + 1) % 10}</span>
+                 <span class="min-w-0"><span class="n">${m.name}</span>
+                 <span class="block text-xs text-zinc-500 leading-snug">${m.note}</span></span>`;
+        b.addEventListener("click", () => {
+          current = i;
+          paintList();
+          trigger();
+        });
+        list.appendChild(b);
+      });
+      paintList();
+
+      document.getElementById("replay").addEventListener("click", trigger);
+      const panel = document.getElementById("panel");
+      document
+        .getElementById("hide")
+        .addEventListener("click", () => panel.classList.toggle("opacity-0"));
+      window.addEventListener("keydown", (e) => {
+        if (e.code === "Space") {
+          e.preventDefault();
+          trigger();
+          return;
+        }
+        if (e.key === "h") {
+          panel.classList.toggle("opacity-0");
+          return;
+        }
+        if (/^[0-9]$/.test(e.key)) {
+          const i = (parseInt(e.key, 10) + 9) % 10;
+          if (i < MODELS.length) {
+            current = i;
+            paintList();
+            trigger();
+          }
+        }
+      });
+
+      const BACKDROPS = {
+        dark: "#0a0a0a",
+        photo:
+          "radial-gradient(ellipse at 20% 15%, #1e1b4b 0%, #0a0a0a 55%), radial-gradient(ellipse at 85% 80%, #422006 0%, transparent 60%)",
+        light: "#f4f4f5",
+      };
+      function setBackdrop(k) {
+        document.getElementById("backdrop").style.background = BACKDROPS[k];
+        document.querySelectorAll(".bd").forEach((b) => {
+          const on = b.dataset.bd === k;
+          b.classList.toggle("bg-amber-500/15", on);
+          b.classList.toggle("border-amber-500/40", on);
+          b.classList.toggle("text-amber-300", on);
+        });
+      }
+      document
+        .querySelectorAll(".bd")
+        .forEach((b) =>
+          b.addEventListener("click", () => setBackdrop(b.dataset.bd)),
+        );
+      setBackdrop("photo");
+
+      const fpsEl = document.getElementById("fps");
+      let last = performance.now(),
+        acc = 0,
+        frames = 0;
+
+      function frame(now) {
+        const dt = Math.min((now - last) / 1000, 0.05);
+        last = now;
+        acc += dt;
+        frames++;
+        if (acc > 0.5) {
+          fpsEl.textContent = (frames / acc).toFixed(0) + " fps";
+          acc = 0;
+          frames = 0;
+        }
+
+        cursor[0] += (target[0] - cursor[0]) * Math.min(dt * 14, 1);
+        cursor[1] += (target[1] - cursor[1]) * Math.min(dt * 14, 1);
+
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        const m = MODELS[current];
+        if (m.prog) {
+          gl.useProgram(m.prog);
+          gl.uniform2f(m.u.u_res, canvas.width, canvas.height);
+          gl.uniform1f(m.u.u_time, frozen !== null ? 12.0 : now / 1000);
+          gl.uniform1f(
+            m.u.u_act,
+            frozen !== null ? frozen : (now - actStart) / 1000,
+          );
+          gl.uniform2f(m.u.u_cursor, cursor[0], cursor[1]);
+          gl.uniform1f(m.u.u_gain, m.gain);
+          gl.bindVertexArray(vao);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+        }
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+      lucide.createIcons();
+    </script>
+  </body>
+</html>

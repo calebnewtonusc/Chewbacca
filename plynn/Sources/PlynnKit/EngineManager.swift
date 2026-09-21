@@ -83,10 +83,18 @@ public final class EngineManager {
         self.parakeet = parakeet ?? StreamingTranscriber()
         if let apple {
             self.apple = apple
-        } else if #available(macOS 26, *) {
-            self.apple = AppleSpeechEngine()
         } else {
+            #if canImport(FoundationModels)
+            if #available(macOS 26, *) {
+                self.apple = AppleSpeechEngine()
+            } else {
+                self.apple = UnavailableSpeechEngine()
+            }
+            #else
+            // Built against an SDK with no SpeechAnalyzer, so the type does
+            // not exist to construct. Parakeet carries dictation here.
             self.apple = UnavailableSpeechEngine()
+            #endif
         }
         self.warmUpTimeoutSeconds = max(0, warmUpTimeoutSeconds)
         self.preferred = preferred

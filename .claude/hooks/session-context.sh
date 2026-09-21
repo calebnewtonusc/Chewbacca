@@ -39,7 +39,11 @@ export TODOIST_API_TOKEN="${TODOIST_API_TOKEN:-}"
 CACHE="$HOME/.chewbacca/cache/session-context.json"
 TTL="${CHEWBACCA_CONTEXT_TTL:-900}"
 
-hook_cache_ready "$CACHE" "$TTL" "${PERSONAL_CONTEXT_DIR:-}/core" "$HOME/coursework/courses"
+# A question asked of the voice assistant since the cache was written
+# refreshes it too: the briefing carries the last few, and a stale copy would
+# hide the one asked a minute ago.
+SUPERASSISTANT_STORE="$(dirname "$("$HOME/.local/bin/superassistant" path 2>/dev/null || echo /nonexistent/x)")"
+hook_cache_ready "$CACHE" "$TTL" "${PERSONAL_CONTEXT_DIR:-}/core" "$HOME/coursework/courses" "$SUPERASSISTANT_STORE"
 case $? in
   0) type hook_emit >/dev/null 2>&1 && hook_emit < "$CACHE" || cat "$CACHE" ;;
   2) exit 0 ;;
@@ -201,11 +205,37 @@ try:
 except Exception:
     kits_line = ""
 
+# What they have asked the voice assistant lately, from the log that
+# bin/superassistant keeps. The other half of the loop: the voice reads
+# this brain, and a session here sees what was asked out loud.
+asked_line = ""
+try:
+    import subprocess
+    for candidate in (
+        os.path.join(os.path.expanduser("~"), ".local", "bin", "superassistant"),
+        "superassistant",
+    ):
+        try:
+            out = subprocess.run(
+                [candidate, "recent", "5", "--line"], capture_output=True, text=True, timeout=4
+            )
+        except (FileNotFoundError, OSError):
+            continue
+        if out.returncode == 0 and out.stdout.strip():
+            asked_line = "Asked of the voice assistant lately: " + "; ".join(
+                out.stdout.strip().splitlines()
+            ) + "."
+        break
+except Exception:
+    asked_line = ""
+
 chunks = []
 if kits_line:
     chunks.append(kits_line)
 if due_line:
     chunks.append(due_line)
+if asked_line:
+    chunks.append(asked_line)
 if tasks:
     chunks.append(f"Today's priorities: {tasks}.")
 if context:
