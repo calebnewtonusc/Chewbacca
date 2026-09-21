@@ -141,6 +141,16 @@ let handScale = 0.45;
 // pixels of travel. Live: `portal trail 420`.
 let trailPx = 300;
 
+// THE MIRROR DIMENSION. A full-screen layer that is always there and never
+// visible, and the portal is a hole cut to it. That is the whole model: no
+// cloud standing in for another world, no spiral drawn on top of this one.
+// "make the mirror dimension invisible and overlay the whole screen... The
+// portal should open a see through circle to the mirror dimension."
+const mirror = new Image();
+let mirrorReady = false;
+mirror.onload = () => { mirrorReady = true; };
+mirror.src = "mirror.jpg";
+
 // WHERE THE CIRCLE STOPS MOVING, and, because they are the same moment, where
 // it first appears at all.
 //
@@ -407,6 +417,18 @@ function frame(now: number) {
   // almost no angular spread. At about 1px a frame for 6 to 10 frames each
   // one travels under 10px, so the band stays where the hand drew it and the
   // density is what makes it read as thick.
+  // The mirror layer, cover-fitted to the display so it fills whatever shape
+  // the screen is without stretching. Draw it inside a clip and the clip is
+  // the portal.
+  const drawMirror = (alpha: number) => {
+    if (!mirrorReady || alpha <= 0.003) return;
+    const sc = Math.max(W / mirror.width, H / mirror.height);
+    const dw = mirror.width * sc, dh = mirror.height * sc;
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(mirror, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    ctx.globalAlpha = 1;
+  };
+
   const spawnBand = (x: number, y: number, tx: number, ty: number, heat: number) => {
     const spread = (Math.random() - 0.5) * 0.3;
     const sp = 0.45 + Math.random() * 1.0;
@@ -945,33 +967,23 @@ function frame(now: number) {
 
     // ── The other side, appearing as the circle is drawn ──────────────────
     //
-    // "it was a spiraling, cloudy blur that faded into the other side of what
-    // was through the portal. As the spiral began, the other dimension
-    // started to appear, clearer in the center, more faded by the rim, faded
-    // out to the current dimension around the part of the circle that the
-    // circumference hasn't been completed yet, and the whole thing faded but
-    // becoming less faded by the time the circle completes."
+    // ── The other side, appearing as the circle is drawn ──────────────────
     //
-    // Four separate fades, and each one is a different axis:
+    // HALF A CIRCLE, NOT THE LATCH. "The other dimension doesn't start
+    // loading in until abt 50% through the circle."
+    //
+    // Three fades, each a different axis:
     //
     //   RADIAL     clearest in the middle, gone by the rim.
     //   ANGULAR    only inside the arc already drawn. The part of the circle
     //              the hand has not reached yet is still this dimension.
     //   TEMPORAL   the whole thing strengthens as the circle closes.
-    //   THE EDGE   the leading edge is feathered, not a pie slice. Two
-    //              passes, the inner wedge carrying most of the weight.
     //
-    // Everything here is behind the ring and the sparks, so the rim still
-    // burns on top of it.
-    // HALF A CIRCLE, NOT THE LATCH. "The other dimension doesn't start
-    // loading in until abt 50% through the circle." It was tied to conf,
-    // which does not leave zero until 0.8 of progress, so the other side
-    // only began arriving at 257 degrees and had 52 degrees to do it in.
+    // An earlier version painted an orange cloud and five spiral arms here,
+    // standing in for another world. "Bro not a literal spiral that's so ugly
+    // and doesn't look like another dimension." It was drawing a thing on top
+    // of this dimension instead of showing a different one.
     //
-    // Its own ramp now, from half a turn to the moment the circle closes, so
-    // it comes in across 155 degrees of arc. The ring still locks at 0.8 and
-    // the cloud is blurred, which is what lets this start while the fit is
-    // still settling without the movement showing.
     const REVEAL_AT = 0.5;
     const reveal = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / (1 - REVEAL_AT)));
     if (fitC && !portalUp && reveal > 0.01) {
@@ -980,59 +992,33 @@ function frame(now: number) {
       const ccw = p.sweep < 0;
       const a0 = drawing ? drawing.a0 : (p.startAngle ?? 0);
       const a1 = p.endAngle ?? a0;
-      const open = reveal;
       const FEATHER = 0.22;   // radians trimmed off the leading edge
 
-      const wedge = (trim: number) => {
-        ctx.beginPath();
-        ctx.moveTo(cvx, cvy);
-        ctx.arc(cvx, cvy, Rv, a0, a1 - (ccw ? -trim : trim), ccw);
-        ctx.closePath();
-      };
-
-      const cloud = (alpha: number) => {
-        const v = ctx.createRadialGradient(cvx, cvy, 0, cvx, cvy, Rv);
-        v.addColorStop(0, `rgba(255, 178, 96, ${0.34 * alpha})`);
-        v.addColorStop(0.42, `rgba(196, 98, 34, ${0.22 * alpha})`);
-        v.addColorStop(0.8, `rgba(96, 40, 13, ${0.10 * alpha})`);
-        v.addColorStop(1, "rgba(0,0,0,0)");
-        ctx.fillStyle = v;
-        ctx.beginPath();
-        ctx.arc(cvx, cvy, Rv, 0, Math.PI * 2);
-        ctx.fill();
-      };
-
       ctx.save();
-      ctx.globalCompositeOperation = "source-over";
-      // The blur is what makes it cloud rather than gradient. Kept to one
-      // filtered pass, because a canvas filter is not cheap.
-      ctx.filter = `blur(${Math.max(2, Rv * 0.06).toFixed(1)}px)`;
-      ctx.save(); wedge(FEATHER * 2); ctx.clip(); cloud(open * 0.62); ctx.restore();
-      ctx.save(); wedge(0); ctx.clip(); cloud(open * 0.34); ctx.restore();
+      // Only the part of the circle the hand has already drawn. The rest is
+      // still this dimension.
+      ctx.beginPath();
+      ctx.moveTo(cvx, cvy);
+      ctx.arc(cvx, cvy, Rv, a0, a1 - (ccw ? -FEATHER : FEATHER), ccw);
+      ctx.closePath();
+      ctx.clip();
 
-      // The spiral. Arms wound out from the middle, turning slowly, brighter
-      // as the circle closes. They wind the way the hand is going, so the
-      // drawing and the thing behind it agree about which way round this is.
-      ctx.globalCompositeOperation = "lighter";
-      ctx.lineCap = "round";
-      ctx.save(); wedge(FEATHER); ctx.clip();
-      const turn = now / 2600;
-      for (let arm = 0; arm < 5; arm++) {
-        ctx.beginPath();
-        const base = turn + (arm / 5) * Math.PI * 2;
-        for (let i = 0; i <= 24; i++) {
-          const u = i / 24;
-          const rr = Rv * (0.1 + 0.88 * u);
-          const th = base + u * 2.3 * (ccw ? -1 : 1);
-          const x = cvx + Math.cos(th) * rr, y = cvy + Math.sin(th) * rr;
-          if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
-        }
-        ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.11 * open})`;
-        ctx.lineWidth = Math.max(1.5, Rv * 0.055);
-        ctx.stroke();
-      }
-      ctx.restore();
-      ctx.filter = "none";
+      // The other side, at the strength this much of a circle has earned.
+      drawMirror(reveal);
+
+      // Clearer in the middle, gone by the rim. Erasing a radial gradient out
+      // of what was just drawn is what makes the edge soft: the mirror fades
+      // into this dimension instead of ending at a line.
+      ctx.globalCompositeOperation = "destination-out";
+      const fade = ctx.createRadialGradient(cvx, cvy, Rv * 0.25, cvx, cvy, Rv);
+      fade.addColorStop(0, "rgba(0,0,0,0)");
+      fade.addColorStop(0.7, "rgba(0,0,0,0.45)");
+      fade.addColorStop(1, "rgba(0,0,0,1)");
+      ctx.fillStyle = fade;
+      ctx.beginPath();
+      ctx.arc(cvx, cvy, Rv, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = "source-over";
       ctx.restore();
     }
 
@@ -1297,15 +1283,23 @@ function frame(now: number) {
         disc(cn, rnHole); ctx.fill();
         ctx.globalAlpha = 1;
       } else {
+        // A WINDOW, NOT A DISC. With no app armed this used to paint a dark
+        // gradient, which reads as a hole in the glass and not as somewhere
+        // else. It shows the mirror dimension now: the same full-screen layer
+        // that has been there invisibly the whole time, clipped to the hole.
         ctx.globalCompositeOperation = "source-over";
-        ctx.globalAlpha = vis;
-        const inner = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, Math.max(2, rpxHole));
-        inner.addColorStop(0, "rgba(3, 2, 1, 1)");
-        inner.addColorStop(0.82, "rgba(10, 5, 2, 1)");
-        inner.addColorStop(0.95, "rgba(46, 18, 5, 1)");
-        inner.addColorStop(1, "rgba(120, 48, 12, 0.85)");
-        ctx.fillStyle = inner;
+        ctx.save();
+        disc(cn, rnHole); ctx.clip();
+        drawMirror(vis);
+        // A little darkness at the very rim, so the edge still reads as burnt
+        // open rather than as a photograph pasted on.
+        const lipDark = ctx.createRadialGradient(
+          cx0, cy0, Math.max(1, rpxHole * 0.82), cx0, cy0, Math.max(2, rpxHole));
+        lipDark.addColorStop(0, "rgba(0,0,0,0)");
+        lipDark.addColorStop(1, `rgba(24, 10, 3, ${0.75 * vis})`);
+        ctx.fillStyle = lipDark;
         disc(cn, rnHole); ctx.fill();
+        ctx.restore();
         ctx.globalAlpha = 1;
       }
 

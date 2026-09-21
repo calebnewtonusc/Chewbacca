@@ -616,6 +616,12 @@
   var reachScale = 1;
   var handScale = 0.45;
   var trailPx = 300;
+  var mirror = new Image();
+  var mirrorReady = false;
+  mirror.onload = () => {
+    mirrorReady = true;
+  };
+  mirror.src = "mirror.jpg";
   var LATCH_AT = 0.8;
   var lastSeen = 0;
   var armed = null;
@@ -714,6 +720,14 @@
     const disc = (cn, rn) => {
       ctx.beginPath();
       ctx.arc(px(cn.x), py(cn.y), rn * RPX, 0, Math.PI * 2);
+    };
+    const drawMirror = (alpha) => {
+      if (!mirrorReady || alpha <= 3e-3) return;
+      const sc = Math.max(W / mirror.width, H / mirror.height);
+      const dw = mirror.width * sc, dh = mirror.height * sc;
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(mirror, (W - dw) / 2, (H - dh) / 2, dw, dh);
+      ctx.globalAlpha = 1;
     };
     const spawnBand = (x, y, tx, ty, heat) => {
       const spread = (Math.random() - 0.5) * 0.3;
@@ -975,61 +989,24 @@
         const ccw = p.sweep < 0;
         const a0 = drawing ? drawing.a0 : p.startAngle ?? 0;
         const a1 = p.endAngle ?? a0;
-        const open = reveal;
         const FEATHER = 0.22;
-        const wedge = (trim) => {
-          ctx.beginPath();
-          ctx.moveTo(cvx, cvy);
-          ctx.arc(cvx, cvy, Rv, a0, a1 - (ccw ? -trim : trim), ccw);
-          ctx.closePath();
-        };
-        const cloud = (alpha) => {
-          const v = ctx.createRadialGradient(cvx, cvy, 0, cvx, cvy, Rv);
-          v.addColorStop(0, `rgba(255, 178, 96, ${0.34 * alpha})`);
-          v.addColorStop(0.42, `rgba(196, 98, 34, ${0.22 * alpha})`);
-          v.addColorStop(0.8, `rgba(96, 40, 13, ${0.1 * alpha})`);
-          v.addColorStop(1, "rgba(0,0,0,0)");
-          ctx.fillStyle = v;
-          ctx.beginPath();
-          ctx.arc(cvx, cvy, Rv, 0, Math.PI * 2);
-          ctx.fill();
-        };
         ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(cvx, cvy);
+        ctx.arc(cvx, cvy, Rv, a0, a1 - (ccw ? -FEATHER : FEATHER), ccw);
+        ctx.closePath();
+        ctx.clip();
+        drawMirror(reveal);
+        ctx.globalCompositeOperation = "destination-out";
+        const fade = ctx.createRadialGradient(cvx, cvy, Rv * 0.25, cvx, cvy, Rv);
+        fade.addColorStop(0, "rgba(0,0,0,0)");
+        fade.addColorStop(0.7, "rgba(0,0,0,0.45)");
+        fade.addColorStop(1, "rgba(0,0,0,1)");
+        ctx.fillStyle = fade;
+        ctx.beginPath();
+        ctx.arc(cvx, cvy, Rv, 0, Math.PI * 2);
+        ctx.fill();
         ctx.globalCompositeOperation = "source-over";
-        ctx.filter = `blur(${Math.max(2, Rv * 0.06).toFixed(1)}px)`;
-        ctx.save();
-        wedge(FEATHER * 2);
-        ctx.clip();
-        cloud(open * 0.62);
-        ctx.restore();
-        ctx.save();
-        wedge(0);
-        ctx.clip();
-        cloud(open * 0.34);
-        ctx.restore();
-        ctx.globalCompositeOperation = "lighter";
-        ctx.lineCap = "round";
-        ctx.save();
-        wedge(FEATHER);
-        ctx.clip();
-        const turn = now / 2600;
-        for (let arm = 0; arm < 5; arm++) {
-          ctx.beginPath();
-          const base = turn + arm / 5 * Math.PI * 2;
-          for (let i = 0; i <= 24; i++) {
-            const u = i / 24;
-            const rr = Rv * (0.1 + 0.88 * u);
-            const th = base + u * 2.3 * (ccw ? -1 : 1);
-            const x = cvx + Math.cos(th) * rr, y = cvy + Math.sin(th) * rr;
-            if (i) ctx.lineTo(x, y);
-            else ctx.moveTo(x, y);
-          }
-          ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.11 * open})`;
-          ctx.lineWidth = Math.max(1.5, Rv * 0.055);
-          ctx.stroke();
-        }
-        ctx.restore();
-        ctx.filter = "none";
         ctx.restore();
       }
       ctx.globalCompositeOperation = "lighter";
@@ -1167,15 +1144,24 @@
           ctx.globalAlpha = 1;
         } else {
           ctx.globalCompositeOperation = "source-over";
-          ctx.globalAlpha = vis;
-          const inner = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, Math.max(2, rpxHole));
-          inner.addColorStop(0, "rgba(3, 2, 1, 1)");
-          inner.addColorStop(0.82, "rgba(10, 5, 2, 1)");
-          inner.addColorStop(0.95, "rgba(46, 18, 5, 1)");
-          inner.addColorStop(1, "rgba(120, 48, 12, 0.85)");
-          ctx.fillStyle = inner;
+          ctx.save();
+          disc(cn, rnHole);
+          ctx.clip();
+          drawMirror(vis);
+          const lipDark = ctx.createRadialGradient(
+            cx0,
+            cy0,
+            Math.max(1, rpxHole * 0.82),
+            cx0,
+            cy0,
+            Math.max(2, rpxHole)
+          );
+          lipDark.addColorStop(0, "rgba(0,0,0,0)");
+          lipDark.addColorStop(1, `rgba(24, 10, 3, ${0.75 * vis})`);
+          ctx.fillStyle = lipDark;
           disc(cn, rnHole);
           ctx.fill();
+          ctx.restore();
           ctx.globalAlpha = 1;
         }
         ctx.globalCompositeOperation = "lighter";
