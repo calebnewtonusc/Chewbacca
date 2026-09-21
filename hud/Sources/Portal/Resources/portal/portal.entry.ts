@@ -449,17 +449,6 @@ function frame(now: number) {
   // almost no angular spread. At about 1px a frame for 6 to 10 frames each
   // one travels under 10px, so the band stays where the hand drew it and the
   // density is what makes it read as thick.
-  // The mirror layer, cover-fitted to the display so it fills whatever shape
-  // the screen is without stretching. Draw it inside a clip and the clip is
-  // the portal.
-  const drawMirror = (alpha: number) => {
-    if (!mirrorReady || alpha <= 0.003) return;
-    const sc = Math.max(W / mirror.width, H / mirror.height);
-    const dw = mirror.width * sc, dh = mirror.height * sc;
-    ctx.globalAlpha = alpha;
-    ctx.drawImage(mirror, (W - dw) / 2, (H - dh) / 2, dw, dh);
-    ctx.globalAlpha = 1;
-  };
 
   // The mirror dimension showing through a circle.
   //
@@ -478,225 +467,120 @@ function frame(now: number) {
   // it looks like a pie lmao". It is erased with a blurred conic gradient
   // and a few soft blobs along the boundary instead, so the mirror thins out
   // into this dimension the way fog does.
+  // The mirror dimension showing through a circle.
+  //
+  // ON ITS OWN CANVAS, THEN COMPOSITED ONCE.
+  //
+  // The mask has to be soft, and ctx.filter is dropped by WebKit under
+  // destination-out, which is the composite an erase needs. Working round
+  // that by stacking nine eroded fills at partial alpha produced exactly what
+  // stacking shapes produces: concentric arcs, a grey swirl through the
+  // middle, and nothing ever fully opaque. "this is so ugly bruh and does not
+  // look like a portal."
+  //
+  // ctx.filter IS honoured under source-over. So the mask is drawn blurred on
+  // an offscreen canvas, the backing and the image are poured into it with
+  // source-in, and the whole thing lands on the glass in one drawImage. One
+  // composite, a real blur, no banding, and opaque wherever the mask is.
+  const maskCv = document.createElement("canvas");
+  const maskCtx = maskCv.getContext("2d");
+
   const paintMirror = (
     cxp: number, cyp: number, Rp: number,
     strength: number, gapFrom: number, gapSize: number, ccw: boolean,
     cloud: number, fill: number, spiral: number,
   ) => {
-    if (!mirrorReady || strength <= 0.004 || Rp < 3) return;
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
-    ctx.clip();
+    if (!mirrorReady || !maskCtx || strength <= 0.004 || Rp < 3) return;
 
-    // A DARK BACKING UNDER THE IMAGE.
-    //
-    // The mirror was drawn straight onto the glass at partial alpha, so the
-    // desktop showed through it. Over a bright window that is a wash: the
-    // image reads as a smudge and the part not yet filled reads as a white
-    // blob, which is a soap bubble and not a hole. "Bro wtf", twice.
-    //
-    // Somewhere else has to OCCLUDE here. The backing goes down first at the
-    // same strength, so the filled part is opaque as far as it has got and
-    // the light behind it stops leaking through the city.
-    ctx.globalAlpha = strength;
-    ctx.fillStyle = "rgb(9, 12, 18)";
-    ctx.beginPath();
-    ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
+    const pad = Math.max(12, Rp * 0.4);
+    const size = Math.ceil(2 * Rp + pad * 2);
+    if (maskCv.width !== size || maskCv.height !== size) {
+      maskCv.width = size; maskCv.height = size;
+    }
+    const ox = cxp - Rp - pad, oy = cyp - Rp - pad;   // offscreen origin
+    const mx0 = Rp + pad, my0 = Rp + pad;             // centre, offscreen
+    const m = maskCtx;
+    m.setTransform(1, 0, 0, 1, 0, 0);
+    m.clearRect(0, 0, size, size);
 
-    drawMirror(strength);
+    const dir = ccw ? -1 : 1;
+    const drawnAng = Math.min(Math.PI * 2, (1 - gapSize) * Math.PI * 2);
+    const gapAng = Math.PI * 2 - drawnAng;
+    const aNew = gapFrom;
+    const aOld = aNew - dir * drawnAng;
+    const f = Math.max(0, Math.min(1, fill));
+    const STEPS = 72;
 
-    // FADED OVERALL, MOST AT THE RIM, AND THE FADE GOES AS IT PROGRESSES.
-    // "the whole thing still should be faded with the rim more faded, and the
-    // fade disapears as the circle progresses." Separate from the spiral:
-    // that says how much of the circle is the other side, this says how
-    // solidly. At fill 1 nothing is erased and the mirror is simply there.
-    const veil = (1 - Math.max(0, Math.min(1, fill))) * 0.8;
+    // How deep the other side has eaten, u of the way from where the circle
+    // began to the leading edge. Not linear: a linear wind steps the radius
+    // by the same amount every sample, which reads as engineered. u^2.4 grows
+    // each step two to three times the last, which is what a real spiral
+    // does, so it hugs the rim where it began and dives toward the fingers.
+    // The wind is blended by (1 - fill) so both ends meet when the circle
+    // closes, and `spiral` unwinds it to a uniform depth as the portal opens.
+    const depthAt = (u: number) => {
+      const wound = Math.pow(u, 2.4) * spiral + (1 - spiral);
+      const g = wound * (1 - f) + f;
+      const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950)
+                      + 0.028 * Math.sin(u * 15.7 - now / 1500);
+      return Math.max(0, Math.min(1, f * g)) * rough;
+    };
+
+    // The mask, blurred for real. Source-over, so the filter is honoured.
+    m.filter = `blur(${Math.max(5, Rp * (0.06 + 0.1 * cloud)).toFixed(1)}px)`;
+    m.fillStyle = "#fff";
+    m.beginPath();
+    // Outer boundary: the rim, but only across the part already drawn.
+    for (let i = 0; i <= STEPS; i++) {
+      const th = aOld + dir * (i / STEPS) * drawnAng;
+      const x = mx0 + Math.cos(th) * Rp, y = my0 + Math.sin(th) * Rp;
+      if (i) m.lineTo(x, y); else m.moveTo(x, y);
+    }
+    // Inner boundary: the spiral, back the other way.
+    for (let i = STEPS; i >= 0; i--) {
+      const u = i / STEPS;
+      const th = aOld + dir * u * drawnAng;
+      const rr = Math.max(0, Rp * (1 - depthAt(u)));
+      m.lineTo(mx0 + Math.cos(th) * rr, my0 + Math.sin(th) * rr);
+    }
+    m.closePath();
+    m.fill();
+    m.filter = "none";
+
+    // Faded overall, most at the rim, and the fade goes as the circle
+    // progresses. Separate from the spiral: the spiral says how MUCH of the
+    // circle is the other side, this says how solidly.
+    const veil = (1 - f) * 0.75;
     if (veil > 0.004) {
-      ctx.globalCompositeOperation = "destination-out";
-      const vg = ctx.createRadialGradient(cxp, cyp, 0, cxp, cyp, Rp);
-      vg.addColorStop(0, `rgba(0,0,0,${veil * 0.35})`);
-      vg.addColorStop(0.65, `rgba(0,0,0,${veil * 0.6})`);
+      m.globalCompositeOperation = "destination-out";
+      const vg = m.createRadialGradient(mx0, my0, 0, mx0, my0, Rp);
+      vg.addColorStop(0, `rgba(0,0,0,${veil * 0.3})`);
+      vg.addColorStop(0.65, `rgba(0,0,0,${veil * 0.55})`);
       vg.addColorStop(1, `rgba(0,0,0,${veil})`);
-      ctx.fillStyle = vg;
-      ctx.beginPath();
-      ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalCompositeOperation = "source-over";
+      m.fillStyle = vg;
+      m.beginPath();
+      m.arc(mx0, my0, Rp, 0, Math.PI * 2);
+      m.fill();
     }
 
-    // A SPIRAL CLOSING IN, NOT A CURVE FROM A TO B.
-    //
-    // "It should look like a spiral that is closing in not just a curve from
-    //  point a to point b. and cloudy around the edges for a natural fade."
-    //
-    // The depth has a second axis, and adding it makes the boundary a spiral
-    // by itself rather than by drawing one. The part of the arc the hand drew
-    // FIRST has been eating inward the longest; the part under the fingers
-    // has only just started. So along the drawn arc the inner edge runs from
-    // deep at the old end out to the rim at the new end, which is a spiral,
-    // and it tightens toward the middle as the circle closes.
-    //
-    // At the old end, by how much is drawn:
-    //     10%  0.90 R    50%  0.50 R    90%  0.10 R
-    // and at the leading edge it is always R, because nothing has opened
-    // there yet.
-    //
-    // ONE ERASED REGION, NOT TWO. Everything not yet the other side is a
-    // single shape containing the middle: the inside of the spiral, joined to
-    // the part of the circle the hand has not reached. Erasing it in one
-    // blurred pass is what makes every edge cloudy at once, the spiral and
-    // the unfinished arc both, instead of one being soft and the other a cut.
-    if (cloud > 0.002) {
-      const dir = ccw ? -1 : 1;
-      const drawnAng = Math.min(Math.PI * 2, (1 - gapSize) * Math.PI * 2);
-      const gapAng = Math.PI * 2 - drawnAng;
-      const aNew = gapFrom;                     // the leading edge
-      const aOld = aNew - dir * drawnAng;       // where the circle began
-      const f = Math.max(0, Math.min(1, fill));
-      const STEPS = 64;
+    // Pour somewhere else into the mask. The backing first, so the portal
+    // OCCLUDES rather than tinting whatever is behind the glass, then the
+    // image on top of it.
+    m.globalCompositeOperation = "source-in";
+    m.fillStyle = "rgb(7, 10, 16)";
+    m.fillRect(0, 0, size, size);
 
-      // How far in the other side has eaten, at a point u of the way from the
-      // old end to the leading edge. `spiral` is 1 while drawing and relaxes
-      // to 0 as the portal opens, which is what unwinds it into a full disc.
-      // THE OTHER WAY ROUND. "the beginning of the spiral should be further
-      // from the center than the end of it, with both of them scaling with
-      // progression to meet at 100%."
-      //
-      // It was deepest where the circle began and at the rim under the
-      // fingers. It is the reverse: the start of the spiral sits out near the
-      // rim and it winds INWARD toward the leading edge, which is what a
-      // spiral closing in actually does.
-      //
-      // depth = fill ** (1 + s*(1-u)) does all three things at once. At the
-      // leading edge the exponent is 1, so depth is fill. Back at the start
-      // the exponent is larger, so depth is a smaller power of a number below
-      // one, which is shallower. And at fill = 1 every exponent gives 1, so
-      // both ends arrive at the middle together:
-      //
-      //     drawn    start of spiral   leading edge
-      //      25%         0.97 R           0.75 R
-      //      50%         0.82 R           0.50 R
-      //      75%         0.55 R           0.25 R
-      //     100%         0.00 R           0.00 R   they meet
-      // NOT LINEAR. "linear looks to engineered", and it does, because a
-      // linear wind steps the radius by the same amount every sample. At half
-      // drawn, the step between quarter points:
-      //
-      //     linear    0.062  0.062  0.062  0.062
-      //     u^2.4     0.009  0.038  0.078  0.125
-      //
-      // Four identical steps is a machine. Each step two to three times the
-      // last is the constant-factor growth a real spiral has, so it hugs the
-      // rim where it began and dives as it comes round to the fingers:
-      //
-      //     u        0.00   0.25   0.50   0.75   1.00
-      //     linear   0.750  0.688  0.625  0.562  0.500
-      //     u^2.4    0.750  0.741  0.703  0.625  0.500
-      //
-      // `spiral` still unwinds the whole thing to a uniform depth as the
-      // portal opens, and the ends still meet at fill = 1, because the wind
-      // term is blended by (1 - fill) and vanishes there.
-      const depthAt = (u: number) => {
-        const wound = Math.pow(u, 2.4) * spiral + (1 - spiral);
-        const g = wound * (1 - f) + f;
-        const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950)
-                        + 0.028 * Math.sin(u * 15.7 - now / 1500);
-        return Math.max(0, Math.min(1, f * g)) * rough;
-      };
+    m.globalCompositeOperation = "source-atop";
+    const sc = Math.max(W / mirror.width, H / mirror.height);
+    const dw = mirror.width * sc, dh = mirror.height * sc;
+    m.drawImage(mirror, (W - dw) / 2 - ox, (H - dh) / 2 - oy, dw, dh);
+    m.globalCompositeOperation = "source-over";
 
-      ctx.globalCompositeOperation = "destination-out";
-      // "The edge of the spiral on the inside is so sharp bruh." A solid
-      // fill under a 0.07 R blur is still a cut with a soft lip on it. More
-      // blur, and the fill itself is a gradient rather than flat black, so
-      // the boundary has depth instead of an outline.
-      ctx.filter = `blur(${Math.max(7, Rp * 0.17).toFixed(1)}px)`;
-      // Build the region as a closed ring of points, at an EROSION: `off` is
-      // how far the boundary is pulled in from its true position.
-      const ringAt = (off: number) => {
-        const out: { x: number; y: number }[] = [];
-        for (let i = 0; i <= STEPS; i++) {
-          const u = i / STEPS;
-          const th = aOld + dir * u * drawnAng;
-          const rr = Math.max(0, Rp * (1 - depthAt(u)) - off);
-          out.push({ x: cxp + Math.cos(th) * rr, y: cyp + Math.sin(th) * rr });
-        }
-        if (gapAng > 0.001) {
-          const gr = Math.max(0, Rp - off);
-          for (let i = 0; i <= STEPS; i++) {
-            const th = aNew + dir * (i / STEPS) * gapAng;
-            out.push({ x: cxp + Math.cos(th) * gr, y: cyp + Math.sin(th) * gr });
-          }
-        }
-        // Round every corner. Where the spiral runs out to the rim at each
-        // end of the drawn arc it meets it at a corner, and a corner on a
-        // thing made of weather is wrong. Cyclic, because this is a loop:
-        // the shared smoother pins its ends, and a pinned end here would be
-        // the one corner left sharp. A circle of radius 100 comes back 0.7px
-        // smaller after twelve passes, so the arcs keep their shape and only
-        // the joins give.
-        let r = out;
-        for (let pass = 0; pass < 6; pass++) {
-          const o = r.slice(), n = r.length;
-          for (let i = 0; i < n; i++) {
-            const a = r[(i - 1 + n) % n], c = r[i], b = r[(i + 1) % n];
-            o[i] = { x: (a.x + c.x * 2 + b.x) / 4, y: (a.y + c.y * 2 + b.y) / 4 };
-          }
-          r = o;
-        }
-        return r;
-      };
-
-      // A SOFT EDGE WITHOUT ctx.filter.
-      //
-      // "why is there no fade on the middle edge". The blur has been set here
-      // for several commits and never did anything: ctx.filter reads back as
-      // `blur(5px)` on this engine, so it is supported, and WebKit ignores it
-      // under destination-out. A filter that is accepted and dropped looks
-      // exactly like a filter set too low, which is why this survived so long.
-      //
-      // So the ramp is built out of geometry instead. The region is filled
-      // several times, each one eroded a little further in, at partial alpha.
-      // The deep middle is covered by every layer and goes fully; the outer
-      // band is covered by one and barely goes; in between is a gradient as
-      // wide as the erosion. Nothing about it depends on a filter working.
-      const LAYERS = 9;
-      const band = Math.max(8, Rp * 0.22);
-      for (let j = 0; j < LAYERS; j++) {
-        const r = ringAt((j / (LAYERS - 1)) * band);
-        ctx.globalAlpha = 0.30;
-        ctx.fillStyle = "rgb(0,0,0)";
-        ctx.beginPath();
-        ctx.moveTo(r[0].x, r[0].y);
-        for (let i = 1; i < r.length; i++) ctx.lineTo(r[i].x, r[i].y);
-        ctx.closePath();
-        ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-
-      // Weather along the boundary, drifting on a slow clock so it breathes
-      // rather than flickers.
-      for (let i = 0; i < 6; i++) {
-        const t = now / 3000 + i * 1.7;
-        const u = (Math.sin(t) + 1) / 2;
-        const th = aOld + dir * u * drawnAng;
-        const rr = Rp * (1 - depthAt(u));
-        const br = Rp * (0.07 + 0.09 * ((Math.cos(t * 0.9 + i) + 1) / 2));
-        const bx = cxp + Math.cos(th) * rr, by = cyp + Math.sin(th) * rr;
-        const g2 = ctx.createRadialGradient(bx, by, 0, bx, by, br);
-        g2.addColorStop(0, "rgba(0,0,0,0.75)");
-        g2.addColorStop(1, "rgba(0,0,0,0)");
-        ctx.fillStyle = g2;
-        ctx.beginPath();
-        ctx.arc(bx, by, br, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.filter = "none";
-    }
-
+    ctx.save();
     ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = strength;
+    ctx.drawImage(maskCv, ox, oy);
+    ctx.globalAlpha = 1;
     ctx.restore();
   };
 
