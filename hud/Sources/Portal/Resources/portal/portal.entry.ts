@@ -90,7 +90,17 @@ let drawing: { cx: number; cy: number; r: number; a0: number } | null = null;
 // circle as the detector starts to recognise one, which is what he asked
 // for: "I wanna draw a line, and once it starts detecting a circle that
 // line bends into starting the circle."
-let stroke: { x: number; y: number }[] = [];
+// Each point keeps where the finger WAS and where it is being DRAWN. The
+// drawn position eases toward the fitted circle every frame, so the
+// correction is visible as motion: "wtv is outside the circle should move
+// to the circle as it is drawn, so you can see what I'm drawing move to
+// the perfect circle."
+//
+// Computing the bend from progress alone could not do this. It produced the
+// right shape with no motion in it, because a point's drawn position was a
+// pure function of how far round the hand had got rather than of where the
+// point was a frame ago.
+let stroke: { x: number; y: number; rx: number; ry: number }[] = [];
 // How far from the centre of the screen the hand can reach.
 //
 // DEFAULT 1, which is no compression at all: the fingertip is exactly where
@@ -430,7 +440,7 @@ function frame(now: number) {
   // So the gesture is measured in the hand's own full range and only the
   // result is pulled toward the middle of the screen.
   if (cursor) {
-    stroke.push({ x: cursor.x, y: cursor.y });
+    stroke.push({ x: cursor.x, y: cursor.y, rx: cursor.x, ry: cursor.y });
     if (stroke.length > 220) stroke.shift();
   } else if (stroke.length) {
     stroke = [];
@@ -592,24 +602,32 @@ function frame(now: number) {
   // behind.
   if (!portalUp && pinched && stroke.length > 2) {
     const fitC = drawing ?? (p.center ? { cx: p.center.x, cy: p.center.y, r: p.radius } : null);
-    const bend = fitC ? Math.min(1, Math.pow(p.progress / 0.5, 1.5)) : 0;
-    const k = Math.pow(Math.min(1, p.progress / 0.5), 1.2);
+    // EARLY AND FAST. The pull starts at a tenth of a turn and is at full
+    // strength by a third, because the correction is most of the effect and
+    // arriving late made it look like a separate thing happening afterwards.
+    const conf = Math.max(0, Math.min(1, (p.progress - 0.1) / 0.23));
+    const k = Math.pow(conf, 0.9);
+
+    // Ease every point toward the circle, a fraction of the remaining
+    // distance per frame. This is what makes it MOVE rather than simply be
+    // in a different place than it was.
+    if (fitC) {
+      const rate = 0.12 + 0.3 * conf;
+      for (const q of stroke) {
+        const dx = q.rx - fitC.cx;
+        const dy = q.ry - fitC.cy;
+        const d = Math.hypot(dx, dy) || 1;
+        const tx = fitC.cx + (dx / d) * fitC.r;
+        const ty = fitC.cy + (dy / d) * fitC.r;
+        q.rx += (tx - q.rx) * rate;
+        q.ry += (ty - q.ry) * rate;
+      }
+    }
 
     ctx.globalCompositeOperation = "lighter";
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    const pts = stroke.map((q, i) => {
-      if (!fitC || bend <= 0) return q;
-      const dx = q.x - fitC.cx;
-      const dy = q.y - fitC.cy;
-      const d = Math.hypot(dx, dy) || 1;
-      const onCircle = { x: fitC.cx + (dx / d) * fitC.r, y: fitC.cy + (dy / d) * fitC.r };
-      // Older points are further along the bend, so the line settles from
-      // the tail forward instead of snapping all at once.
-      const age = 1 - i / Math.max(1, stroke.length - 1);
-      const b = Math.min(1, bend * (0.55 + 0.45 * age));
-      return { x: q.x + (onCircle.x - q.x) * b, y: q.y + (onCircle.y - q.y) * b };
-    });
+    const rBase = fitC ? fitC.r : 0.05;
 
     for (const [width, colour, alpha, blur] of [
       [0.055, SPARK_COLD, 0.05 + k * 0.3, 8 + 26 * k],
@@ -619,23 +637,35 @@ function frame(now: number) {
       ctx.shadowBlur = blur;
       ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
       ctx.strokeStyle = `rgba(${colour}, ${alpha})`;
-      ctx.lineWidth = Math.max(1, (fitC ? fitC.r : 0.05) * RPX * width);
+      ctx.lineWidth = Math.max(1, rBase * RPX * width);
       ctx.beginPath();
-      pts.forEach((q, i) => {
-        const qx = mx(q.x), qy = my(q.y);
+      stroke.forEach((q, i) => {
+        const qx = mx(q.rx), qy = my(q.ry);
         if (i === 0) ctx.moveTo(qx, qy); else ctx.lineTo(qx, qy);
       });
       ctx.stroke();
     }
     ctx.shadowBlur = 0;
 
-    // Sparks off the moving end, scaled by how much has registered.
-    const head = pts[pts.length - 1];
-    const prev = pts[pts.length - 2] ?? head;
-    let tx = mx(head.x) - mx(prev.x);
-    let ty = my(head.y) - my(prev.y);
+    // A spark wherever a point is still travelling, so the correction reads
+    // as the line being pulled rather than redrawn.
+    if (fitC && conf > 0.05) {
+      for (let i = 0; i < stroke.length; i += 6) {
+        const q = stroke[i];
+        const gap = Math.hypot(mx(q.rx) - mx(q.x), my(q.ry) - my(q.y));
+        if (gap < 6) continue;
+        spawnAt(mx(q.rx), my(q.ry),
+          (mx(q.x) - mx(q.rx)) / gap, (my(q.y) - my(q.ry)) / gap,
+          1, 1.2, true);
+      }
+    }
+
+    const head = stroke[stroke.length - 1];
+    const prev = stroke[stroke.length - 2] ?? head;
+    let tx = mx(head.rx) - mx(prev.rx);
+    let ty = my(head.ry) - my(prev.ry);
     const tm = Math.hypot(tx, ty) || 1;
-    spawnAt(mx(head.x), my(head.y), tx / tm, ty / tm,
+    spawnAt(mx(head.rx), my(head.ry), tx / tm, ty / tm,
       Math.round(1 + k * 9), 2.2 + k * 3.0, true);
     if (fitC) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
   }
