@@ -148,7 +148,11 @@ The ledger goes stale in exactly three ways, and all three are silent:
   mentions a change, update the ledger in the same turn and set `source` to
   "announced in class YYYY-MM-DD".
 - **Work gets done** and stays marked `todo`, so `due` keeps shouting about it.
-  Flip `status: done` as things land.
+  Flip `status: done` as things land. **Before calling anything overdue, check
+  the LMS rather than asking.** Most systems will say, per student, whether a
+  thing was submitted and exactly when; `references/lms-ingest.md` has the D2L
+  endpoint. Asking surfaces what they happen to remember, which is the big
+  assignment, not the small one sitting on the same line of the syllabus.
 - **An absence happens** and `absences.used` never moves. Increment it when the
   user says they missed a class. This is the field that decides a grade step and
   nobody remembers it in November.
@@ -164,4 +168,4 @@ and grading weights that do not sum to 100.
 | `references/syllabus-intake.md` | Ingesting a syllabus into the ledger                                 |
 | `references/grading-models.md`  | Weighted, points-based, or labor-contract grading math               |
 | `references/integrity.md`       | Deciding what help a course actually permits, and how to disclose it |
-| `references/lms-ingest.md`      | The school runs Blackboard Ultra, so the term can be read directly   |
+| `references/lms-ingest.md`      | Reading the term straight out of the LMS (Blackboard Ultra, D2L Brightspace), and checking what was actually submitted |
