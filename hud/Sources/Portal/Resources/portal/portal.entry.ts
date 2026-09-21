@@ -132,6 +132,8 @@ let settleX = 0, settleV = 0;   // the spiral relaxing, and the middle filling
 let arcX = 0, arcV = 0;         // the last of the circle closing
 let lastFrameMs = 0;
 let lastMaskCheck = 0;
+let lastInsideCheck = 0;
+let strokeDrawnThisFrame = false;
 const stepSpring = (x: number, v: number, k: number, dt: number) => {
   const c = 2 * Math.sqrt(k);            // critical damping, so it never overshoots
   const a = k * (1 - x) - c * v;
@@ -686,24 +688,114 @@ function frame(now: number) {
       m.shadowBlur = blurPx;
       m.shadowOffsetX = OFF;
     }
+    // ROUNDED ENDS, OR IT IS A PIE HOWEVER ROUND THE SIDES ARE.
+    //
+    // "the edge of the inside portal spawning in just looks like a pie!!!"
+    //
+    // The region is a ribbon: the rim on the outside, the spiral on the
+    // inside. Its SIDES have been curves for several commits. Its two ENDS
+    // were straight radial cuts, and at the leading edge that cut runs from
+    // the rim all the way down to the deepest point of the spiral, which is
+    // a pie slice with a curved back. That is the wedge, still here, hidden
+    // in the one place nobody was looking: not the boundary, the cap.
+    //
+    // Each end is capped with a semicircle across the ribbon's width there,
+    // bulging the way the ribbon runs, the way a round line cap works. The
+    // trailing cap is small because the ribbon is thin where the circle
+    // began; the leading cap is the big one, and it is the one that was
+    // reading as a slice.
+    const ptAt = (u: number, r: number) => {
+      const th = aOld + dir * u * drawnAng;
+      return { x: mx0 + Math.cos(th) * r - OFF, y: my0 + Math.sin(th) * r };
+    };
+    const capTo = (from: { x: number; y: number }, to: { x: number; y: number }, out: number) => {
+      const cx2 = (from.x + to.x) / 2, cy2 = (from.y + to.y) / 2;
+      const rad = Math.hypot(to.x - from.x, to.y - from.y) / 2;
+      if (rad < 0.5) { m.lineTo(to.x, to.y); return; }
+      const a0c = Math.atan2(from.y - cy2, from.x - cx2);
+      for (let k = 1; k <= 14; k++) {
+        const a = a0c + out * (k / 14) * Math.PI;
+        m.lineTo(cx2 + Math.cos(a) * rad, cy2 + Math.sin(a) * rad);
+      }
+    };
+
     m.fillStyle = "#fff";
     m.beginPath();
     // Outer boundary: the rim, across the part already drawn.
     for (let i = 0; i <= STEPS; i++) {
-      const th = aOld + dir * (i / STEPS) * drawnAng;
-      const x = mx0 + Math.cos(th) * Rp - OFF, y = my0 + Math.sin(th) * Rp;
-      if (i) m.lineTo(x, y); else m.moveTo(x, y);
+      const q = ptAt(i / STEPS, Rp);
+      if (i) m.lineTo(q.x, q.y); else m.moveTo(q.x, q.y);
     }
+    // Round the leading end, across the full depth of the spiral there.
+    capTo(ptAt(1, Rp), ptAt(1, Math.max(0, Rp * (1 - depthAt(1)))), dir);
     // Inner boundary: the spiral, back the other way.
     for (let i = STEPS; i >= 0; i--) {
       const u = i / STEPS;
-      const th = aOld + dir * u * drawnAng;
-      const rr = Math.max(0, Rp * (1 - depthAt(u)));
-      m.lineTo(mx0 + Math.cos(th) * rr - OFF, my0 + Math.sin(th) * rr);
+      const q = ptAt(u, Math.max(0, Rp * (1 - depthAt(u))));
+      m.lineTo(q.x, q.y);
     }
+    // And round the end where the circle began.
+    capTo(ptAt(0, Math.max(0, Rp * (1 - depthAt(0)))), ptAt(0, Rp), -dir);
     m.closePath();
     m.fill();
     m.shadowBlur = 0; m.shadowOffsetX = 0;
+
+    // THE ENDS DISSOLVE, THEY ARE NOT CAPPED. "The edge of the radial cut
+    // that you made curved is supposed to be cloudy, not outline with
+    // sparks."
+    //
+    // Rounding the cap fixed the pie and left an edge: a crisp curve is
+    // still a cut, and the ring's sparks run right along it, which is what
+    // makes it read as an outline. A cap is a shape. What belongs there is
+    // weather.
+    //
+    // So the geometry is eaten back with soft gradients at each end,
+    // strongest at the very tip and gone within a cap's width. The ribbon
+    // stops having an end and starts thinning out.
+    //
+    // Gradients, not a blur: ctx.filter is ignored by this engine, and the
+    // shadow trick only softens the shape as a whole, which cannot treat one
+    // end differently from the middle.
+    // THE MIDDLE IS NOT TOUCHED UNTIL THE END. That rule is the whole shape
+    // of this thing and the dissolve broke it the moment it was added: it
+    // was centred on the middle of the ribbon with a radius up to 0.8 of the
+    // ribbon's thickness, so at the end of a draw it ate inward to 0.12 R,
+    // well past the spiral's own inner edge.
+    //
+    // Bounded to half the ribbon's thickness, so it reaches exactly the
+    // spiral edge and no further. The ends still thin out; they just cannot
+    // thin out into territory the circle has not earned yet.
+    const dissolve = (u: number, _spanR: number, strength: number, seedI: number) => {
+      const inner = Math.max(0, Rp * (1 - depthAt(u)));
+      const midR = (Rp + inner) / 2;
+      const th = aOld + dir * u * drawnAng;
+      const bx = mx0 + Math.cos(th) * midR, by = my0 + Math.sin(th) * midR;
+      const rad = Math.max(6, (Rp - inner) / 2);
+      m.globalCompositeOperation = "destination-out";
+      // Three overlapping, drifting slowly, so the thinning is uneven.
+      for (let j = 0; j < 3; j++) {
+        const t = now / 2600 + seedI * 2.3 + j * 1.9;
+        // The drift and the size are both kept inside the ribbon, or the
+        // wander puts back what the bound above takes away.
+        const jx = bx + Math.cos(t) * rad * 0.2;
+        const jy = by + Math.sin(t * 1.3) * rad * 0.2;
+        const rr = rad * (0.6 + 0.2 * ((Math.cos(t * 0.8) + 1) / 2));
+        const g4 = m.createRadialGradient(jx, jy, 0, jx, jy, rr);
+        g4.addColorStop(0, `rgba(0,0,0,${strength})`);
+        g4.addColorStop(0.55, `rgba(0,0,0,${strength * 0.45})`);
+        g4.addColorStop(1, "rgba(0,0,0,0)");
+        m.fillStyle = g4;
+        m.beginPath();
+        m.arc(jx, jy, rr, 0, Math.PI * 2);
+        m.fill();
+      }
+      m.globalCompositeOperation = "source-over";
+    };
+    if (cloud > 0.01 && gapSize > 0.002) {
+      const leadThick = Rp * depthAt(1);
+      dissolve(1, Math.max(Rp * 0.14, leadThick * 0.8), 0.9, 0);
+      dissolve(0, Math.max(Rp * 0.10, Rp * depthAt(0) * 0.8), 0.7, 5);
+    }
     m.restore();
 
     // Faded overall, most at the rim, and the fade goes as the circle
@@ -1465,16 +1557,27 @@ function frame(now: number) {
     // TWO passes, not three. Three widths of additive stroke on a light
     // background paint the edges twice and leave the middle thin, which
     // reads as a hollow outline rather than a burning line.
-    ctx.shadowBlur = 10 + 22 * k;
-    ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
-    ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.18 + k * 0.45})`;
-    ctx.lineWidth = Math.max(2.5, rBase * RPX * 0.05);
-    path(); ctx.stroke();
+    // NOT WHILE A PORTAL IS UP. After the circle completes the hand is still
+    // pinched, so the trail keeps collecting and the line kept being drawn
+    // straight across the open portal: a thick orange arc over the city.
+    //
+    // It was drawing something that cannot happen, too. A completion is
+    // refused while a portal is open, so the line was promising a second
+    // portal the reducer would never grant. The stroke belongs to drawing a
+    // circle, and with one already open there is no circle to draw.
+    strokeDrawnThisFrame = !portalUp;
+    if (!portalUp) {
+      ctx.shadowBlur = 10 + 22 * k;
+      ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
+      ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.18 + k * 0.45})`;
+      ctx.lineWidth = Math.max(2.5, rBase * RPX * 0.05);
+      path(); ctx.stroke();
 
-    ctx.shadowBlur = 6 + 10 * k;
-    ctx.strokeStyle = `rgba(${CORE}, ${0.3 + k * 0.6})`;
-    ctx.lineWidth = Math.max(1, rBase * RPX * 0.016);
-    path(); ctx.stroke();
+      ctx.shadowBlur = 6 + 10 * k;
+      ctx.strokeStyle = `rgba(${CORE}, ${0.3 + k * 0.6})`;
+      ctx.lineWidth = Math.max(1, rBase * RPX * 0.016);
+      path(); ctx.stroke();
+    }
     ctx.shadowBlur = 0;
 
     // BINDING IS A PROPORTION, NOT A SWITCH. A spark bound to the circle
@@ -1495,7 +1598,12 @@ function frame(now: number) {
     const boundShare = Math.min(0.4, conf * conf * 0.45);
     const bindMaybe = () => Math.random() < boundShare;
 
-    if (fitC && conf > 0.05) {
+    // NOTHING SPAWNS ONTO THE STROKE WHILE A PORTAL IS UP. The line itself
+    // was hidden last commit and everything that rides it was not, so the
+    // binding strands and the head burst carried on throwing sparks at a
+    // hand that is inside an open portal. That is the orange arc and the
+    // glow sitting on the city.
+    if (fitC && conf > 0.05 && !portalUp) {
       // Sample fewer points early, so the pull shows up as a few strands
       // rather than the whole line lifting at once.
       const step = Math.max(4, Math.round(22 - conf * 18));
@@ -1521,7 +1629,7 @@ function frame(now: number) {
     let tx = hp.x - pp.x;
     let ty = hp.y - pp.y;
     const tm = Math.hypot(tx, ty) || 1;
-    const n = Math.round(1 + k * 9);
+    const n = portalUp ? 0 : Math.round(1 + k * 9);
     for (let i = 0; i < n; i++) {
       spawnAt(mx(head.rx), my(head.ry), tx / tm, ty / tm, 1,
         2.2 + k * 3.0, bindMaybe());
@@ -1535,7 +1643,7 @@ function frame(now: number) {
     // into the ribbon. The perpendicular jitter is what gives the band width
     // without widening the stroke: sparks sit either side of the path rather
     // than the path getting fatter.
-    if (SP && SP.length > 4) {
+    if (SP && SP.length > 4 && !portalUp) {
       const heat = Math.min(1, p.progress / 0.85);
       const per = 8 + Math.round(30 * heat);
       const halfBand = Math.max(2.5, (fitC ? fitC.r * RPX : 120) * 0.045);
@@ -1771,6 +1879,14 @@ function frame(now: number) {
 
   // ── Sparks ───────────────────────────────────────────────────────────────
   ctx.globalCompositeOperation = "lighter";
+  // Inside the hole, in screen pixels. Slightly inside the rim, so the ring
+  // itself and the sparks that make it are untouched: they live ON the edge.
+  const holeCx = px(geom.cx), holeCy = py(geom.cy);
+  const holeR = rpxOf(clampRN(geom.r)) * 0.94;
+  const insidePortal = (x: number, y: number) =>
+    (x - holeCx) ** 2 + (y - holeCy) ** 2 < holeR * holeR;
+  let sparksInHole = 0;
+
   const alive: Spark[] = [];
   for (const sp of sparks) {
     const c = Math.cos(0.035), sn = Math.sin(0.035);
@@ -1782,8 +1898,23 @@ function frame(now: number) {
     if (sp.bind && attract) {
       const Cx = mx(attract.cx), Cy = my(attract.cy), R = attract.r || 1;
       const dx = sp.x - Cx, dy = sp.y - Cy;
-      const dl = Math.hypot(dx, dy) || 1;
-      const nx = dx / dl, ny = dy / dl;
+      let dl = Math.hypot(dx, dy);
+      // A SPARK AT THE EXACT CENTRE CANNOT LEAVE. `hypot(0,0) || 1` gave a
+      // length of 1 with a direction of (0,0), so the outward push was zero,
+      // the tangential spin was zero, and the spark sat in the middle of the
+      // portal being redrawn forever: "the animation never ends in the middle
+      // there's still a organe spot at the center."
+      //
+      // Nothing else can reach dead centre, so this is the one place the
+      // guard has to hold. Nudged onto a real direction instead, and it flies
+      // out like any other.
+      let nx: number, ny: number;
+      if (dl < 0.5) {
+        const a = Math.random() * Math.PI * 2;
+        nx = Math.cos(a); ny = Math.sin(a); dl = 0.5;
+      } else {
+        nx = dx / dl; ny = dy / dl;
+      }
       // Push out hard inside the rim, fly free once past it, spin throughout.
       // Inside plus tangential is the catherine wheel; outside with no brake
       // is the corona. Anything that slows a spark shortens its streak.
@@ -1796,8 +1927,13 @@ function frame(now: number) {
 
     sp.x += sp.vx; sp.y += sp.vy;
     sp.life -= sp.decay;
+    // A floor on the decay as well. The lowest roll is 0.02, which is 50
+    // frames, and anything that somehow stops moving should still go. A
+    // spark is an animation, and an animation that does not end is a stain.
+    sp.life -= 0.004;
     if (sp.life <= 0) continue;
     alive.push(sp);
+    if (portalUp && insidePortal(sp.x, sp.y)) sparksInHole++;
 
     const speed = Math.hypot(sp.vx, sp.vy) || 1;
     // A ROUND CAP ON A SHORT STROKE IS A DOT. lineCap "round" adds a
@@ -1814,6 +1950,20 @@ function frame(now: number) {
     ctx.moveTo(sp.x, sp.y);
     ctx.lineTo(sp.x - (sp.vx / speed) * len, sp.y - (sp.vy / speed) * len);
     ctx.stroke();
+  }
+  // WHAT IS ACTUALLY IN THERE. "It's kinda like an orange blob, doesn't rlly
+  // look like sparks?" Gating spawn sites one at a time has missed twice, and
+  // the last attempt was aimed at sparks on the strength of a guess. This
+  // says what is inside an open portal rather than assuming: how many sparks,
+  // and whether the stroke path ran this frame.
+  if (portalUp && now - lastInsideCheck > 1000) {
+    lastInsideCheck = now;
+    if (sparksInHole > 0 || strokeDrawnThisFrame) {
+      window.webkit?.messageHandlers?.portal?.postMessage({
+        event: "log",
+        text: `inside the portal: ${sparksInHole} sparks, stroke drawn ${strokeDrawnThisFrame}`,
+      });
+    }
   }
   sparks = alive.length > 1400 ? alive.slice(-1400) : alive;
 }

@@ -333,7 +333,8 @@
     if (n.phase === "igniting" && i.now - n.born >= igniteMs) n.phase = "open";
     if (n.phase === "closing" && i.now - n.closeAt >= closeMs) n.phase = "idle";
     if (!i.pinched) n.armed = true;
-    if (i.completed && i.center) {
+    const alreadyUp = n.phase === "igniting" || n.phase === "open" || n.phase === "closing";
+    if (i.completed && i.center && !alreadyUp) {
       n.phase = "igniting";
       n.born = i.now;
       n.closeAt = 0;
@@ -623,6 +624,8 @@
   var arcV = 0;
   var lastFrameMs = 0;
   var lastMaskCheck = 0;
+  var lastInsideCheck = 0;
+  var strokeDrawnThisFrame = false;
   var stepSpring = (x, v, k, dt) => {
     const c = 2 * Math.sqrt(k);
     const a = k * (1 - x) - c * v;
@@ -831,24 +834,69 @@
         m.shadowBlur = blurPx;
         m.shadowOffsetX = OFF;
       }
+      const ptAt = (u, r) => {
+        const th = aOld + dir * u * drawnAng;
+        return { x: mx0 + Math.cos(th) * r - OFF, y: my0 + Math.sin(th) * r };
+      };
+      const capTo = (from, to, out) => {
+        const cx2 = (from.x + to.x) / 2, cy2 = (from.y + to.y) / 2;
+        const rad = Math.hypot(to.x - from.x, to.y - from.y) / 2;
+        if (rad < 0.5) {
+          m.lineTo(to.x, to.y);
+          return;
+        }
+        const a0c = Math.atan2(from.y - cy2, from.x - cx2);
+        for (let k = 1; k <= 14; k++) {
+          const a = a0c + out * (k / 14) * Math.PI;
+          m.lineTo(cx2 + Math.cos(a) * rad, cy2 + Math.sin(a) * rad);
+        }
+      };
       m.fillStyle = "#fff";
       m.beginPath();
       for (let i = 0; i <= STEPS; i++) {
-        const th = aOld + dir * (i / STEPS) * drawnAng;
-        const x = mx0 + Math.cos(th) * Rp - OFF, y = my0 + Math.sin(th) * Rp;
-        if (i) m.lineTo(x, y);
-        else m.moveTo(x, y);
+        const q = ptAt(i / STEPS, Rp);
+        if (i) m.lineTo(q.x, q.y);
+        else m.moveTo(q.x, q.y);
       }
+      capTo(ptAt(1, Rp), ptAt(1, Math.max(0, Rp * (1 - depthAt(1)))), dir);
       for (let i = STEPS; i >= 0; i--) {
         const u = i / STEPS;
-        const th = aOld + dir * u * drawnAng;
-        const rr = Math.max(0, Rp * (1 - depthAt(u)));
-        m.lineTo(mx0 + Math.cos(th) * rr - OFF, my0 + Math.sin(th) * rr);
+        const q = ptAt(u, Math.max(0, Rp * (1 - depthAt(u))));
+        m.lineTo(q.x, q.y);
       }
+      capTo(ptAt(0, Math.max(0, Rp * (1 - depthAt(0)))), ptAt(0, Rp), -dir);
       m.closePath();
       m.fill();
       m.shadowBlur = 0;
       m.shadowOffsetX = 0;
+      const dissolve = (u, _spanR, strength2, seedI) => {
+        const inner = Math.max(0, Rp * (1 - depthAt(u)));
+        const midR = (Rp + inner) / 2;
+        const th = aOld + dir * u * drawnAng;
+        const bx = mx0 + Math.cos(th) * midR, by = my0 + Math.sin(th) * midR;
+        const rad = Math.max(6, (Rp - inner) / 2);
+        m.globalCompositeOperation = "destination-out";
+        for (let j = 0; j < 3; j++) {
+          const t = now / 2600 + seedI * 2.3 + j * 1.9;
+          const jx = bx + Math.cos(t) * rad * 0.2;
+          const jy = by + Math.sin(t * 1.3) * rad * 0.2;
+          const rr = rad * (0.6 + 0.2 * ((Math.cos(t * 0.8) + 1) / 2));
+          const g4 = m.createRadialGradient(jx, jy, 0, jx, jy, rr);
+          g4.addColorStop(0, `rgba(0,0,0,${strength2})`);
+          g4.addColorStop(0.55, `rgba(0,0,0,${strength2 * 0.45})`);
+          g4.addColorStop(1, "rgba(0,0,0,0)");
+          m.fillStyle = g4;
+          m.beginPath();
+          m.arc(jx, jy, rr, 0, Math.PI * 2);
+          m.fill();
+        }
+        m.globalCompositeOperation = "source-over";
+      };
+      if (cloud > 0.01 && gapSize > 2e-3) {
+        const leadThick = Rp * depthAt(1);
+        dissolve(1, Math.max(Rp * 0.14, leadThick * 0.8), 0.9, 0);
+        dissolve(0, Math.max(Rp * 0.1, Rp * depthAt(0) * 0.8), 0.7, 5);
+      }
       m.restore();
       const veil = (1 - f) * 0.75;
       if (veil > 4e-3) {
@@ -1184,21 +1232,24 @@
         ctx.moveTo(SP[0].x, SP[0].y);
         for (let i = 1; i < SP.length; i++) ctx.lineTo(SP[i].x, SP[i].y);
       };
-      ctx.shadowBlur = 10 + 22 * k;
-      ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
-      ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.18 + k * 0.45})`;
-      ctx.lineWidth = Math.max(2.5, rBase * RPX * 0.05);
-      path();
-      ctx.stroke();
-      ctx.shadowBlur = 6 + 10 * k;
-      ctx.strokeStyle = `rgba(${CORE}, ${0.3 + k * 0.6})`;
-      ctx.lineWidth = Math.max(1, rBase * RPX * 0.016);
-      path();
-      ctx.stroke();
+      strokeDrawnThisFrame = !portalUp;
+      if (!portalUp) {
+        ctx.shadowBlur = 10 + 22 * k;
+        ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
+        ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.18 + k * 0.45})`;
+        ctx.lineWidth = Math.max(2.5, rBase * RPX * 0.05);
+        path();
+        ctx.stroke();
+        ctx.shadowBlur = 6 + 10 * k;
+        ctx.strokeStyle = `rgba(${CORE}, ${0.3 + k * 0.6})`;
+        ctx.lineWidth = Math.max(1, rBase * RPX * 0.016);
+        path();
+        ctx.stroke();
+      }
       ctx.shadowBlur = 0;
       const boundShare = Math.min(0.4, conf * conf * 0.45);
       const bindMaybe = () => Math.random() < boundShare;
-      if (fitC && conf > 0.05) {
+      if (fitC && conf > 0.05 && !portalUp) {
         const step = Math.max(4, Math.round(22 - conf * 18));
         for (let i = 0; i < stroke.length; i += step) {
           const q = stroke[i];
@@ -1222,7 +1273,7 @@
       let tx = hp.x - pp.x;
       let ty = hp.y - pp.y;
       const tm = Math.hypot(tx, ty) || 1;
-      const n = Math.round(1 + k * 9);
+      const n = portalUp ? 0 : Math.round(1 + k * 9);
       for (let i = 0; i < n; i++) {
         spawnAt(
           mx(head.rx),
@@ -1234,7 +1285,7 @@
           bindMaybe()
         );
       }
-      if (SP && SP.length > 4) {
+      if (SP && SP.length > 4 && !portalUp) {
         const heat = Math.min(1, p.progress / 0.85);
         const per = 8 + Math.round(30 * heat);
         const halfBand = Math.max(2.5, (fitC ? fitC.r * RPX : 120) * 0.045);
@@ -1367,6 +1418,10 @@
       }
     }
     ctx.globalCompositeOperation = "lighter";
+    const holeCx = px(geom.cx), holeCy = py(geom.cy);
+    const holeR = rpxOf(clampRN(geom.r)) * 0.94;
+    const insidePortal = (x, y) => (x - holeCx) ** 2 + (y - holeCy) ** 2 < holeR * holeR;
+    let sparksInHole = 0;
     const alive = [];
     for (const sp of sparks) {
       const c = Math.cos(0.035), sn = Math.sin(0.035);
@@ -1377,8 +1432,17 @@
       if (sp.bind && attract) {
         const Cx = mx(attract.cx), Cy = my(attract.cy), R = attract.r || 1;
         const dx = sp.x - Cx, dy = sp.y - Cy;
-        const dl = Math.hypot(dx, dy) || 1;
-        const nx = dx / dl, ny = dy / dl;
+        let dl = Math.hypot(dx, dy);
+        let nx, ny;
+        if (dl < 0.5) {
+          const a = Math.random() * Math.PI * 2;
+          nx = Math.cos(a);
+          ny = Math.sin(a);
+          dl = 0.5;
+        } else {
+          nx = dx / dl;
+          ny = dy / dl;
+        }
         if (dl < R) {
           sp.vx += nx * (R - dl) * 0.06;
           sp.vy += ny * (R - dl) * 0.06;
@@ -1395,8 +1459,10 @@
       sp.x += sp.vx;
       sp.y += sp.vy;
       sp.life -= sp.decay;
+      sp.life -= 4e-3;
       if (sp.life <= 0) continue;
       alive.push(sp);
+      if (portalUp && insidePortal(sp.x, sp.y)) sparksInHole++;
       const speed = Math.hypot(sp.vx, sp.vy) || 1;
       const len = Math.max(5, Math.min(20, speed * 2.4));
       const h = sp.heat * sp.life;
@@ -1408,6 +1474,15 @@
       ctx.moveTo(sp.x, sp.y);
       ctx.lineTo(sp.x - sp.vx / speed * len, sp.y - sp.vy / speed * len);
       ctx.stroke();
+    }
+    if (portalUp && now - lastInsideCheck > 1e3) {
+      lastInsideCheck = now;
+      if (sparksInHole > 0 || strokeDrawnThisFrame) {
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "log",
+          text: `inside the portal: ${sparksInHole} sparks, stroke drawn ${strokeDrawnThisFrame}`
+        });
+      }
     }
     sparks = alive.length > 1400 ? alive.slice(-1400) : alive;
   }
