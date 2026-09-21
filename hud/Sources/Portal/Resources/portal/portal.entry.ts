@@ -497,6 +497,25 @@ function frame(now: number) {
 
     drawMirror(strength);
 
+    // FADED OVERALL, MOST AT THE RIM, AND THE FADE GOES AS IT PROGRESSES.
+    // "the whole thing still should be faded with the rim more faded, and the
+    // fade disapears as the circle progresses." Separate from the spiral:
+    // that says how much of the circle is the other side, this says how
+    // solidly. At fill 1 nothing is erased and the mirror is simply there.
+    const veil = (1 - Math.max(0, Math.min(1, fill))) * 0.8;
+    if (veil > 0.004) {
+      ctx.globalCompositeOperation = "destination-out";
+      const vg = ctx.createRadialGradient(cxp, cyp, 0, cxp, cyp, Rp);
+      vg.addColorStop(0, `rgba(0,0,0,${veil * 0.35})`);
+      vg.addColorStop(0.65, `rgba(0,0,0,${veil * 0.6})`);
+      vg.addColorStop(1, `rgba(0,0,0,${veil})`);
+      ctx.fillStyle = vg;
+      ctx.beginPath();
+      ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = "source-over";
+    }
+
     // A SPIRAL CLOSING IN, NOT A CURVE FROM A TO B.
     //
     // "It should look like a spiral that is closing in not just a curve from
@@ -531,15 +550,39 @@ function frame(now: number) {
       // How far in the other side has eaten, at a point u of the way from the
       // old end to the leading edge. `spiral` is 1 while drawing and relaxes
       // to 0 as the portal opens, which is what unwinds it into a full disc.
+      // THE OTHER WAY ROUND. "the beginning of the spiral should be further
+      // from the center than the end of it, with both of them scaling with
+      // progression to meet at 100%."
+      //
+      // It was deepest where the circle began and at the rim under the
+      // fingers. It is the reverse: the start of the spiral sits out near the
+      // rim and it winds INWARD toward the leading edge, which is what a
+      // spiral closing in actually does.
+      //
+      // depth = fill ** (1 + s*(1-u)) does all three things at once. At the
+      // leading edge the exponent is 1, so depth is fill. Back at the start
+      // the exponent is larger, so depth is a smaller power of a number below
+      // one, which is shallower. And at fill = 1 every exponent gives 1, so
+      // both ends arrive at the middle together:
+      //
+      //     drawn    start of spiral   leading edge
+      //      25%         0.97 R           0.75 R
+      //      50%         0.82 R           0.50 R
+      //      75%         0.55 R           0.25 R
+      //     100%         0.00 R           0.00 R   they meet
       const depthAt = (u: number) => {
-        const wound = (1 - u) * spiral + (1 - spiral);
+        const wind = 1 + 1.5 * (1 - u) * spiral;
         const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950)
                         + 0.028 * Math.sin(u * 15.7 - now / 1500);
-        return Math.max(0, Math.min(1, f * wound)) * rough;
+        return Math.max(0, Math.min(1, Math.pow(f, wind))) * rough;
       };
 
       ctx.globalCompositeOperation = "destination-out";
-      ctx.filter = `blur(${Math.max(3, Rp * 0.07).toFixed(1)}px)`;
+      // "The edge of the spiral on the inside is so sharp bruh." A solid
+      // fill under a 0.07 R blur is still a cut with a soft lip on it. More
+      // blur, and the fill itself is a gradient rather than flat black, so
+      // the boundary has depth instead of an outline.
+      ctx.filter = `blur(${Math.max(7, Rp * 0.17).toFixed(1)}px)`;
       ctx.beginPath();
       // The inner edge of the opening, old end to leading edge: the spiral.
       for (let i = 0; i <= STEPS; i++) {
@@ -558,7 +601,7 @@ function frame(now: number) {
         }
       }
       ctx.closePath();
-      ctx.fillStyle = "rgba(0,0,0,1)";
+      ctx.fillStyle = "rgba(0,0,0,0.93)";
       ctx.fill();
 
       // Weather along the boundary, drifting on a slow clock so it breathes
