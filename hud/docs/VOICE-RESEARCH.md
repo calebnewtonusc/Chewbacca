@@ -149,3 +149,45 @@ back", the presence transitions) that could be synthesised once and played from
 disk at zero cost. The third is the one that matters most here, because the
 measurement above says the model is the budget: 2.1 seconds to first chunk on a
 reply as short as "Okay, stepping back."
+
+## The hosted voices, and why none of them is the next move
+
+Asked on 2026-09-21: who leads text to speech, and what is the efficient way to
+put a better voice in the assistant. The survey, and then the reason it does not
+change anything here.
+
+The field as of September 2026, from vendor comparison write-ups, every one of
+which is published by a party selling one of the entries or a competitor, so
+read the rankings as marketing and the architecture claims as the durable part:
+
+| | Who | The claim |
+|---|---|---|
+| Speed | Cartesia Sonic 4 | About 40 ms time to first audio, held under load. State space models rather than transformers, which is why the number survives concurrency. |
+| Quality | ElevenLabs v3 | 70+ languages, thousands of voices, cloning, the expressiveness bar everyone else is measured against. |
+| Agent pricing | Deepgram Aura-2 | About 90 ms, built and priced for agents rather than for studios. |
+| Emotion | Hume Octave | Prosody directed in the prompt rather than fixed per voice. |
+| Open weights | Kokoro 82M, Chatterbox (Resemble, MIT), Orpheus (Canopy, 150M to 3B) | Chatterbox clones from about five seconds of audio and took 63.75% preference against ElevenLabs in the blind tests its authors ran. Kokoro is what this repo runs. |
+
+None of them is worth wiring in, and the reason is one measurement already in
+this file. The budget is the model, not the speech: 2.1 seconds to the first
+chunk, of which synthesis is roughly 0.2. A hosted voice makes the assistant
+sound better and arrive later, because it adds a network round trip to the one
+stage that was never the problem, plus a key on a machine that has none and a
+per-character bill on a thing that talks all day. Cartesia at 40 ms is close to
+latency-neutral on paper and still pays the hop.
+
+What the survey does change is the order of the local work, which is free:
+
+1. **`hud-voice` becomes the default speaker.** Same model, measured faster at
+   both joins, and it needs no uv, no espeak-ng and no spaCy on a fresh Mac.
+   The gate written into `bin/hud-listen` is a day of use, not a benchmark.
+2. **A voice picker in the panel.** The model ships 54 voices and the only way
+   to reach one is `HUD_VOICE` in the environment, which means nobody has ever
+   changed it. Preview on select, persisted like the long-answer switch.
+3. **Chatterbox is the one open model worth a spike**, and only for cloning: a
+   voice the person chose, or their own, with no key and no hop. It is an order
+   of magnitude larger than Kokoro, so the spike is a latency measurement on the
+   ANE before it is anything else.
+
+Revisit if the model side ever gets fast enough that 200 ms of synthesis is a
+visible share of the wait. Today it is noise under a two second number.
