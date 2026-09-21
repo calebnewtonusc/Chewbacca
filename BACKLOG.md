@@ -48,6 +48,10 @@ has failed on its own terms, however impressive the demo.
 | `bin/evolve`, `bin/fitness` | A benchmark, a score, an archive, worktree isolation. The machinery for self-improvement exists and has barely been pointed at anything |
 | `bin/consolidate`, `bin/maintain` | Slow offline consolidation, modelled on how memory moves from hippocampus to neocortex |
 
+**The measured state of this, as of 2026-09-21, is in
+[docs/LEARNING.md](docs/LEARNING.md), and it is that the loop has never
+closed once.** Item 0 is the smallest next step.
+
 ### What "expert at learning" would concretely mean
 
 Not a bigger prompt. Four things that can be tested:
@@ -104,6 +108,7 @@ it.** Build the teaching half at the same time as the doing half, not after.
 
 | # | Item | Status | Notes |
 | --- | --- | --- | --- |
+| 0 | **Close the learning loop. The score has never moved.** | open | Caleb, 2026-09-21, asked for a big emphasis on this. Ten `fitness` runs, `structural_score` **90.12 in all ten**; `behavioural_score` recorded once; `failed` is the integer 25 with no record of WHICH 25, so credit assignment is impossible; `evolve` never merges, so an archive with no selection is a museum; and the 86 asks in `~/.chewbacca/asks.jsonl` are read by nothing. Five ordered steps and the hard line in [docs/LEARNING.md](docs/LEARNING.md). **Step 1 is small and blocks the rest: make `fitness` record which cases failed, by id.** This is item 32 and the "expert at learning" direction above, made concrete |
 | 1 | **GTM engineering for Jonah and his 5 companies** | doing | Sagar, 9/20: "i need you to do one thing." Tooling shipped at `calebnewtonusc/prometheus-targeting` (private). **Blocked on one fact: which 5 companies are raising.** One-pagers exist for 8 |
 | 2 | **Onboarding: single paste, allow-once permissions, no visible API keys, Mac then Windows** | open | Caleb's #8. Now evidence-backed: Sagar called the installer malware on 9/20 and a second person flagged permissions the same afternoon. Closing screen fixed in `8e47d04`; the flow itself is not |
 | 3 | **Skill descriptions cannot route** | done | 105 skills installed, nothing names one when work starts. `skill-route.sh` built and unregistered in `4cca1fd` after misfiring twice. skill-scan grades the descriptions at 16-21 trigger points of 25. Fix descriptions first |
@@ -158,6 +163,10 @@ it.** Build the teaching half at the same time as the doing half, not after.
 
 | 42 | **`cap record status` reports dead recordings as live** | open | 2026-09-21, 03:10. Caleb: *"Bruh how do I make it stop recording me lol"*. `cap record status` listed **14 active recordings**; all 14 pids were dead. `cap record stop` answered `recording process exited without finalizing the recording` and left the row in place, so the registry only ever grows. A tool that says it is recording you when it is not is worse than one that crashes, because the user cannot tell it apart from the real thing. Fix: reap `~/.cap/sessions/*.json` whose pid is gone, on every `status`. The 14 stale rows are archived at `~/.cap/sessions-stale-20260921/`. **The actual recorder was Granola**, holding `audio.mojom.AudioService` and `video_capture.mojom.VideoCaptureService` for 3 days 15 hours |
 
+| 43 | **Portal: the voice line and the dashboard INSIDE the ring** | open | Shipped 2026-09-21: `Portal.app`, `bin/portal`, named targets, a real hole with the window behind it. Two pieces of what he actually described are missing. He wants to say *"Can I open a portal to some dashboards"* and hear *"sure go ahead doctor strange"* BEFORE he draws, which means the voice reply and the arming are one turn; right now `portal open` arms silently. And he wants the dashboard **in the middle of the portal**, whereas today the window sits BEHIND a hole, so it is framed rather than contained and does not move or scale with the ring. Both are in `[[../memory/project_portal]]` |
+| 44 | **The voice agent is much weaker than the chat agent** | open | Caleb, 2026-09-21: *"It's retarded and nowhere near as smart as you bruh."* The immediate cause was fixed by giving it a lookup table instead of a puzzle ([[../memory/feedback_never_make_an_agent_infer]]), but the general gap stands: the lean profile carries the brain and doctrine and a skill index, not the repo. Item 3 is the same blocker. Measure before rebuilding: 68 seconds of that answer was research it should never have started |
+| 45 | **Portal needs a plausibility test suite, not a correctness one** | open | Four visual bugs shipped at once with 47 tests green, and the detector fired 0/20 on a jittery circle while passing every perfect-circle test. `circle.noise.test.ts` and the ill-conditioned-fit tests are the pattern to extend: assert what must be TRUE ON SCREEN, a radius that fits the frame, a centre that stays on it. See [[../memory/feedback_the_screenshot_beat_the_code]] |
+
 ## Done this session
 
 | Item | Where |
@@ -170,6 +179,9 @@ it.** Build the teaching half at the same time as the doing half, not after.
 | Operating doctrine from the three corpora, with the stop rule | `6e6e901` |
 | Prometheus targeting: 1.04M rows to 51,320 reachable | `calebnewtonusc/prometheus-targeting`, private |
 | Team context handoff | `a0fc155`, sent to the group chat |
+| The Doctor Strange portal, browser and HUD | `calebnewtonusc/OpenVision` `/strange`, and `feat/portal-hud` here |
+| `cap record status` reported 14 dead recordings as live | item 42; Granola held mic and camera for 3.5 days |
+| Hand control turned off | `hud.handControl` false. Palm and point stay in the code, unwired |
 
 ## Dead
 
