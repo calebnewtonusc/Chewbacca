@@ -1384,8 +1384,10 @@
           );
         }
         ctx.globalCompositeOperation = "lighter";
-        const bloom = ctx.createRadialGradient(cx0, cy0, rpx * 0.9, cx0, cy0, rpx * 1.22);
-        bloom.addColorStop(0, `rgba(${SPARK_MID}, ${0.16 * vis})`);
+        const bloom = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, rpx * 1.22);
+        bloom.addColorStop(0, "rgba(0,0,0,0)");
+        bloom.addColorStop(0.9 / 1.22, "rgba(0,0,0,0)");
+        bloom.addColorStop(1 / 1.22, `rgba(${SPARK_MID}, ${0.16 * vis})`);
         bloom.addColorStop(1, "rgba(0,0,0,0)");
         ctx.fillStyle = bloom;
         disc(cn, rn * 1.22);

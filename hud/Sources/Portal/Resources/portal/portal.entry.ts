@@ -1894,9 +1894,25 @@ function frame(now: number) {
           lastFill + (1 - lastFill) * closing, 1 - closing);
       }
 
+      // A RING, NOT A DISC. "the background inside the portal for the part
+      // of the circumference that isn't built yet is just pure orange."
+      //
+      // A radial gradient with a non-zero INNER radius fills everything
+      // inside that radius with its first stop, and this one started at
+      // 0.9 R with orange. Composited with `lighter` over a whole disc, that
+      // washed the entire interior of the portal orange. Over the mirror it
+      // reads as a warm tint and is easy to miss. Over the part not yet
+      // revealed there is nothing underneath, so it reads as pure orange,
+      // which is exactly where it was reported.
+      //
+      // Starting at 0 and putting the colour at a stop is the fix: inside
+      // the glow the gradient is now genuinely transparent rather than
+      // flooded with the first stop. The rim glow is unchanged.
       ctx.globalCompositeOperation = "lighter";
-      const bloom = ctx.createRadialGradient(cx0, cy0, rpx * 0.9, cx0, cy0, rpx * 1.22);
-      bloom.addColorStop(0, `rgba(${SPARK_MID}, ${0.16 * vis})`);
+      const bloom = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, rpx * 1.22);
+      bloom.addColorStop(0, "rgba(0,0,0,0)");
+      bloom.addColorStop(0.9 / 1.22, "rgba(0,0,0,0)");
+      bloom.addColorStop(1 / 1.22, `rgba(${SPARK_MID}, ${0.16 * vis})`);
       bloom.addColorStop(1, "rgba(0,0,0,0)");
       ctx.fillStyle = bloom;
       disc(cn, rn * 1.22); ctx.fill();
