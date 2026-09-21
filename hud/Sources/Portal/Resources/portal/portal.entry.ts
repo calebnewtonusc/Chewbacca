@@ -283,6 +283,7 @@ declare global {
     chewbaccaHand: (k?: number) => number;
     chewbaccaTrail: (k?: number) => number;
     chewbaccaPlaced: (ok: boolean) => void;
+    chewbaccaCamera: (w: number, h: number) => void;
     webkit?: { messageHandlers?: { portal?: { postMessage: (m: unknown) => void } } };
   }
 }
@@ -330,6 +331,31 @@ window.chewbaccaTrail = (k) => {
 // portal erases the glass to reveal it, so if nothing was placed the erase
 // reveals nothing and the portal is a ring around the desktop.
 let placedOk = false;
+
+// THE CAMERA FRAME IS NOT THE SHAPE OF THE SCREEN.
+//
+// "Large screen wide portals are impossible to close bruh. There's gotta be
+// smth fundamentally off w the way you differentiate between diff size
+// portals and rules that scale based on size of portal?"
+//
+// There is, and it is upstream of every size rule. Vision normalises each
+// landmark axis to the CAMERA frame, 352x288 at this preset, and toScreen
+// multiplied x by the display width and y by its height. So one physical
+// unit of hand motion became 1512/352 = 4.30 px across and 982/288 = 3.41 px
+// down, and a round hand circle reached the detector as a 1.26:1 oval.
+//
+// The roundness gate refuses above about 1.45:1 and degrades from 1.0, so
+// every circle started most of the way to being rejected before any noise,
+// drift or wobble. A small circle had room to spare. A screen-wide one, slow
+// and wobbly by nature, did not.
+//
+// The detector's own space was made square this morning and this was left,
+// which is the same bug one layer up: a circle has to be a circle at every
+// step, not just the last one.
+let camW = 352, camH = 288;
+window.chewbaccaCamera = (w, h) => {
+  if (w > 0 && h > 0) { camW = w; camH = h; }
+};
 window.chewbaccaPlaced = (ok) => { placedOk = !!ok; };
 window.chewbaccaArm = (label) => {
   armed = label ? { label } : null;
@@ -412,14 +438,30 @@ function frame(now: number) {
   // a wide field and an arm uses all of it, so mapping it one to one runs
   // off both edges. The clamp is the guarantee that a wrong mapping is
   // VISIBLE rather than silent: "I cant see the knob its prob off screen".
-  const fit = (v: number) => Math.max(0.02, Math.min(0.98, 0.5 + (v - 0.5) * reachScale));
+  // Equal physical motion, equal screen pixels. The axis that was getting
+  // too many pixels is pulled in and the other pushed out, both about the
+  // centre, so the correction changes shape without changing where the middle
+  // of the frame lands.
+  // The real frame is 192x108 on this machine, not the 352x288 the preset
+  // nominally means, which is why the host reports it rather than anyone
+  // assuming. At 192x108 a unit of hand motion is 7.88px across and 9.09px
+  // down, so a round circle arrives 1.155:1 TALLER than wide.
+  //
+  // ax/ay has to equal (H/camH)/(W/camW) for the two axes to agree. Split
+  // evenly about 1 so the correction changes shape without changing overall
+  // reach: x out by the square root, y in by the same.
+  const camK = (H / camH) / (W / camW);
+  const ax = Math.sqrt(camK);
+  const ay = 1 / Math.sqrt(camK);
+  const fit = (v: number, a: number) =>
+    Math.max(0.02, Math.min(0.98, 0.5 + (v - 0.5) * reachScale * a));
   // Normalized landmark -> normalized screen. Mirror, reach, clamp. The one
   // door. Kept in normalized units so the detector, which works in them,
   // sees exactly what is drawn.
   const toScreen = (p: { x: number; y: number }, hub?: { x: number; y: number }) => {
     const sx = hub ? hub.x + (p.x - hub.x) * handScale : p.x;
     const sy = hub ? hub.y + (p.y - hub.y) * handScale : p.y;
-    return { x: fit(1 - sx), y: fit(sy) };
+    return { x: fit(1 - sx, ax), y: fit(sy, ay) };
   };
   // Screen-normalized -> pixels. No decisions here, just units.
   const mx = (nx: number) => nx * W;
