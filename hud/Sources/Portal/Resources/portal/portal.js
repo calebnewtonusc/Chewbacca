@@ -640,16 +640,12 @@
     if (lm && !portalUp) {
       ctx.globalCompositeOperation = "lighter";
       for (const t of FINGER_TIPS) {
-        ctx.fillStyle = `rgba(${SPARK_MID}, ${pinched ? 0.8 : 0.35})`;
-        ctx.beginPath();
-        ctx.arc(mx(lm[t].x), my(lm[t].y), pinched ? 2.6 : 1.8, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.fillStyle = `rgba(${SPARK_MID}, ${pinched ? 0.75 : 0.4})`;
+        ctx.fillRect(Math.round(mx(lm[t].x)), Math.round(my(lm[t].y)), 1, 1);
       }
       if (pinch?.center) {
-        ctx.fillStyle = `rgba(${CORE}, 0.9)`;
-        ctx.beginPath();
-        ctx.arc(mx(pinch.center.x), my(pinch.center.y), 3.4, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.fillStyle = `rgba(${CORE}, 1)`;
+        ctx.fillRect(Math.round(mx(pinch.center.x)), Math.round(my(pinch.center.y)), 2, 2);
       }
       if (pinched && pinch?.center) {
         const cx0 = mx(pinch.center.x);
