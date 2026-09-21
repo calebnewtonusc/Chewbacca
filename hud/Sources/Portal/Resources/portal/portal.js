@@ -615,6 +615,8 @@
   var openGapFrom = 0;
   var openCcw = false;
   var mirrorAmt = 0;
+  var lastFill = 0;
+  var holdOld = 0;
   var stroke = [];
   var softFit = null;
   var reachScale = 1;
@@ -624,6 +626,17 @@
   var mirrorReady = false;
   mirror.onload = () => {
     mirrorReady = true;
+    try {
+      const probe = document.createElement("canvas").getContext("2d");
+      if (probe) {
+        probe.filter = "blur(5px)";
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "log",
+          text: `ctx.filter reads back as "${probe.filter}"`
+        });
+      }
+    } catch (e) {
+    }
     window.webkit?.messageHandlers?.portal?.postMessage({
       event: "log",
       text: `mirror loaded ${mirror.width}x${mirror.height}`
@@ -735,76 +748,158 @@
       ctx.beginPath();
       ctx.arc(px(cn.x), py(cn.y), rn * RPX, 0, Math.PI * 2);
     };
-    const drawMirror = (alpha) => {
-      if (!mirrorReady || alpha <= 3e-3) return;
+    const maskCv = document.createElement("canvas");
+    const maskCtx = maskCv.getContext("2d");
+    const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw, cloud, fill, spiral) => {
+      if (!mirrorReady || !maskCtx || strength <= 4e-3 || Rp < 3) return;
+      const blurPx = Rp * 0.38 * cloud;
+      const pad = Math.max(16, blurPx * 2.5);
+      const size = Math.ceil(2 * Rp + pad * 2);
+      if (maskCv.width !== size || maskCv.height !== size) {
+        maskCv.width = size;
+        maskCv.height = size;
+      }
+      const ox = cxp - Rp - pad, oy = cyp - Rp - pad;
+      const mx0 = Rp + pad, my0 = Rp + pad;
+      const m = maskCtx;
+      m.setTransform(1, 0, 0, 1, 0, 0);
+      m.clearRect(0, 0, size, size);
+      const dir = ccw ? -1 : 1;
+      const drawnAng = Math.min(Math.PI * 2, (1 - gapSize) * Math.PI * 2);
+      const gapAng = Math.PI * 2 - drawnAng;
+      const aNew = gapFrom;
+      const aOld = aNew - dir * drawnAng;
+      const f = Math.max(0, Math.min(1, fill));
+      const STEPS = 72;
+      const lead = Math.pow(f, 2.5);
+      const depthAt = (u) => {
+        const wind = 1 + 1.6 * Math.pow(1 - u, 1.6) * spiral;
+        const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950) + 0.028 * Math.sin(u * 15.7 - now / 1500);
+        return Math.max(0, Math.min(1, Math.pow(lead, wind))) * rough;
+      };
+      if (blurPx > 0.5) m.filter = `blur(${blurPx.toFixed(1)}px)`;
+      m.fillStyle = "#fff";
+      m.beginPath();
+      for (let i = 0; i <= STEPS; i++) {
+        const th = aOld + dir * (i / STEPS) * drawnAng;
+        const x = mx0 + Math.cos(th) * Rp, y = my0 + Math.sin(th) * Rp;
+        if (i) m.lineTo(x, y);
+        else m.moveTo(x, y);
+      }
+      for (let i = STEPS; i >= 0; i--) {
+        const u = i / STEPS;
+        const th = aOld + dir * u * drawnAng;
+        const rr = Math.max(0, Rp * (1 - depthAt(u)));
+        m.lineTo(mx0 + Math.cos(th) * rr, my0 + Math.sin(th) * rr);
+      }
+      m.closePath();
+      m.fill();
+      if (cloud > 0.01) {
+        const atBoundary = (u, inward) => {
+          const th = aOld + dir * u * drawnAng;
+          const rr = Math.max(0, Rp * (1 - depthAt(u))) * (1 - inward);
+          return { x: mx0 + Math.cos(th) * rr, y: my0 + Math.sin(th) * rr };
+        };
+        for (let i = 0; i < 5; i++) {
+          const t = now / 3400 + i * 2.1;
+          const u = (Math.sin(t) + 1) / 2;
+          const inward = 0.1 + 0.26 * ((Math.sin(t * 0.7 + i * 1.3) + 1) / 2);
+          const q = atBoundary(u, inward);
+          const rad = Rp * (0.12 + 0.16 * ((Math.cos(t * 0.55 + i) + 1) / 2));
+          m.fillStyle = `rgba(255,255,255,${(0.16 + 0.2 * cloud) * cloud})`;
+          m.beginPath();
+          m.arc(q.x, q.y, rad, 0, Math.PI * 2);
+          m.fill();
+        }
+        for (let i = 0; i < 7; i++) {
+          const t = now / 2800 + i * 1.7;
+          const u = (Math.sin(t) + 1) / 2;
+          const q = atBoundary(u, 0);
+          const rad = Rp * (0.07 + 0.1 * ((Math.cos(t * 0.9 + i) + 1) / 2));
+          const a = (0.5 + 0.35 * cloud) * cloud;
+          if (i % 2 === 0) {
+            m.fillStyle = `rgba(255,255,255,${a})`;
+            m.beginPath();
+            m.arc(q.x, q.y, rad, 0, Math.PI * 2);
+            m.fill();
+          } else {
+            m.globalCompositeOperation = "destination-out";
+            const g2 = m.createRadialGradient(q.x, q.y, 0, q.x, q.y, rad);
+            g2.addColorStop(0, `rgba(0,0,0,${a})`);
+            g2.addColorStop(1, "rgba(0,0,0,0)");
+            m.fillStyle = g2;
+            m.beginPath();
+            m.arc(q.x, q.y, rad, 0, Math.PI * 2);
+            m.fill();
+            m.globalCompositeOperation = "source-over";
+          }
+        }
+        const atRim = (u, inward) => {
+          const th = aOld + dir * u * drawnAng;
+          const rr = Rp * (1 - inward);
+          return { x: mx0 + Math.cos(th) * rr, y: my0 + Math.sin(th) * rr };
+        };
+        for (let i = 0; i < 5; i++) {
+          const t = now / 3100 + i * 2.4;
+          const u = (Math.sin(t) + 1) / 2;
+          const inward = 0.04 + 0.2 * ((Math.sin(t * 0.8 + i * 1.1) + 1) / 2);
+          const q = atRim(u, inward);
+          const rad = Rp * (0.1 + 0.14 * ((Math.cos(t * 0.6 + i) + 1) / 2));
+          m.fillStyle = `rgba(255,255,255,${(0.14 + 0.18 * cloud) * cloud})`;
+          m.beginPath();
+          m.arc(q.x, q.y, rad, 0, Math.PI * 2);
+          m.fill();
+        }
+        for (let i = 0; i < 6; i++) {
+          const t = now / 2500 + i * 1.9;
+          const u = (Math.sin(t) + 1) / 2;
+          const q = atRim(u, 0);
+          const rad = Rp * (0.06 + 0.09 * ((Math.cos(t * 1.1 + i) + 1) / 2));
+          const a = (0.45 + 0.3 * cloud) * cloud;
+          if (i % 2 === 0) {
+            m.fillStyle = `rgba(255,255,255,${a})`;
+            m.beginPath();
+            m.arc(q.x, q.y, rad, 0, Math.PI * 2);
+            m.fill();
+          } else {
+            m.globalCompositeOperation = "destination-out";
+            const g3 = m.createRadialGradient(q.x, q.y, 0, q.x, q.y, rad);
+            g3.addColorStop(0, `rgba(0,0,0,${a})`);
+            g3.addColorStop(1, "rgba(0,0,0,0)");
+            m.fillStyle = g3;
+            m.beginPath();
+            m.arc(q.x, q.y, rad, 0, Math.PI * 2);
+            m.fill();
+            m.globalCompositeOperation = "source-over";
+          }
+        }
+      }
+      m.filter = "none";
+      const veil = (1 - f) * 0.75;
+      if (veil > 4e-3) {
+        m.globalCompositeOperation = "destination-out";
+        const vg = m.createRadialGradient(mx0, my0, 0, mx0, my0, Rp);
+        vg.addColorStop(0, `rgba(0,0,0,${veil * 0.3})`);
+        vg.addColorStop(0.65, `rgba(0,0,0,${veil * 0.55})`);
+        vg.addColorStop(1, `rgba(0,0,0,${veil})`);
+        m.fillStyle = vg;
+        m.beginPath();
+        m.arc(mx0, my0, Rp, 0, Math.PI * 2);
+        m.fill();
+      }
+      m.globalCompositeOperation = "source-in";
+      m.fillStyle = "rgb(7, 10, 16)";
+      m.fillRect(0, 0, size, size);
+      m.globalCompositeOperation = "source-atop";
       const sc = Math.max(W / mirror.width, H / mirror.height);
       const dw = mirror.width * sc, dh = mirror.height * sc;
-      ctx.globalAlpha = alpha;
-      ctx.drawImage(mirror, (W - dw) / 2, (H - dh) / 2, dw, dh);
-      ctx.globalAlpha = 1;
-    };
-    const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw, cloud) => {
-      if (!mirrorReady || strength <= 4e-3 || Rp < 3) return;
+      m.drawImage(mirror, (W - dw) / 2 - ox, (H - dh) / 2 - oy, dw, dh);
+      m.globalCompositeOperation = "source-over";
       ctx.save();
-      ctx.beginPath();
-      ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
-      ctx.clip();
-      drawMirror(strength);
-      if (cloud > 2e-3) {
-        ctx.globalCompositeOperation = "destination-out";
-        const fade = ctx.createRadialGradient(cxp, cyp, Rp * 0.22, cxp, cyp, Rp);
-        fade.addColorStop(0, "rgba(0,0,0,0)");
-        fade.addColorStop(0.72, `rgba(0,0,0,${0.4 * cloud})`);
-        fade.addColorStop(1, `rgba(0,0,0,${cloud})`);
-        ctx.fillStyle = fade;
-        ctx.beginPath();
-        ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      if (gapSize > 2e-3 && cloud > 2e-3) {
-        const blur = Math.max(3, Rp * 0.1);
-        ctx.filter = `blur(${blur.toFixed(1)}px)`;
-        const dir = ccw ? -1 : 1;
-        const gapAng = gapSize * Math.PI * 2;
-        const dip = Rp * (1 - Math.pow(gapSize, 0.75)) + Rp * 0.06;
-        const STEPS = 40;
-        ctx.beginPath();
-        for (let i = 0; i <= STEPS; i++) {
-          const th = gapFrom + dir * (i / STEPS) * gapAng;
-          const x = cxp + Math.cos(th) * Rp, y = cyp + Math.sin(th) * Rp;
-          if (i) ctx.lineTo(x, y);
-          else ctx.moveTo(x, y);
-        }
-        for (let i = STEPS; i >= 0; i--) {
-          const u = i / STEPS;
-          const th = gapFrom + dir * u * gapAng;
-          const bow = Math.sin(Math.PI * u);
-          const rough = 1 + 0.05 * Math.sin(u * 7.3 + now / 900) + 0.03 * Math.sin(u * 13.1 - now / 1400);
-          const rr = (Rp - (Rp - Math.min(dip, Rp)) * bow) * rough;
-          ctx.lineTo(cxp + Math.cos(th) * rr, cyp + Math.sin(th) * rr);
-        }
-        ctx.closePath();
-        ctx.fillStyle = "rgba(0,0,0,1)";
-        ctx.fill();
-        for (let i = 0; i < 5; i++) {
-          const t = now / 3e3 + i * 1.7;
-          const u = 0.15 + 0.7 * ((Math.sin(t) + 1) / 2);
-          const th = gapFrom + dir * u * gapAng;
-          const bow = Math.sin(Math.PI * u);
-          const rr = Rp - (Rp - Math.min(dip, Rp)) * bow;
-          const br = Rp * (0.1 + 0.1 * ((Math.cos(t * 0.9 + i) + 1) / 2));
-          const bx = cxp + Math.cos(th) * rr, by = cyp + Math.sin(th) * rr;
-          const g2 = ctx.createRadialGradient(bx, by, 0, bx, by, br);
-          g2.addColorStop(0, "rgba(0,0,0,0.8)");
-          g2.addColorStop(1, "rgba(0,0,0,0)");
-          ctx.fillStyle = g2;
-          ctx.beginPath();
-          ctx.arc(bx, by, br, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        ctx.filter = "none";
-      }
       ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = strength;
+      ctx.drawImage(maskCv, ox, oy);
+      ctx.globalAlpha = 1;
       ctx.restore();
     };
     const spawnBand = (x, y, tx, ty, heat) => {
@@ -1063,17 +1158,23 @@
       const reveal = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / (1 - REVEAL_AT)));
       const recognised = pinched && p.roundness >= 0.55 && p.progress >= REVEAL_AT;
       const want = !portalUp && fitC && recognised ? 0.12 + 0.88 * reveal : 0;
-      mirrorAmt += (want - mirrorAmt) * 0.15;
+      mirrorAmt += (want - mirrorAmt) * (want > mirrorAmt ? 0.15 : 0.09);
+      if (recognised) {
+        const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
+        openGap = Math.max(0, 1 - doneTurns);
+        openCcw = p.sweep < 0;
+        lastFill = doneTurns;
+        holdOld = (p.endAngle ?? 0) - (openCcw ? -1 : 1) * doneTurns * Math.PI * 2;
+      } else if (mirrorAmt > 6e-3) {
+        lastFill += (0 - lastFill) * 0.1;
+        openGap += (1 - openGap) * 0.1;
+      }
       if (fitC && !portalUp && mirrorAmt > 6e-3) {
         const cvx = mx(fitC.cx), cvy = my(fitC.cy);
         const Rv = Math.max(4, fitC.r * RPX);
-        if (recognised) {
-          const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
-          openGap = Math.max(0, 1 - doneTurns);
-          openGapFrom = p.endAngle ?? 0;
-          openCcw = p.sweep < 0;
-        }
-        paintMirror(cvx, cvy, Rv, mirrorAmt, openGapFrom, openGap, openCcw, 1);
+        const drawnNow = (1 - openGap) * Math.PI * 2;
+        const leadNow = holdOld + (openCcw ? -1 : 1) * drawnNow;
+        paintMirror(cvx, cvy, Rv, mirrorAmt, leadNow, openGap, openCcw, 1, lastFill, 1);
       }
       ctx.globalCompositeOperation = "lighter";
       ctx.lineCap = "round";
@@ -1202,7 +1303,9 @@
             openGapFrom,
             openGap * (1 - closing),
             openCcw,
-            1 - clearing
+            1 - clearing,
+            lastFill + (1 - lastFill) * closing,
+            1 - closing
           );
         }
         ctx.globalCompositeOperation = "lighter";
