@@ -638,6 +638,26 @@ if group "hooks"; then
     exit 0
   '
 
+  # Gavin's guard. A fork has BOTH origin and upstream. The fixture keeps both
+  # and points the branch at upstream, so origin still exists and a push to it
+  # would succeed: the ONLY thing that can stop it is the guard. An earlier
+  # version renamed origin away, which made the push fail for lack of a remote
+  # and passed with the guard deleted.
+  check "it refuses to push when the branch does not track origin" bash -c '
+    d="$('"$(declare -f autopush_fixture)"'; autopush_fixture main)"
+    git -c init.defaultBranch=main init -q --bare "$d/upstream.git"
+    git -C "$d/work" remote add upstream "$d/upstream.git"
+    git -C "$d/work" push -q -u upstream main
+    echo three >> "$d/work/a.txt"
+    git -C "$d/work" add a.txt
+    git -C "$d/work" commit -qm "ahead of both"
+    before="$(git --git-dir="$d/origin.git" show-ref | sort)"
+    CHEWBACCA_REPO_DIR="$d/work" bash "'"$ROOT"'/.claude/hooks/kit-autopush.sh" >/dev/null 2>&1
+    after="$(git --git-dir="$d/origin.git" show-ref | sort)"
+    [ "$before" = "$after" ] || { echo "origin moved while the branch tracked upstream" >&2; exit 1; }
+    exit 0
+  '
+
   check "a repo in sync with its remote says nothing" bash -c '
     d="$('"$(declare -f autopush_fixture)"'; autopush_fixture main)"
     git -C "$d/work" reset -q --hard HEAD~1
