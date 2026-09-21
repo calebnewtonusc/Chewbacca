@@ -357,6 +357,10 @@
   var spin = 0;
   var latest = null;
   var lastSeen = 0;
+  var armed = null;
+  window.chewbaccaArm = (label) => {
+    armed = label ? { label } : null;
+  };
   window.chewbaccaHands = (pts) => {
     latest = pts && pts.length === 21 ? pts : null;
     if (latest) lastSeen = performance.now();
@@ -448,6 +452,13 @@
     if (S.phase === "igniting" && prevPhase !== "igniting") {
       if (p.center) geom = { cx: p.center.x, cy: p.center.y, r: p.radius };
       attract = { cx: geom.cx, cy: geom.cy, r: clampR(geom.r * RSCALE) };
+      window.webkit?.messageHandlers?.portal?.postMessage({
+        event: "opened",
+        x: mx(geom.cx),
+        y: my(geom.cy),
+        r: clampR(geom.r * RSCALE),
+        armed: armed?.label ?? null
+      });
       comet = [];
       const gr = clampR(geom.r * RSCALE);
       for (let i = 0; i < 700; i++) {
@@ -467,6 +478,7 @@
       detector.reset();
       comet = [];
       attract = null;
+      window.webkit?.messageHandlers?.portal?.postMessage({ event: "closed" });
     }
     if (lm && !portalUp) {
       ctx.globalCompositeOperation = "lighter";
@@ -539,17 +551,33 @@
       if (S.phase === "open") attract = { cx: cn.x, cy: cn.y, r: rpx };
       if (rpx >= 2) {
         const cx0 = px(cn.x), cy0 = py(cn.y);
-        ctx.globalCompositeOperation = "source-over";
-        ctx.globalAlpha = vis;
-        const inner = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, rpx);
-        inner.addColorStop(0, "rgba(3, 2, 1, 1)");
-        inner.addColorStop(0.82, "rgba(10, 5, 2, 1)");
-        inner.addColorStop(0.95, "rgba(46, 18, 5, 1)");
-        inner.addColorStop(1, "rgba(120, 48, 12, 0.85)");
-        ctx.fillStyle = inner;
-        disc(cn, rpx);
-        ctx.fill();
-        ctx.globalAlpha = 1;
+        if (armed) {
+          ctx.globalCompositeOperation = "destination-out";
+          ctx.globalAlpha = 1;
+          disc(cn, rpx * 0.985);
+          ctx.fill();
+          ctx.globalCompositeOperation = "source-over";
+          ctx.globalAlpha = vis * 0.9;
+          const lip = ctx.createRadialGradient(cx0, cy0, rpx * 0.88, cx0, cy0, rpx);
+          lip.addColorStop(0, "rgba(0,0,0,0)");
+          lip.addColorStop(1, "rgba(120, 48, 12, 0.6)");
+          ctx.fillStyle = lip;
+          disc(cn, rpx);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        } else {
+          ctx.globalCompositeOperation = "source-over";
+          ctx.globalAlpha = vis;
+          const inner = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, rpx);
+          inner.addColorStop(0, "rgba(3, 2, 1, 1)");
+          inner.addColorStop(0.82, "rgba(10, 5, 2, 1)");
+          inner.addColorStop(0.95, "rgba(46, 18, 5, 1)");
+          inner.addColorStop(1, "rgba(120, 48, 12, 0.85)");
+          ctx.fillStyle = inner;
+          disc(cn, rpx);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
         ctx.globalCompositeOperation = "lighter";
         const bloom = ctx.createRadialGradient(cx0, cy0, rpx * 0.9, cx0, cy0, rpx * 1.22);
         bloom.addColorStop(0, `rgba(${SPARK_MID}, ${0.16 * vis})`);

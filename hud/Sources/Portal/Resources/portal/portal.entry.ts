@@ -64,8 +64,23 @@ declare global {
   interface Window {
     chewbaccaHands: (pts: Landmark[] | null) => void;
     chewbaccaPortalState: () => string;
+    chewbaccaArm: (label: string | null) => void;
+    webkit?: { messageHandlers?: { portal?: { postMessage: (m: unknown) => void } } };
   }
 }
+/**
+ * ARMED means the portal is a window onto something rather than a void.
+ *
+ * The interior is then PUNCHED OUT rather than painted. This panel is
+ * transparent glass floating over the desktop, so erasing the disc leaves a
+ * real hole: whatever window sits behind it is simply visible, live, at zero
+ * latency, with no screen capture anywhere in the path. The host positions
+ * the target window behind the circle once it knows where the circle landed.
+ */
+let armed: { label: string } | null = null;
+window.chewbaccaArm = (label) => {
+  armed = label ? { label } : null;
+};
 window.chewbaccaHands = (pts) => {
   latest = pts && pts.length === 21 ? pts : null;
   if (latest) lastSeen = performance.now();
@@ -181,6 +196,15 @@ function frame(now: number) {
   if (S.phase === "igniting" && prevPhase !== "igniting") {
     if (p.center) geom = { cx: p.center.x, cy: p.center.y, r: p.radius };
     attract = { cx: geom.cx, cy: geom.cy, r: clampR(geom.r * RSCALE) };
+    // Tell the host where it landed, in CSS points, so it can put the target
+    // window behind the hole. Sent once per opening, not per frame.
+    window.webkit?.messageHandlers?.portal?.postMessage({
+      event: "opened",
+      x: mx(geom.cx),
+      y: my(geom.cy),
+      r: clampR(geom.r * RSCALE),
+      armed: armed?.label ?? null,
+    });
     comet = [];
     const gr = clampR(geom.r * RSCALE);
     for (let i = 0; i < 700; i++) {
@@ -191,6 +215,7 @@ function frame(now: number) {
   }
   if (!portalUp && prevPhase === "closing") {
     detector.reset(); comet = []; attract = null;
+    window.webkit?.messageHandlers?.portal?.postMessage({ event: "closed" });
   }
 
   // ── Fingertips, faint, so the hand is visible before anything is drawn ──
@@ -274,16 +299,34 @@ function frame(now: number) {
       // The interior is DARK: near black to 82%, warmth only at the rim.
       // Painted with source-over so it OCCLUDES the desktop behind the glass,
       // which is what makes it read as a hole rather than a decal.
-      ctx.globalCompositeOperation = "source-over";
-      ctx.globalAlpha = vis;
-      const inner = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, rpx);
-      inner.addColorStop(0, "rgba(3, 2, 1, 1)");
-      inner.addColorStop(0.82, "rgba(10, 5, 2, 1)");
-      inner.addColorStop(0.95, "rgba(46, 18, 5, 1)");
-      inner.addColorStop(1, "rgba(120, 48, 12, 0.85)");
-      ctx.fillStyle = inner;
-      disc(cn, rpx); ctx.fill();
-      ctx.globalAlpha = 1;
+      if (armed) {
+        // A REAL HOLE. destination-out erases the glass, so the window behind
+        // this panel shows through: live, no capture, no latency. The edge is
+        // left slightly warm so the hole reads as burnt open rather than as
+        // a rectangle someone cut out.
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.globalAlpha = 1;
+        disc(cn, rpx * 0.985); ctx.fill();
+        ctx.globalCompositeOperation = "source-over";
+        ctx.globalAlpha = vis * 0.9;
+        const lip = ctx.createRadialGradient(cx0, cy0, rpx * 0.88, cx0, cy0, rpx);
+        lip.addColorStop(0, "rgba(0,0,0,0)");
+        lip.addColorStop(1, "rgba(120, 48, 12, 0.6)");
+        ctx.fillStyle = lip;
+        disc(cn, rpx); ctx.fill();
+        ctx.globalAlpha = 1;
+      } else {
+        ctx.globalCompositeOperation = "source-over";
+        ctx.globalAlpha = vis;
+        const inner = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, rpx);
+        inner.addColorStop(0, "rgba(3, 2, 1, 1)");
+        inner.addColorStop(0.82, "rgba(10, 5, 2, 1)");
+        inner.addColorStop(0.95, "rgba(46, 18, 5, 1)");
+        inner.addColorStop(1, "rgba(120, 48, 12, 0.85)");
+        ctx.fillStyle = inner;
+        disc(cn, rpx); ctx.fill();
+        ctx.globalAlpha = 1;
+      }
 
       ctx.globalCompositeOperation = "lighter";
       const bloom = ctx.createRadialGradient(cx0, cy0, rpx * 0.9, cx0, cy0, rpx * 1.22);

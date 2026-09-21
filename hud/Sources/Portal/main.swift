@@ -28,7 +28,7 @@ import WebKit
 /// panel over the whole screen that ignores the mouse completely, so the
 /// portal is glass you cannot touch and everything underneath keeps working.
 @MainActor
-final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDelegate {
+final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScriptMessageHandler {
     private var panel: NSPanel?
     private var web: WKWebView?
     private let tracker = HandTracker()
@@ -37,6 +37,13 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
     /// quit, because "it did nothing" and "it did nothing for the first two
     /// seconds" are different bugs.
     private var droppedBeforeReady = 0
+    /// What the portal opens onto, or nil for a plain void. Written by
+    /// `bin/portal` and polled, rather than passed as a launch argument,
+    /// because the voice agent arms a portal that is usually already running.
+    private var armed: String?
+    private var armTimer: Timer?
+    private static let armFile = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".chewbacca/portal-target")
 
     func applicationDidFinishLaunching(_: Notification) {
         // Bundle.main first, because that is where bundle-portal.sh puts the
@@ -55,6 +62,7 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         }
 
         let config = WKWebViewConfiguration()
+        config.userContentController.add(self, name: "portal")
         // Nothing in the page needs to reach the network, and a HUD that
         // phones out at launch is a HUD nobody should install.
         config.suppressesIncrementalRendering = false
@@ -99,6 +107,14 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         }
         tracker.start()
 
+        // Poll rather than watch. The file changes at human speed, a quarter
+        // second is imperceptible next to drawing a circle, and an FSEvents
+        // stream for one path is more machinery than the problem deserves.
+        readArm()
+        armTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
+            Task { @MainActor in self.readArm() }
+        }
+
         // Esc quits. The panel never takes focus, so this is a global monitor
         // rather than a key handler.
         NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
@@ -112,6 +128,61 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
 
     func webView(_: WKWebView, didFinish _: WKNavigation!) {
         ready = true
+        applyArm()
+    }
+
+    /// `bin/portal open --app Notes` writes the name here; `portal close`
+    /// empties it.
+    private func readArm() {
+        let text = (try? String(contentsOf: Self.armFile, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let next = (text?.isEmpty ?? true) ? nil : text
+        guard next != armed else { return }
+        armed = next
+        applyArm()
+        // Launching takes seconds, so get it up now rather than in the
+        // moment the circle closes. By the time the portal opens the window
+        // exists and only has to be moved.
+        if let name = next {
+            // NOT MainActor.assumeIsolated. That fatal-errors when it is
+            // not actually on the main actor, which a global queue never is,
+            // so the app crashed on launch the moment the arm file was
+            // non-empty. It launched fine while the file was empty, which is
+            // what made it look like the bundling had broken instead.
+            DispatchQueue.global(qos: .userInitiated).async {
+                _ = WindowPlacer.ensureRunning(appName: name)
+            }
+        }
+    }
+
+    private func applyArm() {
+        guard ready, let web else { return }
+        let arg = armed.map { "\"\($0.replacingOccurrences(of: "\"", with: ""))\"" } ?? "null"
+        web.evaluateJavaScript("window.chewbaccaArm&&window.chewbaccaArm(\(arg))")
+    }
+
+    // MARK: WKScriptMessageHandler
+
+    nonisolated func userContentController(
+        _: WKUserContentController, didReceive message: WKScriptMessage
+    ) {
+        guard let body = message.body as? [String: Any],
+              let event = body["event"] as? String
+        else { return }
+        Task { @MainActor in
+            guard event == "opened",
+                  let name = body["armed"] as? String,
+                  let x = body["x"] as? Double,
+                  let y = body["y"] as? Double,
+                  let r = body["r"] as? Double
+            else { return }
+            let placed = WindowPlacer.place(
+                appName: name, centerX: x, centerY: y, radius: r)
+            if !placed {
+                FileHandle.standardError.write(Data(
+                    "portal: could not place \(name). Grant Accessibility to Portal.app in System Settings, Privacy and Security.\n".utf8))
+            }
+        }
     }
 
     private func push(_ points: [LandmarkBridge.Point]?) {
