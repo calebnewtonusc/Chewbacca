@@ -339,6 +339,11 @@ if group "installer"; then
   check  "the install uses the agent already on the machine" \
     bash "$ROOT/tests/agent_agnostic.sh" "$ROOT"
 
+  # list-gate must refuse the exact defects that shipped four times on
+  # 2026-09-20. A gate whose own tests are not asserted is decoration.
+  check  "list-gate refuses the defects it exists for" \
+    bash "$ROOT/tests/list_gate.sh" "$ROOT"
+
   check  "committed checksums describe the committed tree" \
     python3 "$ROOT/tools/committed_checksums.py"
 
