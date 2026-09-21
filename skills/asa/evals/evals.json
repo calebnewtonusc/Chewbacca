@@ -1,0 +1,22 @@
+{
+  "skill": "asa",
+  "cases": [
+    {
+      "prompt": "What did week 4 say about agent architecture?",
+      "expect_tools": [
+        "asa"
+      ],
+      "why": "a week referenced by number is the course, not the open web"
+    },
+    {
+      "prompt": "How did Callan teach prompting?",
+      "expect_tools": [
+        "asa"
+      ],
+      "why": "a named instructor means the corpus, and the web would be wrong",
+      "reject": [
+        "searching the web"
+      ]
+    }
+  ]
+}

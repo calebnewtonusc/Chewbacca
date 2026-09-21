@@ -1,0 +1,30 @@
+{
+  "skill": "list-audit",
+  "cases": [
+    {
+      "prompt": "I bought a list of 50k investors, let's write the sequence",
+      "expect_tools": [
+        "list-audit"
+      ],
+      "why": "auditing must come BEFORE copy; this is the case the skill exists for",
+      "reject": [
+        "writing the sequence first",
+        "drafting copy"
+      ]
+    },
+    {
+      "prompt": "This campaign is bouncing like crazy",
+      "expect_tools": [
+        "list-audit"
+      ],
+      "why": "a bouncing campaign is a list problem until proven otherwise"
+    },
+    {
+      "prompt": "How many contacts are in this CSV?",
+      "expect_tools": [
+        "list-audit"
+      ],
+      "why": "quoting a count without auditing is how a junk file gets believed"
+    }
+  ]
+}

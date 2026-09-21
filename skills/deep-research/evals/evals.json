@@ -1,0 +1,22 @@
+{
+  "skill": "deep-research",
+  "cases": [
+    {
+      "prompt": "Look into whether Praxis is worth applying to",
+      "expect_tools": [
+        "deep-research"
+      ],
+      "why": "a decision needing evidence, and memory is exactly the failure",
+      "reject": [
+        "answering from memory"
+      ]
+    },
+    {
+      "prompt": "Compare Clay and Apollo for outbound",
+      "expect_tools": [
+        "deep-research"
+      ],
+      "why": "compare is a named trigger"
+    }
+  ]
+}

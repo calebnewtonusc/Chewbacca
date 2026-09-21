@@ -1,0 +1,22 @@
+{
+  "skill": "demo",
+  "cases": [
+    {
+      "prompt": "Record a demo of this thing",
+      "expect_tools": [
+        "demo"
+      ],
+      "why": "showing many features is the single biggest mistake in the genre",
+      "reject": [
+        "showing every feature"
+      ]
+    },
+    {
+      "prompt": "The demo I made is boring, it misses the point",
+      "expect_tools": [
+        "demo"
+      ],
+      "why": "a wrong demo is an explicit trigger"
+    }
+  ]
+}

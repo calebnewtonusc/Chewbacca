@@ -1,0 +1,19 @@
+{
+  "skill": "call-coach",
+  "cases": [
+    {
+      "prompt": "Here's the transcript from my call with Sagar, how did I do?",
+      "expect_tools": [
+        "call-coach"
+      ],
+      "why": "a shared transcript plus how did I do is the core case"
+    },
+    {
+      "prompt": "That pitch went badly and I have a follow-up Thursday",
+      "expect_tools": [
+        "call-coach"
+      ],
+      "why": "prepping a follow-up off a bad call is a named trigger"
+    }
+  ]
+}

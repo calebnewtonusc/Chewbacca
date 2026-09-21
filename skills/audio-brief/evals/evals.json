@@ -1,0 +1,21 @@
+{
+  "skill": "audio-brief",
+  "cases": [
+    {
+      "prompt": "I'm driving in ten minutes, can I listen to this instead",
+      "expect_tools": [
+        "audio-brief",
+        "brief-audio"
+      ],
+      "why": "away from the screen is the trigger"
+    },
+    {
+      "prompt": "Put this in my ears",
+      "expect_tools": [
+        "audio-brief",
+        "brief-audio"
+      ],
+      "why": "his own phrasing, which no generic reading would route"
+    }
+  ]
+}
