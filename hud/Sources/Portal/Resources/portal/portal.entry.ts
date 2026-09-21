@@ -8,6 +8,7 @@ import {
 import { PinchDetector } from "./vendor/pinch";
 import { FINGER_TIPS } from "./vendor/skeleton";
 import type { Landmark } from "./vendor/types";
+import { pointingPoint, MACBOOK_14, type ScreenModel } from "./vendor/pointing";
 
 /**
  * The Doctor Strange portal, on the HUD glass.
@@ -56,13 +57,17 @@ let geom = { cx: 0.5, cy: 0.5, r: 0.1 };
 let attract: { cx: number; cy: number; r: number } | null = null;
 let spin = 0;
 let latest: Landmark[] | null = null;
+let latestEyes: { left: { x: number; y: number }; right: { x: number; y: number } } | null = null;
 let lastSeen = 0;
 
 // The host pushes frames in here. Declared on window so evaluateJavaScript
 // from Swift can reach it.
 declare global {
   interface Window {
-    chewbaccaHands: (pts: Landmark[] | null) => void;
+    chewbaccaHands: (
+      pts: Landmark[] | null,
+      eyes?: { left: { x: number; y: number }; right: { x: number; y: number } } | null,
+    ) => void;
     chewbaccaPortalState: () => string;
     chewbaccaArm: (label: string | null) => void;
     webkit?: { messageHandlers?: { portal?: { postMessage: (m: unknown) => void } } };
@@ -81,8 +86,9 @@ let armed: { label: string } | null = null;
 window.chewbaccaArm = (label) => {
   armed = label ? { label } : null;
 };
-window.chewbaccaHands = (pts) => {
+window.chewbaccaHands = (pts, eyes) => {
   latest = pts && pts.length === 21 ? pts : null;
+  latestEyes = eyes ?? null;
   if (latest) lastSeen = performance.now();
 };
 // So the host, and a test, can ask what the portal is doing without a screenshot.
@@ -168,9 +174,43 @@ function frame(now: number) {
   const pinch = lm ? pinchL.update(lm, now) : (pinchL.update(null, now), null);
   const pinched = !!(pinch && pinch.isPinched && pinch.center);
 
+  // THE CURSOR IS WHERE THE RAY LANDS, NOT WHERE THE CAMERA SEES THE HAND.
+  //
+  // The pinch point's own camera coordinates put the cursor where the LENS
+  // sees the fingers, and the lens is in the top bezel while the person is
+  // a foot and a half back. Those two viewpoints disagree by parallax, so
+  // the cursor tracks near the finger and never at it. Casting from the eye
+  // through the fingertip onto the plane of the screen is the straight line
+  // that makes it feel like drawing at the tip of the finger.
+  //
+  // Falls back to the raw camera mapping whenever there is no face, which is
+  // wrong by exactly the parallax it cannot measure, but stable and better
+  // than freezing.
+  const cursor = (() => {
+    if (!pinched || !pinch?.center) return null;
+    if (latestEyes && lm) {
+      const screen: ScreenModel = {
+        ...MACBOOK_14,
+        widthPx: window.innerWidth,
+        heightPx: window.innerHeight,
+      };
+      const r = pointingPoint(
+        { leftEye: latestEyes.left, rightEye: latestEyes.right, hand: lm },
+        screen,
+      );
+      if (r) {
+        // Back to the normalized space the detector and mx/my expect. mx
+        // flips x, so undoing it here keeps a single flip in the pipeline
+        // rather than two that cancel by accident.
+        return { x: 1 - r.x / window.innerWidth, y: r.y / window.innerHeight };
+      }
+    }
+    return pinch.center;
+  })();
+
   let p: CircleProgress;
-  if (pinched && pinch!.center) {
-    p = detector.push(pinch!.center.x, pinch!.center.y, now);
+  if (cursor) {
+    p = detector.push(cursor.x, cursor.y, now);
   } else {
     detector.reset();
     p = IDLE_PROGRESS;

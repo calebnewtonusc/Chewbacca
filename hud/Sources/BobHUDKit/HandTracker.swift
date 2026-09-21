@@ -48,6 +48,12 @@ public final class HandTracker {
     /// as it needs to know it arrived.
     public var onLandmarks: (([LandmarkBridge.Point]?) -> Void)?
 
+    /// Both pupils, every frame, or nil when no face is visible.
+    ///
+    /// Runs on the same buffer as the hand request, so it costs one extra
+    /// Vision pass and no extra camera.
+    public var onEyes: ((LandmarkBridge.Eyes?) -> Void)?
+
     /// Whether the tracker is running. The camera and the session handler are
     /// only alive while this is true.
     public private(set) var isRunning = false
@@ -115,19 +121,28 @@ public final class HandTracker {
         // VNImageRequestHandler.perform is documented as safe to call from any
         // thread. Swift 6 flags the capture because the class is @MainActor.
         nonisolated(unsafe) let visionRequest = self.request
+        nonisolated(unsafe) let faceRequest = VNDetectFaceLandmarksRequest()
         let handler = SessionHandler { [weak self] buffer in
             guard let pixelBuffer = CMSampleBufferGetImageBuffer(buffer) else { return }
             let imageHandler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
             do {
-                try imageHandler.perform([visionRequest])
+                // Both requests on one handler, so the frame is decoded once.
+                try imageHandler.perform([visionRequest, faceRequest])
             } catch {
                 return
             }
+            // Eyes ride along in whichever Task this path takes. They must
+            // NOT get a Task of their own: under region-based isolation,
+            // sending `self` once and then using it again in the same region
+            // is a data race the compiler rejects, and the two later paths
+            // both use it.
+            let eyes = (faceRequest.results?.first).flatMap { LandmarkBridge.eyes(from: $0) }
             guard let obs = visionRequest.results?.first else {
                 Task { @MainActor in
                     self?.candidate = .none
                     self?.palmFired = false
                     self?.onLandmarks?(nil)
+                    self?.onEyes?(eyes)
                 }
                 return
             }
@@ -139,6 +154,7 @@ public final class HandTracker {
             Task { @MainActor in
                 self?.gate(gesture)
                 self?.onLandmarks?(points)
+                self?.onEyes?(eyes)
             }
         }
         output.setSampleBufferDelegate(handler, queue: delegateQueue)

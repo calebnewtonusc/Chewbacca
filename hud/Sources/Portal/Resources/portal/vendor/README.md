@@ -21,4 +21,5 @@ files here. Fix them upstream and re-run `sync.sh`.
 | `pinch.ts` | Pinch detection with hysteresis |
 | `gestures.ts` | Single-frame pose classification |
 | `skeleton.ts` | `HAND_CONNECTIONS`, `FINGER_TIPS` |
+| `pointing.ts` | Eye-through-fingertip ray to the screen plane, and the depth estimates it needs |
 | `types.ts` | `Landmark`, `HandData`, `GestureName` |
