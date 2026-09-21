@@ -166,8 +166,16 @@ function frame(now: number) {
   // frame's landmarks hang on screen forever if the host stops pushing.
   const lm = now - lastSeen < 300 ? latest : null;
 
-  const mx = (nx: number) => (1 - nx) * W;
-  const my = (ny: number) => ny * H;
+  // ONE PLACE where a normalized position becomes a screen position, so the
+  // display choices live here and nothing upstream is affected.
+  //
+  // `reachScale` pulls everything toward the middle, because the camera sees
+  // a wide field and an arm uses all of it, so mapping it one to one runs
+  // off both edges. The clamp is the guarantee that a wrong mapping is
+  // VISIBLE rather than silent: "I cant see the knob its prob off screen".
+  const fit = (v: number) => Math.max(0.02, Math.min(0.98, 0.5 + (v - 0.5) * reachScale));
+  const mx = (nx: number) => (1 - fit(nx)) * W;
+  const my = (ny: number) => fit(ny) * H;
   const RSCALE = (W + H) / 2;
   const RMIN = 24;
   const RMAX = Math.min(W, H) * 0.42;
@@ -179,18 +187,6 @@ function frame(now: number) {
   // a comfortable arm sweep runs off both edges of the display. Compressing
   // about the centre keeps the whole reachable area on screen and costs
   // only precision, which is the right trade for something aimed by an arm.
-  // ALWAYS ON SCREEN. Caleb, after three rounds of tuning: "I cant see the
-  // knob its prob off screen." A control you cannot see is one you cannot
-  // adjust, and every knob added to fix the aim was useless while the thing
-  // being aimed was outside the display.
-  //
-  // So the position is clamped as well as compressed. The clamp is not a
-  // substitute for getting the mapping right, it is the guarantee that a
-  // wrong mapping is VISIBLE and therefore fixable instead of silent.
-  const squeeze = (p: { x: number; y: number }) => ({
-    x: Math.max(0.02, Math.min(0.98, 0.5 + (p.x - 0.5) * reachScale)),
-    y: Math.max(0.02, Math.min(0.98, 0.5 + (p.y - 0.5) * reachScale)),
-  });
   const px = mx;
   const py = my;
 
@@ -289,12 +285,25 @@ function frame(now: number) {
         // UNMIRRORED frame, and mx() applies the selfie mirror on the way
         // out. Flipping here as well made two flips, which cancel: the hand
         // on the right drew on the left. One flip, and it lives in mx.
-        return squeeze({ x: r.x / window.innerWidth, y: r.y / window.innerHeight });
+        return { x: r.x / window.innerWidth, y: r.y / window.innerHeight };
       }
     }
-    return squeeze(pinch.center);
+    return pinch.center;
   })();
 
+  // THE DETECTOR SEES THE RAW PATH. Compression is a display choice and it
+  // must not reach the measurement.
+  //
+  // `reach` shrinks every movement toward the centre, so at 0.4 a segment
+  // that was 0.02 of the frame becomes 0.008, which is close to the
+  // detector's minimum segment length. Short segments are dropped because
+  // they carry no reliable direction, so the turning angle stopped
+  // accumulating and the circle could be started and never finished. He saw
+  // it as "circles will start now but its pretty much impossible to finish
+  // them".
+  //
+  // So the gesture is measured in the hand's own full range and only the
+  // result is pulled toward the middle of the screen.
   let p: CircleProgress;
   if (cursor) {
     p = detector.push(cursor.x, cursor.y, now);
