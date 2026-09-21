@@ -54,3 +54,4 @@ voice/.build/
 /asa/
 tests/.circle-under-test.mjs
 tests/.smooth-under-test.mjs
+tests/.portal-state-under-test.mjs
