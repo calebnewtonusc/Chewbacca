@@ -1556,7 +1556,12 @@ function frame(now: number) {
     // It takes 0.58 to latch on and has to fall to 0.44 to let go, so a
     // wobble around the old 0.55 cannot flip it at all.
     if (!pinched || p.progress < REVEAL_AT - 0.05) recognisedLatch = false;
-    else if (p.roundness >= 0.58) recognisedLatch = true;
+    // Latching at 0.58 raised the bar to START a circle, which is not what
+    // hysteresis is for: "I can barely start making circles". It latches at
+    // the same 0.55 the rest of the system uses and holds down to 0.44, so
+    // starting is exactly as easy as before and a wobble still cannot flip
+    // it back off.
+    else if (p.roundness >= 0.55) recognisedLatch = true;
     else if (p.roundness < 0.44) recognisedLatch = false;
     const recognised = recognisedLatch && pinched && p.progress >= REVEAL_AT;
 
@@ -1709,7 +1714,19 @@ function frame(now: number) {
       ctx.save();
       ctx.beginPath();
       ctx.rect(0, 0, W, H);
-      ctx.arc(mx(fitC.cx), my(fitC.cy), Math.max(2, fitC.r * RPX * 0.99), 0, Math.PI * 2);
+      // CLIP AT THE MIRROR'S INNER EDGE, NOT AT THE RIM.
+      //
+      // This was 0.99 R, and the line runs ALONG the rim, so every small
+      // movement of the fit flipped whole segments in and out of the clip
+      // and the stroke broke into pieces: "the line drawing is wonky and
+      // jagged."
+      //
+      // What had to be hidden was the part that wanders into the MIDDLE, so
+      // the boundary belongs where the mirror's inner edge is. Capped at
+      // 0.88 R so the rim line is never touched however deep the fill gets.
+      const innerEdge = Math.min(0.88, 1 - Math.pow(lastFill, 2.5));
+      ctx.arc(mx(fitC.cx), my(fitC.cy),
+        Math.max(2, fitC.r * RPX * innerEdge), 0, Math.PI * 2);
       ctx.clip("evenodd");
     }
     if (!portalUp) {
