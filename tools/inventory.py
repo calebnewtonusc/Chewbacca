@@ -568,6 +568,32 @@ def collect_skills():
             )
         elif name in VENDORED:
             vendored.append({"name": name, "description": VENDORED[name]})
+        else:
+            # VENDORED is an OVERRIDE, not a gate. It was acting as a gate,
+            # so a skill added to skills/ without a hand-written entry here
+            # vanished from docs/REFERENCE.md entirely and was subtracted
+            # from its count.
+            #
+            # Measured 2026-09-20: 20 entries in the dict against 32 skills on
+            # disk. REFERENCE.md claimed "75 skills (20 shipped here)" while
+            # README and tools/counts.py both correctly said 87 and 32. The 12
+            # that had silently disappeared were audio-brief, debugging, hud,
+            # interface, list-audit, people, repo-health, reviewing-changes,
+            # shipping, study-guide, texts and your-data.
+            #
+            # A registry that has to be hand-edited whenever a file is added
+            # is a registry that will be wrong, and this one was wrong by 37%.
+            # The skill already carries its own description in frontmatter.
+            # ...but only if the REPO actually ships it. SKILLS points at
+            # ~/.claude/skills, which is this machine's install (105 dirs),
+            # not what the repo distributes (32). "shipped here" must mean
+            # the repo, or REFERENCE.md documents one laptop instead of the
+            # product, and a stranger reads a list of skills they do not have.
+            if (REPO / "skills" / name / "SKILL.md").is_file():
+                vendored.append({
+                    "name": name,
+                    "description": desc or f"(no description in {name}/SKILL.md)",
+                })
     for name, desc in VENDORED.items():
         if not any(v["name"] == name for v in vendored) and (REPO / "skills" / name).is_dir():
             vendored.append({"name": name, "description": desc})
