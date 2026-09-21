@@ -22,11 +22,30 @@ and reused, and the caret never has to be found. That is the whole idea and it
 is also the hard part, because the bubble has to put text into a field it is
 only sitting on top of.
 
+**The reason it is worth building is disambiguation, not convenience.** Gavin,
+2026-09-21: "this is due to now having the regular agent be confused with talk
+to text when i ask regular questions to the assistant."
+
+That is the same failure the router has, arriving from the other side. `route.py`
+tries to infer a destination from the frontmost app, a warm history and a
+classifier, and the log for 2026-09-21 shows what inference costs: 7 of 11
+sentences went somewhere the person did not mean. A bubble removes the inference
+entirely. Clicking it says where the words go, with a rectangle, and no
+classifier is consulted, no destination is warm, and no frontmost app is read.
+
+So the bubble is not a nicer dictation tool. It is the explicit-destination
+escape from a guess that keeps being wrong, and it should be judged on whether
+it makes the guess unnecessary rather than on how it feels.
+
 ## What this is not
 
-It does not touch push to talk, the wake word, the router, or the pill. A bubble
-is a second consumer of the same microphone and the rules below make the two
-mutually exclusive by construction rather than by care.
+It does not touch push to talk, the wake word or the pill. A bubble is a second
+consumer of the same microphone and the rules below make the two mutually
+exclusive by construction rather than by care.
+
+A sentence spoken into a bubble never reaches `route.py` at all, because its
+destination is already known. That takes work away from the router without
+changing a line of it, and fixing the router is still its own job.
 
 It does not read the screen. The bubble knows one accessibility element and
 nothing else about what is on the display.
@@ -57,11 +76,42 @@ b <id> off                  take it down
 b <id> insert text="..."    the cleaned text, from the bridge
 ```
 
-`b <id> <x> <y>` is what the assistant sends when asked for a bubble. It places
-it and binds it in one step, so "put a dictation bubble on my messages" works
-without a drag: `bin/hud-guide` already walks the front window's controls to
-find a field's coordinates, and this verb takes the same coordinates. Dragging
-is for correcting it, and for the apps whose fields the tree does not expose.
+`b <id> <x> <y>` places a bubble and binds it in one step. `bin/hud-guide`
+already walks the front window's controls to find a field's coordinates, so
+"put a bubble on my messages" can land one directly. Dragging is for correcting
+it, and for the apps whose fields the tree does not expose.
+
+## How a bubble is asked for
+
+Out loud, and never through the model.
+
+> "spawn a bubble", "create a bubble", "generate a bubble", "make me a bubble",
+> "drop a bubble", "new bubble", "put a bubble on this"
+>
+> and to take it away: "take the bubble down", "close the bubble",
+> "get rid of the bubble"
+
+`bin/hud-bubble` owns that vocabulary as one regular expression per verb and
+exposes `parse(said)`, and the bridge asks it before anything else, exactly as
+it already asks `bin/hud-music` at `bin/hud-listen:1906`. When `parse` answers,
+the bubble is placed, one sentence is spoken, and **the model is never called
+and `route.py` is never consulted.**
+
+This is not an optimisation. It is the whole point of the feature. A request for
+a bubble that went through the router would be routed by the same broken
+inference the bubble exists to escape: with Terminal in front on 2026-09-21,
+"create a bubble" would have come back as a drafted terminal prompt asking what
+to draft. A feature whose purpose is to remove a guess cannot be summoned
+through that guess.
+
+The same reasoning puts the phrases in a module rather than in the prompt. A
+prompt instruction is advice the model can weigh against everything else in its
+context. A regex is not.
+
+Placement, when the words did not say where: under the pointer if it is over a
+text field, otherwise on the front window's first text field via `hud-guide`,
+otherwise centre screen unbound and dimmed, waiting to be dragged. It never
+guesses an app.
 
 ## Binding
 
@@ -233,7 +283,8 @@ Swift tests alongside `hud_voicePackageTests`.
 | `hud/Sources/BobHUDKit/SocketServer.swift` | the `b` verb |
 | `hud/Sources/BobHUDKit/Overlay.swift` | register each bubble's rect as an interactive surface |
 | `hud/Sources/BobHUDKit/OverlayView.swift` | draw the bubble, the ring, the transcript, the drag |
-| `bin/hud-listen` | `e dictate` to haiku to `b <id> insert`, with the timeout |
+| `bin/hud-bubble` | new: the spoken vocabulary, `parse(said)`, and the command form |
+| `bin/hud-listen` | ask `hud-bubble.parse` before the router; `e dictate` to haiku to `b <id> insert`, with the timeout |
 | `bin/hud-agent.md` | when to deploy a bubble and how to place it |
 | `hud/CLAUDE.md` | the `b` verb in the vocabulary |
 
