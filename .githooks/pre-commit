@@ -37,6 +37,48 @@ set -uo pipefail
 STAGED=$(git diff --cached --name-only --diff-filter=ACM)
 [ -n "$STAGED" ] || exit 0
 
+# ── Concurrent sessions ──────────────────────────────────────────────────────
+#
+# The mtime heuristic below CANNOT catch the case that keeps happening, and it
+# failed again on 2026-09-20 for exactly the reason its own header predicted:
+# when two sessions write concurrently, both sets of files are fresh, so
+# nothing looks stale. It printed the file list and let 233 lines of another
+# session's work through under an unrelated message. Third time in one day,
+# and by then it had happened in both directions.
+#
+# There is no signal in git that says which session staged a path. So this
+# does the only honest thing: when more than one agent session is live in this
+# checkout, it REFUSES a commit that was not limited with a pathspec, because
+# `git commit -- <paths>` is the one mechanism that actually works.
+#
+# Detection is deliberately crude and errs toward refusing. A false refusal
+# costs one retyped command. A false pass costs somebody's work.
+SESSIONS=$(pgrep -f "claude" 2>/dev/null | wc -l | tr -d ' ')
+if [ "${SESSIONS:-0}" -gt 1 ] && [ -z "${CHEWBACCA_PATHSPEC_COMMIT:-}" ]; then
+  STAGED_N=$(printf '%s\n' "$STAGED" | wc -l | tr -d ' ')
+  TRACKED_DIRTY=$(git diff --name-only HEAD | wc -l | tr -d ' ')
+  # If the index holds everything that is dirty, this was almost certainly a
+  # bare commit. A pathspec commit stages a subset.
+  if [ "$STAGED_N" -ge "$TRACKED_DIRTY" ] && [ "$STAGED_N" -gt 1 ]; then
+    cat >&2 <<'MSG'
+
+pre-commit: refusing. More than one agent session is live in this checkout and
+this looks like a bare commit taking the whole index.
+
+That is how three commits today swallowed another session's work. Name your
+paths:
+
+  git commit -- path/one path/two
+
+If you really mean the whole index:
+
+  CHEWBACCA_PATHSPEC_COMMIT=1 git commit ...
+
+MSG
+    exit 1
+  fi
+fi
+
 WINDOW=${STALE_STAGED_MINUTES:-45}
 NEWEST=0
 declare -a TIMES=() NAMES=()
