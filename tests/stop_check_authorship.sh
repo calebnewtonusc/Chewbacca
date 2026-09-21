@@ -43,7 +43,15 @@ printf '%s\tme\t%s/a.txt\n%s\tgavin-tab\t%s/b.txt\n' "$(date +%s)" "$R" "$(date 
 out="$(run me)"
 says "$out" "never -A" && ok "mixed: says stage your own paths by name" || no "no warning on a mixed tree"
 
+# An untracked file belongs to whoever created it. DIRTY_COUNT counts it and
+# `git add -A` stages it, so attribution has to see it too. The first version of
+# this hook filtered to tracked paths only and called a mixed tree clean-handed.
 git checkout -q -- a.txt && git reset -q && rm -f b.txt
+echo untracked > u.txt
+printf '%s\tgavin-tab\t%s/u.txt\n' "$(date +%s)" "$R" > "$LOG"
+out="$(run me)"
+says "$out" "DIFFERENT session" && ok "untracked file from another session: still caught" || no "missed an untracked file from another session"
+rm -f u.txt
 out="$(run me)"
 [ -z "$out" ] && ok "clean tree: stays silent" || no "spoke about a clean tree"
 
