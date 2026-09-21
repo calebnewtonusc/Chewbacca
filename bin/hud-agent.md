@@ -89,6 +89,44 @@ Rules that matter:
 - Group chats are read-only. A recurring calendar event shares one id across its occurrences, so an edit or delete hits the series.
 - Mail reads only the newest thirty messages per inbox unless told `--scan`; older mail is invisible, not missing.
 
+The rest of the kit is command-line too, so Bash reaches all of it. Run the
+command instead of guessing, and never state a date, a deadline or a person's
+details you did not read from one of these.
+
+```
+coursework due [--days N]        what is due, with real dates
+coursework today                 today's classes
+coursework policy <course> ai    whether AI is allowed for that class
+backlog                          what this kit is building, open items
+people brief <name>              who someone is before you talk about them
+people find <name or number>     look a person up
+scars                            mistakes already made, so you skip them
+peekaboo image --app <App>       look at the screen when asked what is on it
+summarize "<url or file>"        read a page, video or document
+yt-transcript "<url>"            read a YouTube video
+chewie see --app <App>           read the screen as text rather than pixels
+```
+
+When a command returns nothing, that is a result about your search, not about
+the world. Try again before you say you cannot.
+
+Caleb asked this agent to text Gavin. It ran `mac contacts find Monroe`, got
+nothing, and gave up. He is spelled **Munroe**, and searching `Gavin` alone
+returns him plus three others. A working path was one keystroke away.
+
+So: a name you heard spoken is a guess at a spelling. Search the other half of
+it, or a fragment, or the first name alone. Several matches is a good outcome,
+because then you ask which one. Nothing found means search wider, and only after
+two or three real attempts is it worth saying you could not find them.
+
+The same holds everywhere. An empty calendar is worth a wider date range before
+you report a free day. A person missing from Contacts may be in
+`people find`. Exit code 2 is a permission, not an absence, so say which app
+needs allowing rather than saying there is nothing there.
+
+`coursework` is the only truthful source for a deadline. A confidently wrong
+date is worse than "let me check", because they stop checking.
+
 # The terminal
 
 Some sentences arrive tagged for the terminal, where Claude Code is running in Terminal.app. The request says so ("Route: this sentence is for the terminal"). Your job then is the prompt, not the task.

@@ -76,7 +76,7 @@ them, and nothing depends on you remembering one.
 
 Anything the installer cannot finish by itself, like a permission checkbox, is
 handed to an agent rather than to you: see
-[agent-setup](skills/agent-setup).
+[agent-setup](../skills/agent-setup).
 
 ---
 
@@ -199,7 +199,7 @@ actually happening, vary the phrasing, and never repeat itself.
 
 Off unless you name one. Turning it on later is the command above, and turning
 it off is `--session-opener none`. To write your own, add it to `OPENERS` in
-[setup.sh](setup.sh) or edit `hooks.UserPromptSubmit` in
+[setup.sh](../setup.sh) or edit `hooks.UserPromptSubmit` in
 `~/.claude/settings.json` directly: it is one string.
 
 ---
@@ -281,7 +281,7 @@ The installer takes every answer as a flag, so you can drive it yourself:
 ./setup.sh --only tools    # re-run one section after a tool arrives late
 ```
 
-Changed your mind? [uninstall.sh](uninstall.sh) reverses it. `--dry-run` lists
+Changed your mind? [uninstall.sh](../uninstall.sh) reverses it. `--dry-run` lists
 everything it would remove first. It puts permission prompts back, unwires the
 hooks, removes the skills and CLI tools this installed, and restores your
 editor and desktop config from the backups setup made. It leaves your repos,
@@ -320,7 +320,7 @@ The `setup.sh` script collects your name, GitHub username, and API keys, then:
 2. Creates `claude-context` (public GitHub repo) with operational instructions
 3. Writes `~/.claude/settings.json`, pointing at the hook scripts
 4. Installs commands, rules, subagents, and hooks into `~/.claude/`
-5. Installs the skills, marketplaces, and plugins listed in [settings/toolkit.json](settings/toolkit.json)
+5. Installs the skills, marketplaces, and plugins listed in [settings/toolkit.json](../settings/toolkit.json)
 6. Configures Composio MCP if you have a URL
 7. Runs `doctor.sh` and refuses to claim success if anything failed
 
@@ -498,7 +498,7 @@ mode behind its own switch, `claudeCode.allowDangerouslySkipPermissions`, and
 ignores the CLI setting until that switch is on, which is why people set
 `defaultMode` and keep getting prompted anyway. `setup.sh` now merges both keys
 plus `claudeCode.initialPermissionMode` into your editor's user `settings.json`,
-from the template in [`settings/vscode-settings.json`](settings/vscode-settings.json).
+from the template in [`settings/vscode-settings.json`](../settings/vscode-settings.json).
 VS Code, VS Code Insiders, Cursor, VSCodium, and Windsurf are all handled, and
 only the editors actually installed are touched. Restart the editor afterward.
 
@@ -688,28 +688,28 @@ The vibe coding landscape is growing fast. **[ECOSYSTEM.md](ECOSYSTEM.md)** is o
 
 | File                                                             | What It Is                                                                 |
 | ---------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| [templates/cloudflare-worker.ts](templates/cloudflare-worker.ts) | Complete Worker + D1 entry point with CORS, error handling, JSON helpers   |
-| [templates/d1-migration.sql](templates/d1-migration.sql)         | Migration template with standard columns, indexes, and auto-update trigger |
-| [templates/hero.tsx](templates/hero.tsx)                         | Hero section with gradient text and CTA buttons                            |
-| [templates/navbar.tsx](templates/navbar.tsx)                     | Scroll-aware navbar                                                        |
-| [templates/card.tsx](templates/card.tsx)                         | Dark mode card with hover states                                           |
-| [templates/api-route.ts](templates/api-route.ts)                 | Next.js API route with Zod validation                                      |
-| [templates/page.tsx](templates/page.tsx)                         | Page with loading/error/empty states                                       |
-| [templates/globals.css](templates/globals.css)                   | Tailwind globals with dark mode                                            |
-| [templates/loading.tsx](templates/loading.tsx)                   | Skeleton loader                                                            |
-| [templates/error.tsx](templates/error.tsx)                       | Error boundary                                                             |
-| [templates/not-found.tsx](templates/not-found.tsx)               | 404 page                                                                   |
+| [templates/cloudflare-worker.ts](../templates/cloudflare-worker.ts) | Complete Worker + D1 entry point with CORS, error handling, JSON helpers   |
+| [templates/d1-migration.sql](../templates/d1-migration.sql)         | Migration template with standard columns, indexes, and auto-update trigger |
+| [templates/hero.tsx](../templates/hero.tsx)                         | Hero section with gradient text and CTA buttons                            |
+| [templates/navbar.tsx](../templates/navbar.tsx)                     | Scroll-aware navbar                                                        |
+| [templates/card.tsx](../templates/card.tsx)                         | Dark mode card with hover states                                           |
+| [templates/api-route.ts](../templates/api-route.ts)                 | Next.js API route with Zod validation                                      |
+| [templates/page.tsx](../templates/page.tsx)                         | Page with loading/error/empty states                                       |
+| [templates/globals.css](../templates/globals.css)                   | Tailwind globals with dark mode                                            |
+| [templates/loading.tsx](../templates/loading.tsx)                   | Skeleton loader                                                            |
+| [templates/error.tsx](../templates/error.tsx)                       | Error boundary                                                             |
+| [templates/not-found.tsx](../templates/not-found.tsx)               | 404 page                                                                   |
 
 ### Snippets (copy-paste patterns)
 
 | File                                                       | What It Is                                         |
 | ---------------------------------------------------------- | -------------------------------------------------- |
-| [snippets/drizzle-d1.ts](snippets/drizzle-d1.ts)           | Drizzle ORM + D1 schema, types, and query examples |
-| [snippets/wrangler.toml](snippets/wrangler.toml)           | Annotated wrangler config with all binding types   |
-| [snippets/useScrollNav.tsx](snippets/useScrollNav.tsx)     | Scroll-aware navbar hook                           |
-| [snippets/tailwind.config.ts](snippets/tailwind.config.ts) | Tailwind config with custom theme                  |
-| [snippets/prettierrc.json](snippets/prettierrc.json)       | Prettier config                                    |
-| [snippets/gitignore.txt](snippets/gitignore.txt)           | Standard .gitignore                                |
+| [snippets/drizzle-d1.ts](../snippets/drizzle-d1.ts)           | Drizzle ORM + D1 schema, types, and query examples |
+| [snippets/wrangler.toml](../snippets/wrangler.toml)           | Annotated wrangler config with all binding types   |
+| [snippets/useScrollNav.tsx](../snippets/useScrollNav.tsx)     | Scroll-aware navbar hook                           |
+| [snippets/tailwind.config.ts](../snippets/tailwind.config.ts) | Tailwind config with custom theme                  |
+| [snippets/prettierrc.json](../snippets/prettierrc.json)       | Prettier config                                    |
+| [snippets/gitignore.txt](../snippets/gitignore.txt)           | Standard .gitignore                                |
 
 ---
 
@@ -744,38 +744,38 @@ fires, which is the thing that matters most.
 
 | Extension                                                                                                       | Layer  | What it does                                                                                    |
 | --------------------------------------------------------------------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------- |
-| [skills/agent-setup](skills/agent-setup)                                                                        | Skill  | Finishing the install steps that need a browser or a permission dialog                          |
-| [skills/audio-brief](skills/audio-brief)                                                                        | Skill  | Turn a piece of work into something the user can listen to instead of read.                     |
-| [skills/coursework](skills/coursework)                                                                          | Skill  | Your syllabi as a ledger: deadlines, attendance math, per-course AI policy                      |
-| [skills/debugging](skills/debugging)                                                                            | Skill  | Find the root cause of a bug instead of guessing at it.                                         |
-| [skills/demo](skills/demo)                                                                                      | Skill  | Recording a product demo by reading the product's code, not guessing at its UI                  |
-| [skills/graph-engineering](skills/graph-engineering)                                                            | Skill  | Knowledge graphs and agent task graphs, with teaching mode                                      |
-| [skills/hud](skills/hud)                                                                                        | Skill  | Draw live interfaces on the screen over everything else, with no browser and no window.         |
-| [skills/interface](skills/interface)                                                                            | Skill  | Build any interface by loading a preset instead of re-deriving one: dashboards, tables, forms,… |
-| [skills/kit-builder](skills/kit-builder)                                                                        | Skill  | Building a kit for a long bureaucratic process, and the test for when not to                    |
-| [skills/life-context](skills/life-context)                                                                      | Skill  | Learning about someone without handing them a blank page                                        |
-| [skills/life-ops](skills/life-ops)                                                                              | Skill  | The weekly review, life admin with real deadlines, and what to cut                              |
-| [skills/list-audit](skills/list-audit)                                                                          | Skill  | Check a purchased, scraped or inherited contact list before anyone builds a sequence on it.     |
-| [skills/mac-act](skills/mac-act)                                                                                | Skill  | Clicks, types, drags, and drives real UI on the Mac                                             |
-| [skills/mac-apps](skills/mac-apps)                                                                              | Skill  | Drives Mail, Messages, Notes, Safari, Calendar and Finder directly                              |
-| [skills/mac-brief](skills/mac-brief)                                                                            | Skill  | The morning brief: what is urgent, who is waiting, what order                                   |
-| [skills/mac-control](skills/mac-control)                                                                        | Skill  | Routes a Mac task to the cheapest control layer that can do it                                  |
-| [skills/mac-debug](skills/mac-debug)                                                                            | Skill  | Works out why an automation is failing, especially quietly                                      |
-| [skills/mac-followups](skills/mac-followups)                                                                    | Skill  | Turns texts, email and calendar into what you owe people                                        |
-| [skills/mac-permissions](skills/mac-permissions)                                                                | Skill  | Diagnoses and fixes the macOS grants that fail silently                                         |
-| [skills/mac-runtime](skills/mac-runtime)                                                                        | Skill  | Runs a multi-step task as a checked plan instead of improvised bash                             |
-| [skills/mac-see](skills/mac-see)                                                                                | Skill  | Reads the screen as an accessibility tree, not as a screenshot                                  |
-| [skills/people](skills/people)                                                                                  | Skill  | 'Remember everything about the people in the user''s life, answer questions about their…        |
-| [skills/repo-health](skills/repo-health)                                                                        | Skill  | Find what has rotted in a project.                                                              |
-| [skills/reviewing-changes](skills/reviewing-changes)                                                            | Skill  | Review code for real problems before it goes anywhere.                                          |
-| [skills/second-brain](skills/second-brain)                                                                      | Skill  | Reading, writing, and auditing your personal context repo                                       |
-| [skills/setup](skills/setup)                                                                                    | Skill  | Installing the kit by conversation instead of a terminal questionnaire                          |
-| [skills/shipping](skills/shipping)                                                                              | Skill  | Get a change safely out the door.                                                               |
-| [skills/stack-rules](skills/stack-rules)                                                                        | Skill  | The 12 stack-specific standards, loaded only when the work needs them                           |
-| [skills/study-guide](skills/study-guide)                                                                        | Skill  | Build an interactive study guide, review sheet, practice quiz, walkthrough or flashcard set…    |
-| [skills/study-system](skills/study-system)                                                                      | Skill  | Retrieval practice over rereading, exam run-ups, and the four-cause postmortem                  |
-| [skills/texts](skills/texts)                                                                                    | Skill  | Read, search, and remember the user's iMessage history.                                         |
-| [skills/your-data](skills/your-data)                                                                            | Skill  | Decide what Chewbacca is allowed to read, then get it in.                                       |
+| [skills/agent-setup](../skills/agent-setup)                                                                     | Skill  | Finishing the install steps that need a browser or a permission dialog                          |
+| [skills/audio-brief](../skills/audio-brief)                                                                     | Skill  | Turn a piece of work into something the user can listen to instead of read.                     |
+| [skills/coursework](../skills/coursework)                                                                       | Skill  | Your syllabi as a ledger: deadlines, attendance math, per-course AI policy                      |
+| [skills/debugging](../skills/debugging)                                                                         | Skill  | Find the root cause of a bug instead of guessing at it.                                         |
+| [skills/demo](../skills/demo)                                                                                   | Skill  | Recording a product demo by reading the product's code, not guessing at its UI                  |
+| [skills/graph-engineering](../skills/graph-engineering)                                                         | Skill  | Knowledge graphs and agent task graphs, with teaching mode                                      |
+| [skills/hud](../skills/hud)                                                                                     | Skill  | Draw live interfaces on the screen over everything else, with no browser and no window.         |
+| [skills/interface](../skills/interface)                                                                         | Skill  | Build any interface by loading a preset instead of re-deriving one: dashboards, tables, forms,… |
+| [skills/kit-builder](../skills/kit-builder)                                                                     | Skill  | Building a kit for a long bureaucratic process, and the test for when not to                    |
+| [skills/life-context](../skills/life-context)                                                                   | Skill  | Learning about someone without handing them a blank page                                        |
+| [skills/life-ops](../skills/life-ops)                                                                           | Skill  | The weekly review, life admin with real deadlines, and what to cut                              |
+| [skills/list-audit](../skills/list-audit)                                                                       | Skill  | Check a purchased, scraped or inherited contact list before anyone builds a sequence on it.     |
+| [skills/mac-act](../skills/mac-act)                                                                             | Skill  | Clicks, types, drags, and drives real UI on the Mac                                             |
+| [skills/mac-apps](../skills/mac-apps)                                                                           | Skill  | Drives Mail, Messages, Notes, Safari, Calendar and Finder directly                              |
+| [skills/mac-brief](../skills/mac-brief)                                                                         | Skill  | The morning brief: what is urgent, who is waiting, what order                                   |
+| [skills/mac-control](../skills/mac-control)                                                                     | Skill  | Routes a Mac task to the cheapest control layer that can do it                                  |
+| [skills/mac-debug](../skills/mac-debug)                                                                         | Skill  | Works out why an automation is failing, especially quietly                                      |
+| [skills/mac-followups](../skills/mac-followups)                                                                 | Skill  | Turns texts, email and calendar into what you owe people                                        |
+| [skills/mac-permissions](../skills/mac-permissions)                                                             | Skill  | Diagnoses and fixes the macOS grants that fail silently                                         |
+| [skills/mac-runtime](../skills/mac-runtime)                                                                     | Skill  | Runs a multi-step task as a checked plan instead of improvised bash                             |
+| [skills/mac-see](../skills/mac-see)                                                                             | Skill  | Reads the screen as an accessibility tree, not as a screenshot                                  |
+| [skills/people](../skills/people)                                                                               | Skill  | 'Remember everything about the people in the user''s life, answer questions about their…        |
+| [skills/repo-health](../skills/repo-health)                                                                     | Skill  | Find what has rotted in a project.                                                              |
+| [skills/reviewing-changes](../skills/reviewing-changes)                                                         | Skill  | Review code for real problems before it goes anywhere.                                          |
+| [skills/second-brain](../skills/second-brain)                                                                   | Skill  | Reading, writing, and auditing your personal context repo                                       |
+| [skills/setup](../skills/setup)                                                                                 | Skill  | Installing the kit by conversation instead of a terminal questionnaire                          |
+| [skills/shipping](../skills/shipping)                                                                           | Skill  | Get a change safely out the door.                                                               |
+| [skills/stack-rules](../skills/stack-rules)                                                                     | Skill  | The 12 stack-specific standards, loaded only when the work needs them                           |
+| [skills/study-guide](../skills/study-guide)                                                                     | Skill  | Build an interactive study guide, review sheet, practice quiz, walkthrough or flashcard set…    |
+| [skills/study-system](../skills/study-system)                                                                   | Skill  | Retrieval practice over rereading, exam run-ups, and the four-cause postmortem                  |
+| [skills/texts](../skills/texts)                                                                                 | Skill  | Read, search, and remember the user's iMessage history.                                         |
+| [skills/your-data](../skills/your-data)                                                                         | Skill  | Decide what Chewbacca is allowed to read, then get it in.                                       |
 | [avoid-ai-writing](https://github.com/conorbronsdon/avoid-ai-writing)                                           | Skill  | Audit and rewrite content to remove AI writing patterns ("AI-isms").                            |
 | [cap](https://github.com/CapSoftware/Cap)                                                                       | Skill  | Always use Cap's CLI or local MCP first when the user mentions Cap, a Cap URL, screen…          |
 | [cap-demo](https://github.com/CapSoftware/Cap)                                                                  | Skill  | Generate a cinematic 3D product-demo video from any URL: scouts the page, records it with…      |
@@ -808,9 +808,9 @@ fires, which is the thing that matters most.
 
 <!-- END GENERATED: extensions -->
 
-That table is generated. [tools/inventory.py](tools/inventory.py) reads what is actually
+That table is generated. [tools/inventory.py](../tools/inventory.py) reads what is actually
 installed on the author's machine and rewrites it, along with the install list in
-`setup.sh` and the manifest at [settings/toolkit.json](settings/toolkit.json). A
+`setup.sh` and the manifest at [settings/toolkit.json](../settings/toolkit.json). A
 skill reaches this list only if it carries a public upstream URL or ships in this
 repo, so a personal skill added locally stays local. MCP servers are opt-in by
 name for the same reason.
@@ -844,7 +844,7 @@ installed alongside the kit, not vendored into it.
 
 `summarize` and `mac-use` both run on the Claude CLI you already have, so
 neither needs an API key. `peekaboo` needs Screen Recording and Accessibility
-granted once, which is what the [agent-setup](skills/agent-setup) skill exists
+granted once, which is what the [agent-setup](../skills/agent-setup) skill exists
 for: after `setup.sh`, run
 
 ```bash

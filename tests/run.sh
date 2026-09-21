@@ -484,6 +484,12 @@ if group "installer"; then
   # context? I feel like ur gonna forget the to dos we set at the beginning of
   # this session?" Nothing was. session-state/ records files written, never
   # decisions made.
+  # docs/REFERENCE.md carried 57 broken links, all one bug: repo-root-relative
+  # paths in a file that lives in docs/, so everything was missing ../. The
+  # prose reads fine and every link is dead, which is why it survived.
+  check  "every relative link in the docs resolves" \
+    python3 "$ROOT/tools/linkcheck.py"
+
   check  "the backlog lists open work" bash -c '
     out=$("$1/bin/backlog" 2>/dev/null)
     case "$out" in *"open now"*) : ;;

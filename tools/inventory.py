@@ -658,7 +658,13 @@ def collect_mcp():
 def md_table(upstream, vendored, packs, plugins, mcp):
     rows = []
     for v in vendored:
-        rows.append((f"[skills/{v['name']}](skills/{v['name']})", "Skill", v["description"]))
+        # ../ because this table is spliced into docs/REFERENCE.md and nowhere
+        # else. Emitting a repo-root-relative path put 57 dead links in that
+        # file on 2026-09-21: every link to a skill resolved to docs/skills/...
+        # and none of them existed. The prose reads fine and every link is
+        # broken, which is why it survived a long time. Fixing the rendered
+        # file does nothing; this generator writes it back on the next run.
+        rows.append((f"[skills/{v['name']}](../skills/{v['name']})", "Skill", v["description"]))
     for u in upstream:
         rows.append((f"[{u['name']}]({u['url']})", "Skill", u["description"]))
     for k in packs:

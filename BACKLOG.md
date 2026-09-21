@@ -16,6 +16,90 @@ reason, because deleting it means somebody proposes it again in three weeks.
 
 ---
 
+## The direction
+
+Caleb, 2026-09-21, and this is the item the rest serve:
+
+> *"We have tried our best to make chewbacca good at many things, we need to get
+> it to the point where it is an expert at literally everything. And an expert
+> at learning."*
+>
+> *"If we can make Chewbacca do ANY job like Aryaa said is possible, chewbacca
+> could be insane bruh. We're gonna help so many ppl be empowered to live
+> creative, discerning lives instead of monotone non thinking ones. We're gonna
+> build in prompt engineering for ppl to become human without needing to be an
+> engineer."*
+
+**The goal is not an impressive tool. It is a person who thinks better.** The
+metric is already written down, from Jamie Winship by way of
+[methods/doctrine.md](methods/doctrine.md): *are the people around us being
+transformed?* Not headcount, not revenue, and here not skill count either. A
+version of this that makes someone more capable and less able to work without it
+has failed on its own terms, however impressive the demo.
+
+### What exists to build on
+
+| Piece | State |
+| --- | --- |
+| 105 skills | Installed. **Nothing routes to them.** See item 3, which is the hard blocker |
+| `bin/method`, `methods/` | Picks a process and injects a falsifier before work starts. Works |
+| `methods/doctrine.md`, `methods/proverbs.md` | The operating frame and one standing check per process. Works |
+| `memory/`, `bin/scars` | Failures written down so the next session inherits them |
+| `bin/evolve`, `bin/fitness` | A benchmark, a score, an archive, worktree isolation. The machinery for self-improvement exists and has barely been pointed at anything |
+| `bin/consolidate`, `bin/maintain` | Slow offline consolidation, modelled on how memory moves from hippocampus to neocortex |
+
+### What "expert at learning" would concretely mean
+
+Not a bigger prompt. Four things that can be tested:
+
+1. **Acquiring an expertise on demand.** Given a domain it has never seen, it
+   finds the practitioners, extracts the rules rather than the vibes, and writes
+   them into a skill with evals. `.claude/rules/research-the-craft.md` already
+   states this as a rule and `craft-gate` already enforces part of it. The gap
+   is that a human still does the acquiring. Three corpora have been taken this
+   way already (Winship, Erik Fish, Staci Rivera, ~652k words), by hand.
+2. **Skills as executable programs, not prose.** Voyager's result is that a
+   skill library of runnable code compounds where a library of descriptions does
+   not. `skill-scan` measures exactly this and calls it determinism, and most
+   skills here score 0 or 5 out of 25 on it.
+3. **Empirical self-improvement with an archive.** The Darwin Gödel Machine
+   (arXiv 2505.22954) replaces formal proof of improvement with measured
+   benchmark performance and keeps every variant rather than only the best,
+   because a worse intermediate is often the path to a better one. `bin/evolve`
+   already has the archive and the worktree isolation. It needs a real benchmark
+   pointed at it and a reason to run.
+4. **Teaching, so the person does not need the tool.** This is the one that
+   makes it Caleb's project rather than another agent. His words: *prompt
+   engineering for people to become human without needing to be an engineer.*
+   The nearest thing built is his own essay method, recorded in
+   [methods/creative.md](methods/creative.md): dump everything, then be
+   interviewed, so the person holds the judgment and the model holds the
+   questions. That inversion generalises and almost nothing else does.
+
+### The honest blockers, in order
+
+1. **Skill routing.** 105 skills and nothing names one. Until a task reaches the
+   expertise that already exists, "expert at everything" is 105 files nobody
+   opens. Item 3.
+2. **No definition of expert.** There is no benchmark that says whether it is
+   better at a job this week than last. `bin/fitness` scored 84.8 once (139 of
+   164) and **which 25 failed was never written down**, so the number is not
+   actionable. Fix that before anything claims to be improving.
+3. **Aryaa's ladder.** His point is that influence runs system prompt (weakest),
+   context injection, LoRA, steering vectors, weights, tokeniser, and that the
+   move is to consolidate downward. Almost everything here sits on the top two
+   rungs. That is a real ceiling and it should be named rather than worked
+   around. Caleb has read his whole public corpus and has not talked to him yet:
+   *"I'll reach out once chewbacca is gas enough."*
+
+### The hard line on this one
+
+A system that can do any job is a system that can do harm at scale, and the
+person it most easily replaces is the one it was supposed to free. The doctrine
+file already carries the counterweight and it applies here first: the test is
+whether the person can now do something they could not, **and eventually without
+it.** Build the teaching half at the same time as the doing half, not after.
+
 ## Now
 
 | # | Item | Status | Notes |
@@ -35,7 +119,7 @@ reason, because deleting it means somebody proposes it again in three weeks.
 | 8 | Replace 5 archived MCP servers | open | github, postgres, puppeteer, google drive and slack are `servers-archived` reference code. Live replacements: `github/github-mcp-server`, `microsoft/playwright-mcp`, `korotovsky/slack-mcp-server` |
 | 9 | Add Context7 and MotherDuck MCP | open | Context7 (62k stars, 3.5M npm/mo) serves version-correct docs, which is the mechanical cause of slop UI. MotherDuck queries a local CSV in place, which is the 1M-row problem |
 | 10 | Hand control, the 10% that is real | open | Apple Vision, not MediaPipe. Measured 7.56ms one hand, 4-6% of one core sustained on the M4 Pro. Build palm-to-dismiss and point-to-deixis only; `OutboundEvent.region` already exists |
-| 11 | Framing stage, the level above `method` | doing | "Before chewbs does anything, it should deeply craft the best way to even figure out how to plan making the plan." Research agent running |
+| 11 | Framing stage, the level above `method` | open | Researched 2026-09-21. **Build the opposite of what was asked.** Deep meta-planning is the anti-pattern: optimal thinking length varies 7.5x with difficulty, and Russell proves the regress has no interior solution, so the budget is a constant set at design time, not a computation (optimal metareasoning is NP-hard and PSPACE-hard). Spec: budget by reversibility (two-way door = zero framing, one-way = full stage), one artifact, "write the problem a second way such that a different plan follows." Justified by Einstellung, not by the framing literature, which is weak: experts drop 3 SD when a workable answer is already in mind and report searching while eye tracking shows they are not |
 | 12 | Whisper / ElevenLabs for the Jarvis feel, max out Plynn | open | Caleb's #4. Gavin: subscriptions are not an option, so on-device only |
 | 13 | Sound design for the HUD | open | Caleb's #14 |
 | 14 | Open-source Granola | open | Caleb's #10 |
