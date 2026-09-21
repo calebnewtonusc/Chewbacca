@@ -109,24 +109,39 @@ void main() {
   //   1.00    0.0%     38.0%       0.0%
   float band = max(1.0, min(uR * uFog, inner));
 
-  // Radial: transparent at inner - band, solid by inner. The soft side faces
-  // the CENTRE, so the fog is pushed ahead of the edge rather than straddling
-  // it.
-  float fRad = smoothstep(inner - band, inner, r);
-
-  // Angular: the same band, measured in arc length and converted to u so the
-  // fade reads the same distance in both directions.
-  float bandU = band / max(uR * span, 1.0);
-  float fAng = smoothstep(0.0, bandU, u) * smoothstep(0.0, bandU, 1.0 - u);
-  // Past the leading edge is the undrawn wedge. Nothing there.
-  fAng *= step(u, 1.0 + bandU);
-
-  // ONCE THE CIRCLE IS CLOSED THERE ARE NO ENDS TO FADE. At a full turn the
-  // two ends of the arc are the same place, so fading both of them cut a
-  // wedge of nothing from the centre out to the rim along the seam, which
-  // is the white slice left in an otherwise finished portal. Blended out as
-  // the span reaches a turn, so the ends stop existing rather than meeting.
-  fAng = mix(fAng, 1.0, smoothstep(TAU - 0.35, TAU - 0.02, uASpan));
+  // ONE DISTANCE, NOT TWO FADES MULTIPLIED. THIS IS WHAT STOPS IT BEING A
+  // PIE.
+  //
+  // "It is a pie bruh. What happened to all the stuff we did?"
+  //
+  // Fair. The move to a shader carried over the spiral and the fog and quietly
+  // dropped the two things that had killed the pie in the first place: the
+  // rounded end caps and the dissolve at the ends. What replaced them was a
+  // radial fade times an angular fade, and multiplying two separable fades
+  // gives a SQUARE corner. The end of the ribbon was still a straight cut
+  // from the rim down to the spiral, feathered a little. A feathered wedge
+  // is a wedge.
+  //
+  // Measured as a distance instead. For a pixel outside the revealed sector,
+  // take how far outside it is along the arc and how far inside the inner
+  // edge it is, in pixels, and take the length of that pair. One falloff on
+  // that distance rounds every corner by construction, which is the same
+  // trick a rounded rectangle uses, and it is exactly what the hand built
+  // caps were faking.
+  //
+  // Three things fall out of it for free:
+  //
+  //   The ends are round, so there is no wedge and no cap to draw.
+  //   The corner where the end meets the spiral is one falloff rather than
+  //   two meeting, so "the two things go into each other seamlessly".
+  //   At a full turn nothing is ever outside the sector, so the angular term
+  //   is zero everywhere and the seam cannot exist. The special case that
+  //   used to blend it away is gone.
+  float outAng = rel > span ? min(rel - span, TAU - rel) : 0.0;
+  float dAng = outAng * uR;
+  float dRad = max(inner - r, 0.0);
+  float dist = length(vec2(dAng, dRad));
+  float fBody = 1.0 - smoothstep(0.0, band, dist);
 
   // A pixel of softness at the rim, so it is not a jagged cut.
   float fRim = smoothstep(uR, uR - 1.5, r);
@@ -134,7 +149,7 @@ void main() {
   // Fades toward the rim while the circle is still filling.
   float veil = 1.0 - uVeil * mix(0.3, 1.0, clamp(r / uR, 0.0, 1.0));
 
-  float a = fRad * fAng * fRim * veil * uStrength;
+  float a = fBody * fRim * veil * uStrength;
   if (a <= 0.002) discard;
 
   vec3 col = texture(uTex, (vPix - uImg.xy) / uImg.zw).rgb;
