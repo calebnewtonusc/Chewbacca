@@ -173,9 +173,6 @@
       return { x: x / this.trail.length, y: y / this.trail.length };
     }
   };
-  function mirrorAngle(theta) {
-    return Math.PI - theta;
-  }
 
   // vendor/portal-state.ts
   function initialPortalState() {
@@ -519,8 +516,13 @@
     ctx.fillRect(0, 0, W, H);
     const lm = now - lastSeen < 300 ? latest : null;
     const fit = (v) => Math.max(0.02, Math.min(0.98, 0.5 + (v - 0.5) * reachScale));
-    const mx = (nx) => (1 - fit(nx)) * W;
-    const my = (ny) => fit(ny) * H;
+    const toScreen = (p2, hub) => {
+      const sx = hub ? hub.x + (p2.x - hub.x) * handScale : p2.x;
+      const sy = hub ? hub.y + (p2.y - hub.y) * handScale : p2.y;
+      return { x: fit(1 - sx), y: fit(sy) };
+    };
+    const mx = (nx) => nx * W;
+    const my = (ny) => ny * H;
     const RMIN = 24;
     const RMAX = Math.min(W, H) * 0.42;
     const clampRN = (rn) => {
@@ -571,7 +573,7 @@
     const pinched = !!(pinch && pinch.isPinched && pinch.center);
     const cursor = (() => {
       if (!pinched || !pinch?.center) return null;
-      if (parallaxStrength <= 0) return pinch.center;
+      if (parallaxStrength <= 0) return toScreen(pinch.center, lm ? lm[9] : void 0);
       if (latestEyes && lm) {
         const screen = {
           ...MACBOOK_14,
@@ -655,14 +657,13 @@
     if (lm && !portalUp) {
       ctx.globalCompositeOperation = "lighter";
       const hub = lm[9];
-      const shrinkX = (v) => hub.x + (v - hub.x) * handScale;
-      const shrinkY = (v) => hub.y + (v - hub.y) * handScale;
       for (const t of FINGER_TIPS) {
         ctx.shadowBlur = pinched ? 9 : 6;
         ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
         ctx.fillStyle = `rgba(${SPARK_HOT}, ${pinched ? 1 : 0.8})`;
         ctx.beginPath();
-        ctx.arc(mx(shrinkX(lm[t].x)), my(shrinkY(lm[t].y)), pinched ? 1.7 : 1.4, 0, Math.PI * 2);
+        const q = toScreen(lm[t], hub);
+        ctx.arc(mx(q.x), my(q.y), pinched ? 1.7 : 1.4, 0, Math.PI * 2);
         ctx.fill();
       }
       if (pinch?.center) {
@@ -670,13 +671,15 @@
         ctx.shadowColor = `rgba(${CORE}, 1)`;
         ctx.fillStyle = `rgba(${CORE}, 1)`;
         ctx.beginPath();
-        ctx.arc(mx(shrinkX(pinch.center.x)), my(shrinkY(pinch.center.y)), 1.9, 0, Math.PI * 2);
+        const q = toScreen(pinch.center, hub);
+        ctx.arc(mx(q.x), my(q.y), 1.9, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.shadowBlur = 0;
       if (pinched && pinch?.center) {
-        const cx0 = mx(shrinkX(pinch.center.x));
-        const cy0 = my(shrinkY(pinch.center.y));
+        const q = toScreen(pinch.center, hub);
+        const cx0 = mx(q.x);
+        const cy0 = my(q.y);
         const k = Math.max(0, Math.min(1, p.progress));
         ctx.strokeStyle = `rgba(${SPARK_MID}, 0.25)`;
         ctx.lineWidth = 2;
@@ -697,8 +700,8 @@
       const cn = p.center;
       const rn = clampRN(p.radius);
       const rpx = rpxOf(cn, rn);
-      const swept = -Math.max(-Math.PI * 2, Math.min(Math.PI * 2, p.sweep));
-      const a0 = mirrorAngle(p.startAngle);
+      const swept = Math.max(-Math.PI * 2, Math.min(Math.PI * 2, p.sweep));
+      const a0 = p.startAngle;
       const a1 = a0 + swept;
       const k = Math.pow(p.progress, 1.6);
       ctx.globalCompositeOperation = "lighter";
