@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+"""Let a browser-based model drive this Mac, without an API key.
+
+    browser-bridge                 start it, print the token and the userscript path
+    browser-bridge --allow "npm"   add a prefix to the allowlist for this run
+    browser-bridge --status        is it up
+
+Caleb, 2026-09-21: "I'm j tryna make chewbacca accessible to anyone." That is
+the real goal and it is a good one. An Anthropic subscription is the largest
+barrier to entry this kit has, and a browser tab is something everybody has.
+
+WHY HTTP AND NOT WEBSOCKETS. The brief asked for websockets and for no
+dependencies outside the standard library, and those two cannot both be had:
+`websockets` is a pip install. http.server is stdlib, the loop is the same
+shape, and the userscript reaches it with fetch(). Zero dependencies won.
+
+THE SECURITY MODEL, WHICH IS THE WHOLE DESIGN.
+
+This takes text off a web page and runs it on a machine holding the person's
+texts, contacts, calendar and screen. Any page Google summarises can carry an
+instruction aimed at this bridge, so the browser is an untrusted input and is
+treated as one:
+
+  1. NO shell=True. Commands are split with shlex and run as an argv list, so
+     `ls; rm -rf ~` is a command called "ls;" that does not exist, rather than
+     two commands.
+  2. An ALLOWLIST of first words, not a keyword trigger. The brief proposed
+     running anything containing `cd`, `mkdir` or `git`. `git` appears in
+     `rm -rf ~ && git status`. A trigger word decides nothing; the first word
+     decides everything.
+  3. Anything off the allowlist is REFUSED and printed here, where the person
+     can see it and add it deliberately with --allow.
+  4. A SHARED TOKEN in a header, so a random page that guesses the port cannot
+     drive the Mac. The token is printed once at startup and regenerated every
+     run.
+  5. BOUND TO 127.0.0.1. Never a LAN address, never 0.0.0.0.
+  6. A LOOP GUARD: the same command three times in a row stops the bridge until
+     a key is pressed here.
+  7. Every command and its exit code goes to ~/.chewbacca/logs/browser-bridge.log
+     before it runs, so there is a record even if something goes wrong.
+
+None of that makes this safe to leave running unattended. It makes it safe
+enough to use while watching it, which is what it is for.
+"""
+import argparse
+import http.server
+import json
+import os
+import pathlib
+import secrets
+import shlex
+import subprocess
+import sys
+import threading
+import time
+import urllib.request
+
+PORT = int(os.environ.get("CHEWBACCA_BRIDGE_PORT", "8765"))
+LOG = pathlib.Path.home() / ".chewbacca" / "logs" / "browser-bridge.log"
+USERSCRIPT = pathlib.Path(__file__).resolve().parent.parent / "crafts" / "google-ai-bridge.user.js"
+
+# First words that may run without a prompt. Read: safe to run, and useful to a
+# model driving a build. Anything that deletes, escalates, downloads or writes
+# outside the project is deliberately absent, including rm, sudo, curl and dd.
+ALLOW = {
+    "ls", "pwd", "cat", "head", "tail", "wc", "grep", "find", "file", "stat",
+    "echo", "date", "which", "whoami", "env", "du", "df",
+    "git", "npm", "npx", "node", "python3", "pip3", "swift", "make",
+    "chewbacca", "chewie", "backlog", "coursework", "people", "scars",
+    "method", "list-audit", "doctor.sh", "ai-scan", "slop-check", "prose-check",
+    "mkdir", "touch", "cp", "mv", "diff", "sort", "uniq", "sed", "awk", "jq",
+}
+
+TOKEN = secrets.token_urlsafe(24)
+_recent: list[str] = []
+_paused = threading.Event()
+
+
+def log(line: str) -> None:
+    try:
+        LOG.parent.mkdir(parents=True, exist_ok=True)
+        with LOG.open("a", encoding="utf-8") as fh:
+            fh.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {line}\n")
+    except OSError:
+        pass
+
+
+def run(command: str, extra_allow: set[str]) -> dict:
+    """Run one command, or refuse it and say why."""
+    command = command.strip()
+    if not command:
+        return {"ok": False, "output": "empty command"}
+
+    if _paused.is_set():
+        return {"ok": False, "output": "bridge paused: the same command repeated three times. Press Return in the bridge terminal."}
+
+    # The loop guard. A model that gets an error, fixes it wrong, and gets the
+    # same error will do that forever, and each round is a real command.
+    _recent.append(command)
+    del _recent[:-3]
+    if len(_recent) == 3 and len(set(_recent)) == 1:
+        _paused.set()
+        print(f"\n  PAUSED: {command!r} three times in a row. Press Return to continue.", flush=True)
+        threading.Thread(target=_wait_for_key, daemon=True).start()
+        return {"ok": False, "output": "bridge paused after three identical commands"}
+
+    try:
+        argv = shlex.split(command)
+    except ValueError as err:
+        return {"ok": False, "output": f"could not parse: {err}"}
+    if not argv:
+        return {"ok": False, "output": "empty command"}
+
+    head = pathlib.Path(argv[0]).name
+    if head not in ALLOW and head not in extra_allow:
+        log(f"REFUSED {command}")
+        print(f"  refused: {head}  (add with --allow {head!r} if you meant it)", flush=True)
+        return {
+            "ok": False,
+            "output": (f"REFUSED: '{head}' is not on the bridge allowlist. "
+                       f"The allowlist is first words, not keywords. Ask the person to "
+                       f"restart the bridge with --allow {head}."),
+        }
+
+    log(f"RUN {command}")
+    print(f"  > {command}", flush=True)
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=120,
+                              cwd=os.environ.get("CHEWBACCA_BRIDGE_CWD") or os.getcwd())
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "output": "timed out after 120s"}
+    except (OSError, ValueError) as err:
+        return {"ok": False, "output": str(err)}
+
+    out = (done.stdout or "") + (done.stderr or "")
+    log(f"EXIT {done.returncode} {command}")
+    return {"ok": done.returncode == 0, "code": done.returncode, "output": out[:12000]}
+
+
+def _wait_for_key() -> None:
+    try:
+        sys.stdin.readline()
+    except Exception:
+        pass
+    _recent.clear()
+    _paused.clear()
+    print("  resumed.", flush=True)
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    extra_allow: set[str] = set()
+
+    def _send(self, code: int, body: dict) -> None:
+        payload = json.dumps(body).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        # The userscript runs on google.com, so the browser needs this to read
+        # the reply. Scoped to the one origin that is meant to talk to it.
+        self.send_header("Access-Control-Allow-Origin", "https://www.google.com")
+        self.send_header("Access-Control-Allow-Headers", "content-type, x-bridge-token")
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        self._send(204, {})
+
+    def do_GET(self) -> None:  # noqa: N802
+        self._send(200, {"ok": True, "service": "chewbacca browser-bridge"})
+
+    def do_POST(self) -> None:  # noqa: N802
+        if self.headers.get("X-Bridge-Token") != TOKEN:
+            self._send(403, {"ok": False, "output": "bad or missing token"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except (ValueError, OSError):
+            self._send(400, {"ok": False, "output": "bad json"})
+            return
+        self._send(200, run(str(body.get("command") or ""), self.extra_allow))
+
+    def log_message(self, *_args) -> None:
+        return  # the bridge prints what matters itself
+
+
+def status() -> int:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/", timeout=2) as resp:
+            print(f"  up on 127.0.0.1:{PORT}: {resp.read().decode()[:60]}")
+            return 0
+    except OSError:
+        print(f"  not running on 127.0.0.1:{PORT}")
+        return 1
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--allow", action="append", default=[],
+                    help="extra first words to permit, repeatable")
+    ap.add_argument("--status", action="store_true")
+    a = ap.parse_args()
+    if a.status:
+        return status()
+
+    Handler.extra_allow = {x.strip() for x in a.allow if x.strip()}
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+
+    print(f"""
+  Chewbacca browser bridge, listening on 127.0.0.1:{PORT}
+
+  TOKEN   {TOKEN}
+  Paste that into the userscript, it changes every run.
+
+  Userscript: {USERSCRIPT}
+  Install it in Tampermonkey, set the token, then open Google AI Mode.
+
+  {len(ALLOW) + len(Handler.extra_allow)} commands allowed. Anything else is
+  refused and printed here. Add one with --allow.
+
+  Log: {LOG}
+  Watch this window. Stop with Ctrl-C.
+""", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\n  stopped.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

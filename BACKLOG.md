@@ -151,6 +151,9 @@ it.** Build the teaching half at the same time as the doing half, not after.
 | 37 | **BISC 101 quiz went through the voice agent** | open | 2026-09-21, 02:22 and 02:29: "Do the biology quiz, I already did my answers on paper. I am just double checking." **BISC bans AI outright.** `submit-guard.sh` blocks turning work in, and nothing stops the voice path answering quiz questions. Whether that gap gets closed is his call, not the kit's, but the policy should at least be said out loud when a course that bans AI is named |
 | 38 | **Ask-capture proved itself in one hour** | done | Seven asks captured that no backlog row mentioned, two of them voice failures nobody had reported. `backlog inbox` is the part that works |
 
+| 39 | **Doctor Strange plus Iron Man: hands, voice and the glass at once** | open | Caleb, 2026-09-21: "I wanna be doctor strange iron man mixed tgt" and "I'm tryna open a doctor strange portal and control chewbacca w hand gestures and voice together." Every piece now exists and none have been run together: the voice agent has his brain and narrates, `HandTracker` ships palm-dismiss and point-deixis on Apple Vision, `HandDemo` draws the skeleton, and the field draws. The work is composition, not capability. Point-deixis already emits `OutboundEvent.region`, which is the same event the voice layer consumes, so that pair is the shortest path to the demo |
+| 40 | **Browser bridge, an LLM in a tab driving the kit** | parked | `bin/browser-bridge` written 2026-09-21, stdlib only, allowlisted, token-gated, loop-guarded. Missing the userscript, a CLI entry point and any test. See `crafts/google-ai-bridge.NOTES.md` for the fork that should be decided first: browser transport versus a provider abstraction for item 9 |
+
 ## Done this session
 
 | Item | Where |

@@ -178,8 +178,17 @@ encode specific incidents rather than generic coverage.
 
 **Real debt:**
 
-- The test suite did not finish in 400 seconds tonight. A suite nobody waits
-  for is a suite nobody runs.
+- **The test suite reports 271 passed and 3 failed**, and it takes long enough
+  that the first attempt to measure it timed out at 400 seconds. A suite nobody
+  waits for is a suite nobody runs, and three failures nobody has named are
+  three bugs with a head start.
+- **`doctor.sh` reports four failures**, and one is the pattern above for the
+  eighth time: **7 of 39 skills written in this repo were never installed, so
+  they could never fire.** Among them `deep-research`, `prospect-brief` and
+  `call-coach`, which are the three most relevant to the work of the week.
+  Installed during this audit; 112 skills now resolve.
+- **28,421 tokens load before the person types**, against a stated budget of
+  28,000. Small, and it is the budget the kit set for itself.
 - `bin/hud-listen` is over 3,000 lines and does audio, streaming, drawing,
   process management, permissions and routing.
 - 105 skills, no owner, no last-reviewed date. `skill-scan` grades many of
