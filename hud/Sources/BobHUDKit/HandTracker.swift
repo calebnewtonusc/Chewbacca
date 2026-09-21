@@ -38,6 +38,22 @@ public final class HandTracker {
 
     public var onGesture: ((Gesture) -> Void)?
 
+    /// Every frame's 21 landmarks, in MediaPipe order and convention, or nil
+    /// when no confident hand is in view.
+    ///
+    /// Separate from `onGesture` because they answer different questions.
+    /// A gesture is a decision, debounced and fired once. Landmarks are a
+    /// measurement, delivered every frame including the frames where nothing
+    /// is happening, because a renderer needs to know the hand left as much
+    /// as it needs to know it arrived.
+    public var onLandmarks: (([LandmarkBridge.Point]?) -> Void)?
+
+    /// Both pupils, every frame, or nil when no face is visible.
+    ///
+    /// Runs on the same buffer as the hand request, so it costs one extra
+    /// Vision pass and no extra camera.
+    public var onEyes: ((LandmarkBridge.Eyes?) -> Void)?
+
     /// Whether the tracker is running. The camera and the session handler are
     /// only alive while this is true.
     public private(set) var isRunning = false
@@ -105,24 +121,41 @@ public final class HandTracker {
         // VNImageRequestHandler.perform is documented as safe to call from any
         // thread. Swift 6 flags the capture because the class is @MainActor.
         nonisolated(unsafe) let visionRequest = self.request
+        nonisolated(unsafe) let faceRequest = VNDetectFaceLandmarksRequest()
         let handler = SessionHandler { [weak self] buffer in
             guard let pixelBuffer = CMSampleBufferGetImageBuffer(buffer) else { return }
             let imageHandler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
             do {
-                try imageHandler.perform([visionRequest])
+                // Both requests on one handler, so the frame is decoded once.
+                try imageHandler.perform([visionRequest, faceRequest])
             } catch {
                 return
             }
+            // Eyes ride along in whichever Task this path takes. They must
+            // NOT get a Task of their own: under region-based isolation,
+            // sending `self` once and then using it again in the same region
+            // is a data race the compiler rejects, and the two later paths
+            // both use it.
+            let eyes = (faceRequest.results?.first).flatMap { LandmarkBridge.eyes(from: $0) }
             guard let obs = visionRequest.results?.first else {
                 Task { @MainActor in
                     self?.candidate = .none
                     self?.palmFired = false
+                    self?.onLandmarks?(nil)
+                    self?.onEyes?(eyes)
                 }
                 return
             }
-            // Classify on this queue, where the observation is.
+            // Classify AND extract on this queue, where the observation is.
+            // Only plain values cross to the main actor; the observation and
+            // the pixel buffer never do.
             let gesture = Self.classify(obs)
-            Task { @MainActor in self?.gate(gesture) }
+            let points = LandmarkBridge.landmarks(from: obs)
+            Task { @MainActor in
+                self?.gate(gesture)
+                self?.onLandmarks?(points)
+                self?.onEyes?(eyes)
+            }
         }
         output.setSampleBufferDelegate(handler, queue: delegateQueue)
         guard session.canAddOutput(output) else {
@@ -305,8 +338,13 @@ public final class HandTracker {
         return (dx * dx + dy * dy).squareRoot()
     }
 
-    /// All 21 joint names in the order Vision reports them.
-    public static let allJoints: [VNHumanHandPoseObservation.JointName] = [
+    /// All 21 joint names in the order Vision reports them, which is also
+    /// MediaPipe's 0-20 order. See `LandmarkBridge`.
+    ///
+    /// `nonisolated` because landmarks are extracted on the capture queue,
+    /// where the observation already lives, and hopping to the main actor per
+    /// frame to read an immutable array would be absurd.
+    nonisolated public static let allJoints: [VNHumanHandPoseObservation.JointName] = [
         .wrist,
         .thumbCMC, .thumbMP, .thumbIP, .thumbTip,
         .indexMCP, .indexPIP, .indexDIP, .indexTip,
@@ -316,8 +354,8 @@ public final class HandTracker {
     ]
 
     /// Bone connections for drawing the skeleton. Each pair is an index into
-    /// `allJoints`.
-    public static let bones: [(Int, Int)] = [
+    /// `allJoints`. Matches OpenVision's `HAND_CONNECTIONS`.
+    nonisolated public static let bones: [(Int, Int)] = [
         // Thumb
         (0, 1), (1, 2), (2, 3), (3, 4),
         // Index
