@@ -568,6 +568,7 @@
     const pinched = !!(pinch && pinch.isPinched && pinch.center);
     const cursor = (() => {
       if (!pinched || !pinch?.center) return null;
+      if (parallaxStrength <= 0) return pinch.center;
       if (latestEyes && lm) {
         const screen = {
           ...MACBOOK_14,
@@ -651,19 +652,19 @@
     if (lm && !portalUp) {
       ctx.globalCompositeOperation = "lighter";
       for (const t of FINGER_TIPS) {
-        ctx.shadowBlur = pinched ? 10 : 6;
-        ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
-        ctx.fillStyle = `rgba(${SPARK_HOT}, ${pinched ? 1 : 0.85})`;
+        ctx.shadowBlur = pinched ? 5 : 3;
+        ctx.shadowColor = `rgba(${SPARK_MID}, 0.7)`;
+        ctx.fillStyle = `rgba(${SPARK_HOT}, ${pinched ? 0.7 : 0.45})`;
         ctx.beginPath();
-        ctx.arc(mx(lm[t].x), my(lm[t].y), pinched ? 1.8 : 1.4, 0, Math.PI * 2);
+        ctx.arc(mx(lm[t].x), my(lm[t].y), pinched ? 1.5 : 1.2, 0, Math.PI * 2);
         ctx.fill();
       }
       if (pinch?.center) {
-        ctx.shadowBlur = 16;
-        ctx.shadowColor = `rgba(${CORE}, 1)`;
-        ctx.fillStyle = `rgba(${CORE}, 1)`;
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = `rgba(${CORE}, 0.8)`;
+        ctx.fillStyle = `rgba(${CORE}, 0.85)`;
         ctx.beginPath();
-        ctx.arc(mx(pinch.center.x), my(pinch.center.y), 2.4, 0, Math.PI * 2);
+        ctx.arc(mx(pinch.center.x), my(pinch.center.y), 1.9, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.shadowBlur = 0;
@@ -698,22 +699,22 @@
       ctx.lineCap = "round";
       ctx.shadowBlur = 8 + 30 * k;
       ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
-      ctx.strokeStyle = `rgba(${SPARK_COLD}, ${0.04 + k * 0.34})`;
+      ctx.strokeStyle = `rgba(${SPARK_COLD}, ${0.03 + k * 0.18})`;
       ctx.lineWidth = Math.max(1.5, rpx * (0.02 + k * 0.06));
       arcPath(cn, rn, a0, a1, 96, 3);
       ctx.stroke();
-      ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.07 + k * 0.6})`;
+      ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.05 + k * 0.3})`;
       ctx.lineWidth = Math.max(1.2, rpx * (0.01 + k * 0.03));
       arcPath(cn, rn, a0, a1, 96, 1.5);
       ctx.stroke();
       ctx.shadowBlur = 6 + 16 * k;
-      ctx.strokeStyle = `rgba(${CORE}, ${0.06 + k * 0.72})`;
+      ctx.strokeStyle = `rgba(${CORE}, ${0.04 + k * 0.36})`;
       ctx.lineWidth = Math.max(0.8, rpx * (4e-3 + k * 0.011));
       arcPath(cn, rn, a0, a1);
       ctx.stroke();
       const headSpan = Math.sign(swept) * Math.min(Math.abs(swept), 0.55);
       ctx.shadowBlur = 14 + 50 * k;
-      ctx.strokeStyle = `rgba(${CORE}, ${0.35 + k * 0.6})`;
+      ctx.strokeStyle = `rgba(${CORE}, ${0.2 + k * 0.35})`;
       ctx.lineWidth = Math.max(1.4, rpx * (0.012 + k * 0.042));
       arcPath(cn, rn, a1 - headSpan, a1, 24);
       ctx.stroke();
@@ -736,7 +737,7 @@
         2.2 + k * 3,
         true
       );
-      spawnAt(hx, hy, tx, ty, Math.round(k * 6), 3 + k * 2.8, false);
+      spawnAt(hx, hy, tx, ty, Math.round(k * 3), 3 + k * 2.8, false);
       attract = { cx: cn.x, cy: cn.y, r: rpx };
     }
     if (portalUp) {
