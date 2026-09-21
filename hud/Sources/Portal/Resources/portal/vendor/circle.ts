@@ -83,6 +83,10 @@ export interface CircleGestureOptions {
    * old 0.26 was 0.45 and accepted 1.9:1, which is an oval.
    */
   roundDivisor?: number;
+  /** How far the end may be from the start, in fitted radii. Default 0.75. */
+  closeWithin?: number;
+  /** Roundness the path must reach to complete at all. Default 0.55. */
+  minRoundness?: number;
 }
 
 export interface CircleProgress {
@@ -152,7 +156,18 @@ export class CircleGestureDetector {
 
   constructor(options: CircleGestureOptions = {}) {
     this.o = {
-      sweepThreshold: options.sweepThreshold ?? 4.6,
+      // 5.4 rad is 309 degrees. 4.6 was 264, and "I barely drew part of a
+      // circle and the portal opened" is what 264 degrees feels like. It
+      // was lowered to 4.6 back when a display-scaling bug was shrinking
+      // segments below minSegment and eating the sweep; that bug is fixed,
+      // so the low threshold was compensating for something gone.
+      sweepThreshold: options.sweepThreshold ?? 5.4,
+      // How far the end may sit from the start, as a fraction of the fitted
+      // radius, and still count as a closed loop.
+      closeWithin: options.closeWithin ?? 0.75,
+      // Roundness required to fire at all, the same gate the renderer uses
+      // to decide something is becoming a circle.
+      minRoundness: options.minRoundness ?? 0.55,
       trailLength: options.trailLength ?? 240,
       minSegment: options.minSegment ?? 0.004,
       maxTurn: options.maxTurn ?? Math.PI / 2.2,
@@ -237,7 +252,34 @@ export class CircleGestureDetector {
       }
     }
 
-    const done = Math.abs(this.sweep) >= this.o.sweepThreshold;
+    // A CIRCLE IS NOT AN AMOUNT OF TURNING. Completion used to be the sweep
+    // alone, and roundness was computed, returned, and used by the renderer
+    // to decide how to draw, and by nothing at all to decide whether the
+    // gesture had happened. So every shape that turns far enough fired one:
+    // a rounded square at 0.170 roundness, a rounded triangle at 0.000, a D
+    // with a flat side at 0.000. All measured, all opening portals.
+    //
+    // Three things now, and all three are what a person means by "I drew a
+    // circle":
+    //   it turned far enough, it stayed round while doing it, and it came
+    //   back to where it started.
+    //
+    // Closure is what kills a spiral, which is round everywhere and never
+    // returns. It is also the honest reading of "I barely drew part of a
+    // circle and the portal opened": 264 degrees is an arc, not a loop.
+    const turned = Math.abs(this.sweep) >= this.o.sweepThreshold;
+    let done = false;
+    if (turned) {
+      const probe = this.report(false);
+      const closes =
+        this.trail.length > 3 &&
+        probe.radius > 1e-6 &&
+        Math.hypot(
+          this.trail[this.trail.length - 1].x - this.trail[0].x,
+          this.trail[this.trail.length - 1].y - this.trail[0].y,
+        ) <= probe.radius * this.o.closeWithin;
+      done = closes && probe.roundness >= this.o.minRoundness;
+    }
     const out = this.report(done);
     if (done) {
       // Consume it, so the caller gets exactly one completed frame per circle
