@@ -1219,7 +1219,7 @@
       const REVEAL_AT = 0.5;
       const reveal = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / (1 - REVEAL_AT)));
       if (!pinched || p.progress < REVEAL_AT - 0.05) recognisedLatch = false;
-      else if (p.roundness >= 0.58) recognisedLatch = true;
+      else if (p.roundness >= 0.55) recognisedLatch = true;
       else if (p.roundness < 0.44) recognisedLatch = false;
       const recognised = recognisedLatch && pinched && p.progress >= REVEAL_AT;
       const want = !portalUp && fitC && recognised ? 0.12 + 0.88 * reveal : 0;
@@ -1263,7 +1263,14 @@
         ctx.save();
         ctx.beginPath();
         ctx.rect(0, 0, W, H);
-        ctx.arc(mx(fitC.cx), my(fitC.cy), Math.max(2, fitC.r * RPX * 0.99), 0, Math.PI * 2);
+        const innerEdge = Math.min(0.88, 1 - Math.pow(lastFill, 2.5));
+        ctx.arc(
+          mx(fitC.cx),
+          my(fitC.cy),
+          Math.max(2, fitC.r * RPX * innerEdge),
+          0,
+          Math.PI * 2
+        );
         ctx.clip("evenodd");
       }
       if (!portalUp) {
