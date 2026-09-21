@@ -463,7 +463,7 @@
   var depths = new DepthTracker();
   var parallaxStrength = PARALLAX_STRENGTH;
   var sizeScale = 0.45;
-  var reachScale = 0.5;
+  var reachScale = 1;
   var lastSeen = 0;
   var armed = null;
   window.chewbaccaGain = (k) => {
@@ -528,12 +528,9 @@
       ctx.beginPath();
       for (let i = 0; i <= segs; i++) {
         const a = a0 + (a1 - a0) * i / segs;
-        let qx = px(cn.x + Math.cos(a) * rn);
-        let qy = py(cn.y + Math.sin(a) * rn);
-        if (jitterPx) {
-          qx += (Math.random() - 0.5) * jitterPx;
-          qy += (Math.random() - 0.5) * jitterPx;
-        }
+        const rr = jitterPx ? rn * (1 + (Math.random() - 0.5) * jitterPx * 4e-3) : rn;
+        const qx = px(cn.x + Math.cos(a) * rr);
+        const qy = py(cn.y + Math.sin(a) * rr);
         if (i === 0) ctx.moveTo(qx, qy);
         else ctx.lineTo(qx, qy);
       }
