@@ -22,6 +22,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shlex
 import socket
 import subprocess
 import sys
@@ -68,6 +69,16 @@ def check(name: str, condition: bool, detail: str = "") -> None:
     else:
         print(f"  FAIL {name} {detail}")
         failures.append(name)
+
+
+def _last_answer(mem: str) -> dict:
+    """The answer fields of the last transcript line that carries one."""
+    lines = Path(mem, "transcript.jsonl").read_text().splitlines()
+    for raw in reversed([l for l in lines if l.strip()]):
+        entry = json.loads(raw)
+        if "answer" in entry:
+            return {"answer": entry["answer"], "delivered": entry.get("delivered")}
+    return {}
 
 
 def load():
@@ -1146,7 +1157,7 @@ def test_end_to_end() -> None:
         )
     os.chmod(fake, 0o755)
 
-    env = dict(os.environ, BOB_HUD_SOCKET=path, HUD_NAMES="off")
+    env = dict(os.environ, BOB_HUD_SOCKET=path, HUD_NAMES="off", HUD_ROUTE="off")
     process = subprocess.Popen(
         [sys.executable, str(BIN), "--model-cmd", fake],
         env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -1171,6 +1182,71 @@ def test_end_to_end() -> None:
           's "Here you go:"' in received and "p done" in received
           and received.index('s "Here you go:"') < received.index("p done"), f"got {received}")
     check("it left the glass", received[-1] == "p dormant", f"got {received[-1:]}")
+
+
+def test_route_end_to_end() -> None:
+    """A lookup opens the browser and never starts the model."""
+    import tempfile
+    directory = tempfile.mkdtemp()
+    path = os.path.join(directory, "hud.sock")
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(path)
+    server.listen(1)
+    received: list[str] = []
+    ready = threading.Event()
+
+    def serve() -> None:
+        conn, _ = server.accept()
+        ready.set()
+        conn.sendall(b'h "look up rust traits"\n')
+        conn.settimeout(30)
+        buffer = b""
+        try:
+            while "p dormant" not in received:
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                buffer += chunk
+                while b"\n" in buffer:
+                    line, buffer = buffer.split(b"\n", 1)
+                    received.append(line.decode())
+        except socket.timeout:
+            pass
+        conn.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    fake = os.path.join(directory, "fake-model")
+    ran = os.path.join(directory, "model-ran")
+    with open(fake, "w", encoding="utf-8") as handle:
+        handle.write(f"#!/bin/sh\ncat > /dev/null\ntouch {ran}\necho 'should not run'\n")
+    os.chmod(fake, 0o755)
+    opened = os.path.join(directory, "opened")
+    env = dict(
+        os.environ,
+        BOB_HUD_SOCKET=path, HUD_NAMES="off", HUD_ROUTE="on",
+        BOB_MEMORY_DIR=os.path.join(directory, "mem"),
+        # A temp file, empty: decide() reads NAMES through read_names(), and
+        # without this override it reads the developer's real
+        # ~/.bob/names.txt during the test.
+        BOB_NAMES=os.path.join(directory, "names.txt"),
+        HUD_OPEN_CMD=f"sh -c 'echo \"$0\" >> {opened}'",
+        HUD_TERMINAL_CMD="sh -c 'echo []'",
+        HUD_CLASSIFY_CMD="off",
+    )
+    process = subprocess.Popen(
+        [sys.executable, str(BIN), "--model-cmd", fake],
+        env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    ready.wait(10)
+    time.sleep(15)
+    process.terminate()
+    process.wait(timeout=10)
+    server.close()
+    check("the browser was opened with the search", os.path.exists(opened) and "rust+traits" in open(opened).read())
+    check("the model never ran", not os.path.exists(ran))
+    check("the pill named chrome", any(line.startswith('s "chrome: rust traits"') for line in received), str(received))
+    check("the transcript was written",
+          os.path.exists(os.path.join(directory, "mem", "transcript.jsonl")))
 
 
 def run_against(model: str, say: list, until, timeout: float = 40.0, name: str = "fake-model"):
@@ -1226,7 +1302,7 @@ def run_against(model: str, say: list, until, timeout: float = 40.0, name: str =
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
-    env = dict(os.environ, BOB_HUD_SOCKET=path, HUD_NAMES="off")
+    env = dict(os.environ, BOB_HUD_SOCKET=path, HUD_NAMES="off", HUD_ROUTE="off")
     process = subprocess.Popen(
         [sys.executable, str(BIN), "--model-cmd", fake],
         env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -1378,7 +1454,7 @@ def test_reconnects() -> None:
         handle.write("#!/bin/sh\ncat > /dev/null\necho 'r s'\n")
     os.chmod(fake, 0o755)
 
-    env = dict(os.environ, BOB_HUD_SOCKET=path, HUD_NAMES="off")
+    env = dict(os.environ, BOB_HUD_SOCKET=path, HUD_NAMES="off", HUD_ROUTE="off")
     process = subprocess.Popen(
         [sys.executable, str(BIN), "--model-cmd", fake],
         env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -1416,12 +1492,360 @@ def test_reconnects() -> None:
         process.wait(timeout=10)
 
 
+def test_routing(m) -> None:
+    """The router runs before the model, and only the assistant path reaches it."""
+    import tempfile
+    mem = tempfile.mkdtemp()
+    os.environ["BOB_MEMORY_DIR"] = mem
+    m.voice_memory.MEMORY = Path(mem)
+    m.voice_memory.TRANSCRIPT = Path(mem) / "transcript.jsonl"
+    m.voice_memory.PROJECT = Path(mem) / "project.json"
+    m.voice_memory.DRAFT = Path(mem) / "draft.json"
+    opened = os.path.join(mem, "opened")
+    # ROUTE, OPEN_CMD and TERMINAL_CMD are read from the environment once at
+    # import (bin/hud-listen), so setting os.environ after the module is
+    # already loaded cannot reach them; the module attributes are set
+    # directly instead. HUD_CLASSIFY_CMD is read at call time inside
+    # route.route, so the environment is right for that one.
+    m.ROUTE = True
+    m.OPEN_CMD = shlex.split(f"sh -c 'echo \"$0\" >> {opened}'")
+    m.TERMINAL_CMD = shlex.split("sh -c 'echo []'")
+    # decide() reads NAMES through read_names(); pointed at a temp file with
+    # nothing in it so this never touches the developer's real
+    # ~/.bob/names.txt, where a contact whose first name lands in a
+    # sentence's first six words would flip an assertion and look like a
+    # router bug.
+    m.NAMES = Path(mem) / "names.txt"
+    os.environ["HUD_CLASSIFY_CMD"] = "off"
+    listener = m.Listener("claude -p", False, False)
+    sent: list[str] = []
+    listener.send = sent.append  # type: ignore[method-assign]
+
+    req = m.Request(said="look up rust traits", spoken_at=time.monotonic(), pointed=None)
+    decision = listener.decide(req, "Terminal · ~/dev/x")
+    check("a lookup routes to the browser", decision.dest == "browser", str(decision))
+    label, opened_ok = listener.open_browser(req.said)
+    check("open_browser runs HUD_OPEN_CMD with the url",
+          Path(opened).exists() and "google.com/search?q=rust+traits" in Path(opened).read_text())
+    check("the label names chrome", label == "chrome: rust traits")
+    check("a successful open is reported ok", opened_ok is True)
+    listener.record(req, decision, None, "done")
+    entry = m.voice_memory.last()
+    check("the transcript has the line", entry["text"] == "look up rust traits" and entry["dest"] == "browser")
+    check("via is voice", entry["via"] == "voice")
+
+    # A launch that exits non-zero must not be recorded as done: the
+    # outcome is the tuning data for the router. Exercised through the real
+    # `_run`, not just `open_browser`/`record` in isolation, because the bug
+    # this guards against was in `_run`'s own outcome computation: it used to
+    # hardcode "done" for the browser branch regardless of whether the open
+    # actually happened.
+    m.OPEN_CMD = shlex.split("sh -c 'exit 1'")
+    failed_label, failed_ok = listener.open_browser(req.said)
+    check("a failed open is reported not ok", failed_ok is False, f"got {failed_label!r}, {failed_ok!r}")
+    m.OPEN_CMD = shlex.split(f"sh -c 'echo \"$0\" >> {opened}'")
+
+    listener.open_browser = lambda said: ("chrome: test", False)  # type: ignore[method-assign]
+    run_req = m.Request(said="look up rust traits", spoken_at=time.monotonic(), pointed=None)
+    outcome = listener._run(run_req)
+    check("_run reports a failed open as failed", outcome == "failed", f"got {outcome!r}")
+    check("a failed open is recorded as failed, not done",
+          m.voice_memory.last()["outcome"] == "failed" and m.voice_memory.last()["dest"] == "browser")
+
+    req = m.Request(said="text caleb hi", spoken_at=time.monotonic(), pointed=None)
+    check("a text is the assistant's", listener.decide(req, "Google Chrome · Docs").dest == "assistant")
+
+    req = m.Request(said="add a retry", spoken_at=time.monotonic(), pointed=None, dest="terminal")
+    check("a preset dest is kept", listener.decide(req, "").dest == "terminal")
+    prompt = listener.prompt_for(req, "")
+    check("a terminal turn tells the agent to draft", "chewie terminal draft" in prompt)
+    check("a terminal turn says never to submit", "never run `chewie terminal submit`" in prompt.lower() or "never run chewie terminal submit" in prompt.lower())
+    check("a terminal turn says the spoken line", "On it, working in the terminal" in prompt)
+    plain = m.Request(said="what time is it", spoken_at=time.monotonic(), pointed=None, dest="assistant")
+    check("an assistant turn has no terminal block", "chewie terminal" not in listener.prompt_for(plain, ""))
+
+    m.voice_memory.update_project({"name": "signaler", "summary": "a price signaler", "cwd": "/tmp/s"})
+    first = m.Listener("claude -p", False, False)
+    check("the first turn of a session carries the project line",
+          "building a price signaler in signaler" in first.prompt_for(plain, ""))
+    first.turns = 3
+    check("later assistant turns do not repeat it",
+          "building a price signaler" not in first.prompt_for(plain, ""))
+    check("terminal turns always carry it", "building a price signaler" in first.prompt_for(req, ""))
+
+    m.ROUTE = False
+    off = m.Listener("claude -p", False, False)
+    req = m.Request(said="look up rust traits", spoken_at=time.monotonic(), pointed=None)
+    check("HUD_ROUTE=off routes everything to the assistant", off.decide(req, "").dest == "assistant")
+    m.ROUTE = True
+
+
+def test_draft_words(m) -> None:
+    """'send it' with a draft outstanding presses Return and never reaches the model."""
+    import tempfile
+    mem = tempfile.mkdtemp()
+    m.voice_memory.MEMORY = Path(mem)
+    m.voice_memory.TRANSCRIPT = Path(mem) / "transcript.jsonl"
+    m.voice_memory.PROJECT = Path(mem) / "project.json"
+    m.voice_memory.DRAFT = Path(mem) / "draft.json"
+    m.NAMES = Path(mem) / "names.txt"
+    log = os.path.join(mem, "terminal.log")
+    # "$0 $*" so the log shows the tty argv, not just the verb: the tty the
+    # draft recorded has to reach `chewie terminal submit`/`clear`, not
+    # whatever tab is currently front-and-selected.
+    m.TERMINAL_CMD = ["sh", "-c", f'echo "$0 $*" >> {log}']
+    m.ROUTE = True
+    listener = m.Listener("claude -p", False, False)
+    sent: list[str] = []
+    listener.send = sent.append  # type: ignore[method-assign]
+    asked: list[tuple[str, str | None]] = []
+    listener._drain = lambda: None  # type: ignore[method-assign]
+
+    check("no draft: 'send it' is not consumed", not listener.handle_draft_word("send it"))
+    check("no draft: nothing ran", not Path(log).exists())
+
+    now = m.voice_memory.now_iso()
+    Path(mem, "draft.json").write_text(json.dumps({"tty": "/dev/ttys002", "text": "add a retry", "t": now}))
+    check("with a draft: 'send it' is consumed", listener.handle_draft_word("send it"))
+    time.sleep(0.5)
+    check("submit ran on the draft's tty",
+          Path(log).exists() and "submit --tty /dev/ttys002" in Path(log).read_text(), Path(log).read_text())
+    check("the pill said sent", any(line.startswith('s "sent') for line in sent), str(sent))
+    entry = m.voice_memory.last()
+    check("the transcript marks it submitted", entry and entry.get("submitted") is True, str(entry))
+
+    Path(mem, "draft.json").write_text(json.dumps({"tty": "/dev/ttys002", "text": "add a retry", "t": now}))
+    Path(log).unlink()
+    check("'scrap that' is consumed", listener.handle_draft_word("scrap that"))
+    time.sleep(0.5)
+    check("clear ran on the draft's tty", "clear --tty /dev/ttys002" in Path(log).read_text(), Path(log).read_text())
+
+    # The re-route source is the sentence the person actually said, not the
+    # drafted paragraph: append a terminal-bound transcript line where the
+    # two differ, so a fix that reads the wrong one is caught.
+    Path(mem, "draft.json").write_text(json.dumps({"tty": "/dev/ttys002", "text": "add a retry", "t": now}))
+    Path(log).unlink()
+    m.voice_memory.append({
+        "t": now, "via": "voice", "text": "build me a signaler", "dest": "terminal",
+        "draft": "add a retry",
+    })
+    listener.ask = lambda said, typed=False, dest=None: asked.append((said, dest))  # type: ignore[method-assign]
+    check("'no, to you' is consumed", listener.handle_draft_word("no, to you"))
+    time.sleep(0.5)
+    check("re-route clears the draft on its tty", "clear --tty /dev/ttys002" in Path(log).read_text(), Path(log).read_text())
+    check("re-route asks the assistant with what was said, not the draft",
+          asked == [("build me a signaler", "assistant")], str(asked))
+
+    # A failed clear on the re-route path is reported, not papered over: the
+    # draft is still sitting in the input and the person has to be told.
+    Path(mem, "draft.json").write_text(json.dumps({"tty": "/dev/ttys002", "text": "add a retry", "t": now}))
+    m.TERMINAL_CMD = ["sh", "-c", "exit 1"]
+    sent.clear()
+    asked.clear()
+    check("'no, to you' is consumed even when the clear fails", listener.handle_draft_word("no, to you"))
+    time.sleep(0.5)
+    check("a failed clear says so, not 'okay, to me'",
+          any(line == 's "couldn\'t clear the draft, to me"' for line in sent), str(sent))
+    check("the sentence still reaches the assistant on a failed clear",
+          asked == [("build me a signaler", "assistant")], str(asked))
+
+
+def test_terminal_replay(m) -> None:
+    """A listener starting up on a file that already has events folds all of
+    it in silence: the strip is recovered, nothing is spoken, no presence is
+    sent, and the front check is never run."""
+    import tempfile
+    mem = tempfile.mkdtemp()
+    m.voice_memory.MEMORY = Path(mem)
+    m.voice_memory.TRANSCRIPT = Path(mem) / "transcript.jsonl"
+    m.voice_memory.PROJECT = Path(mem) / "project.json"
+    m.voice_memory.DRAFT = Path(mem) / "draft.json"
+    m.NAMES = Path(mem) / "names.txt"
+    Path(mem, "project.json").write_text(json.dumps({"tty": "/dev/ttys002", "cwd": mem}))
+    m.ROUTE = True
+    fronts: list[str] = []
+
+    def looking() -> str:
+        fronts.append("asked")
+        return "Google Chrome · tab · 0 chars selected"
+
+    m.looking_at = looking
+    stale = time.time() - 60
+    with (Path(mem) / "terminal-events.jsonl").open("w") as f:
+        for e in [
+            {"t": stale - 2, "event": "PreToolUse", "tool": "Bash", "summary": "npm test",
+             "session": "s", "ask": "", "held": False},
+            {"t": stale, "event": "PermissionRequest", "tool": "Bash", "summary": "rm -rf build",
+             "session": "s", "ask": "a1b2c3d4", "held": True},
+        ]:
+            f.write(json.dumps(e) + "\n")
+    listener = m.Listener("claude -p", False, False)
+    sent: list[str] = []
+    listener.send = sent.append  # type: ignore[method-assign]
+    spoken: list[str] = []
+    listener.speak = spoken.append  # type: ignore[method-assign]
+    listener.poll_terminal()
+    state = listener.terminal_state
+    check("the held ask is recovered from the file",
+          state["state"] == "waiting" and state["held"] is True and state["ask"] == "a1b2c3d4", str(state))
+    check("the strip is sent so the HUD is right",
+          't "waiting on you: rm -rf build" state=waiting' in sent, str(sent))
+    check("history says nothing aloud", spoken == [], str(spoken))
+    check("history lights no presence", not any(l.startswith("p ") for l in sent), str(sent))
+    check("history never runs the front check", fronts == [], str(fronts))
+    check("a yes on the recovered hold is still consumed", listener.handle_terminal_word("yes"))
+    time.sleep(listener.ANSWER_CONFIRM_S + 0.5)
+
+
+def test_terminal_loop(m) -> None:
+    """Hook events fold into the strip, the field, and the voice; yes and no
+    answer a held ask by file and an expired one by keypress."""
+    import tempfile
+    mem = tempfile.mkdtemp()
+    m.voice_memory.MEMORY = Path(mem)
+    m.voice_memory.TRANSCRIPT = Path(mem) / "transcript.jsonl"
+    m.voice_memory.PROJECT = Path(mem) / "project.json"
+    m.voice_memory.DRAFT = Path(mem) / "draft.json"
+    m.NAMES = Path(mem) / "names.txt"
+    Path(mem, "project.json").write_text(json.dumps({"tty": "/dev/ttys002", "cwd": mem}))
+    log = os.path.join(mem, "terminal.log")
+    # The env too: `chewie terminal answer yes` refuses without the gate, and
+    # hud-listen setting it is the only reason the keypress path works at all.
+    m.TERMINAL_CMD = ["sh", "-c", f'echo "$0 $* gate=${{CHEWIE_TERMINAL_ANSWER:-unset}}" >> {log}']
+    m.ROUTE = True
+    front = {"app": "Google Chrome · tab · 0 chars selected"}
+    m.looking_at = lambda: front["app"]
+    listener = m.Listener("claude -p", False, False)
+    sent: list[str] = []
+    listener.send = sent.append  # type: ignore[method-assign]
+    spoken: list[str] = []
+    listener.speak = spoken.append  # type: ignore[method-assign]
+    listener._drain = lambda: None  # type: ignore[method-assign]
+    listener.settle_unless_running = lambda state, hold: sent.append(f"settle {state}")  # type: ignore[method-assign]
+
+    def entry(event: str, **kw) -> dict:
+        base = {"t": time.time(), "event": event, "tool": "", "summary": "", "session": "s", "ask": "", "held": False}
+        base.update(kw)
+        return base
+
+    events = Path(mem) / "terminal-events.jsonl"
+
+    def emit(*entries: dict) -> None:
+        with events.open("a") as f:
+            for e in entries:
+                f.write(json.dumps(e) + "\n")
+        listener.poll_terminal()
+
+    check("idle: nothing said to the strip yet", sent == [], str(sent))
+    emit(entry("PreToolUse", tool="Bash", summary="npm test"))
+    check("a tool call drives the strip", 't "npm test" state=running' in sent, str(sent))
+    check("running says nothing aloud", spoken == [])
+    sent.clear()
+
+    emit(entry("PermissionRequest", tool="Bash", summary="rm -rf build", ask="a1b2c3d4", held=True))
+    check("waiting drives the strip", 't "waiting on you: rm -rf build" state=waiting' in sent, str(sent))
+    check("waiting with nothing in flight lights attention", "p attention" in sent, str(sent))
+    check("waiting is announced when Terminal is not in front",
+          spoken == ["The terminal wants to rm -rf build. Yes or no?"], str(spoken))
+    sent.clear(); spoken.clear()
+
+    answer = Path(mem, "asks", "a1b2c3d4.answer")
+    consumed: list[str] = []
+
+    def play_the_hook() -> None:
+        """What the hook does with an answer: read it, then unlink it. That
+        unlink is the only evidence hud-listen has that the hold was still
+        open, so the test has to provide it."""
+        for _ in range(60):
+            if answer.exists():
+                consumed.append(answer.read_text().strip())
+                answer.unlink()
+                return
+            time.sleep(0.05)
+
+    hook = threading.Thread(target=play_the_hook, daemon=True)
+    hook.start()
+    check("'yes' while a held ask waits is consumed", listener.handle_terminal_word("yes"))
+    hook.join(3.0)
+    time.sleep(0.4)
+    check("'yes' wrote the allow answer file the hook then read", consumed == ["allow"], str(consumed))
+    check("the pill said allowed", any(l.startswith('s "allowed') for l in sent), str(sent))
+    check("nothing was pressed in the tab", not Path(log).exists())
+    emit(entry("ask_answered", ask="a1b2c3d4", summary="allow"))
+    check("an answered ask is running again", listener.terminal_state["state"] == "running")
+    check("'yes' with nothing waiting is not consumed", not listener.handle_terminal_word("yes"))
+    sent.clear()
+
+    # Nobody takes the answer: the hook stopped polling before it landed, so
+    # nothing was granted. Saying "allowed" there is worse than silence,
+    # because the person stops watching the tab.
+    emit(entry("PermissionRequest", tool="Bash", summary="rm -rf build", ask="a9b8c7d6", held=True))
+    sent.clear()
+    check("'yes' on a hold nobody is watching is still consumed", listener.handle_terminal_word("yes"))
+    time.sleep(listener.ANSWER_CONFIRM_S + 0.6)
+    check("the pill said the terminal stopped waiting",
+          any(l.startswith('s "the terminal stopped waiting') for l in sent), str(sent))
+    check("the unread answer file is cleaned up",
+          not Path(mem, "asks", "a9b8c7d6.answer").exists())
+    check("and nothing was pressed in the tab either", not Path(log).exists())
+    check("the transcript records the answer as undelivered",
+          _last_answer(mem) == {"answer": "allow", "delivered": False}, str(_last_answer(mem)))
+    emit(entry("ask_expired", ask="a9b8c7d6"))
+    emit(entry("PostToolUse", tool="Bash"))
+    sent.clear()
+
+    emit(entry("PermissionRequest", tool="Bash", summary="git push", ask="", held=False))
+    check("'no' on an expired ask is consumed", listener.handle_terminal_word("no"))
+    time.sleep(0.5)
+    check("'no' pressed Escape through chewie on the remembered tty",
+          Path(log).exists() and "answer no --tty /dev/ttys002" in Path(log).read_text(), Path(log).read_text() if Path(log).exists() else "")
+    check("the answer verb carries the gate terminal.py demands for a yes",
+          "gate=1" in Path(log).read_text(), Path(log).read_text())
+    Path(log).unlink()
+    sent.clear(); spoken.clear()
+
+    front["app"] = "Terminal · claude · 0 chars selected"
+    emit(entry("PermissionDenied", tool="Bash"), entry("PermissionRequest", tool="Bash", summary="ls", ask="a2b2c3d4", held=True))
+    check("waiting with Terminal in front is not announced", spoken == [], str(spoken))
+    check("but the strip still shows it", any(l.startswith('t "waiting on you: ls"') for l in sent), str(sent))
+    check("'stop the terminal' on a held ask is consumed", listener.handle_terminal_word("stop the terminal"))
+    time.sleep(0.3)
+    check("it wrote deny stop", Path(mem, "asks", "a2b2c3d4.answer").read_text().strip() == "deny stop")
+    emit(entry("ask_answered", ask="a2b2c3d4", summary="deny stop"))
+    check("'stop the terminal' with nothing held is consumed", listener.handle_terminal_word("stop the terminal"))
+    time.sleep(0.5)
+    check("it pressed Escape through chewie", "interrupt --tty /dev/ttys002" in Path(log).read_text(), Path(log).read_text())
+    check("interrupt is not given the gate", "interrupt --tty /dev/ttys002 gate=unset" in Path(log).read_text(), Path(log).read_text())
+    sent.clear(); spoken.clear()
+
+    front["app"] = "Google Chrome · tab · 0 chars selected"
+    emit(entry("Stop", summary="All green."))
+    check("done drives the strip", 't "finished: All green." state=done' in sent, str(sent))
+    check("done lights the done state", "p done" in sent, str(sent))
+    check("done is announced", spoken == ["The terminal finished: All green."], str(spoken))
+    sent.clear()
+    emit(entry("SessionEnd"))
+    check("session end takes the strip down", "t off" in sent, str(sent))
+
+    listener.handle("e terminal focus")
+    time.sleep(0.5)
+    check("a strip click focuses the tab", "focus --tty /dev/ttys002" in Path(log).read_text(), Path(log).read_text())
+
+
 def main() -> int:
     module = load()
     print("draw_lines")
     test_draw_lines(module)
     print("subtitle")
     test_subtitle(module)
+    print("routing")
+    test_routing(module)
+    print("draft words")
+    test_draft_words(module)
+    print("terminal replay")
+    test_terminal_replay(module)
+    print("terminal loop")
+    test_terminal_loop(module)
     print("breadcrumb")
     test_breadcrumb(module)
     print("the recorded stream")
@@ -1463,6 +1887,8 @@ def main() -> int:
     test_pointing(module)
     print("end to end")
     test_end_to_end()
+    print("route end to end")
+    test_route_end_to_end()
     print("queue end to end")
     test_queue_end_to_end()
     print("interrupt end to end")

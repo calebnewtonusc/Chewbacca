@@ -268,6 +268,59 @@ prosody control, so the words carry all of it):
 - **Nothing promotional or instructional.** No "let me know if you need
   anything else", no "you can also ask me to". Speech is for moving forward.
 
+## Where a sentence goes
+
+Since 2026-09-20 a sentence is routed before it is answered. The rules live in
+`bin/lib/route.py` and the table that pins them is `tests/test_route.py`; the
+design and the evidence are in
+`docs/superpowers/specs/2026-09-20-voice-routing-design.md`.
+
+The short version: "in terminal" or "in chrome" at the start wins; a
+correction ("no, the terminal") inside fifteen seconds re-routes the last
+sentence; a person-shaped act (text, remind, call, a known name) is the
+assistant's whatever is on screen; a continuation ("and add tests", "fix
+that") follows whichever destination was used in the last ten minutes; the
+frontmost app decides next; "look up" and "search" go to Chrome; and one haiku
+call settles the rest, with three seconds to answer before the warm
+destination wins.
+
+Nothing is submitted to the terminal by the machine. A terminal sentence
+becomes a drafted prompt sitting in Claude Code's input, the pill reads
+"draft in terminal, say send", and the person presses Return or says "send
+it". "Scrap that" clears it; "no, to you" hands the sentence to the assistant
+instead.
+
+Every routed sentence is a line in `~/.bob/memory/transcript.jsonl` with its
+destination, confidence, and reason, which is the data for moving any of the
+thresholds above. The constants and what set them are listed in the spec.
+
+## The terminal talks back
+
+The tab is not only a place a sentence goes. A Claude Code hook,
+`chewie terminal hook`, runs on every tool call, permission prompt, and
+finished turn in the remembered tab and writes one line each to
+`~/.bob/memory/terminal-events.jsonl`. hud-listen tails it into one state
+and shows it as a strip under the pill: running, waiting on you, done.
+
+When the tab stops on a permission and Terminal is not in front, the hook
+holds the prompt for thirty seconds and the voice asks: "The terminal wants
+to run npm test. Yes or no?" "Yes", "go ahead", or "allow" grants that one
+call; "no" or "deny" refuses it. Nothing grants a standing rule by voice:
+"always" needs the keyboard, so a misheard word costs one tool call. If
+nobody answers in time, the tab shows its ordinary dialog and the same
+words press Return or Escape there instead.
+
+When Terminal is in front the voice says nothing: you can see the dialog.
+The strip and the ring's attention state carry it.
+
+"Stop the terminal" denies a held prompt with interrupt, or sends Escape to
+the tab. A finished turn says one line, the first sentence of the answer,
+again only when the tab is not in front.
+
+Setup registers the hook in `~/.claude/settings.json` for six events. Any
+session whose folder is not the remembered one is invisible to all of this:
+the hook exits before writing anything.
+
 ## Measuring it
 
 Every turn writes a `turn:` line to `~/.bob/listen.log` with `text=` (prompt

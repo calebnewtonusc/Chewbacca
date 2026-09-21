@@ -506,6 +506,8 @@ if group "windows installer"; then
   else
     skip "start.ps1 runs" "no pwsh on this machine"
   fi
+
+  check  "hook registration survives a re-run" python3 "$ROOT/tests/test_setup_hooks.py"
 fi
 
 # ── CLAUDE.md merge ───────────────────────────────────────────────────────────
@@ -718,6 +720,11 @@ if group "hud"; then
   # real app, no microphone, no tokens. It is the only test that covers what
   # happens between hearing something and drawing it.
   check  "the listen loop works end to end" python3 "$ROOT/tests/test_hud_listen.py"
+  check  "the terminal tab chooser never picks a plain shell" python3 "$ROOT/tests/test_terminal.py"
+  check  "voice memory rotates and reads back" python3 "$ROOT/tests/test_memory.py"
+  check  "the router's table holds" python3 "$ROOT/tests/test_route.py"
+  check  "the terminal hook filters and holds" python3 "$ROOT/tests/test_terminal_events.py"
+  check  "the terminal state folds and tails" python3 "$ROOT/tests/test_terminal_state.py"
   # The same file has a pytest-only path (the fixtures at its top) that no
   # runner ever exercised: none of the python3 interpreters on the dev Macs,
   # 3.12 through 3.14 and /usr/bin, has pytest, so a bare `python3 -m pytest`

@@ -326,6 +326,25 @@ public enum LineParser {
             }
             return .write(text: text, done: done)
 
+        case "t":
+            // `t "waiting on you: npm test" state=waiting`, `t off`. One
+            // JSON string like `s`, then the state, which is required: a
+            // strip with no colour is a subtitle, and the pill has one.
+            let rest = trimmed.dropFirst(1).trimmingCharacters(in: .whitespaces)
+            if rest == "off" { return .terminalOff }
+            guard let range = rest.range(of: " state=", options: .backwards) else {
+                throw LineParseError.malformed("`t` needs state=running|waiting|done", line: trimmed)
+            }
+            let textPart = String(rest[..<range.lowerBound])
+            let statePart = String(rest[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+            guard let state = TerminalState(rawValue: statePart) else {
+                throw LineParseError.malformed("unknown terminal state \(statePart)", line: trimmed)
+            }
+            guard case .string(let text)? = JSONDecoding.parse(textPart), !text.isEmpty else {
+                throw LineParseError.malformed("`t` needs a JSON string", line: trimmed)
+            }
+            return .terminal(text: text, state: state)
+
         case "q":
             // `q 2`. Depth only: the pill shows one number, not the queue.
             guard tokens.count == 2, let count = Int(tokens[1]), count >= 0 else {

@@ -88,17 +88,18 @@ expensive way to read a screen and the least reliable way to click something.
 click by name. Vision is the fallback, not the default. The `mac-control` skill
 routes any request to the cheapest layer that can do it.
 
-| Verb                    | What it does                                        |
-| ----------------------- | --------------------------------------------------- |
-| `chewie see`            | The screen as an accessibility tree, not an image   |
-| `chewie click` / `type` | Drive real UI by element name                       |
-| `chewie run`            | AppleScript, or JXA with `--js`                     |
-| `chewie texts`          | iMessage history with no UI at all                  |
-| `chewie web`            | Read and drive web pages through Chrome DevTools    |
-| `chewie plan run`       | A checked plan instead of improvised bash           |
-| `chewie brief`          | Email, texts and calendar triaged into what is next |
-| `chewie log`            | What it actually did, afterwards                    |
-| `chewie doctor`         | Which permission is missing, and for which app      |
+| Verb                    | What it does                                                                                                                               |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `chewie see`            | The screen as an accessibility tree, not an image                                                                                          |
+| `chewie click` / `type` | Drive real UI by element name                                                                                                              |
+| `chewie run`            | AppleScript, or JXA with `--js`                                                                                                            |
+| `chewie terminal`       | The Claude Code tab: draft a prompt, never submit it; answer its permission dialog, interrupt it, focus it; `hook` feeds the terminal loop |
+| `chewie texts`          | iMessage history with no UI at all                                                                                                         |
+| `chewie web`            | Read and drive web pages through Chrome DevTools                                                                                           |
+| `chewie plan run`       | A checked plan instead of improvised bash                                                                                                  |
+| `chewie brief`          | Email, texts and calendar triaged into what is next                                                                                        |
+| `chewie log`            | What it actually did, afterwards                                                                                                           |
+| `chewie doctor`         | Which permission is missing, and for which app                                                                                             |
 
 Anything past two or three steps goes through `chewie plan`, which type-checks
 the plan, runs it, verifies each step, and logs what happened. That is the
@@ -208,7 +209,7 @@ it off is `--session-opener none`. To write your own, add it to `OPENERS` in
 | Piece                   | Details                                                                                                                 |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | **macOS tools**         | 9 installed alongside the kit: Anki, bd, cap, mac, Maccy, mac-use, peekaboo, summarize, yt-transcript                        |
-| **Skills and plugins**  | 75 skills (20 shipped here, 6 cloned from upstream, 49 from 1 skill pack) plus 19 plugins across 4 marketplaces         |
+| **Skills and plugins**  | 87 skills (32 shipped here, 6 cloned from upstream, 49 from 1 skill pack) plus 19 plugins across 4 marketplaces         |
 | **Second brain**        | A private notes repo Claude reads at the start of every session and writes to as things change. Syncs to GitHub         |
 | **Coursework ledger**   | Your syllabi become deadlines, attendance budgets, and a per-course AI policy Claude checks before touching graded work |
 | **On-device dictation** | Builds `plynn/`: hold fn to type, hold left Option to ask Chewie. Speech and cleanup run on your Mac, nothing uploaded  |
@@ -664,8 +665,8 @@ The vibe coding landscape is growing fast. **[ECOSYSTEM.md](ECOSYSTEM.md)** is o
 
 ## Documentation
 
-| Doc                                                        | What It Covers                                                                                                            |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Doc                                                   | What It Covers                                                                                                            |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | [docs/METHODOLOGY.md](METHODOLOGY.md)                 | The five principles of vibe coding, the D1 workflow loop, anti-patterns, measuring effectiveness                          |
 | [docs/CLOUDFLARE.md](CLOUDFLARE.md)                   | D1 query patterns, migrations, Drizzle ORM, Worker routing (vanilla + Hono), D1 + KV + R2, deployment                     |
 | [docs/PROMPTS.md](PROMPTS.md)                         | 20+ real prompts for scaffolding, features, debugging, database work, UI design, deployment                               |

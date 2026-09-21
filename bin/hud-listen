@@ -34,6 +34,29 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# The router and the memory live next to this script. bin/lib is not a
+# package, so the path is added rather than imported through.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import route  # noqa: E402
+import voice_memory  # noqa: E402
+import terminal_state  # noqa: E402
+
+# HUD_ROUTE=off: every sentence goes to the assistant and nothing is written
+# to ~/.bob/memory, which is how the fake-display test runs without a
+# classifier and how a person turns the feature off.
+ROUTE = os.environ.get("HUD_ROUTE", "on") != "off"
+OPEN_CMD = shlex.split(os.environ.get("HUD_OPEN_CMD", 'open -a "Google Chrome"'))
+TERMINAL_CMD = shlex.split(os.environ.get("HUD_TERMINAL_CMD", "chewie terminal"))
+
+
+def events_path() -> Path:
+    """Read each time, not once: tests point voice_memory at a temp dir."""
+    return voice_memory.MEMORY / "terminal-events.jsonl"
+
+
+def asks_dir() -> Path:
+    return voice_memory.MEMORY / "asks"
+
 SOCKET = os.environ.get("BOB_HUD_SOCKET", str(Path.home() / ".bob" / "hud.sock"))
 SKILL = Path(__file__).resolve().parent.parent / "skills" / "hud" / "SKILL.md"
 CONTEXT = Path(__file__).resolve().parent / "hud-context"
@@ -209,7 +232,7 @@ RETIRE_TOKENS = 60_000
 # The names the display's recogniser is told to expect (Vocabulary in
 # BobHUDKit reads this): whoever the person has been texting, then whoever
 # is in Contacts. Written once per start, in the background.
-NAMES = Path.home() / ".bob" / "names.txt"
+NAMES = Path(os.environ.get("BOB_NAMES", str(Path.home() / ".bob" / "names.txt")))
 NAMES_CHATS = 60
 # `mac contacts find` needs a query and has no list-all; six vowels reach
 # almost every name there is.
@@ -309,6 +332,11 @@ class Request:
     # said: a click on a guide bubble, a press on a control. The model is
     # told so, because "the user said this out loud" would be a lie.
     relayed: bool = False
+    # Where the router sent it. Preset by a correction or a re-route, in
+    # which case `decide` keeps it; otherwise filled in `_run`.
+    dest: str | None = None
+    reason: str = ""
+    confidence: float = 0.0
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:6])
 
 
@@ -914,6 +942,13 @@ def looking_at() -> str:
     return seen
 
 
+def read_names() -> list[str]:
+    try:
+        return [n.strip() for n in NAMES.read_text(encoding="utf-8").splitlines() if n.strip()]
+    except OSError:
+        return []
+
+
 class Listener:
     def __init__(
         self,
@@ -1039,6 +1074,14 @@ class Listener:
         self.cancelled_drawn: list[str] = []
         # Surfaces the in-flight run has confirmed on the glass so far.
         self.drawn: list[str] = []
+
+        # The remembered Claude Code tab, folded from the hook's events
+        # (bin/lib/terminal_state.py). Read on the watcher thread and on the
+        # answer-word path; written only by `on_terminal_event`.
+        self.terminal_state = terminal_state.initial()
+        # (inode, offset) into the events file, not a bare offset: the hook
+        # rotates the file past its size cap. See terminal_state.tail.
+        self.terminal_cursor = terminal_state.START
 
     def log(self, *args) -> None:
         if self.verbose:
@@ -1170,6 +1213,8 @@ class Listener:
             file=sys.stderr,
         )
         self.prime()
+        if ROUTE:
+            threading.Thread(target=self.watch_terminal, daemon=True).start()
 
         delay = 0.5
         announced = False
@@ -1288,6 +1333,11 @@ class Listener:
                 # `e hit guide label="..."`: they clicked the control a
                 # guide bubble was on. The next step is asked for.
                 self.hit(component)
+            elif action == "terminal" and component == "focus":
+                # A click on the strip under the pill.
+                threading.Thread(
+                    target=lambda: self.terminal("focus", voice_memory.project().get("tty")), daemon=True,
+                ).start()
             else:
                 # A control was used. Same path: the press is a request in words.
                 self.ask(
@@ -1742,7 +1792,7 @@ class Listener:
         except (BrokenPipeError, OSError, AssertionError):
             return False
 
-    def ask(self, said: str, typed: bool = False, relayed: bool = False) -> None:
+    def ask(self, said: str, typed: bool = False, relayed: bool = False, dest: str | None = None) -> None:
         self.hush()
         words = normalise(said)
         if words in STOP_WORDS or (words in BARGE_WORDS and self.in_flight()):
@@ -1753,9 +1803,15 @@ class Listener:
             return
         if not relayed and self.music_request(said, typed):
             return
+        # A relayed event (a click the display reported) and a request already
+        # routed by a correction skip the draft and terminal words.
+        if not typed and not relayed and dest is None and self.handle_draft_word(said):
+            return
+        if not typed and not relayed and dest is None and self.handle_terminal_word(said):
+            return
         req = Request(
             said=said, spoken_at=time.monotonic(), pointed=self.pointing(),
-            typed=typed, relayed=relayed,
+            typed=typed, relayed=relayed, dest=dest,
         )
         with self.state:
             waiting = self.current is not None
@@ -1974,6 +2030,390 @@ class Listener:
             return argv + ["--resume", self.session]
         return argv + ["--session-id", self.session]
 
+    def claude_tab_open(self) -> bool:
+        """Is any Terminal tab running claude? One AppleScript through chewie."""
+        try:
+            result = subprocess.run(
+                TERMINAL_CMD + ["tabs"], capture_output=True, text=True,
+                timeout=self.CLAUDE_TAB_TIMEOUT_S,
+            )
+            tabs = json.loads(result.stdout or "[]")
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            return False
+        return any("claude" in t.get("processes", []) for t in tabs if isinstance(t, dict))
+
+    def decide(self, req: Request, seen: str) -> "route.Decision":
+        if req.dest:
+            return route.Decision(req.dest, req.confidence or 1.0, req.reason or "preset")
+        if not ROUTE:
+            return route.Decision("assistant", 1.0, "routing off")
+        app = route.seen_app(seen)
+        context = {"app": app, "claude_tab": app == "Terminal" and self.claude_tab_open()}
+        now = time.time()
+        memory = {
+            "last": voice_memory.last(),
+            "warm": voice_memory.warm(now),
+            "project": voice_memory.project(),
+            "recent": voice_memory.recent(5),
+        }
+        decision = route.route(req.said, context, memory, names=read_names(), now=now)
+        self.log("route:", decision.dest, f"{decision.confidence:.2f}", decision.reason)
+        return decision
+
+    def open_browser(self, said: str) -> tuple[str, bool]:
+        """Open the URL; the label, and whether the open actually happened.
+
+        `ok` is False on a launch that never ran or exited non-zero, so a
+        failed Chrome open is recorded as a failed request rather than a
+        done one: the outcome is the tuning data for the router.
+        """
+        url, label = route.browser_url(said)
+        ok = False
+        try:
+            result = subprocess.run(
+                OPEN_CMD + [url], capture_output=True, text=True,
+                timeout=self.OPEN_BROWSER_TIMEOUT_S,
+            )
+            ok = result.returncode == 0
+        except (OSError, subprocess.TimeoutExpired) as err:
+            self.log("open failed:", err)
+        return label, ok
+
+    def record(self, req: Request, decision: "route.Decision", reply: str | None, outcome: str) -> None:
+        if not ROUTE:
+            return
+        draft = voice_memory.draft(time.time())
+        project = voice_memory.project()
+        try:
+            voice_memory.append({
+                "t": voice_memory.now_iso(),
+                "via": "typed" if req.typed else "voice",
+                "text": req.said,
+                "dest": decision.dest,
+                "confidence": decision.confidence,
+                "reason": decision.reason,
+                "reply": reply,
+                "project": project.get("name"),
+                "draft": draft["text"] if draft and decision.dest == "terminal" else None,
+                "submitted": False if draft and decision.dest == "terminal" else None,
+                "outcome": outcome,
+            })
+        except OSError as err:
+            self.log("memory unwritable:", err)
+
+    def terminal(self, verb: str, tty: str | None = None, *extra: str) -> bool:
+        """Run `chewie terminal <verb>`, pinned to `tty` when one is given.
+
+        `tty` is the tty `draft()` recorded for the draft being acted on, not
+        whatever tab happens to be front-and-selected when the person says
+        "send it": that can move between the draft landing and the person
+        reading it, and without `--tty` a second claude tab is enough to
+        submit or clear the wrong one.
+        """
+        argv = TERMINAL_CMD + [verb, *extra]
+        if tty:
+            argv = argv + ["--tty", tty]
+        env = os.environ
+        if verb == "submit":
+            # The only caller allowed to press Return: `chewie terminal
+            # submit` refuses without this, so the gate is enforced by
+            # terminal.py itself, not by this call being the only one that
+            # exists.
+            env = {**os.environ, "CHEWIE_TERMINAL_SUBMIT": "1"}
+        elif verb == "answer":
+            # Same gate, same reason: `answer yes` presses Return in the tab.
+            # Only the answer-word path reaches this, and only while the
+            # state says the tab is waiting on a permission.
+            env = {**os.environ, "CHEWIE_TERMINAL_ANSWER": "1"}
+        try:
+            result = subprocess.run(
+                argv, capture_output=True, text=True,
+                timeout=self.TERMINAL_TIMEOUT_S, env=env,
+            )
+        except (OSError, subprocess.TimeoutExpired) as err:
+            self.log("terminal", verb, "failed:", err)
+            return False
+        if result.returncode != 0:
+            self.log("terminal", verb, "failed:", result.stderr.strip())
+        return result.returncode == 0
+
+    def settle_unless_running(self, state: str, hold: float) -> None:
+        """`settle()`, unless a `_drain` run is in flight.
+
+        `_drain`'s own `settle()` at the end of a run owns the pill while
+        `self.current` is set: it returns early the moment a new request is
+        queued (see the `if self.queue:` check in `settle()` below), which
+        is what makes it safe for one worker to hold the glass.
+        `handle_draft_word`'s `work()` runs on its own
+        thread outside that discipline, so a second settle here while one is
+        already active raced it: the person saying "send it" moments after a
+        draft appeared landed inside the drafting turn's own settle, and two
+        independent `p dormant` sends stomped each other's exit animation
+        and, once, the worker's own "sent" report.
+        """
+        if self.in_flight():
+            return
+        self.settle(state, hold)
+
+    def handle_draft_word(self, said: str) -> bool:
+        """"send it", "scrap that", "no, to you" while a draft is outstanding.
+
+        Handled here, never by the model: the words are exact, the draft
+        file says whether one exists, and a model asked to press Return is a
+        model that might. With no draft outstanding these words fall through
+        to routing, so "run" in a sentence about something else is not eaten.
+        """
+        if not ROUTE:
+            return False
+        action = route.draft_word(said)
+        if action is None:
+            return False
+        draft = voice_memory.draft(time.time())
+        if draft is None:
+            return False
+        tty = draft.get("tty")
+
+        def work() -> None:
+            self.send("p acting")
+            if action == "submit":
+                # Pinned to the tty `draft()` recorded, not whatever tab is
+                # front-and-selected now: that can move between the draft
+                # landing and the person reading it.
+                ok = self.terminal("submit", tty)
+                self.send("s " + json.dumps("sent" if ok else "couldn't send, the tab is gone"))
+                try:
+                    voice_memory.append({
+                        "t": voice_memory.now_iso(), "via": "voice", "text": said,
+                        "dest": "terminal", "confidence": 1.0, "reason": "draft word",
+                        "reply": None, "project": voice_memory.project().get("name"),
+                        "draft": draft.get("text"), "submitted": bool(ok),
+                    })
+                except OSError as err:
+                    self.log("memory unwritable:", err)
+                self.settle_unless_running("done" if ok else "failed", self.LEAVE_AFTER)
+                return
+            ok = self.terminal("clear", tty)
+            if action == "clear":
+                self.send("s " + json.dumps("cleared" if ok else "couldn't clear it"))
+                self.settle_unless_running("done" if ok else "failed", self.STOP_HOLD)
+                return
+            # "no, to you" / "not the terminal": clear the draft and hand the
+            # assistant what the person actually said, not the paragraph the
+            # model drafted from it. `draft["text"]` is that paragraph; the
+            # transcript's own terminal-bound line for this turn carries the
+            # original sentence.
+            last = voice_memory.recent(1, "terminal")
+            original = last[0]["text"] if last else draft.get("text", "")
+            if ok:
+                self.send("s " + json.dumps("okay, to me"))
+            else:
+                self.send("s " + json.dumps("couldn't clear the draft, to me"))
+            self.ask(original, dest="assistant")
+
+        threading.Thread(target=work, daemon=True).start()
+        return True
+
+    def watch_terminal(self) -> None:
+        while True:
+            try:
+                self.poll_terminal()
+            except Exception as err:  # noqa: BLE001  a daemon thread that raises dies silently
+                # One malformed line in the events file (a non-numeric `t`
+                # raises in fold) must not take the strip, the voice, and
+                # the answer words down for the rest of the process.
+                self.log("terminal watcher:", err)
+            time.sleep(self.TERMINAL_POLL_S)
+
+    def poll_terminal(self) -> None:
+        """Fold whatever the hook appended since the last look."""
+        entries, self.terminal_cursor = terminal_state.tail(events_path(), self.terminal_cursor)
+        for entry in entries:
+            self.on_terminal_event(entry)
+        expired = terminal_state.expire(self.terminal_state, time.time())
+        if expired is not self.terminal_state:
+            self.terminal_state = expired
+            self.send(terminal_state.strip_line(expired))
+
+    def terminal_in_front(self) -> bool:
+        return route.seen_app(looking_at()) == "Terminal"
+
+    # What counts as news rather than history. `t` alone decides, so an
+    # entry older than this is folded in silence.
+    TERMINAL_SHOWN = ("state", "text", "ask", "held")
+
+    def on_terminal_event(self, entry: dict) -> None:
+        before = self.terminal_state
+        after = terminal_state.fold(before, entry)
+        self.terminal_state = after
+        # `t` is written on every fold, so the whole dicts differ whenever
+        # the timestamps do. Only these four reach the person.
+        if all(after[k] == before[k] for k in self.TERMINAL_SHOWN):
+            return
+        # The strip always: it is how the state is recovered after a restart
+        # or a rotation, and it costs one line. The presence sends and the
+        # voice only for something that just happened. Replaying the file
+        # from the top used to re-ask permission questions answered hours
+        # ago, each one cutting off the last, with a 3 s front check between
+        # them. A restart mid-hold still leaves the person able to say yes,
+        # because the state says waiting and held either way.
+        self.send(terminal_state.strip_line(after))
+        if time.time() - float(entry.get("t") or 0.0) > self.TERMINAL_FRESH_S:
+            return
+        became = after["state"] != before["state"] or after["text"] != before["text"]
+        if after["state"] == "waiting" and became and entry.get("event") == "PermissionRequest":
+            if not self.in_flight():
+                self.send("p attention")
+            # Only when they cannot see the dialog: the answer to "read it
+            # aloud every time?" on 2026-09-20 was "only when terminal is
+            # not in front".
+            if not self.terminal_in_front():
+                what = after["text"] or "run something"
+                self.speak(f"The terminal wants to {what}. Yes or no?")
+        elif after["state"] == "done" and became:
+            if not self.in_flight():
+                self.send("p done")
+            if after["text"] and not self.terminal_in_front():
+                self.speak(f"The terminal finished: {after['text']}")
+
+    def write_answer(self, ask: str, text: str) -> bool:
+        # The id always comes from the hook's own uuid4().hex[:8], but it
+        # arrives through a file on disk and is interpolated into a path.
+        # One line keeps that property local instead of inferred two
+        # modules away.
+        if not re.fullmatch(r"[0-9a-f]{8}", ask or ""):
+            self.log("refusing an answer for a malformed ask id:", ask)
+            return False
+        try:
+            asks_dir().mkdir(parents=True, exist_ok=True)
+            (asks_dir() / f"{ask}.answer").write_text(text, encoding="utf-8")
+            return True
+        except OSError as err:
+            self.log("answer unwritable:", err)
+            return False
+
+    def answer_taken(self, ask: str) -> bool:
+        """Did the hook actually read the answer? It unlinks it when it does.
+
+        The hook checks the file at the top of its loop and then sleeps, so
+        an answer written in the last poll of the window, or after the hold
+        expired, is never read. hud-listen cannot tell from its own state:
+        `ask_expired` has not been appended and folded yet, so it still says
+        held. Without this the pill said "allowed" for a call nobody granted
+        and the transcript recorded the grant.
+        """
+        path = asks_dir() / f"{ask}.answer"
+        deadline = time.monotonic() + self.ANSWER_CONFIRM_S
+        while time.monotonic() < deadline:
+            if not path.exists():
+                return True
+            time.sleep(self.ASK_POLL_S)
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            # The hook took it between the last look and this unlink.
+            return True
+        except OSError as err:
+            self.log("stale answer left behind:", err)
+        return False
+
+    def handle_terminal_word(self, said: str) -> bool:
+        """"yes", "no" while the tab waits on a permission; "stop the
+        terminal" any time. Same shape as the draft words: exact words,
+        the state says whether they apply, never the model."""
+        if not ROUTE:
+            return False
+        state = self.terminal_state
+        tty = voice_memory.project().get("tty")
+        if route.terminal_stop_word(said):
+            def stop_work() -> None:
+                self.send("p acting")
+                if state["state"] == "waiting" and state["held"] and state["ask"]:
+                    ok = self.write_answer(state["ask"], "deny stop")
+                else:
+                    ok = self.terminal("interrupt", tty)
+                self.send("s " + json.dumps("stopped the terminal" if ok else "couldn't reach the terminal"))
+                self.settle_unless_running("done" if ok else "failed", self.STOP_HOLD)
+            threading.Thread(target=stop_work, daemon=True).start()
+            return True
+        action = route.answer_word(said)
+        if action is None or state["state"] != "waiting":
+            return False
+
+        def work() -> None:
+            self.send("p acting")
+            granted = "allowed" if action == "allow" else "denied"
+            if state["held"] and state["ask"]:
+                if not self.write_answer(state["ask"], action):
+                    delivered, said_back = False, "couldn't answer the terminal"
+                elif self.answer_taken(state["ask"]):
+                    delivered, said_back = True, granted
+                else:
+                    delivered, said_back = False, "the terminal stopped waiting"
+            else:
+                # The hook gave the prompt back to the tab: press the key
+                # there. Only reachable while waiting, so the Return never
+                # lands on an input holding a draft.
+                delivered = self.terminal("answer", tty, "yes" if action == "allow" else "no")
+                said_back = granted if delivered else "couldn't answer the terminal"
+            self.send("s " + json.dumps(said_back))
+            try:
+                voice_memory.append({
+                    "t": voice_memory.now_iso(), "via": "voice", "text": said, "dest": "terminal",
+                    "confidence": 1.0, "reason": "answer word", "reply": None,
+                    "project": voice_memory.project().get("name"), "answer": action,
+                    "ask": state["ask"], "delivered": delivered,
+                })
+            except OSError as err:
+                self.log("memory unwritable:", err)
+            self.settle_unless_running("done" if delivered else "failed", self.STOP_HOLD)
+
+        threading.Thread(target=work, daemon=True).start()
+        return True
+
+    # `looking_at` already spends up to 3 s on one AppleScript through
+    # hud-context; `claude_tab_open` is one more chewie AppleScript call, so
+    # the same ballpark.
+    CLAUDE_TAB_TIMEOUT_S = 4.0
+    # Guessed, never measured: `open -a "Google Chrome" <url>` returns once
+    # the app has launched, not once the page has loaded.
+    OPEN_BROWSER_TIMEOUT_S = 10.0
+    # Guessed, never measured: a `chewie terminal` AppleScript call that also
+    # types or clears a draft, longer than the plain `tabs` read above.
+    TERMINAL_TIMEOUT_S = 15.0
+    # The hook writes an event per tool call; half a second is the cadence
+    # ensure() polls at and is already fine-grained for a strip nobody
+    # stares at. Guessed, never measured.
+    TERMINAL_POLL_S = 0.5
+    # How recent an entry has to be before the voice and the ring react to
+    # it. Guessed, never measured: the 0.5 s poll above plus room for the
+    # AppleScript front check in the same loop, which takes up to 3 s.
+    # Anything older is history being replayed after a restart or a
+    # rotation, and history is folded in silence.
+    TERMINAL_FRESH_S = 5.0
+    # Matches ASK_POLL_S in mac/lib/terminal_events.py: the cadence the hook
+    # reads the answer file at.
+    ASK_POLL_S = 0.25
+    # How long to wait for the hook to take an answer before calling it
+    # undelivered. Guessed, never measured: four hook polls at ASK_POLL_S.
+    ANSWER_CONFIRM_S = 1.0
+
+    # Every tenth terminal-bound sentence, one haiku call rewrites the
+    # project summary in the background. Ten: the summary is one line and
+    # a line does not change every sentence. Guessed.
+    SUMMARIZE_EVERY = 10
+
+    def maybe_summarize(self) -> None:
+        if voice_memory.terminal_count() % self.SUMMARIZE_EVERY != 0:
+            return
+
+        def work() -> None:
+            sentences = [e["text"] for e in voice_memory.recent(20, "terminal")]
+            line = route.summarize(sentences)
+            if line:
+                voice_memory.update_project({"summary": line})
+
+        threading.Thread(target=work, daemon=True).start()
+
     def _ask(self, req: Request) -> str:
         """Run one request to its outcome: "done", "failed" or "cancelled"."""
         with self.state:
@@ -2013,6 +2453,26 @@ class Listener:
                 # this request, so the next prompt has nothing to be told.
                 self.cancelled = None
                 return "cancelled"
+        decision = self.decide(req, seen)
+        req.dest, req.reason, req.confidence = decision.dest, decision.reason, decision.confidence
+        if decision.reroute:
+            # A correction: the previous sentence goes where they said, and
+            # the correction itself is not a request. A draft in the terminal
+            # is cleared first, because that is where a wrong route lands.
+            # Pinned to the tty the draft recorded, same as the draft-word
+            # path above: the front-and-selected tab can have moved since.
+            pending = voice_memory.draft(time.time())
+            if pending and not self.terminal("clear", pending.get("tty")):
+                self.log("correction: couldn't clear the outstanding draft")
+            req.said = decision.reroute
+        if decision.dest == "browser":
+            label, opened = self.open_browser(req.said)
+            self.send("s " + json.dumps(label))
+            outcome = "done" if opened else "failed"
+            self.record(req, decision, None, outcome)
+            return outcome
+        if decision.dest == "terminal":
+            self.send("s " + json.dumps("to terminal"))
         prompt = self.prompt_for(req, seen)
         self.log("->", req.said, f"[{req.id}, spoken {time.monotonic() - req.spoken_at:.0f}s ago]")
         argv = self.command()
@@ -2060,6 +2520,11 @@ class Listener:
         if ok and not req.typed and not voiced and reply != first:
             self.speak(reply or said or "")
         self.remember(req, answer, ok, "done" if ok else "failed")
+        self.record(req, decision, answer or None, "done" if ok else "failed")
+        if decision.dest == "terminal":
+            if voice_memory.draft(time.time()):
+                self.send("s " + json.dumps("draft in terminal, say send"))
+            self.maybe_summarize()
         return "done" if ok else "failed"
 
     def prompt_for(self, req: Request, seen: str) -> str:
@@ -2131,6 +2596,29 @@ class Listener:
             if req.pointed
             else ""
         )
+        project = voice_memory.project() if ROUTE else {}
+        building = (
+            f"They are building {project['summary']} in {project.get('name', 'the terminal')}"
+            + (f" ({project['cwd']})" if project.get("cwd") else "")
+            + "; the terminal is warm.\n\n"
+            if project.get("summary")
+            else ""
+        )
+        terminal = ""
+        if req.dest == "terminal":
+            terminal = (
+                "Route: this sentence is for the terminal. Say exactly one line first, "
+                "'On it, working in the terminal.' Then draft the prompt Claude Code should "
+                "receive: if what they said is already a specific instruction, use it as said; "
+                "if it is vague or large, write one paragraph saying what to build, where, and "
+                "the constraints they would state if asked. No headings, no code fences, one "
+                "paragraph. Place it with: chewie terminal draft \"<the prompt>\" (run "
+                "chewie terminal ensure first if draft says there is no claude tab). Then stop: "
+                "say nothing more, the draft is on their screen. Never run chewie terminal "
+                "submit; only they send it.\n\n"
+            )
+        elif self.turns > 0:
+            building = ""
         # The switch overrides the standing rule, so it is said on every
         # spoken request while it is off, not once: the rule is in the
         # system prompt for every turn, and a note said once fades under it.
@@ -2150,6 +2638,7 @@ class Listener:
                 + asked
                 + (f"They are looking at: {seen}\n\n" if seen else "")
                 + pointed
+                + building + terminal
                 + ("Reply in writing: nothing is read aloud for a typed request.\n" if req.typed else "")
                 + aloud
             )
@@ -2158,6 +2647,7 @@ class Listener:
             + asked
             + (f"They are looking at: {seen}\n\n" if seen else "")
             + pointed
+            + building + terminal
             + "Answer the way a good assistant answers in a chat: in full when "
             "the question deserves it, in a sentence when a sentence is enough, "
             "on any subject. Never stop short and never trail off; if the answer "

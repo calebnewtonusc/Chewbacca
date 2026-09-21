@@ -58,6 +58,7 @@ r <id>
 s "<text>" [step=true]             say one line on the pill under the panels; step marks a tool call
 w "<text>" [done=true]             the written answer, whole, for the conversation panel
 q <n>                              how many requests are waiting
+t "<text>" state=running|waiting|done   the Claude Code tab's state, as a strip under the pill; t off hides it
 listen                             ask to receive events on this connection
 ```
 
