@@ -624,6 +624,8 @@
   var arcV = 0;
   var lastFrameMs = 0;
   var lastMaskCheck = 0;
+  var lastInsideCheck = 0;
+  var strokeDrawnThisFrame = false;
   var stepSpring = (x, v, k, dt) => {
     const c = 2 * Math.sqrt(k);
     const a = k * (1 - x) - c * v;
@@ -1230,6 +1232,7 @@
         ctx.moveTo(SP[0].x, SP[0].y);
         for (let i = 1; i < SP.length; i++) ctx.lineTo(SP[i].x, SP[i].y);
       };
+      strokeDrawnThisFrame = !portalUp;
       if (!portalUp) {
         ctx.shadowBlur = 10 + 22 * k;
         ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
@@ -1415,6 +1418,10 @@
       }
     }
     ctx.globalCompositeOperation = "lighter";
+    const holeCx = px(geom.cx), holeCy = py(geom.cy);
+    const holeR = rpxOf(clampRN(geom.r)) * 0.94;
+    const insidePortal = (x, y) => (x - holeCx) ** 2 + (y - holeCy) ** 2 < holeR * holeR;
+    let sparksInHole = 0;
     const alive = [];
     for (const sp of sparks) {
       const c = Math.cos(0.035), sn = Math.sin(0.035);
@@ -1455,6 +1462,7 @@
       sp.life -= 4e-3;
       if (sp.life <= 0) continue;
       alive.push(sp);
+      if (portalUp && insidePortal(sp.x, sp.y)) sparksInHole++;
       const speed = Math.hypot(sp.vx, sp.vy) || 1;
       const len = Math.max(5, Math.min(20, speed * 2.4));
       const h = sp.heat * sp.life;
@@ -1466,6 +1474,15 @@
       ctx.moveTo(sp.x, sp.y);
       ctx.lineTo(sp.x - sp.vx / speed * len, sp.y - sp.vy / speed * len);
       ctx.stroke();
+    }
+    if (portalUp && now - lastInsideCheck > 1e3) {
+      lastInsideCheck = now;
+      if (sparksInHole > 0 || strokeDrawnThisFrame) {
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "log",
+          text: `inside the portal: ${sparksInHole} sparks, stroke drawn ${strokeDrawnThisFrame}`
+        });
+      }
     }
     sparks = alive.length > 1400 ? alive.slice(-1400) : alive;
   }

@@ -132,6 +132,8 @@ let settleX = 0, settleV = 0;   // the spiral relaxing, and the middle filling
 let arcX = 0, arcV = 0;         // the last of the circle closing
 let lastFrameMs = 0;
 let lastMaskCheck = 0;
+let lastInsideCheck = 0;
+let strokeDrawnThisFrame = false;
 const stepSpring = (x: number, v: number, k: number, dt: number) => {
   const c = 2 * Math.sqrt(k);            // critical damping, so it never overshoots
   const a = k * (1 - x) - c * v;
@@ -1563,6 +1565,7 @@ function frame(now: number) {
     // refused while a portal is open, so the line was promising a second
     // portal the reducer would never grant. The stroke belongs to drawing a
     // circle, and with one already open there is no circle to draw.
+    strokeDrawnThisFrame = !portalUp;
     if (!portalUp) {
       ctx.shadowBlur = 10 + 22 * k;
       ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
@@ -1876,6 +1879,14 @@ function frame(now: number) {
 
   // ── Sparks ───────────────────────────────────────────────────────────────
   ctx.globalCompositeOperation = "lighter";
+  // Inside the hole, in screen pixels. Slightly inside the rim, so the ring
+  // itself and the sparks that make it are untouched: they live ON the edge.
+  const holeCx = px(geom.cx), holeCy = py(geom.cy);
+  const holeR = rpxOf(clampRN(geom.r)) * 0.94;
+  const insidePortal = (x: number, y: number) =>
+    (x - holeCx) ** 2 + (y - holeCy) ** 2 < holeR * holeR;
+  let sparksInHole = 0;
+
   const alive: Spark[] = [];
   for (const sp of sparks) {
     const c = Math.cos(0.035), sn = Math.sin(0.035);
@@ -1922,6 +1933,7 @@ function frame(now: number) {
     sp.life -= 0.004;
     if (sp.life <= 0) continue;
     alive.push(sp);
+    if (portalUp && insidePortal(sp.x, sp.y)) sparksInHole++;
 
     const speed = Math.hypot(sp.vx, sp.vy) || 1;
     // A ROUND CAP ON A SHORT STROKE IS A DOT. lineCap "round" adds a
@@ -1938,6 +1950,20 @@ function frame(now: number) {
     ctx.moveTo(sp.x, sp.y);
     ctx.lineTo(sp.x - (sp.vx / speed) * len, sp.y - (sp.vy / speed) * len);
     ctx.stroke();
+  }
+  // WHAT IS ACTUALLY IN THERE. "It's kinda like an orange blob, doesn't rlly
+  // look like sparks?" Gating spawn sites one at a time has missed twice, and
+  // the last attempt was aimed at sparks on the strength of a guess. This
+  // says what is inside an open portal rather than assuming: how many sparks,
+  // and whether the stroke path ran this frame.
+  if (portalUp && now - lastInsideCheck > 1000) {
+    lastInsideCheck = now;
+    if (sparksInHole > 0 || strokeDrawnThisFrame) {
+      window.webkit?.messageHandlers?.portal?.postMessage({
+        event: "log",
+        text: `inside the portal: ${sparksInHole} sparks, stroke drawn ${strokeDrawnThisFrame}`,
+      });
+    }
   }
   sparks = alive.length > 1400 ? alive.slice(-1400) : alive;
 }
