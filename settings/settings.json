@@ -225,6 +225,26 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/skill-route.sh",
+            "timeout": 8,
+            "statusMessage": "Checking whether a skill already covers this..."
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/method-guard.sh",
+            "timeout": 8,
+            "statusMessage": "Naming the process and the falsifier..."
+          }
+        ]
       }
     ]
   }

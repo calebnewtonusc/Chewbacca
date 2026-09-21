@@ -515,6 +515,28 @@ if group "installer"; then
     done' _ "$ROOT"
 
   # A process added to SIGNALS without a guard fails open and silently.
+  # Caleb, 2026-09-21: "Chewbacca's resourcefulness and use of agents is so
+  # retarded didn't we build a whole graph engineering knowledge base bruh".
+  # He was right. 105 skills were installed, nothing named one when work
+  # started, and a session had just hand-rolled subagents with no verifier
+  # while skills/graph-engineering sat there holding the task-graph rules.
+  check  "the skill router names a skill for a request one covers" bash -c '
+    out=$(printf "%s" "{\"prompt\":\"build a knowledge graph and dedupe entities across sources\",\"cwd\":\"$1\"}" \
+      | "$1/.claude/hooks/skill-route.sh" 2>/dev/null)
+    case "$out" in *graph-engineering*) : ;;
+      *) echo "router said nothing for a graph request"; exit 1 ;; esac' _ "$ROOT"
+
+  # A router that speaks on every prompt gets tuned out inside a week, which is
+  # the failure it exists to prevent. Silence is the common case.
+  check  "the skill router stays silent on an unrelated prompt" bash -c '
+    out=$(printf "%s" "{\"prompt\":\"whats the weather like today\",\"cwd\":\"$1\"}" \
+      | "$1/.claude/hooks/skill-route.sh" 2>/dev/null)
+    [ -z "$out" ] || { echo "routed noise: $out"; exit 1; }' _ "$ROOT"
+
+  # It shipped to one machine once before and never reached anybody else.
+  check  "the skill router is registered in the shipped settings" \
+    grep -q "skill-route.sh" "$ROOT/settings/settings.json"
+
   check  "no process was added without a standing check" bash -c '
     sigs=$(grep -cE "^    \(.[a-z]+., r." "$1/bin/method")
     guards=$(grep -cE "^    .[a-z]+.: \(" "$1/bin/method")
