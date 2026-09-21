@@ -268,10 +268,27 @@ export class CircleGestureDetector {
 
       if (Math.abs(turn) > this.o.maxTurn) {
         // A corner this sharp is a zigzag, a wave turning around, or a
-        // tracking glitch. Not an arc. This one guard is what rejects a
-        // back-and-forth wave, because the turn at each end of a wave is
-        // close to PI and nothing else in a real circle comes near maxTurn.
-        this.sweep = 0;
+        // tracking glitch. Not an arc.
+        //
+        // IT IS SKIPPED, NOT RESET. Throwing the whole sweep away punishes
+        // long gestures for something that takes one frame, and a large
+        // circle is a long gesture: 340px of radius is 4.6 seconds of
+        // drawing at an ordinary hand speed, against 1.2 seconds for a small
+        // one. Firing rate with tracking glitches, before this change:
+        //
+        //     radius   secs   clean   1/s    2/s    4/s
+        //      90px    1.22s   100%    98%    95%    88%
+        //     340px    4.60s   100%    42%    27%     3%
+        //
+        // "large circles are so hard to close", and that is the whole of it:
+        // one lost frame in four and a half seconds undid everything.
+        //
+        // The reset was the only thing rejecting a back-and-forth wave when
+        // it was written. It is not any more. Completion needs roundness and
+        // closure now, and a wave fails both: it is not round and it does
+        // not come back to where it started. So the guard can do the narrow
+        // thing it should always have done, which is ignore the bad sample.
+        this.smooth = null;
       } else {
         // Plain accumulation. An earlier version restarted the sweep whenever
         // the turn changed sign, and that is what made the detector unusable
