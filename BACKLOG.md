@@ -48,6 +48,10 @@ has failed on its own terms, however impressive the demo.
 | `bin/evolve`, `bin/fitness` | A benchmark, a score, an archive, worktree isolation. The machinery for self-improvement exists and has barely been pointed at anything |
 | `bin/consolidate`, `bin/maintain` | Slow offline consolidation, modelled on how memory moves from hippocampus to neocortex |
 
+**The measured state of this, as of 2026-09-21, is in
+[docs/LEARNING.md](docs/LEARNING.md), and it is that the loop has never
+closed once.** Item 0 is the smallest next step.
+
 ### What "expert at learning" would concretely mean
 
 Not a bigger prompt. Four things that can be tested:
@@ -104,6 +108,7 @@ it.** Build the teaching half at the same time as the doing half, not after.
 
 | # | Item | Status | Notes |
 | --- | --- | --- | --- |
+| 0 | **Close the learning loop. The score has never moved.** | open | Caleb, 2026-09-21, asked for a big emphasis on this. Ten `fitness` runs, `structural_score` **90.12 in all ten**; `behavioural_score` recorded once; `failed` is the integer 25 with no record of WHICH 25, so credit assignment is impossible; `evolve` never merges, so an archive with no selection is a museum; and the 86 asks in `~/.chewbacca/asks.jsonl` are read by nothing. Five ordered steps and the hard line in [docs/LEARNING.md](docs/LEARNING.md). **Step 1 is small and blocks the rest: make `fitness` record which cases failed, by id.** This is item 32 and the "expert at learning" direction above, made concrete |
 | 1 | **GTM engineering for Jonah and his 5 companies** | doing | Sagar, 9/20: "i need you to do one thing." Tooling shipped at `calebnewtonusc/prometheus-targeting` (private). **Blocked on one fact: which 5 companies are raising.** One-pagers exist for 8 |
 | 2 | **Onboarding: single paste, allow-once permissions, no visible API keys, Mac then Windows** | open | Caleb's #8. Now evidence-backed: Sagar called the installer malware on 9/20 and a second person flagged permissions the same afternoon. Closing screen fixed in `8e47d04`; the flow itself is not |
 | 3 | **Skill descriptions cannot route** | done | 105 skills installed, nothing names one when work starts. `skill-route.sh` built and unregistered in `4cca1fd` after misfiring twice. skill-scan grades the descriptions at 16-21 trigger points of 25. Fix descriptions first |
