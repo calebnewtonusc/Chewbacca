@@ -705,8 +705,24 @@ function frame(now: number) {
     // Roundness is the residual of the fit against the spread of the
     // samples, so a path has to have curved AND curved consistently.
     //
-    // Slightly later as well, at four tenths of a turn.
-    const turned = Math.max(0, Math.min(1, (p.progress - 0.4) / 0.26));
+    // LATER AGAIN, and this time measured rather than nudged. "Way too
+    // easily starting a circle now."
+    //
+    // Progress is turning over the sweep threshold, and that threshold went
+    // from 4.6 rad to 5.4, so the same fraction of progress is now a larger
+    // arc than it used to be. But 0.4 of it is still only 124 degrees, and
+    // traced against arcs of known sweep the line began bending at:
+    //
+    //     gate 0.40    starts at 135 deg of arc
+    //     gate 0.55    starts at 185 deg
+    //     gate 0.62    starts at 210 deg
+    //
+    // The portal needs 309 degrees to open. Starting the bend at 135 meant
+    // more than half the gesture was spent looking committed to something
+    // that had not been decided. 0.55 puts the first bend just past halfway
+    // and full strength at 0.85, which is 263 degrees, shortly before the
+    // ring latches and stops moving.
+    const turned = Math.max(0, Math.min(1, (p.progress - 0.55) / 0.3));
     const round = Math.max(0, Math.min(1, (p.roundness - 0.55) / 0.3));
     const conf = turned * round;
     const k = Math.pow(conf, 0.9);
