@@ -92,6 +92,7 @@ let drawing: { cx: number; cy: number; r: number; a0: number } | null = null;
 // The oldest part of the stroke is dropped once, at the latch, not every
 // frame after it, or the line would eat itself.
 let trimmedAtLatch = false;
+let announcedAtLatch = false;
 // The raw path the pinch has taken this stroke, in screen-normalized space.
 // It is drawn as a line from the first frame and BENDS onto the fitted
 // circle as the detector starts to recognise one, which is what he asked
@@ -701,7 +702,7 @@ function frame(now: number) {
     }
   }
   if (S.phase !== "drawing" && drawing) drawing = null;
-  if (!pinched) { softFit = null; trimmedAtLatch = false; }
+  if (!pinched) { softFit = null; trimmedAtLatch = false; announcedAtLatch = false; }
   if (portalUp) stroke = [];
   if (!portalUp && prevPhase === "closing") {
     detector.reset(); comet = []; attract = null;
@@ -915,6 +916,88 @@ function frame(now: number) {
       }
     }
 
+    // ── The other side, appearing as the circle is drawn ──────────────────
+    //
+    // "it was a spiraling, cloudy blur that faded into the other side of what
+    // was through the portal. As the spiral began, the other dimension
+    // started to appear, clearer in the center, more faded by the rim, faded
+    // out to the current dimension around the part of the circle that the
+    // circumference hasn't been completed yet, and the whole thing faded but
+    // becoming less faded by the time the circle completes."
+    //
+    // Four separate fades, and each one is a different axis:
+    //
+    //   RADIAL     clearest in the middle, gone by the rim.
+    //   ANGULAR    only inside the arc already drawn. The part of the circle
+    //              the hand has not reached yet is still this dimension.
+    //   TEMPORAL   the whole thing strengthens as the circle closes.
+    //   THE EDGE   the leading edge is feathered, not a pie slice. Two
+    //              passes, the inner wedge carrying most of the weight.
+    //
+    // Everything here is behind the ring and the sparks, so the rim still
+    // burns on top of it.
+    if (fitC && !portalUp && conf > 0.02) {
+      const cvx = mx(fitC.cx), cvy = my(fitC.cy);
+      const Rv = Math.max(4, fitC.r * RPX);
+      const ccw = p.sweep < 0;
+      const a0 = drawing ? drawing.a0 : (p.startAngle ?? 0);
+      const a1 = p.endAngle ?? a0;
+      const open = Math.min(1, conf);
+      const FEATHER = 0.22;   // radians trimmed off the leading edge
+
+      const wedge = (trim: number) => {
+        ctx.beginPath();
+        ctx.moveTo(cvx, cvy);
+        ctx.arc(cvx, cvy, Rv, a0, a1 - (ccw ? -trim : trim), ccw);
+        ctx.closePath();
+      };
+
+      const cloud = (alpha: number) => {
+        const v = ctx.createRadialGradient(cvx, cvy, 0, cvx, cvy, Rv);
+        v.addColorStop(0, `rgba(255, 178, 96, ${0.34 * alpha})`);
+        v.addColorStop(0.42, `rgba(196, 98, 34, ${0.22 * alpha})`);
+        v.addColorStop(0.8, `rgba(96, 40, 13, ${0.10 * alpha})`);
+        v.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = v;
+        ctx.beginPath();
+        ctx.arc(cvx, cvy, Rv, 0, Math.PI * 2);
+        ctx.fill();
+      };
+
+      ctx.save();
+      ctx.globalCompositeOperation = "source-over";
+      // The blur is what makes it cloud rather than gradient. Kept to one
+      // filtered pass, because a canvas filter is not cheap.
+      ctx.filter = `blur(${Math.max(2, Rv * 0.06).toFixed(1)}px)`;
+      ctx.save(); wedge(FEATHER * 2); ctx.clip(); cloud(open * 0.62); ctx.restore();
+      ctx.save(); wedge(0); ctx.clip(); cloud(open * 0.34); ctx.restore();
+
+      // The spiral. Arms wound out from the middle, turning slowly, brighter
+      // as the circle closes. They wind the way the hand is going, so the
+      // drawing and the thing behind it agree about which way round this is.
+      ctx.globalCompositeOperation = "lighter";
+      ctx.lineCap = "round";
+      ctx.save(); wedge(FEATHER); ctx.clip();
+      const turn = now / 2600;
+      for (let arm = 0; arm < 5; arm++) {
+        ctx.beginPath();
+        const base = turn + (arm / 5) * Math.PI * 2;
+        for (let i = 0; i <= 24; i++) {
+          const u = i / 24;
+          const rr = Rv * (0.1 + 0.88 * u);
+          const th = base + u * 2.3 * (ccw ? -1 : 1);
+          const x = cvx + Math.cos(th) * rr, y = cvy + Math.sin(th) * rr;
+          if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+        }
+        ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.11 * open})`;
+        ctx.lineWidth = Math.max(1.5, Rv * 0.055);
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.filter = "none";
+      ctx.restore();
+    }
+
     ctx.globalCompositeOperation = "lighter";
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -927,8 +1010,23 @@ function frame(now: number) {
     // Once per frame. path() draws it twice and the head tangent reads it,
     // and smoothing the same points three times would be three times the
     // cost for the same answer.
+    // ONE pass here, not the default two. "Curves are way too big on the
+    // line": two passes plus quadratics drawn through the midpoints rounds
+    // the shape twice, and the line stopped following the hand. Measured as
+    // how far the drawn line strays from where the fingers actually were:
+    //
+    //                  1 pass   2 passes   worst kink at 1 pass
+    //     gentle arc     2.7px     3.3px          1.00px
+    //     tight circle   2.4px     3.2px          1.31px
+    //     S curve        2.3px     3.6px          1.22px
+    //     L turn         3.7px     5.5px          1.94px
+    //
+    // A third tighter to the hand, and still under two pixels of kink, which
+    // is the bar for a line reading as smooth. The detector keeps two passes,
+    // because there the rounding is the point: it is what separates a corner
+    // that survives smoothing from jitter that does not.
     const SP = stroke.length >= 3
-      ? smoothPath(stroke.map((q) => ({ x: mx(q.rx), y: my(q.ry) })))
+      ? smoothPath(stroke.map((q) => ({ x: mx(q.rx), y: my(q.ry) })), 1)
       : null;
 
     // CURVES, NOT SEGMENTS. Each point becomes a control point and the path
@@ -1043,6 +1141,19 @@ function frame(now: number) {
     // path stops describing what was meant.
     if (!drawing || p.progress < LATCH_AT) {
       drawing = { cx: p.center.x, cy: p.center.y, r: p.radius, a0: p.startAngle };
+      // Tell the host now, not at completion, so the window is behind the
+      // glass while the cloud is still thinning and the reveal is of a real
+      // thing. Once per gesture.
+      if (armed && p.center && !announcedAtLatch && p.progress >= LATCH_AT) {
+        announcedAtLatch = true;
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "opening",
+          x: mx(p.center.x),
+          y: my(p.center.y),
+          r: rpxOf(clampRN(p.radius)),
+          armed: armed.label,
+        });
+      }
     } else if (!trimmedAtLatch) {
       // "start it not where the circle began, but further along the circle
       // path." The ring is formed by the drawn line bending onto it, so it
