@@ -416,7 +416,7 @@
           life: 1,
           decay: 9e-3 + Math.random() * 0.024,
           heat: Math.random(),
-          width: 0.6 + Math.random() * 1.6,
+          width: 0.35 + Math.random() * 0.85,
           bind
         });
       }
@@ -471,10 +471,8 @@
     if (lm && !portalUp) {
       ctx.globalCompositeOperation = "lighter";
       for (const t of FINGER_TIPS) {
-        ctx.fillStyle = `rgba(${SPARK_MID}, ${pinched ? 0.5 : 0.16})`;
-        ctx.beginPath();
-        ctx.arc(mx(lm[t].x), my(lm[t].y), pinched ? 4 : 2.5, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.fillStyle = `rgba(${SPARK_MID}, 0.1)`;
+        ctx.fillRect(mx(lm[t].x) - 0.5, my(lm[t].y) - 0.5, 1, 1);
       }
     }
     if (S.phase === "drawing" && p.center && p.startAngle !== null && p.progress > 0.16) {
@@ -638,12 +636,12 @@
       if (sp.life <= 0) continue;
       alive.push(sp);
       const speed = Math.hypot(sp.vx, sp.vy) || 1;
-      const len = Math.min(44, 2 + speed * 3.6);
+      const len = Math.max(7, Math.min(48, speed * 4.2));
       const h = sp.heat * sp.life;
       const col = h > 0.62 ? CORE : h > 0.3 ? SPARK_HOT : h > 0.14 ? SPARK_MID : SPARK_COLD;
       ctx.strokeStyle = `rgba(${col}, ${Math.min(1, sp.life * 1.5)})`;
-      ctx.lineWidth = sp.width * (0.4 + sp.life);
-      ctx.lineCap = "round";
+      ctx.lineWidth = sp.width * (0.25 + sp.life * 0.6);
+      ctx.lineCap = "butt";
       ctx.beginPath();
       ctx.moveTo(sp.x, sp.y);
       ctx.lineTo(sp.x - sp.vx / speed * len, sp.y - sp.vy / speed * len);
