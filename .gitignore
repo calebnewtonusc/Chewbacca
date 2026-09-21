@@ -48,3 +48,7 @@ hud/build/
 
 # The Swift voice server's build, same as the display's
 voice/.build/
+
+# A2A course material and its pipeline: reference for the second brain,
+# not a project to publish.
+/asa/
