@@ -73,6 +73,19 @@ git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1 || exit 0
 AHEAD="$(git rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
 [ "$AHEAD" -gt 0 ] 2>/dev/null || exit 0
 
+# THE UPSTREAM MUST BE ORIGIN. A contributor's guard, from his fork's
+# .claude/hooks/auto-push.sh. A fork has both origin and upstream, the
+# ahead-count above is computed against whatever the branch tracks, and the
+# push below goes to origin. When those are different remotes the count does
+# not describe the push, and the push can publish commits nobody measured.
+# His framing: forks are the whole reason origin and upstream are different
+# words.
+TRACKED_REMOTE="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null | cut -d/ -f1)"
+if [ -n "$TRACKED_REMOTE" ] && [ "$TRACKED_REMOTE" != "origin" ]; then
+  note "refused: branch tracks '$TRACKED_REMOTE', not origin"
+  exit 0
+fi
+
 # Only main is pushed without being asked. A feature branch is somebody
 # mid-thought, and force-publishing it is a surprise, not a service.
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
