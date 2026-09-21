@@ -80,8 +80,24 @@ export function stepPortal(
   // be closed again.
   if (!i.pinched) n.armed = true;
 
-  // ── Opening.
-  if (i.completed && i.center) {
+  // ── Opening. ONLY WHEN NOTHING IS UP.
+  //
+  // This used to accept a completion in any phase, and every completion
+  // resets `born` and clears `armed`. So a second circle finishing while a
+  // portal was already open pushed the close out of reach: the minimum open
+  // time restarted and the close disarmed, every time.
+  //
+  // It stayed hidden while the detector was fragile. A tracking glitch used
+  // to wipe the accumulated sweep, so an accidental second completion was
+  // rare. Making large circles survive glitches made the detector persistent
+  // enough to complete again while a portal was still up, and "Bro I can't
+  // close portals anymore" followed immediately.
+  //
+  // Refusing is also the right answer on its own terms. A portal is closed
+  // before the next one is drawn; there is no state here for two.
+  const alreadyUp =
+    n.phase === "igniting" || n.phase === "open" || n.phase === "closing";
+  if (i.completed && i.center && !alreadyUp) {
     n.phase = "igniting";
     n.born = i.now;
     n.closeAt = 0;
