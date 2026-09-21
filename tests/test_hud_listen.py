@@ -552,6 +552,40 @@ def test_session_flags(m) -> None:
     check("a non-claude command is left alone", other.command() == ["llm", "-m", "gpt-5"])
 
 
+def test_scrub_inherited_session_env(m) -> None:
+    """A listener started from inside a Claude Code session must not pass the
+    session's variables to the agent, or to the Terminal the agent opens."""
+    env = {
+        "FORCE_COLOR": "3",
+        "COLORTERM": "truecolor",
+        "CLAUDECODE": "1",
+        "CLAUDE_CODE_CHILD_SESSION": "1",
+        "CLAUDE_CODE_SESSION_ID": "9f44b680",
+        "HOME": "/Users/someone",
+        "BOB_HUD_SOCKET": "/tmp/hud.sock",
+        "HUD_VOICE": "af_heart",
+    }
+    dropped = m.scrub_inherited_session_env(env)
+    check(
+        "every session variable is dropped, sorted",
+        dropped
+        == [
+            "CLAUDECODE",
+            "CLAUDE_CODE_CHILD_SESSION",
+            "CLAUDE_CODE_SESSION_ID",
+            "COLORTERM",
+            "FORCE_COLOR",
+        ],
+        repr(dropped),
+    )
+    check(
+        "the listener's own variables survive",
+        env == {"HOME": "/Users/someone", "BOB_HUD_SOCKET": "/tmp/hud.sock", "HUD_VOICE": "af_heart"},
+        repr(env),
+    )
+    check("a clean environment drops nothing", m.scrub_inherited_session_env({"HOME": "/h"}) == [])
+
+
 def test_turn_line(m) -> None:
     """One line, fixed order, `-` for what never arrived."""
     usage = {"input_tokens": 4, "cache_read_input_tokens": 11799,
@@ -1860,6 +1894,8 @@ def main() -> int:
     test_prompt_prefix(module)
     print("session continuity")
     test_session_flags(module)
+    print("the inherited session environment")
+    test_scrub_inherited_session_env(module)
     print("names for the recogniser")
     test_pick_names(module)
     print("the turn line")
