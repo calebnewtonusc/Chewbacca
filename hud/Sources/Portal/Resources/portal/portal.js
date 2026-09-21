@@ -333,7 +333,8 @@
     if (n.phase === "igniting" && i.now - n.born >= igniteMs) n.phase = "open";
     if (n.phase === "closing" && i.now - n.closeAt >= closeMs) n.phase = "idle";
     if (!i.pinched) n.armed = true;
-    if (i.completed && i.center) {
+    const alreadyUp = n.phase === "igniting" || n.phase === "open" || n.phase === "closing";
+    if (i.completed && i.center && !alreadyUp) {
       n.phase = "igniting";
       n.born = i.now;
       n.closeAt = 0;
@@ -831,20 +832,37 @@
         m.shadowBlur = blurPx;
         m.shadowOffsetX = OFF;
       }
+      const ptAt = (u, r) => {
+        const th = aOld + dir * u * drawnAng;
+        return { x: mx0 + Math.cos(th) * r - OFF, y: my0 + Math.sin(th) * r };
+      };
+      const capTo = (from, to, out) => {
+        const cx2 = (from.x + to.x) / 2, cy2 = (from.y + to.y) / 2;
+        const rad = Math.hypot(to.x - from.x, to.y - from.y) / 2;
+        if (rad < 0.5) {
+          m.lineTo(to.x, to.y);
+          return;
+        }
+        const a0c = Math.atan2(from.y - cy2, from.x - cx2);
+        for (let k = 1; k <= 14; k++) {
+          const a = a0c + out * (k / 14) * Math.PI;
+          m.lineTo(cx2 + Math.cos(a) * rad, cy2 + Math.sin(a) * rad);
+        }
+      };
       m.fillStyle = "#fff";
       m.beginPath();
       for (let i = 0; i <= STEPS; i++) {
-        const th = aOld + dir * (i / STEPS) * drawnAng;
-        const x = mx0 + Math.cos(th) * Rp - OFF, y = my0 + Math.sin(th) * Rp;
-        if (i) m.lineTo(x, y);
-        else m.moveTo(x, y);
+        const q = ptAt(i / STEPS, Rp);
+        if (i) m.lineTo(q.x, q.y);
+        else m.moveTo(q.x, q.y);
       }
+      capTo(ptAt(1, Rp), ptAt(1, Math.max(0, Rp * (1 - depthAt(1)))), dir);
       for (let i = STEPS; i >= 0; i--) {
         const u = i / STEPS;
-        const th = aOld + dir * u * drawnAng;
-        const rr = Math.max(0, Rp * (1 - depthAt(u)));
-        m.lineTo(mx0 + Math.cos(th) * rr - OFF, my0 + Math.sin(th) * rr);
+        const q = ptAt(u, Math.max(0, Rp * (1 - depthAt(u))));
+        m.lineTo(q.x, q.y);
       }
+      capTo(ptAt(0, Math.max(0, Rp * (1 - depthAt(0)))), ptAt(0, Rp), -dir);
       m.closePath();
       m.fill();
       m.shadowBlur = 0;

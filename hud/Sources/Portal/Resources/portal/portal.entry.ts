@@ -686,21 +686,54 @@ function frame(now: number) {
       m.shadowBlur = blurPx;
       m.shadowOffsetX = OFF;
     }
+    // ROUNDED ENDS, OR IT IS A PIE HOWEVER ROUND THE SIDES ARE.
+    //
+    // "the edge of the inside portal spawning in just looks like a pie!!!"
+    //
+    // The region is a ribbon: the rim on the outside, the spiral on the
+    // inside. Its SIDES have been curves for several commits. Its two ENDS
+    // were straight radial cuts, and at the leading edge that cut runs from
+    // the rim all the way down to the deepest point of the spiral, which is
+    // a pie slice with a curved back. That is the wedge, still here, hidden
+    // in the one place nobody was looking: not the boundary, the cap.
+    //
+    // Each end is capped with a semicircle across the ribbon's width there,
+    // bulging the way the ribbon runs, the way a round line cap works. The
+    // trailing cap is small because the ribbon is thin where the circle
+    // began; the leading cap is the big one, and it is the one that was
+    // reading as a slice.
+    const ptAt = (u: number, r: number) => {
+      const th = aOld + dir * u * drawnAng;
+      return { x: mx0 + Math.cos(th) * r - OFF, y: my0 + Math.sin(th) * r };
+    };
+    const capTo = (from: { x: number; y: number }, to: { x: number; y: number }, out: number) => {
+      const cx2 = (from.x + to.x) / 2, cy2 = (from.y + to.y) / 2;
+      const rad = Math.hypot(to.x - from.x, to.y - from.y) / 2;
+      if (rad < 0.5) { m.lineTo(to.x, to.y); return; }
+      const a0c = Math.atan2(from.y - cy2, from.x - cx2);
+      for (let k = 1; k <= 14; k++) {
+        const a = a0c + out * (k / 14) * Math.PI;
+        m.lineTo(cx2 + Math.cos(a) * rad, cy2 + Math.sin(a) * rad);
+      }
+    };
+
     m.fillStyle = "#fff";
     m.beginPath();
     // Outer boundary: the rim, across the part already drawn.
     for (let i = 0; i <= STEPS; i++) {
-      const th = aOld + dir * (i / STEPS) * drawnAng;
-      const x = mx0 + Math.cos(th) * Rp - OFF, y = my0 + Math.sin(th) * Rp;
-      if (i) m.lineTo(x, y); else m.moveTo(x, y);
+      const q = ptAt(i / STEPS, Rp);
+      if (i) m.lineTo(q.x, q.y); else m.moveTo(q.x, q.y);
     }
+    // Round the leading end, across the full depth of the spiral there.
+    capTo(ptAt(1, Rp), ptAt(1, Math.max(0, Rp * (1 - depthAt(1)))), dir);
     // Inner boundary: the spiral, back the other way.
     for (let i = STEPS; i >= 0; i--) {
       const u = i / STEPS;
-      const th = aOld + dir * u * drawnAng;
-      const rr = Math.max(0, Rp * (1 - depthAt(u)));
-      m.lineTo(mx0 + Math.cos(th) * rr - OFF, my0 + Math.sin(th) * rr);
+      const q = ptAt(u, Math.max(0, Rp * (1 - depthAt(u))));
+      m.lineTo(q.x, q.y);
     }
+    // And round the end where the circle began.
+    capTo(ptAt(0, Math.max(0, Rp * (1 - depthAt(0)))), ptAt(0, Rp), -dir);
     m.closePath();
     m.fill();
     m.shadowBlur = 0; m.shadowOffsetX = 0;
