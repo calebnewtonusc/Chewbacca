@@ -87,8 +87,16 @@ def main() -> int:
         check(f"person-shaped in front of the terminal: {said!r}", d.dest == "assistant" and d.confidence == 0.95, str(d))
     d = dest("tell Caleb the build is green", TERMINAL, mem("terminal", 5), names=["Caleb", "Sarah"])
     check("a known name in the first six words is a person", d.dest == "assistant")
-    d = dest("make the parser handle the format for caleb", TERMINAL, mem("terminal", 5), names=["Caleb"])
-    check("a name is only checked in the first six words", d.dest == "terminal", str(d))
+    # The subject here is the name window, not the destination. It used to
+    # assert "terminal", which the frontmost-app rule handed over without
+    # reading the sentence; now the rest of the rules decide, so the window
+    # itself is what gets checked.
+    late = "make the parser handle the format for caleb"
+    check("a name is only checked in the first six words",
+          not r._person_shaped(late, ["Caleb"]), late)
+    d = dest("make the test handle the format for caleb", TERMINAL, mem("terminal", 5), names=["Caleb"])
+    check("and a late name leaves a work-shaped sentence in the terminal",
+          d.dest == "terminal", str(d))
 
     # ── tier 2.2, continuation while warm ────────────────────────────────
     for said in ("and add tests", "also handle the empty case", "then push it", "now run it again",
@@ -103,6 +111,44 @@ def main() -> int:
     # ── tier 2.3, frontmost workspace ────────────────────────────────────
     d = dest("write the readme", TERMINAL)
     check("in front of a claude tab, the terminal", d.dest == "terminal" and d.confidence == 0.8, str(d))
+    for said in ("run the tests", "fix the type error", "commit that",
+                 "check the build logs", "open bin/lib/route.py", "push it",
+                 "rebase onto main", "add a test for the empty case",
+                 "the suite is red", "why is the build failing",
+                 "refactor that function", "clean up the imports", "deploy it",
+                 "what does that error mean", "regenerate the checksums"):
+        d = dest(said, TERMINAL)
+        check(f"a claude tab in front claims the work: {said!r}", d.dest == "terminal", str(d))
+
+    # The other half of the gate, and the reason the noun list is shorter than
+    # a code vocabulary would be. Every sentence here says something ordinary
+    # in his life and used to say something else to a word list: a lecture, the
+    # drive to Valencia, a delivery, a reminder, a payment method, a journal
+    # entry. A false positive is the bug being fixed, so the collisions were
+    # dropped and the losses absorbed elsewhere.
+    for said in ("what time is my class", "move my class to tuesday",
+                 "what's the route to valencia", "where is my package",
+                 "file a reminder for tomorrow", "what type of car is it",
+                 "change my payment method", "log that i went to the gym"):
+        d = dest(said, TERMINAL, names=["Caleb"])
+        check(f"an ordinary sentence is not work: {said!r}", d.dest != "terminal", str(d))
+
+    # Every sentence below is real, from ~/.bob/memory/transcript.jsonl on
+    # 2026-09-21, and every one was taken to the terminal by the frontmost-app
+    # rule alone. Eight of the nine decisions that rule made were wrong, which
+    # is what a claim with no content test buys: the person looks at a coding
+    # tab most of the day and their calendar question becomes a drafted prompt.
+    for said in ("Make a Google sheet comparing prices for Valencia",
+                 "How the check-in date be January 15 have the check out day February 15",
+                 "No",
+                 "Open a bubble",
+                 "Terminal",
+                 "No, let's talk to text feature. We just built the bubble.",
+                 "Open up a bubble",
+                 "Create a bubble"):
+        d = dest(said, TERMINAL)
+        check(f"a claude tab in front does not claim: {said[:40]!r}",
+              d.dest == "assistant", str(d))
     d = dest("write the readme", SHELL_ONLY, classify=classifier("assistant"))
     check("Terminal with no claude tab is not a workspace", d.dest == "assistant" and calls[-1] == "write the readme")
     d = dest("how do i center a div", CHROME)
@@ -134,12 +180,40 @@ def main() -> int:
     calls.clear()
     d = dest("what do you think of the design", NOBODY, COLD, classify=classifier("assistant"))
     check("the classifier is asked when nothing rules", d.dest == "assistant" and d.reason == "classifier" and calls)
+    # No answer means the assistant, even with the terminal warm. This used to
+    # return the warm destination and that was a ratchet: once a sentence
+    # landed in the terminal, every sentence the rules could not settle landed
+    # there behind it. Four of the eight unsettled decisions on 2026-09-21 went
+    # that way, a bare "No" among them.
     d = dest("what do you think of the design", NOBODY, mem("terminal", 30), classify=classifier(None))
-    check("classifier timeout: the warm destination", d.dest == "terminal" and d.reason == "classifier timeout")
+    check("unsettled with the terminal warm: still the assistant",
+          d.dest == "assistant" and d.reason == "unsettled", str(d))
     d = dest("what do you think of the design", NOBODY, COLD, classify=classifier(None))
-    check("classifier timeout with nothing warm: the assistant", d.dest == "assistant")
+    check("unsettled with nothing warm: the assistant", d.dest == "assistant")
     d = dest("what do you think", NOBODY, COLD, classify=classifier("nonsense"))
-    check("a classifier answer that is not a destination is ignored", d.dest == "assistant" and d.reason == "classifier timeout")
+    check("a classifier answer that is not a destination is ignored", d.dest == "assistant" and d.reason == "unsettled")
+
+    # The default is no classifier at all. `claude -p --model haiku` billed
+    # 35,335 cache-creation tokens and $0.074 per three-word decision and took
+    # 9 to 17 s against a 3 s timeout, so it never answered once: the
+    # transcript has 8 timeouts and 0 classifier decisions.
+    import os as _os
+    _old = _os.environ.pop("HUD_CLASSIFY_CMD", None)
+    _oldm = _os.environ.pop("HUD_MODEL_CMD", None)
+    check("no classifier is configured by default", r._classify_cmd() is None)
+    # The two commands are separate so that switching the classifier off does
+    # not switch off the project summary. They shared one function, and the
+    # first version of this change killed `summarize` silently: same CLI, but
+    # a 20 second background budget it can actually meet.
+    check("the background command is still the CLI", r._model_cmd()[:2] == ["claude", "-p"],
+          str(r._model_cmd()))
+    _os.environ["HUD_CLASSIFY_CMD"] = "echo hi"
+    check("and a classifier can be put back", r._classify_cmd() == ["echo", "hi"])
+    _os.environ.pop("HUD_CLASSIFY_CMD", None)
+    if _old is not None:
+        _os.environ["HUD_CLASSIFY_CMD"] = _old
+    if _oldm is not None:
+        _os.environ["HUD_MODEL_CMD"] = _oldm
 
     # ── draft words ──────────────────────────────────────────────────────
     for said in ("send it", "Send.", "run it", "run", "confirm", "go", "do it", "send that"):
