@@ -31,6 +31,7 @@ import sys
 import threading
 import time
 import uuid
+from collections.abc import MutableMapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -48,6 +49,32 @@ SPEAKER = os.environ.get("HUD_SPEAKER", "hud-speak")
 SPEAK = Path(__file__).resolve().parent / SPEAKER
 if not SPEAK.exists():
     SPEAK = Path.home() / ".local" / "bin" / SPEAKER
+
+# What a Claude Code session exports into every process it starts. A listener
+# started from inside a session inherits all of it and hands it on to the
+# answering agent, and from there to anything the agent opens: on
+# 2026-09-20 an `open -a Terminal` from the agent launched a whole
+# Terminal.app instance carrying FORCE_COLOR=3, its login shell kept it, and
+# the Claude Code run in that window wrote 24-bit colour Terminal.app cannot
+# parse, so every word sat on a white block. The same window inherited
+# CLAUDE_CODE_CHILD_SESSION=1 and silently stopped saving its transcript.
+# The voice is nobody's child session, whatever shell it was started from.
+INHERITED_SESSION_VARS = frozenset(
+    {"FORCE_COLOR", "COLORTERM", "CLICOLOR_FORCE", "CLAUDECODE"}
+)
+INHERITED_SESSION_PREFIXES = ("CLAUDE_CODE_",)
+
+
+def scrub_inherited_session_env(env: MutableMapping[str, str]) -> list[str]:
+    """Drop the session variables from `env` in place; the names dropped, sorted."""
+    dropped = sorted(
+        name
+        for name in env
+        if name in INHERITED_SESSION_VARS or name.startswith(INHERITED_SESSION_PREFIXES)
+    )
+    for name in dropped:
+        del env[name]
+    return dropped
 # Kokoro names a voice by language and gender, then a name: af_heart,
 # am_michael, bf_emma. Nothing macOS ships looks like that.
 KOKORO_VOICE = re.compile(r"[a-z]{2}_[a-z]+")
@@ -2446,6 +2473,9 @@ def main() -> int:
     )
     args = parser.parse_args()
     voice = None if args.voice.lower() in {"off", "none", ""} else args.voice
+    dropped = scrub_inherited_session_env(os.environ)
+    if dropped and args.verbose:
+        print(f"dropped from the environment: {' '.join(dropped)}", file=sys.stderr, flush=True)
     if os.environ.get("HUD_NAMES", "").lower() != "off":
         # Six `mac` calls, a few seconds; the recogniser reads the file on
         # every press, so it lands whenever it lands.
