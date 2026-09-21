@@ -478,6 +478,51 @@ Still to do: `bin/hud-agent.md` (when to put a bubble up), `hud/CLAUDE.md` (the
 `b` verb in the vocabulary), and the bridge's haiku turn for `b <id> clean`,
 which the deterministic floor makes optional rather than blocking.
 
+## The grant that is on and means nothing
+
+Found the same day the bubble shipped, and it is the failure that made the
+feature look broken when the code was right.
+
+macOS does not record "BobHUD may use Accessibility". It records a code
+requirement. An ad-hoc signature carries no team identifier, so the only thing
+the requirement can name is the binary's own hash, and every rebuild produces a
+new one. The row keeps reading `auth_value=2`, the switch in System Settings
+keeps reading as on, and `AXIsProcessTrusted()` answers false.
+
+The measurements, from this Mac on 2026-09-21:
+
+| What | Value |
+| --- | --- |
+| Grant recorded | 05:13:59, pinned to cdhash `2efeddb7a49900f9f1d0d2a27e1ea2298b806558` |
+| Bundle rebuilt | 13:40:12, `CandidateCDHash a4246cb7228c1b8662ccd2972f304ce75777334b` |
+| What the display logged | `bubble.bind refused reason=accessibility not granted`, three times |
+| Signing identities on the machine | 0 valid |
+
+The user-level grants prove the cure. Microphone and speech recognition were
+recorded on 2026-09-19 from the same ad-hoc binary and stored
+`identifier "dev.bobthebuilder.hud"` rather than a hash, so they survived every
+rebuild since. The designated requirement `bundle.sh` pins is what did that, and
+it does not reach the system-level Accessibility row.
+
+Three pieces, in the order they matter:
+
+1. `hud/scripts/bundle.sh` signs with `Chewbacca Local Signing` when the
+   keychain holds it, ad-hoc when it does not. With a certificate the
+   requirement names the certificate and the identifier, and a rebuild changes
+   neither.
+2. `hud/scripts/signing-identity.sh` makes that certificate, once. It needs an
+   administrator password for one step, because trusting a certificate for code
+   signing writes to the system keychain.
+3. `bin/lib/axgrant.py` reads the stored requirement and says whether it still
+   describes the installed bundle. `hud-bubble doctor` uses it to tell "nobody
+   has granted this" apart from "granted to a build that is gone", which are
+   the same log line and completely different instructions. `--repair` clears
+   the dead row so the next launch asks for real.
+
+Reading and writing are split on purpose: `state()` only looks, and `repair()`
+refuses to run on any reading but `stale`. It throws away a permission, so it
+never acts on a reading it did not take itself.
+
 ## Later, deliberately not now
 
 - Parakeet through FluidAudio in place of `SFSpeechRecognizer`.

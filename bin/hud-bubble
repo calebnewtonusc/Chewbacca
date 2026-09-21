@@ -35,6 +35,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import axgrant  # noqa: E402
+
 BOB_DIR = Path(os.environ.get("BOB_DIR") or Path.home() / ".bob")
 SOCKET = os.environ.get("BOB_HUD_SOCKET") or str(BOB_DIR / "hud.sock")
 
@@ -177,9 +180,11 @@ def grant_from_log(text: str) -> bool | None:
     return None
 
 
-def doctor() -> int:
+def doctor(repair: bool = False) -> int:
     """Whether a bubble can work here, and what to do when it cannot."""
     ok = True
+    if repair and axgrant.repair():
+        print("accessibility  cleared the dead grant; it will ask once more")
     if Path(SOCKET).exists():
         print(f"display    socket at {SOCKET}")
     else:
@@ -190,10 +195,30 @@ def doctor() -> int:
     if grant is True:
         print("accessibility  granted (a bubble has bound a field)")
     elif grant is False:
-        print(
-            "accessibility  REFUSED. Open System Settings, Privacy & Security, "
-            "Accessibility, and switch on BobHUD."
-        )
+        # Two refusals look identical from the log and are not the same
+        # problem. One is a permission nobody has given yet. The other is a
+        # permission given to a build that no longer exists, where the switch
+        # in System Settings reads as on and switching it off and on again is
+        # the only thing a person can try. Telling them to go and look at a
+        # switch that is already correct is the worst answer available, so say
+        # which one it is.
+        if axgrant.state() == "stale":
+            print(
+                "accessibility  granted to a build that is gone. The switch "
+                "reads as on and means nothing, because macOS pinned it to the "
+                "old binary's hash."
+            )
+            print(
+                "               fix it for good: hud/scripts/signing-identity.sh"
+            )
+            print(
+                "               fix it for now:  hud-bubble doctor --repair"
+            )
+        else:
+            print(
+                "accessibility  REFUSED. Open System Settings, Privacy & Security, "
+                "Accessibility, and switch on BobHUD."
+            )
         ok = False
     else:
         print(
@@ -223,12 +248,16 @@ def main(argv: list[str] | None = None) -> int:
     said = commands.add_parser("parse", help="what the words mean, for the bridge")
     said.add_argument("words")
     said.add_argument("--json", action="store_true", help="machine-readable")
-    commands.add_parser("doctor", help="whether it can work on this machine")
+    doc = commands.add_parser(
+        "doctor", help="whether it can work on this machine")
+    doc.add_argument(
+        "--repair", action="store_true",
+        help="clear an Accessibility grant left behind by an older build")
     args = parser.parse_args(argv)
 
     try:
         if args.command == "doctor":
-            return doctor()
+            return doctor(args.repair)
         if args.command == "parse":
             verb = parse(args.words)
             if args.json:
