@@ -1384,9 +1384,30 @@ function frame(now: number) {
         // "when the portal is fully open the whole thing is completely
         // visible no clouds."
         const shut2 = ease(shut);
-        const opened = ease(ignite);
+        // TWO CURVES, BECAUSE THEY ARE TWO DIFFERENT EVENTS.
+        //
+        // The last unfinished sector fills in quickly: that is the circle
+        // closing, and it wants to feel like the hand finished it.
+        //
+        // The rim fade clears LATE. "Make it not suddenly jump to no rim
+        // fade, that scales down in the last jump of the portal which gives
+        // the effect of the portal 'completing'." On the ease-out both used,
+        // 68% of the fade was gone in the first 100ms and nothing visible
+        // happened after 350, which is a jump with a long tail rather than a
+        // completion. Squared, it holds and then clears at the end:
+        //
+        //     ms     ease-out   late
+        //      100     0.68      0.99
+        //      350     0.19      0.82
+        //      500     0.06      0.63
+        //      650     0.01      0.37
+        //      820     0.00      0.00
+        //
+        // So the portal sits there still hazed at its edge, and then resolves.
+        const closing = ease(ignite);
+        const clearing = ignite * ignite;
         paintMirror(cx0, cy0, rpx, 1 - shut2,
-          openGapFrom, openGap * (1 - opened), openCcw, 1 - opened);
+          openGapFrom, openGap * (1 - closing), openCcw, 1 - clearing);
       }
 
       ctx.globalCompositeOperation = "lighter";

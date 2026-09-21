@@ -1191,16 +1191,17 @@
           ctx.globalCompositeOperation = "source-over";
         } else {
           const shut2 = ease(shut);
-          const opened = ease(ignite);
+          const closing = ease(ignite);
+          const clearing = ignite * ignite;
           paintMirror(
             cx0,
             cy0,
             rpx,
             1 - shut2,
             openGapFrom,
-            openGap * (1 - opened),
+            openGap * (1 - closing),
             openCcw,
-            1 - opened
+            1 - clearing
           );
         }
         ctx.globalCompositeOperation = "lighter";
