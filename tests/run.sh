@@ -418,8 +418,14 @@ if group "installer"; then
 
   # An agent types this line, from a README it skimmed, and agents mistype.
   # Each of these spellings used to exit 2 with no install and no explanation.
+  # The phrase is "Nothing has been changed", not the old "stopping here":
+  # 10df181 replaced the one-line dry run with a full report of what would
+  # change and these five rows kept expecting the line it deleted, so all
+  # five failed on a start.sh that does exactly what they are checking for.
+  # What they are checking is that a mistyped flag is accepted and the dry
+  # run completes, not the wording of its last line.
   for _flag in --fullsend --full_send -full-send --FULL-SEND --yolo; do
-    expect "start.sh survives $_flag" "stopping here" \
+    expect "start.sh survives $_flag" "Nothing has been changed" \
       bash "$ROOT/start.sh" "$_flag" --dry-run
   done
   expect "an unknown flag warns instead of aborting" "ignoring unrecognized option" \
