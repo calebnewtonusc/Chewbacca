@@ -211,7 +211,89 @@ function serveHttp(port) {
     });
 }
 
+// ── Registration ─────────────────────────────────────────────────────────────
+//
+// NOBODY SHOULD EVER SEE 127.0.0.1.
+//
+// Caleb's reaction to the HTTP transport was the right one: "that means
+// someone would have to open a browser, that's terrible UX". Correct, and it
+// was my framing that was wrong, not the transport. A localhost URL is a thing
+// you paste into a settings page once, and once is still once too many for
+// somebody who does not know what a port is.
+//
+// So the tool writes itself into the config of every MCP client already on the
+// machine. The person installs, opens Claude, and the tools are simply there.
+// No URL, no port, no JSON, no settings page.
+//
+// Every write is idempotent and backed up first. This edits files that other
+// programs depend on, and a corrupted claude_desktop_config.json means their
+// existing servers stop working, which is a far worse outcome than this tool
+// not being registered.
+function register() {
+  const home = require("node:os").homedir();
+  const self = path.join(BIN, "chewbacca-mcp");
+  const done = [];
+
+  const backup = (f) => {
+    try {
+      fs.copyFileSync(f, f + ".before-chewbacca");
+    } catch {}
+  };
+
+  // Claude Desktop and Claude Code both take JSON with an mcpServers map.
+  for (const [label, file, key] of [
+    ["Claude Desktop", path.join(home, "Library/Application Support/Claude/claude_desktop_config.json"), "mcpServers"],
+    ["Claude Code", path.join(home, ".claude.json"), "mcpServers"],
+  ]) {
+    if (!fs.existsSync(file)) continue;
+    try {
+      const raw = fs.readFileSync(file, "utf8");
+      const cfg = JSON.parse(raw);
+      cfg[key] = cfg[key] || {};
+      if (cfg[key].chewbacca && cfg[key].chewbacca.command === self) {
+        done.push(`${label}: already registered`);
+        continue;
+      }
+      backup(file);
+      cfg[key].chewbacca = { command: self };
+      fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + "\n");
+      done.push(`${label}: registered`);
+    } catch (e) {
+      done.push(`${label}: SKIPPED, its config did not parse (${e.message})`);
+    }
+  }
+
+  // Codex uses TOML. Appending a table is safe where rewriting is not: this
+  // file is hand-edited and a naive round-trip would drop its comments.
+  const codex = path.join(home, ".codex/config.toml");
+  if (fs.existsSync(codex)) {
+    try {
+      const raw = fs.readFileSync(codex, "utf8");
+      if (raw.includes("[mcp_servers.chewbacca]")) {
+        done.push("Codex: already registered");
+      } else {
+        backup(codex);
+        fs.appendFileSync(
+          codex,
+          `\n[mcp_servers.chewbacca]\ncommand = "${self}"\nargs = []\n`,
+        );
+        done.push("Codex: registered");
+      }
+    } catch (e) {
+      done.push(`Codex: SKIPPED (${e.message})`);
+    }
+  }
+
+  if (!done.length) {
+    console.log("No MCP client found. Install Claude Desktop, Claude Code or Codex first.");
+    return;
+  }
+  for (const line of done) console.log("  " + line);
+  console.log("\nRestart the app and the tools are there. Nothing to paste.");
+}
+
 const argv = process.argv.slice(2);
 const hi = argv.indexOf("--http");
-if (hi !== -1) serveHttp(Number(argv[hi + 1] || 7788));
+if (argv.includes("--register")) register();
+else if (hi !== -1) serveHttp(Number(argv[hi + 1] || 7788));
 else serveStdio();
