@@ -279,10 +279,16 @@ The short version: "in terminal" or "in chrome" at the start wins; a
 correction ("no, the terminal") inside fifteen seconds re-routes the last
 sentence; a person-shaped act (text, remind, call, a known name) is the
 assistant's whatever is on screen; a continuation ("and add tests", "fix
-that") follows whichever destination was used in the last ten minutes; the
-frontmost app decides next; "look up" and "search" go to Chrome; and one haiku
-call settles the rest, with three seconds to answer before the warm
-destination wins.
+that") follows whichever destination was used in the last ten minutes; a
+Claude tab in front takes it only if the sentence names something the coding
+session owns; "look up" and "search" go to Chrome; and anything still
+unsettled goes to the assistant.
+
+Two of those clauses changed on 2026-09-21 and the amendment in the spec
+carries the numbers. The frontmost app used to decide on its own and got
+eight of nine decisions wrong. The haiku call used to settle the rest, and it
+never once did: it took 9 to 17 seconds against a three-second timeout, at
+$0.074 a sentence, so the tier now ships off behind `HUD_CLASSIFY_CMD`.
 
 Nothing is submitted to the terminal by the machine. A terminal sentence
 becomes a drafted prompt sitting in Claude Code's input, the pill reads

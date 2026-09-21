@@ -55,7 +55,8 @@ submitted, so nothing is lost.
    that"). Confidence 0.85.
 3. Frontmost app is a known workspace and nothing above fired -> that
    workspace. Terminal with a `claude` tab -> `terminal`. Chrome -> `browser`.
-   Confidence 0.8.
+   Confidence 0.8. **Amended 2026-09-21, see below: the Terminal half now
+   also requires the sentence to name something the session owns.**
 4. Browser-shaped with no workspace in front: "look up", "search", "google",
    "open <site>", "go to" -> `browser`. Confidence 0.8.
 
@@ -65,7 +66,82 @@ continuation nor browser-shaped). One `claude -p --model haiku` call, JSON out,
 three-second timeout, with the project memory and the last five routed
 sentences in the prompt. On timeout or parse failure: the warm destination if
 any, else `assistant`. Expected under 800 ms. Expected to fire on a minority of
-sentences; measure it.
+sentences; measure it. **Amended 2026-09-21: measured, and both halves of that
+paragraph were wrong.**
+
+### Amendment, 2026-09-21: the measurement this spec asked for
+
+"Expected under 800 ms, measure it" was the right instruction and the answer is
+9.0 to 17.0 seconds. `claude -p --model haiku --output-format json` loads the
+user's CLAUDE.md and its eleven imported rules before answering anything, so
+one three-word classification billed **35,335 cache-creation tokens and
+$0.074**, measured four times from an empty directory with MCP stripped out.
+Against a three-second timeout the call could never answer once, and the first
+twenty rows of `~/.bob/memory/transcript.jsonl` agree: **8 decisions reading
+"classifier timeout", 0 reading "classifier".** Every answer it produced was
+paid for and discarded.
+
+So tier 3 ships off. `HUD_CLASSIFY_CMD` still names a command and the tier
+comes back the moment something can answer inside the bound; the Claude Code
+CLI cannot, and an API call with a 200 token prompt can.
+
+The two model calls are now separate functions, `_classify_cmd` and
+`_model_cmd`, and that separation is load-bearing. They shared one, so the
+first version of this change switched off the project summary along with the
+classifier without a word about it. `summarize` runs the same CLI under a 20
+second background budget it can actually meet; the classifier had a three
+second one it never could. The budget is what decides, not the command.
+
+Two consequences follow, and both are what the person actually complained
+about on 2026-09-21: "assistant is being retarted and trying to just get
+things as a draft to put in terminal."
+
+**The fallback is the assistant, never the warm destination.** Warm was a
+ratchet: one sentence lands in the terminal, the terminal is warm, and every
+sentence the rules cannot settle lands behind it. 4 of those 8 went that way,
+including a bare "No". The asymmetry decides it. A sentence sent to the
+assistant by mistake comes back as an answer or a question; a sentence sent to
+the coding session by mistake comes back as a drafted prompt aimed at somebody
+who asked about their calendar.
+
+**The frontmost application is a prior, not a destination.** Rule 3 handed the
+terminal every sentence spoken in front of a Claude tab without reading one
+word of it, and **8 of the 9 decisions it made were wrong**: a Google sheet for
+Valencia, check-in dates, "Create a bubble" three times in different words,
+"Terminal", and "No" twice. It now also requires `_work_shaped`, a measured
+list of nouns the coding session owns plus a path or filename pattern. Not one
+of those eight names anything in it; "write the readme" does. Replaying all
+twenty rows through the new router moves 12 decisions, every one of them from
+the terminal to the assistant, and leaves the two browser rows and the
+person-shaped row alone.
+
+The list is deliberately shorter than a code vocabulary. Words that mean
+something else in his life were dropped even though they are ordinary code
+words: "class" is a lecture, "route" is the drive to Valencia, "package" is a
+delivery, "file" is "file a reminder", "type" is "what type of", "method" is a
+payment method, "log" alone is a journal entry. Keeping them reintroduces the
+exact bug being fixed, and the losses are absorbed elsewhere: "fix the type
+error" is caught by "error", "open the file" by the path pattern, "check the
+logs" by the plural.
+
+Measured after the drop: 16 of 16 work sentences reach the terminal and 13 of
+13 ordinary ones stay with the assistant, and both sets are rows in
+`tests/test_route.py` rather than a number in this paragraph.
+
+The known cost is false negatives on UI work: "add a loading state to the
+dashboard", "make the header sticky" and "make the parser handle the format"
+name nothing in the list and go to the assistant. That is the trade taken
+deliberately. A missed route costs one "no, the terminal", which tier 1 handles
+in under fifteen seconds. A wrong route costs a draft typed at somebody who was
+asking about their week.
+
+**The general lesson, which is bigger than the router.** The two sentence
+classes that hurt most, "play X" and "create a bubble", were both fixed by
+giving them a deterministic owner that claims them before the router is ever
+asked: `bin/hud-music` and `bin/hud-bubble`, one regex each, no model turn. The
+router's job is the genuine residue, and the residue is smaller every time
+something takes a class of sentence out of it. Adding vocabulary to an owner
+beats adding a rule here.
 
 **Nothing is ever submitted to the terminal by Chewbacca.** A terminal
 decision places a draft in the Claude Code input and stops. The person presses
@@ -275,7 +351,14 @@ needs to say so once. Assistant-bound sentences show nothing new.
   sentence sent to Chrome after a long read; lower it if that happens.
 - Classifier timeout 3 s: the measured time to first text on the lean session
   is 1.1 to 6.0 s; a routing decision that takes longer than the answer would
-  is not worth waiting for.
+  is not worth waiting for. It now bounds an `HUD_CLASSIFY_CMD` somebody sets
+  rather than a shipped default, because the default took 9.0 to 17.0 s and
+  $0.074 a call. See the amendment above.
+- Work-shaped noun list: measured against the nine frontmost-app decisions in
+  the transcript on 2026-09-21, eight of which were wrong. Every noun in it is
+  there because a sentence that belonged in the terminal used it, or because
+  removing it would have lost "write the readme". Nothing was added on a hunch,
+  which is why "parser" is missing and known to be a false negative.
 
 ## Not in this spec
 

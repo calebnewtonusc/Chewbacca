@@ -2,9 +2,15 @@
 
 Pure. Takes the sentence, what is in front of the person, and a memory dict,
 and answers with a destination and why. Three tiers, cheapest first:
-a correction of the last decision, then rules, then one small model call for
-what the rules cannot settle. The design and the evidence for each rule are
-in docs/superpowers/specs/2026-09-20-voice-routing-design.md.
+a correction of the last decision, then rules, then whatever HUD_CLASSIFY_CMD
+names for what the rules cannot settle, and the assistant when nothing does.
+The design and the evidence for each rule are in
+docs/superpowers/specs/2026-09-20-voice-routing-design.md.
+
+Tier 3 ships off. The frontmost application is a prior here and not a
+destination: `_work_shaped` is the gate that made it one, and `_classify_cmd`
+carries the measurement that switched the model call off. `summarize` still
+runs the CLI, under a budget that can afford it.
 """
 import json
 import os
@@ -22,9 +28,13 @@ DESTS = ("terminal", "browser", "assistant")
 # Guessed, never measured: long enough to finish a sentence and change your
 # mind, short enough that "no" twenty seconds later means something else.
 CORRECTION_S = 15.0
-# The classifier answers in this or the warm destination wins. The lean voice
-# session's measured time to first text is 1.1 to 6.0 s; a routing decision
-# slower than the answer would be is not worth waiting for.
+# The classifier answers in this or the sentence goes to the assistant. The
+# lean voice session's measured time to first text is 1.1 to 6.0 s; a routing
+# decision slower than the answer would be is not worth waiting for.
+#
+# Nothing is configured to answer that fast, so `_classify_cmd` is off by
+# default and this bound only applies to an HUD_CLASSIFY_CMD somebody sets.
+# The reason the default went away is in that function: it took 9 to 17 s.
 CLASSIFY_TIMEOUT_S = 3.0
 
 PERSON_VERBS = frozenset({
@@ -39,6 +49,34 @@ IMPERATIVES = frozenset({
     "move", "try", "run", "update", "put", "use", "revert", "rewrite", "refactor",
 })
 PRONOUNS = frozenset({"it", "that", "this", "one", "them", "those", "these"})
+# What the coding session owns. A sentence has to name one of these for the
+# frontmost Claude tab to claim it.
+#
+# Measured against the twenty routed sentences in ~/.bob/memory/transcript.jsonl
+# on 2026-09-21. Nine of them were decided by the frontmost application alone,
+# and eight of those nine went somewhere they did not belong: "Make a Google
+# sheet comparing prices for Valencia", "Create a bubble" three times in
+# different words, a bare "No" twice, a sentence about check-in dates, and the
+# single word "Terminal". Not one of the eight names anything in this set.
+# "write the readme" does, which is the true positive the gate has to keep.
+#
+# Words that mean something else in HIS life are left out even though they are
+# ordinary code words, because a false positive here is the bug being fixed.
+# "class" is a lecture, "route" is the drive to Valencia, "package" is a
+# delivery, "file" is "file a reminder", "type" is "what type of", "method" is
+# a payment method, "log" on its own is a journal entry. Dropping them costs
+# little: "fix the type error" is caught by "error", "open the file" by the
+# path pattern below, "check the logs" by the plural.
+WORK_NOUNS = frozenset({
+    "readme", "commit", "commits", "branch", "repo", "repository", "pr",
+    "merge", "rebase", "diff", "build", "deploy", "lint", "typecheck",
+    "test", "tests", "suite", "function", "script", "module", "import",
+    "imports", "error", "errors", "exception", "traceback", "stacktrace",
+    "bug", "endpoint", "schema", "migration", "dependency", "dependencies",
+    "config", "hook", "hooks", "spec", "logs", "constant", "variable",
+    "component", "docstring", "changelog", "checksum", "checksums",
+})
+WORK_VERBS = frozenset({"commit", "push", "pull", "rebase", "checkout", "stash", "clone"})
 BROWSER_APPS = frozenset({"Google Chrome", "Chromium", "Arc", "Safari"})
 BROWSER_OPENERS = ("look up ", "lookup ", "search for ", "search ", "google ", "go to ", "goto ")
 DOMAIN_OPENERS = ("go to ", "goto ", "open ")
@@ -169,6 +207,29 @@ def _continuation(said: str) -> bool:
     return words[0] in IMPERATIVES and any(w in PRONOUNS for w in words[1:4])
 
 
+def _work_shaped(said: str) -> bool:
+    """Whether the sentence names something the coding session owns.
+
+    This is what stops the frontmost application being a destination. Having a
+    Claude tab in front says where the person is looking, which is a weak prior
+    and was being spent as a decision: see WORK_NOUNS for the nine rows it lost
+    on.
+    """
+    words = _words(said)
+    if not words:
+        return False
+    if any(w in WORK_NOUNS for w in words):
+        return True
+    if words[0] in WORK_VERBS:
+        return True
+    # A path or a filename. The dot has to sit between a word character and a
+    # short lower-case extension, so "route.py" and "bin/lib" count while a
+    # sentence that merely ends in a full stop does not: transcribed speech
+    # ends in one constantly, and matching it would hand the terminal every
+    # sentence that came out of the recogniser cleanly.
+    return bool(re.search(r"[a-z0-9_-]+/[a-z0-9_.-]+|[a-z0-9_-]\.[a-z]{1,4}\b", said.lower()))
+
+
 def _browser_shaped(said: str) -> bool:
     low = _norm(said) + " "
     if low.startswith(BROWSER_OPENERS):
@@ -217,24 +278,36 @@ def route(
         return Decision(warm, 0.85, f"continuation, {warm} warm")
 
     browser_shaped = _browser_shaped(said)
-    if app == "Terminal" and context.get("claude_tab"):
-        return Decision("terminal", 0.8, "terminal in front")
+    if app == "Terminal" and context.get("claude_tab") and _work_shaped(said):
+        return Decision("terminal", 0.8, "terminal in front, about the work")
     if app in BROWSER_APPS:
         if warm == "terminal" and not browser_shaped:
-            return _classified(said, memory, warm, classify)
+            return _classified(said, memory, classify)
         return Decision("browser", 0.8, "browser in front")
 
     if browser_shaped:
         return Decision("browser", 0.8, "browser-shaped")
 
-    return _classified(said, memory, warm, classify)
+    return _classified(said, memory, classify)
 
 
-def _classified(said: str, memory: dict, warm: str | None, classify) -> Decision:
+def _classified(said: str, memory: dict, classify) -> Decision:
     answer = classify(said, memory)
     if answer in DESTS:
         return Decision(answer, 0.6, "classifier")
-    return Decision(warm or "assistant", 0.5, "classifier timeout")
+    # The assistant, never the warm destination, which is why this no longer
+    # takes one. Falling back to warm is a ratchet: one sentence lands in the
+    # terminal, the terminal is warm, and every sentence the rules cannot
+    # settle lands there too until something wins outright. The transcript for
+    # 2026-09-21 has 8 decisions reached this way and 4 of them were taken to
+    # the terminal by that rule, a bare "No" among them.
+    #
+    # The asymmetry is what decides it. A sentence sent to the assistant by
+    # mistake comes back as an answer or a question. A sentence sent to the
+    # coding session by mistake comes back as a drafted prompt aimed at
+    # somebody who asked about their calendar, which is the complaint that
+    # started this.
+    return Decision("assistant", 0.5, "unsettled")
 
 
 def _browser_norm(said: str) -> str:
@@ -281,14 +354,48 @@ def browser_url(said: str) -> tuple[str, str]:
 
 
 def _model_cmd() -> list[str] | None:
-    cmd = os.environ.get("HUD_CLASSIFY_CMD", "claude -p --model haiku --output-format json")
+    """The background command, for work with a budget measured in seconds.
+
+    `summarize` is the only caller and it runs after a turn with a 20 second
+    bound, so the Claude Code CLI is fine here: slow and expensive is what a
+    background call can afford.
+    """
+    cmd = os.environ.get("HUD_MODEL_CMD", "claude -p --model haiku --output-format json")
     if cmd == "off":
         return None
     return shlex.split(cmd)
 
 
-def _ask_model(prompt: str, timeout: float) -> str | None:
-    argv = _model_cmd()
+def _classify_cmd() -> list[str] | None:
+    """The classification command, off unless one is configured.
+
+    It used to be `_model_cmd`, and the reason the classifier no longer shares
+    it is a measurement rather than a preference. `claude -p --model haiku`
+    loads the user's CLAUDE.md and its eleven imported rules before it answers
+    anything, so on 2026-09-21 one three-word classification billed 35,335
+    cache-creation tokens and $0.074, and took 9.0 to 17.0 seconds of wall
+    clock across four runs, measured from an empty directory with MCP stripped
+    out.
+
+    CLASSIFY_TIMEOUT_S is 3.0. The call could therefore never once beat its
+    own timeout, and the transcript agrees: 8 decisions carrying the reason
+    "classifier timeout", 0 carrying "classifier". Every answer it produced
+    was paid for and thrown away.
+
+    Kept separate from `_model_cmd` so that switching it off does not switch
+    off the project summary, which is the same command under a budget it can
+    actually meet. Set HUD_CLASSIFY_CMD to something that answers inside three
+    seconds and the tier comes back with no other change. An API call with a
+    200 token prompt is that. A coding agent's CLI is not.
+    """
+    cmd = os.environ.get("HUD_CLASSIFY_CMD", "off")
+    if cmd == "off":
+        return None
+    return shlex.split(cmd)
+
+
+def _ask_model(prompt: str, timeout: float, argv: list[str] | None = None) -> str | None:
+    argv = _model_cmd() if argv is None else argv
     if not argv:
         return None
     try:
@@ -308,6 +415,9 @@ def _ask_model(prompt: str, timeout: float) -> str | None:
 
 
 def classify_with_haiku(said: str, memory: dict) -> str | None:
+    argv = _classify_cmd()
+    if not argv:
+        return None
     project = memory.get("project") or {}
     recent = memory.get("recent") or []
     lines = "\n".join(f"- {e.get('dest')}: {e.get('text')}" for e in recent[-5:]) or "- none"
@@ -320,7 +430,7 @@ def classify_with_haiku(said: str, memory: dict) -> str | None:
         f"Recent sentences and where they went:\n{lines}\n"
         f"Sentence: {said!r}\n"
     )
-    text = _ask_model(prompt, CLASSIFY_TIMEOUT_S)
+    text = _ask_model(prompt, CLASSIFY_TIMEOUT_S, argv)
     if not text:
         return None
     m = re.search(r'"dest"\s*:\s*"(terminal|browser|assistant)"', text)
