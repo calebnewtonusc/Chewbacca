@@ -106,6 +106,10 @@ let mirrorAmt = 0;
 // How deep the mirror had eaten on the last recognised frame, held so the
 // fade-out and the opening both continue from it rather than jumping.
 let lastFill = 0;
+// Where the circle BEGAN, held. A cancelled circle winds back toward this
+// point, so the angle that has to survive the cancel is the start and not the
+// leading edge.
+let holdOld = 0;
 // The raw path the pinch has taken this stroke, in screen-normalized space.
 // It is drawn as a line from the first frame and BENDS onto the fitted
 // circle as the detector starts to recognise one, which is what he asked
@@ -1312,31 +1316,48 @@ function frame(now: number) {
     // being drawn from a hand that merely moved.
     const recognised = pinched && p.roundness >= 0.55 && p.progress >= REVEAL_AT;
 
-    // "And as a circle gets cancelled it should smoothly be cancelled with
-    // it." The target is followed rather than used directly, so letting go,
-    // breaking the shape, or running out of turn takes the other side away
-    // over about a fifth of a second instead of blinking it out.
+    // A CANCELLED CIRCLE UNWINDS, IT DOES NOT JUST FADE.
+    //
+    // "When a circle gets cancelled it should be a super smooth and natural
+    // unspiraling of the portal."
+    //
+    // The spiral used to be frozen where it got to and the opacity taken
+    // away underneath it, which is a dissolve, not an unspiral. Three things
+    // run backwards now, on the same eases that brought them in:
+    //
+    //   the DEPTH retreats to the rim, so the spiral unwinds outward
+    //   the ARC winds back toward where the circle began
+    //   the OPACITY follows, slower than before, so the unwind is visible
+    //
+    // The arc retracts from the leading edge back toward the start, which is
+    // the reverse of how it was drawn. That means the angle to hold across a
+    // cancel is where the circle BEGAN, not where the fingers were, and the
+    // leading edge is recomputed from it as the arc shortens.
     const want = !portalUp && fitC && recognised ? 0.12 + 0.88 * reveal : 0;
-    mirrorAmt += (want - mirrorAmt) * 0.15;
+    // 0.09 out against 0.15 in: an unspiral wants to be seen, and something
+    // arriving can afford to be quicker than something leaving.
+    mirrorAmt += (want - mirrorAmt) * (want > mirrorAmt ? 0.15 : 0.09);
+
+    if (recognised) {
+      const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
+      openGap = Math.max(0, 1 - doneTurns);
+      openCcw = p.sweep < 0;
+      lastFill = doneTurns;
+      holdOld = (p.endAngle ?? 0) - (openCcw ? -1 : 1) * doneTurns * Math.PI * 2;
+    } else if (mirrorAmt > 0.006) {
+      // Unwinding. Depth back to the rim and arc back to the start point.
+      lastFill += (0 - lastFill) * 0.10;
+      openGap += (1 - openGap) * 0.10;
+    }
 
     if (fitC && !portalUp && mirrorAmt > 0.006) {
       const cvx = mx(fitC.cx), cvy = my(fitC.cy);
       const Rv = Math.max(4, fitC.r * RPX);
-      // While it fades out after a cancelled circle there is no live gap to
-      // use, so the last one is held. Otherwise the boundary would snap round
-      // to nothing on the way out.
-      if (recognised) {
-        const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
-        openGap = Math.max(0, 1 - doneTurns);
-        openGapFrom = p.endAngle ?? 0;
-        openCcw = p.sweep < 0;
-      }
-      // How far round the hand has gone IS how deep the other side reaches.
-      const fill = recognised
-        ? Math.min(1, Math.abs(p.sweep) / (Math.PI * 2))
-        : lastFill;
-      lastFill = fill;
-      paintMirror(cvx, cvy, Rv, mirrorAmt, openGapFrom, openGap, openCcw, 1, fill, 1);
+      // The leading edge follows the arc as it shortens, so the unwind
+      // retracts toward where the circle started rather than sliding round.
+      const drawnNow = (1 - openGap) * Math.PI * 2;
+      const leadNow = holdOld + (openCcw ? -1 : 1) * drawnNow;
+      paintMirror(cvx, cvy, Rv, mirrorAmt, leadNow, openGap, openCcw, 1, lastFill, 1);
     }
 
     ctx.globalCompositeOperation = "lighter";

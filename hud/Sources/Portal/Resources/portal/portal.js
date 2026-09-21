@@ -616,6 +616,7 @@
   var openCcw = false;
   var mirrorAmt = 0;
   var lastFill = 0;
+  var holdOld = 0;
   var stroke = [];
   var softFit = null;
   var reachScale = 1;
@@ -1157,19 +1158,23 @@
       const reveal = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / (1 - REVEAL_AT)));
       const recognised = pinched && p.roundness >= 0.55 && p.progress >= REVEAL_AT;
       const want = !portalUp && fitC && recognised ? 0.12 + 0.88 * reveal : 0;
-      mirrorAmt += (want - mirrorAmt) * 0.15;
+      mirrorAmt += (want - mirrorAmt) * (want > mirrorAmt ? 0.15 : 0.09);
+      if (recognised) {
+        const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
+        openGap = Math.max(0, 1 - doneTurns);
+        openCcw = p.sweep < 0;
+        lastFill = doneTurns;
+        holdOld = (p.endAngle ?? 0) - (openCcw ? -1 : 1) * doneTurns * Math.PI * 2;
+      } else if (mirrorAmt > 6e-3) {
+        lastFill += (0 - lastFill) * 0.1;
+        openGap += (1 - openGap) * 0.1;
+      }
       if (fitC && !portalUp && mirrorAmt > 6e-3) {
         const cvx = mx(fitC.cx), cvy = my(fitC.cy);
         const Rv = Math.max(4, fitC.r * RPX);
-        if (recognised) {
-          const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
-          openGap = Math.max(0, 1 - doneTurns);
-          openGapFrom = p.endAngle ?? 0;
-          openCcw = p.sweep < 0;
-        }
-        const fill = recognised ? Math.min(1, Math.abs(p.sweep) / (Math.PI * 2)) : lastFill;
-        lastFill = fill;
-        paintMirror(cvx, cvy, Rv, mirrorAmt, openGapFrom, openGap, openCcw, 1, fill, 1);
+        const drawnNow = (1 - openGap) * Math.PI * 2;
+        const leadNow = holdOld + (openCcw ? -1 : 1) * drawnNow;
+        paintMirror(cvx, cvy, Rv, mirrorAmt, leadNow, openGap, openCcw, 1, lastFill, 1);
       }
       ctx.globalCompositeOperation = "lighter";
       ctx.lineCap = "round";
