@@ -1,8 +1,10 @@
 #!/bin/bash
 # Open a portal onto something on this Mac.
 #
-#   portal open --app Notes      arm it, then pinch and draw a circle
-#   portal open --url <url>      opens the page, portal frames that window
+#   portal open dashboard        a NAMED target, the normal way in
+#   portal targets               what the names are
+#   portal open --app Notes      an app by name
+#   portal open --url <url>      a page; the portal frames that window
 #   portal open                  a plain portal, opening onto nothing
 #   portal close                 disarm and quit
 #   portal status                is it running, and what is it armed with
@@ -25,7 +27,38 @@ mkdir -p "$(dirname "$TARGET")"
 
 running() { pgrep -f "Portal.app/Contents/MacOS/Portal" >/dev/null 2>&1; }
 
+# Named targets, so nothing upstream ever has to work out what a word means.
+#
+# THE FAILURE THIS EXISTS FOR, 2026-09-21. Asked to "open a portal to
+# dashboard", the voice agent spent 68 seconds cloning OpenVision, grepping
+# the second brain and reading two design docs, because "dashboard" resolved
+# to nothing and it went looking. A lookup table is the fix. An agent that
+# has to INFER a target will always find something expensive to do, and the
+# cheapest way to make it fast is to leave it nothing to infer.
+TARGETS="${CHEWBACCA_PORTAL_TARGETS:-$HOME/.chewbacca/portal-targets.tsv}"
+
+resolve() {
+  [ -f "$TARGETS" ] || return 1
+  awk -F'\t' -v want="$(printf '%s' "$1" | tr 'A-Z' 'a-z')" '
+    /^#/ || NF < 3 { next }
+    tolower($1) == want { print $2 "\t" $3; found = 1; exit }
+    END { exit !found }
+  ' "$TARGETS"
+}
+
+frontmost() {
+  osascript -e 'tell application "System Events" to get name of first application process whose frontmost is true' 2>/dev/null || echo ""
+}
+
+list_targets() {
+  [ -f "$TARGETS" ] || { echo "no targets file at $TARGETS" >&2; return 1; }
+  awk -F'\t' '!/^#/ && NF >= 3 { printf "%-12s %-5s %s\n", $1, $2, $3 }' "$TARGETS"
+}
+
 case "${1:-status}" in
+  targets)
+    list_targets
+    ;;
   open)
     shift
     app=""
@@ -33,16 +66,35 @@ case "${1:-status}" in
       case "$1" in
         --app) app="${2:-}"; shift 2 ;;
         --url)
-          # A page is just an app window once it is open, so the same
-          # placement path handles it. Whatever owns http is what gets framed.
-          url="${2:-}"; shift 2
-          open "$url"
-          sleep 1
-          app="$(osascript -e 'tell application "System Events" to get name of first application process whose frontmost is true' 2>/dev/null || echo "Google Chrome")"
+          # A page is just a window once it is open, so the same placement
+          # path handles it. Whatever owns the URL is what gets framed.
+          open "${2:-}"; sleep 1
+          app="$(frontmost)"
+          shift 2
           ;;
-        *) echo "portal: unknown flag $1" >&2; exit 64 ;;
+        --*)
+          echo "portal: unknown flag $1" >&2; exit 64 ;;
+        *)
+          # A bare word is a NAMED TARGET. Resolving here means no caller
+          # ever has to work out whether it is an app, a page or a file.
+          if hit="$(resolve "$1")"; then
+            kind="$(printf '%s' "$hit" | cut -f1)"
+            tgt="$(printf '%s' "$hit" | cut -f2-)"
+            case "$kind" in
+              app) app="$tgt" ;;
+              url|file) open "$tgt"; sleep 1; app="$(frontmost)" ;;
+              *) echo "portal: target '$1' has unknown kind '$kind'" >&2; exit 1 ;;
+            esac
+          else
+            echo "portal: no target named '$1'. Known:" >&2
+            list_targets >&2
+            exit 1
+          fi
+          shift
+          ;;
       esac
     done
+
     printf '%s' "$app" > "$TARGET"
     if ! running; then
       [ -d "$APP" ] || { echo "portal: $APP is not built. Run hud/scripts/bundle-portal.sh" >&2; exit 1; }
