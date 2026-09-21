@@ -668,6 +668,15 @@ if group "hooks"; then
 fi
 
 # ── the display ───────────────────────────────────────────────────────────────
+if group "mcp"; then
+  if command -v node >/dev/null 2>&1; then
+    check "the MCP server speaks the protocol and refuses a shell" \
+      bash "$ROOT/tests/mcp_server.sh" "$ROOT"
+  else
+    skip "mcp" "node not installed"
+  fi
+fi
+
 if group "hud"; then
   check  "hud parses"         bash -n "$ROOT/bin/hud"
   check  "hud-listen parses"  python3 -m py_compile "$ROOT/bin/hud-listen"

@@ -791,7 +791,7 @@ fi
 # of the person. All three go in together because hud calls the other two by
 # path, so installing one of them alone gives a command that fails halfway.
 _installed_hud=""
-for _tool in hud hud-listen hud-context hud-watch; do
+for _tool in hud hud-listen hud-context hud-watch chewbacca-mcp; do
   if [ -f "$SCRIPT_DIR/bin/$_tool" ]; then
     link_tool "$_tool"
     _installed_hud="$_installed_hud $_tool"
