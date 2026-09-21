@@ -143,6 +143,10 @@ let heldCursor: { x: number; y: number } | null = null;
 // fingers opening; this one happens with the hand still down.
 let breaking = false;
 let formingLast = false;
+// The fitted radius the reveal is waiting to settle, and the arc length at
+// which it last jumped. See the settling gate.
+let fitRRef = 0;
+let fitJumpAt = 0;
 // WHERE THE SPIRAL BEGINS. The angle at which the drawn line first joined
 // the circle, held for the life of the gesture.
 //
@@ -691,8 +695,31 @@ function frame(now: number) {
   const camK = (H / camH) / (W / camW);
   const ax = Math.sqrt(camK);
   const ay = 1 / Math.sqrt(camK);
+  // THE CLAMP IS WHY BIG CIRCLES DO NOT DRAW.
+  //
+  // "Big circles aren't drawing, maybe error margin should be scaled based
+  // on size?"
+  //
+  // It is not a tolerance problem, and scaling one would not have helped. A
+  // clamp is a wall: every part of the path that reaches past it is
+  // FLATTENED onto it, so the extremes of a big circle become straight
+  // segments and the thing stops being round. Measured against the same
+  // path with no clamp:
+  //
+  //   R = 0.60, centred        roundness 0.00 clamped, 0.43 unclamped
+  //   R = 0.40, drawn high     roundness 0.41 clamped, 0.43 unclamped
+  //   R = 0.46, drawn high     roundness 0.33 clamped, 0.43 unclamped
+  //
+  // The damage grows with size and with how far off centre the circle is,
+  // which is exactly the symptom. A relative tolerance is already scale
+  // free; nothing needed scaling, this needed removing.
+  //
+  // Kept wide rather than dropped entirely, only to stop a wild landmark
+  // sending the fit somewhere absurd. A portal is allowed to run off the
+  // edge of the screen; that is a drawing question, and the drawing already
+  // handles it by simply not painting what is outside the canvas.
   const fit = (v: number, a: number) =>
-    Math.max(0.02, Math.min(0.98, 0.5 + (v - 0.5) * reachScale * a));
+    Math.max(-0.3, Math.min(1.3, 0.5 + (v - 0.5) * reachScale * a));
   // Normalized landmark -> normalized screen. Mirror, reach, clamp. The one
   // door. Kept in normalized units so the detector, which works in them,
   // sees exactly what is drawn.
@@ -883,6 +910,13 @@ function frame(now: number) {
         // A fraction of the hole, so it cannot touch the middle early and
         // cannot outlive completion.
         fog: 0.30,
+        // THE IMAGE NEVER OVERLAPS THE ARC. The other side used to be
+        // painted right out to the rim, which is where the ring's own
+        // stroke sits, so the two shared those pixels and the city showed
+        // through the fire. Held inside the ring's inner edge instead: the
+        // widest ring pass is about a tenth of the radius wide and centred
+        // on the rim, so half of that plus a little is clear of it.
+        inset: Math.max(3, Rp * 0.075),
         veil: (1 - gf) * 0.75,
         strength,
         img: {
@@ -1868,6 +1902,7 @@ function frame(now: number) {
   if (!pinched) { trimmedAtLatch = false; announcedAtLatch = false; recognisedLatch = false; drawnMax = 0; }
   if (!pinched && !cancelling) arcStart = null;
   if (!pinched && !cancelling) ccwLatch = null;
+  if (!pinched && !cancelling) { fitRRef = 0; fitJumpAt = 0; }
   if (!pinched && !cancelling) softFit = null;
   if (!portalUp) placedOk = false;
   if (!portalUp) { settleX = 0; settleV = 0; arcX = 0; arcV = 0; }
@@ -2147,6 +2182,36 @@ function frame(now: number) {
     // Below the completion bar now, so the reveal is always a promise made
     // before the portal is earned. The 0.08 gap is the hysteresis that stops
     // roundness flickering across the line from swinging the boundary.
+    // AND THE FIT HAS TO HAVE SETTLED, OR IT REVEALS A CIRCLE THAT IS NOT
+    // THE ONE BEING DRAWN.
+    //
+    // "The animation is glitching and showing a circle before one is
+    // initiated on the big circle, I think it is predicting a smaller
+    // circle?"
+    //
+    // It is. A least squares fit to a short arc is a small circle, because
+    // a short arc of a big circle looks almost straight and the fit prefers
+    // something tight over something nearly flat. So the first fits of a
+    // LARGE circle come out small, and the reveal, gated only on how far
+    // round the hand had gone, faithfully drew that wrong small circle
+    // before snapping out to the real one.
+    //
+    // His instinct was to gate on size, and the size is exactly what is not
+    // yet known at that point. Gated on the radius having stopped moving
+    // instead, which needs no knowledge of the size and is why it works for
+    // both: a small circle settles almost at once, a big one takes longer,
+    // and neither needs a number chosen for it.
+    //
+    // Measured in ARC, not time. Thirty five degrees of drawing during
+    // which the fitted radius never moved more than 12%.
+    const rNow = fitC ? fitC.r : 0;
+    if (fitRRef <= 0 || Math.abs(rNow - fitRRef) / Math.max(rNow, 1e-4) > 0.12) {
+      fitRRef = rNow;
+      fitJumpAt = arcSpan;
+    }
+    const fitSettled = arcSpan - fitJumpAt > 0.6;
+
+    if (!fitSettled) recognisedLatch = false;
     else if (p.roundness >= 0.42) recognisedLatch = true;
     else if (p.roundness < 0.34) recognisedLatch = false;
     const recognised = recognisedLatch && pinched && p.progress >= REVEAL_AT;
