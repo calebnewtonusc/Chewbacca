@@ -630,6 +630,9 @@ def test_lean_prompt(m) -> None:
           "On it." in standing and "Texting Caleb" in standing and "Delete it?" in standing and "Simple gets simple" in standing
           and 'Never "Yes", "OK", "Okay", "Sure", "Yep"' in standing)
     check("and the banned openers", "Great question" in standing and "Certainly" in standing)
+    check("the prompt names Chrome and the screen, with the hard lines",
+          "chrome-js --list" in standing and "chewie see --app" in standing and "summarize" in standing
+          and "Never type a password" in standing and "stays theirs" in standing)
 
 
 def test_pick_names(m) -> None:

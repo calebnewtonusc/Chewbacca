@@ -93,6 +93,14 @@ def main() -> int:
         check("it says where the questions are and how to read them",
               str(store / "questions.jsonl") in text and "superassistant search" in text)
         check("it says to run coursework for a deadline", "coursework due" in text)
+        check("no professional index, no section for it", "Professional contacts" not in text, text)
+        index = brain / "professional-contacts" / "contacts"
+        index.parent.mkdir()
+        index.write_text("#!/bin/sh\n")
+        text = sa.digest()
+        check("with one, the voice is told where it is and how to ask it",
+              "## Professional contacts" in text and f"`{index} search " in text and f"`{index} who " in text
+              and "mac contacts find" in text, text)
 
         print("the prompt file")
         base = root / "agent.md"
