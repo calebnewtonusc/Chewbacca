@@ -387,16 +387,35 @@ function frame(now: number) {
     // to read as a shape competes with the effect; a single bright pixel
     // reads as a position and nothing else. The brightness carries the
     // information instead of the size.
+    // A POINT OF LIGHT, not a dot and not a pixel.
+    //
+    // One pixel at 40 percent alpha was invisible: this canvas is
+    // transparent glass over a desktop that is usually bright, so a dim mark
+    // has nothing to contrast against. "Not seeing the small little light at
+    // the tip of my fingers?"
+    //
+    // The answer is brightness and glow rather than width. A 1.5px core at
+    // full alpha with a shadow around it reads as a spark on any background
+    // and still does not compete with the ring, which is what made the fat
+    // circles ugly.
     for (const t of FINGER_TIPS) {
-      ctx.fillStyle = `rgba(${SPARK_MID}, ${pinched ? 0.75 : 0.4})`;
-      ctx.fillRect(Math.round(mx(lm[t].x)), Math.round(my(lm[t].y)), 1, 1);
+      ctx.shadowBlur = pinched ? 10 : 6;
+      ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
+      ctx.fillStyle = `rgba(${SPARK_HOT}, ${pinched ? 1 : 0.85})`;
+      ctx.beginPath();
+      ctx.arc(mx(lm[t].x), my(lm[t].y), pinched ? 1.8 : 1.4, 0, Math.PI * 2);
+      ctx.fill();
     }
-    // The pinch point is the pen, so it gets one pixel brighter rather than
-    // one pixel bigger.
+    // The pinch point is the pen, so it is the brightest thing on the hand.
     if (pinch?.center) {
+      ctx.shadowBlur = 16;
+      ctx.shadowColor = `rgba(${CORE}, 1)`;
       ctx.fillStyle = `rgba(${CORE}, 1)`;
-      ctx.fillRect(Math.round(mx(pinch.center.x)), Math.round(my(pinch.center.y)), 2, 2);
+      ctx.beginPath();
+      ctx.arc(mx(pinch.center.x), my(pinch.center.y), 2.4, 0, Math.PI * 2);
+      ctx.fill();
     }
+    ctx.shadowBlur = 0;
 
     // HOW MUCH OF THE CIRCLE HAS REGISTERED. "Still really hard to draw
     // circles." Without this the only feedback is the portal appearing or
