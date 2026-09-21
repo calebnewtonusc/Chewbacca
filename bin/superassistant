@@ -98,12 +98,47 @@ def config_value(name: str) -> str:
 
 
 def brain_dir() -> Path | None:
-    """The second brain, if setup.sh wired one."""
+    """The second brain, if setup.sh wired one.
+
+    expandvars before expanduser, and the order is the whole bug. setup.sh
+    writes `export PERSONAL_CONTEXT_DIR="$HOME/second-brain"` into d1-config.sh,
+    which is correct shell. This file reads that config with a regex rather than
+    by sourcing it, so the value arrives as the literal eight characters $HOME
+    followed by the path. Path.expanduser expands a leading ~ and does nothing
+    at all to $HOME, so the path never resolved, brain_dir returned None, and
+    the voice assistant ran with no personal context whatsoever.
+
+    Found 2026-09-21 when it answered "what do you know about me" with "no
+    second brain is set up on this Mac yet", while the brain sat at the exact
+    path the config named. It fails silently and looks like a dumb model.
+    """
     path = config_value("PERSONAL_CONTEXT_DIR")
     if not path:
         return None
-    brain = Path(path).expanduser()
+    brain = Path(os.path.expandvars(path)).expanduser()
     return brain if brain.is_dir() else None
+
+
+def brain_file(brain: Path, *names: str) -> Path:
+    """The first of `names` that exists under `brain`, else the first.
+
+    Two layouts are in the wild and both are correct. setup.sh writes a flat
+    one, YOU.md and NOW.md and PEOPLE.md at the root. A brain that has grown
+    past a few hundred notes gets reorganised, and Caleb's moved to
+    core/identity.md, core/now.md, core/people.md with domains/ and projects/
+    beside them.
+
+    The digest only knew the flat names, so on 2026-09-21 the voice assistant
+    answered "what do you know about me" with "not much", holding a brain of
+    652,000 words that it could not see. Returning the first name when none
+    exists keeps the old behaviour: `useful` reads it, fails, and yields
+    nothing, rather than raising.
+    """
+    for name in names:
+        candidate = brain / name
+        if candidate.is_file():
+            return candidate
+    return brain / names[0]
 
 
 def owner() -> str:
@@ -145,6 +180,13 @@ def section(path: Path, heading: str, cap: int) -> list[str]:
             continue
         if inside and not is_noise(line.strip()):
             out.append(line.rstrip())
+    # No such heading. In the flat layout YOU.md carries a "## Identity"
+    # section among others; in a reorganised brain core/identity.md IS the
+    # identity and has no such heading, so hunting for one returned nothing and
+    # the assistant knew the person's name and nothing else. When the heading
+    # is absent the file is the section.
+    if not out:
+        return useful(path, cap)
     return out[:cap]
 
 
@@ -197,15 +239,15 @@ def digest(brain: Path | None = None, log: Path | None = None) -> str:
             "in a request beat any line here; when a line here is stale, say so rather "
             "than argue from it."
         )
-        identity = section(brain / "YOU.md", "Identity", IDENTITY_LINES)
+        identity = section(brain_file(brain, "YOU.md", "core/identity.md"), "Identity", IDENTITY_LINES)
         if identity:
             out += ["", "## Identity", *identity]
-        now = useful(brain / "NOW.md", NOW_LINES)
+        now = useful(brain_file(brain, "NOW.md", "core/now.md"), NOW_LINES)
         if now:
             out += ["", "## Now: jobs, projects, priorities, what is broken (NOW.md, the current state; it wins over anything older)", *now]
-        who = people(brain / "PEOPLE.md", PEOPLE_LINES)
+        who = people(brain_file(brain, "PEOPLE.md", "core/people.md"), PEOPLE_LINES)
         if who:
-            out += ["", f"## People (the rest is in {brain / 'PEOPLE.md'}; read it before texting or mailing anyone)", *who]
+            out += ["", f"## People (the rest is in {brain_file(brain, 'PEOPLE.md', 'core/people.md')}; read it before texting or mailing anyone)", *who]
         memories = memory_index(brain, MEMORY_LINES)
         if memories:
             out += ["", f"## Memory (one fact a file in {brain / 'memory'}; this is the index, `cat` the file for the whole memory)", *memories]
