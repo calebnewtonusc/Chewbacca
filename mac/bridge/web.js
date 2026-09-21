@@ -14,7 +14,7 @@
 //   chewie web tabs                       list open tabs
 //   chewie web goto "<url>"               navigate the active tab
 "use strict";
-const { spawn, execSync } = require("child_process");
+const { spawn, execFileSync } = require("child_process");
 const http = require("http");
 const os = require("os");
 const path = require("path");
@@ -143,10 +143,31 @@ async function ensureChrome() {
       if (fs.existsSync(src))
         // Always land at "Default" so the launch below needs no profile juggling.
         // Caches are megabytes of nothing, and skipping them turns a 90s copy into a few seconds.
-        execSync(
-          `rsync -a --exclude 'Cache/' --exclude 'Code Cache/' --exclude 'GPUCache/' ` +
-            `--exclude 'DawnCache/' --exclude 'ShaderCache/' --exclude 'Service Worker/CacheStorage/' ` +
-            `${JSON.stringify(src + "/")} ${JSON.stringify(path.join(PROFILE, "Default") + "/")}`,
+        //
+        // execFileSync, not execSync: the source path ends in a profile directory
+        // name read out of Chrome's Local State, and JSON.stringify only produces
+        // DOUBLE quotes, inside which sh still expands $(...) and backticks. A
+        // profile directory named `$(...)` would have run as a command. No shell
+        // here means the argument reaches rsync as a literal path.
+        execFileSync(
+          "rsync",
+          [
+            "-a",
+            "--exclude",
+            "Cache/",
+            "--exclude",
+            "Code Cache/",
+            "--exclude",
+            "GPUCache/",
+            "--exclude",
+            "DawnCache/",
+            "--exclude",
+            "ShaderCache/",
+            "--exclude",
+            "Service Worker/CacheStorage/",
+            src + "/",
+            path.join(PROFILE, "Default") + "/",
+          ],
           { stdio: "ignore" },
         );
       writeLocalState();
