@@ -183,7 +183,8 @@ for pair in \
   "session-context:SessionStart" \
   "format-and-sync:PostToolUse" \
   "stop-check:Stop" \
-  "env-guard:PreToolUse"; do
+  "env-guard:PreToolUse" \
+  "write-log:PostToolUse"; do
   h="${pair%%:*}"
   event="${pair##*:}"
   f="$CLAUDE_DIR/hooks/$h.sh"
@@ -193,7 +194,30 @@ for pair in \
     fixable "made $h.sh executable" chmod +x "$f" ||
     bad "hook not executable: $h.sh" "chmod +x $f"
   elif [ -x "$f" ]; then
-    ok "hook installed: $h.sh"
+    # EXISTING IS NOT RUNNING. Until 2026-09-21 this said "hook installed" the
+    # moment the file was executable and never asked whether anything invoked
+    # it. write-log.sh sat on disk unregistered for days while both authorship
+    # guards that read its output silently allowed everything, and doctor was
+    # green the whole time. A file-exists check cannot see a dead hook.
+    if python3 - "$h" "$event" <<'PY' 2>/dev/null
+import json, pathlib, sys
+name, event = sys.argv[1], sys.argv[2]
+try:
+    d = json.loads((pathlib.Path.home() / ".claude/settings.json").read_text())
+except Exception:
+    sys.exit(1)
+for group in d.get("hooks", {}).get(event, []):
+    for hook in group.get("hooks", []):
+        if name in str(hook.get("command", "")):
+            sys.exit(0)
+sys.exit(1)
+PY
+    then
+      ok "hook installed and wired: $h.sh"
+    else
+      bad "$h.sh is installed but nothing in settings.json runs it on $event, so it never fires" \
+          "add it to ~/.claude/settings.json under $event, or run setup.sh" major
+    fi
   elif python3 -c "
 import json, sys, pathlib
 try:
