@@ -480,6 +480,23 @@ if group "installer"; then
   check  "setup calls the Serena seeder before installing plugins" \
     grep -q "seed-serena-config.sh" "$ROOT/setup.sh"
 
+  # Caleb, 2026-09-21: "how is chewbacca storing during session important
+  # context? I feel like ur gonna forget the to dos we set at the beginning of
+  # this session?" Nothing was. session-state/ records files written, never
+  # decisions made.
+  check  "the backlog lists open work" bash -c '
+    out=$("$1/bin/backlog" 2>/dev/null)
+    case "$out" in *"open now"*) : ;;
+      *) echo "backlog printed nothing"; exit 1 ;; esac' _ "$ROOT"
+
+  check  "the backlog keeps dead items and their reason" bash -c '
+    "$1/bin/backlog" dead 2>/dev/null | grep -q . || {
+      echo "dead items vanished, so somebody will propose them again"; exit 1; }' _ "$ROOT"
+
+  # A store nobody reads is the failure this whole file keeps finding.
+  check  "SessionStart injects the backlog" \
+    grep -q "bin/backlog" "$ROOT/.claude/hooks/session-context.sh"
+
   # Sagar, 2026-09-20, after installing: "i don't even know how to remove this
   # agent", "seems like malware". uninstall.sh existed the whole time. The
   # closing screen listed what Claude could now read and never said how to undo
