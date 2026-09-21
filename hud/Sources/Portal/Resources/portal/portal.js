@@ -750,11 +750,17 @@
       ctx.beginPath();
       ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
       ctx.clip();
+      ctx.globalAlpha = strength;
+      ctx.fillStyle = "rgb(9, 12, 18)";
+      ctx.beginPath();
+      ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
       drawMirror(strength);
       const innerR = Rp * (1 - Math.max(0, Math.min(1, fill)));
       if (innerR > 0.5 && cloud > 2e-3) {
         ctx.globalCompositeOperation = "destination-out";
-        const feather = Rp * (0.08 + 0.2 * cloud);
+        const feather = Rp * (0.05 + 0.09 * cloud);
         const outer = Math.max(2, innerR + feather);
         const g = ctx.createRadialGradient(cxp, cyp, 0, cxp, cyp, outer);
         const hold = Math.max(0, Math.min(0.95, (innerR - feather * 0.4) / outer));
