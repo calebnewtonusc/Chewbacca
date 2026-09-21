@@ -280,6 +280,7 @@ declare global {
     chewbaccaReach: (k?: number) => number;
     chewbaccaHand: (k?: number) => number;
     chewbaccaTrail: (k?: number) => number;
+    chewbaccaPlaced: (ok: boolean) => void;
     webkit?: { messageHandlers?: { portal?: { postMessage: (m: unknown) => void } } };
   }
 }
@@ -323,6 +324,11 @@ window.chewbaccaTrail = (k) => {
   }
   return trailPx;
 };
+// Whether the host actually got the armed window behind the glass. An armed
+// portal erases the glass to reveal it, so if nothing was placed the erase
+// reveals nothing and the portal is a ring around the desktop.
+let placedOk = false;
+window.chewbaccaPlaced = (ok) => { placedOk = !!ok; };
 window.chewbaccaArm = (label) => {
   armed = label ? { label } : null;
 };
@@ -1099,6 +1105,7 @@ function frame(now: number) {
   }
   if (S.phase !== "drawing" && drawing) drawing = null;
   if (!pinched) { softFit = null; trimmedAtLatch = false; announcedAtLatch = false; }
+  if (!portalUp) placedOk = false;
   if (!portalUp) { settleX = 0; settleV = 0; arcX = 0; arcV = 0; }
   if (portalUp) stroke = [];
   if (!portalUp && prevPhase === "closing") {
@@ -1636,7 +1643,7 @@ function frame(now: number) {
       //
       // An open portal is a circle with the mirror behind it and a burning
       // rim. Nothing is painted inside it at all.
-      if (armed) {
+      if (armed && placedOk) {
         // A real window behind the glass. Erase, so it shows through.
         ctx.globalCompositeOperation = "destination-out";
         ctx.globalAlpha = 1;
