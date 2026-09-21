@@ -33,7 +33,10 @@ const SPARK_HOT = "255, 196, 94";
 const SPARK_MID = "255, 141, 44";
 const SPARK_COLD = "214, 74, 16";
 
-const IGNITE_MS = 520;
+// "now the portal spawning feels so abrupt". 520ms with an ease-OUT curve
+// was 27% open in the first 52ms, and the hole was full size from the first
+// frame besides, so the portal did not open at all: it appeared and faded in.
+const IGNITE_MS = 820;
 const CLOSE_MS = 380;
 const MIN_OPEN_MS = 600;
 
@@ -1062,6 +1065,21 @@ function frame(now: number) {
     const cn = { x: geom.cx, y: geom.cy };
     const rn = clampRN(geom.r) * (1 - ease(shut));
     const rpx = rpxOf(rn);
+
+    // THE HOLE OPENS INSIDE THE RING, it does not arrive already open.
+    //
+    // The rim sits where the circle was drawn from the first frame, because
+    // that is where the hand put it. The hole grows out from the middle to
+    // meet it. Before this the interior was painted at full radius
+    // immediately and only its opacity ramped, so the portal did not open,
+    // it appeared.
+    //
+    // Smoothstep rather than the ease-out used for everything else: it
+    // starts slow, which is the whole difference between opening and
+    // popping. The ease-out was 27% of the way there in the first 52ms.
+    const grow = ignite * ignite * (3 - 2 * ignite);
+    const rnHole = rn * grow;
+    const rpxHole = rpx * grow;
     const vis = e * (1 - shut);
     const age = (now - S.born) / 1000;
     if (S.phase === "open") attract = { cx: cn.x, cy: cn.y, r: rpx };
@@ -1079,25 +1097,26 @@ function frame(now: number) {
         // a rectangle someone cut out.
         ctx.globalCompositeOperation = "destination-out";
         ctx.globalAlpha = 1;
-        disc(cn, rn * 0.985); ctx.fill();
+        disc(cn, rnHole * 0.985); ctx.fill();
         ctx.globalCompositeOperation = "source-over";
         ctx.globalAlpha = vis * 0.9;
-        const lip = ctx.createRadialGradient(cx0, cy0, rpx * 0.88, cx0, cy0, rpx);
+        const lip = ctx.createRadialGradient(
+          cx0, cy0, Math.max(1, rpxHole * 0.88), cx0, cy0, Math.max(2, rpxHole));
         lip.addColorStop(0, "rgba(0,0,0,0)");
         lip.addColorStop(1, "rgba(120, 48, 12, 0.6)");
         ctx.fillStyle = lip;
-        disc(cn, rn); ctx.fill();
+        disc(cn, rnHole); ctx.fill();
         ctx.globalAlpha = 1;
       } else {
         ctx.globalCompositeOperation = "source-over";
         ctx.globalAlpha = vis;
-        const inner = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, rpx);
+        const inner = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, Math.max(2, rpxHole));
         inner.addColorStop(0, "rgba(3, 2, 1, 1)");
         inner.addColorStop(0.82, "rgba(10, 5, 2, 1)");
         inner.addColorStop(0.95, "rgba(46, 18, 5, 1)");
         inner.addColorStop(1, "rgba(120, 48, 12, 0.85)");
         ctx.fillStyle = inner;
-        disc(cn, rn); ctx.fill();
+        disc(cn, rnHole); ctx.fill();
         ctx.globalAlpha = 1;
       }
 
