@@ -59,6 +59,12 @@ answer.
 most common way to get this wrong is attributing something the user said to the
 person they said it to.
 
+**A shortlist is not one query.** When they ask who they talk to, narrowed
+down to some trait, `chat.db` one-to-one threads are one slice of the network and
+not the whole of it. Group chats, quiet threads and threads that went cold each
+hide people, and the `people` skill has the enumeration to run first and the
+measured numbers for what each cutoff costs.
+
 ## Writing down what mattered
 
 This is the half that makes it worth having, and it is the half that gets

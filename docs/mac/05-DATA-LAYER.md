@@ -71,6 +71,7 @@ osascript -e 'tell application "Notes" to get body of note 1'
 
 | What | Where |
 |------|-------|
+| WhatsApp | `~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite` |
 | Safari history | `~/Library/Safari/History.db` |
 | Chrome history | `~/Library/Application Support/Google/Chrome/Default/History` |
 | Photos | `~/Pictures/Photos Library.photoslibrary/database/Photos.sqlite` |
@@ -80,6 +81,13 @@ osascript -e 'tell application "Notes" to get body of note 1'
 | App preferences | `~/Library/Preferences/*.plist` (`defaults read`, `plutil -p`) |
 | Downloads provenance | `xattr -p com.apple.metadata:kMDItemWhereFroms file` |
 | Spotlight | `mdfind "query"`, `mdls file` |
+
+**WhatsApp, concretely.** One row per conversation in `ZWACHATSESSION`:
+`ZPARTNERNAME` is the contact or group name, `ZMESSAGECOUNTER` the message count,
+`ZLASTMESSAGEDATE` an Apple epoch like `chat.db` (`+978307200` for Unix). Messages
+are in `ZWAMESSAGE`. Expect it to be thin next to `chat.db`: on a heavy iMessage
+user it can hold a handful of group threads and nothing else, so check
+`ZMESSAGECOUNTER` before concluding a person is absent from someone's life.
 
 ## Rules
 

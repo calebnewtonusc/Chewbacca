@@ -160,7 +160,9 @@ if (Test-Path $sums) {
     if ($line -notmatch '^\s*(\S+)\s+(.+?)\s*$') { continue }
     $want = $Matches[1]; $rel = $Matches[2]
     $file = Join-Path $CbHome ($rel -replace '/', '\')
-    if (-not (Test-Path $file)) { continue }
+    # A manifest entry with no file is a truncated download. Skipping it
+    # quietly is how an absent file passes the gate meant to catch it.
+    if (-not (Test-Path $file)) { Write-Host "      missing: $rel"; $mismatch++; continue }
     $checked++
     if ((Get-FileHash $file -Algorithm SHA256).Hash -ne $want.ToUpper()) {
       Write-Host "      changed: $rel"; $mismatch++
