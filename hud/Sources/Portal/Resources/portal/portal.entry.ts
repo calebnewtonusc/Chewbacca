@@ -103,6 +103,9 @@ let openGap = 0, openGapFrom = 0, openCcw = false;
 // off would pop in and vanish; this follows it, so an abandoned circle takes
 // its portal away with it instead of the other dimension blinking out.
 let mirrorAmt = 0;
+// How deep the mirror had eaten on the last recognised frame, held so the
+// fade-out and the opening both continue from it rather than jumping.
+let lastFill = 0;
 // The raw path the pinch has taken this stroke, in screen-normalized space.
 // It is drawn as a line from the first frame and BENDS onto the fitted
 // circle as the detector starts to recognise one, which is what he asked
@@ -467,7 +470,7 @@ function frame(now: number) {
   const paintMirror = (
     cxp: number, cyp: number, Rp: number,
     strength: number, gapFrom: number, gapSize: number, ccw: boolean,
-    cloud: number,
+    cloud: number, fill: number,
   ) => {
     if (!mirrorReady || strength <= 0.004 || Rp < 3) return;
     ctx.save();
@@ -477,20 +480,44 @@ function frame(now: number) {
 
     drawMirror(strength);
 
-    // Clearer in the middle, faded by the rim, and THE RIM FADE LEAVES WITH
-    // THE CLOUD. "when the portal is fully open the whole thing is completely
-    // visible no clouds." At cloud 0 nothing is erased at all and the mirror
-    // runs crisp to the edge; the rim softness is a property of a portal
-    // still being drawn, not of a portal.
-    if (cloud > 0.002) {
+    // IT FILLS INWARD FROM THE RIM, it does not open outward from the middle.
+    //
+    // "make the middle not filled at first, make it fill with distance from
+    //  the edge of the circle... half way through the circle filling from the
+    //  rim towards half way to the middle, and the end of the circle filling
+    //  to the whole middle, creating a opening more towards the middle as you
+    //  keep going."
+    //
+    // So the other side arrives as a ring at the rim and eats inward, and how
+    // deep it has eaten is how far round the hand has gone:
+    //
+    //     drawn    the mirror reaches in to
+    //      10%           0.90 R      a band at the rim
+    //      25%           0.75 R      the rim and a little more
+    //      50%           0.50 R      half way to the middle
+    //      75%           0.25 R
+    //     100%           0.00 R      the whole circle
+    //
+    // The old version did the exact opposite, clear in the middle and faded
+    // at the rim, which is what an eye already inside another world would
+    // see. This is what a hole being cut looks like from outside it.
+    //
+    // The INNER edge is the soft one now. Erasing outward from the centre to
+    // innerR, with a feather that thins as the circle closes, so the opening
+    // always has weather at its inner boundary and none left at the end.
+    const innerR = Rp * (1 - Math.max(0, Math.min(1, fill)));
+    if (innerR > 0.5 && cloud > 0.002) {
       ctx.globalCompositeOperation = "destination-out";
-      const fade = ctx.createRadialGradient(cxp, cyp, Rp * 0.22, cxp, cyp, Rp);
-      fade.addColorStop(0, "rgba(0,0,0,0)");
-      fade.addColorStop(0.72, `rgba(0,0,0,${0.4 * cloud})`);
-      fade.addColorStop(1, `rgba(0,0,0,${cloud})`);
-      ctx.fillStyle = fade;
+      const feather = Rp * (0.08 + 0.2 * cloud);
+      const outer = Math.max(2, innerR + feather);
+      const g = ctx.createRadialGradient(cxp, cyp, 0, cxp, cyp, outer);
+      const hold = Math.max(0, Math.min(0.95, (innerR - feather * 0.4) / outer));
+      g.addColorStop(0, "rgba(0,0,0,1)");
+      g.addColorStop(hold, "rgba(0,0,0,0.92)");
+      g.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
+      ctx.arc(cxp, cyp, outer, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -1166,7 +1193,12 @@ function frame(now: number) {
         openGapFrom = p.endAngle ?? 0;
         openCcw = p.sweep < 0;
       }
-      paintMirror(cvx, cvy, Rv, mirrorAmt, openGapFrom, openGap, openCcw, 1);
+      // How far round the hand has gone IS how deep the other side reaches.
+      const fill = recognised
+        ? Math.min(1, Math.abs(p.sweep) / (Math.PI * 2))
+        : lastFill;
+      lastFill = fill;
+      paintMirror(cvx, cvy, Rv, mirrorAmt, openGapFrom, openGap, openCcw, 1, fill);
     }
 
     ctx.globalCompositeOperation = "lighter";
@@ -1452,8 +1484,10 @@ function frame(now: number) {
         // So the portal sits there still hazed at its edge, and then resolves.
         const closing = ease(ignite);
         const clearing = ignite * ignite;
+        // The last of the middle fills in on the same curve the sector does.
         paintMirror(cx0, cy0, rpx, 1 - shut2,
-          openGapFrom, openGap * (1 - closing), openCcw, 1 - clearing);
+          openGapFrom, openGap * (1 - closing), openCcw, 1 - clearing,
+          lastFill + (1 - lastFill) * closing);
       }
 
       ctx.globalCompositeOperation = "lighter";

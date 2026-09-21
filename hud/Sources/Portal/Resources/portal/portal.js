@@ -615,6 +615,7 @@
   var openGapFrom = 0;
   var openCcw = false;
   var mirrorAmt = 0;
+  var lastFill = 0;
   var stroke = [];
   var softFit = null;
   var reachScale = 1;
@@ -743,22 +744,26 @@
       ctx.drawImage(mirror, (W - dw) / 2, (H - dh) / 2, dw, dh);
       ctx.globalAlpha = 1;
     };
-    const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw, cloud) => {
+    const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw, cloud, fill) => {
       if (!mirrorReady || strength <= 4e-3 || Rp < 3) return;
       ctx.save();
       ctx.beginPath();
       ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
       ctx.clip();
       drawMirror(strength);
-      if (cloud > 2e-3) {
+      const innerR = Rp * (1 - Math.max(0, Math.min(1, fill)));
+      if (innerR > 0.5 && cloud > 2e-3) {
         ctx.globalCompositeOperation = "destination-out";
-        const fade = ctx.createRadialGradient(cxp, cyp, Rp * 0.22, cxp, cyp, Rp);
-        fade.addColorStop(0, "rgba(0,0,0,0)");
-        fade.addColorStop(0.72, `rgba(0,0,0,${0.4 * cloud})`);
-        fade.addColorStop(1, `rgba(0,0,0,${cloud})`);
-        ctx.fillStyle = fade;
+        const feather = Rp * (0.08 + 0.2 * cloud);
+        const outer = Math.max(2, innerR + feather);
+        const g = ctx.createRadialGradient(cxp, cyp, 0, cxp, cyp, outer);
+        const hold = Math.max(0, Math.min(0.95, (innerR - feather * 0.4) / outer));
+        g.addColorStop(0, "rgba(0,0,0,1)");
+        g.addColorStop(hold, "rgba(0,0,0,0.92)");
+        g.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = g;
         ctx.beginPath();
-        ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
+        ctx.arc(cxp, cyp, outer, 0, Math.PI * 2);
         ctx.fill();
       }
       if (gapSize > 2e-3 && cloud > 2e-3) {
@@ -1073,7 +1078,9 @@
           openGapFrom = p.endAngle ?? 0;
           openCcw = p.sweep < 0;
         }
-        paintMirror(cvx, cvy, Rv, mirrorAmt, openGapFrom, openGap, openCcw, 1);
+        const fill = recognised ? Math.min(1, Math.abs(p.sweep) / (Math.PI * 2)) : lastFill;
+        lastFill = fill;
+        paintMirror(cvx, cvy, Rv, mirrorAmt, openGapFrom, openGap, openCcw, 1, fill);
       }
       ctx.globalCompositeOperation = "lighter";
       ctx.lineCap = "round";
@@ -1202,7 +1209,8 @@
             openGapFrom,
             openGap * (1 - closing),
             openCcw,
-            1 - clearing
+            1 - clearing,
+            lastFill + (1 - lastFill) * closing
           );
         }
         ctx.globalCompositeOperation = "lighter";
