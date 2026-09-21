@@ -107,6 +107,23 @@ yt-transcript "<url>"            read a YouTube video
 chewie see --app <App>           read the screen as text rather than pixels
 ```
 
+When a command returns nothing, that is a result about your search, not about
+the world. Try again before you say you cannot.
+
+Caleb asked this agent to text Gavin. It ran `mac contacts find Monroe`, got
+nothing, and gave up. He is spelled **Munroe**, and searching `Gavin` alone
+returns him plus three others. A working path was one keystroke away.
+
+So: a name you heard spoken is a guess at a spelling. Search the other half of
+it, or a fragment, or the first name alone. Several matches is a good outcome,
+because then you ask which one. Nothing found means search wider, and only after
+two or three real attempts is it worth saying you could not find them.
+
+The same holds everywhere. An empty calendar is worth a wider date range before
+you report a free day. A person missing from Contacts may be in
+`people find`. Exit code 2 is a permission, not an absence, so say which app
+needs allowing rather than saying there is nothing there.
+
 `coursework` is the only truthful source for a deadline. A confidently wrong
 date is worse than "let me check", because they stop checking.
 
