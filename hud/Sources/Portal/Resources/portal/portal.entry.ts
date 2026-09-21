@@ -93,6 +93,12 @@ let drawing: { cx: number; cy: number; r: number; a0: number } | null = null;
 // frame after it, or the line would eat itself.
 let trimmedAtLatch = false;
 let announcedAtLatch = false;
+// Where the unfinished part of the circle was on the last drawn frame. The
+// gesture completes at 309 degrees, so about 51 degrees of the circle is never
+// drawn at all, and an open portal is a full circle. Without these the last
+// sector would pop in at the instant it opened. They are carried across so the
+// gap can close over the ignition instead.
+let openGap = 0, openGapFrom = 0, openCcw = false;
 // The raw path the pinch has taken this stroke, in screen-normalized space.
 // It is drawn as a line from the first frame and BENDS onto the fitted
 // circle as the detector starts to recognise one, which is what he asked
@@ -457,6 +463,7 @@ function frame(now: number) {
   const paintMirror = (
     cxp: number, cyp: number, Rp: number,
     strength: number, gapFrom: number, gapSize: number, ccw: boolean,
+    cloud: number,
   ) => {
     if (!mirrorReady || strength <= 0.004 || Rp < 3) return;
     ctx.save();
@@ -466,19 +473,25 @@ function frame(now: number) {
 
     drawMirror(strength);
 
-    // Clearer in the middle, gone by the rim.
-    ctx.globalCompositeOperation = "destination-out";
-    const fade = ctx.createRadialGradient(cxp, cyp, Rp * 0.22, cxp, cyp, Rp);
-    fade.addColorStop(0, "rgba(0,0,0,0)");
-    fade.addColorStop(0.72, "rgba(0,0,0,0.4)");
-    fade.addColorStop(1, "rgba(0,0,0,1)");
-    ctx.fillStyle = fade;
-    ctx.beginPath();
-    ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
-    ctx.fill();
+    // Clearer in the middle, faded by the rim, and THE RIM FADE LEAVES WITH
+    // THE CLOUD. "when the portal is fully open the whole thing is completely
+    // visible no clouds." At cloud 0 nothing is erased at all and the mirror
+    // runs crisp to the edge; the rim softness is a property of a portal
+    // still being drawn, not of a portal.
+    if (cloud > 0.002) {
+      ctx.globalCompositeOperation = "destination-out";
+      const fade = ctx.createRadialGradient(cxp, cyp, Rp * 0.22, cxp, cyp, Rp);
+      fade.addColorStop(0, "rgba(0,0,0,0)");
+      fade.addColorStop(0.72, `rgba(0,0,0,${0.4 * cloud})`);
+      fade.addColorStop(1, `rgba(0,0,0,${cloud})`);
+      ctx.fillStyle = fade;
+      ctx.beginPath();
+      ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     // The part of the circle the hand has not reached yet.
-    if (gapSize > 0.002) {
+    if (gapSize > 0.002 && cloud > 0.002) {
       const blur = Math.max(3, Rp * 0.1);
       ctx.filter = `blur(${blur.toFixed(1)}px)`;
       const feather = Math.min(gapSize * 0.45, 0.13);
@@ -1099,7 +1112,15 @@ function frame(now: number) {
       const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
       const gapSize = Math.max(0, 1 - doneTurns);
       const gapFrom = p.endAngle ?? 0;
-      paintMirror(cvx, cvy, Rv, reveal, gapFrom, gapSize, ccw);
+      // "starting pretty transparent and ramping up to fully visible as the
+      // circle completes." Not from nothing: at half a turn it is already
+      // faintly there, which is what makes it read as arriving rather than
+      // switching on.
+      const strength = 0.12 + 0.88 * reveal;
+      // The clouding thins out over the last third of a turn, so by the time
+      // the circle closes there is none left and nothing has to jump.
+      openGap = gapSize; openGapFrom = gapFrom; openCcw = ccw;
+      paintMirror(cvx, cvy, Rv, strength, gapFrom, gapSize, ccw, 1);
     }
 
     ctx.globalCompositeOperation = "lighter";
@@ -1352,7 +1373,20 @@ function frame(now: number) {
         disc(cn, rn * 0.985); ctx.fill();
         ctx.globalCompositeOperation = "source-over";
       } else {
-        paintMirror(cx0, cy0, rpx, vis, 0, 0, false);
+        // Full strength immediately. `vis` ramps from zero over the ignition,
+        // and the mirror has spent the last half turn getting to full, so
+        // using it here dropped the other side back to nothing at the exact
+        // moment the circle closed. Only the collapse dims it.
+        //
+        // The last unfinished sector and the clouding close over the ignition
+        // rather than at it. The first open frame is identical to the last
+        // drawn frame, and 820ms later there is no gap and no cloud left:
+        // "when the portal is fully open the whole thing is completely
+        // visible no clouds."
+        const shut2 = ease(shut);
+        const opened = ease(ignite);
+        paintMirror(cx0, cy0, rpx, 1 - shut2,
+          openGapFrom, openGap * (1 - opened), openCcw, 1 - opened);
       }
 
       ctx.globalCompositeOperation = "lighter";
