@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""What this kit decided to do, surviving the session that decided it.
+
+    backlog                 the Now block, which is what SessionStart injects
+    backlog all             every item
+    backlog done            what shipped
+    backlog dead            what was killed, and why
+    backlog <search>        matching rows
+
+Caleb, 2026-09-21: "how is chewbacca storing during session important context?
+I feel like ur gonna forget the to dos we set at the beginning of this session?"
+
+He was right. ~/.chewbacca/session-state/ records which files a session WROTE.
+Nothing recorded what a session DECIDED, so every intent lived in one context
+window and died with it.
+
+BACKLOG.md is the store and it sits in the repo rather than in ~/.chewbacca, so
+it survives a machine and is shared with everyone else building here.
+"""
+import os, re, sys, pathlib
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+FILE = ROOT / "BACKLOG.md"
+
+
+def sections():
+    """Split on H2, keeping order. Returns [(title, [lines])]."""
+    if not FILE.is_file():
+        sys.exit(f"no {FILE}")
+    out, cur, buf = [], None, []
+    for line in FILE.read_text(encoding="utf-8").split("\n"):
+        if line.startswith("## "):
+            if cur:
+                out.append((cur, buf))
+            cur, buf = line[3:].strip(), []
+        elif cur:
+            buf.append(line)
+    if cur:
+        out.append((cur, buf))
+    return out
+
+
+def rows(lines):
+    """Table rows only, skipping the header and the ---|--- separator."""
+    for l in lines:
+        if not l.startswith("|"):
+            continue
+        cells = [c.strip() for c in l.strip().strip("|").split("|")]
+        if not cells or set("".join(cells)) <= set("- "):
+            continue
+        if cells[0] in ("#", "Item"):
+            continue
+        yield cells
+
+
+def show(title, lines, width=96):
+    got = list(rows(lines))
+    if not got:
+        return 0
+    print(f"\n  {title}")
+    for cells in got:
+        # Numbered tables lead with #; Done and Dead do not.
+        num = cells[0] if cells[0].isdigit() else ""
+        item = cells[1] if num else cells[0]
+        status = cells[2] if len(cells) > 2 and num else (cells[1] if len(cells) > 1 else "")
+        item = re.sub(r"\*\*(.+?)\*\*", r"\1", item)
+        item = re.sub(r"`(.+?)`", r"\1", item)
+        head = f"  {num:>3} " if num else "      "
+        print(f"{head}{item[:width - 14]:<{width - 14}} {status[:9]}")
+    return len(got)
+
+
+def main():
+    arg = (sys.argv[1] if len(sys.argv) > 1 else "").lower()
+    secs = sections()
+
+    if not arg:
+        n = 0
+        for title, lines in secs:
+            if title.lower() == "now":
+                n += show(title, lines)
+        if n:
+            print(f"\n  {n} open now. `backlog all` for the rest, BACKLOG.md for detail.\n")
+        return 0
+
+    if arg in ("all", "done", "dead", "next"):
+        want = {"all": None}.get(arg, arg)
+        for title, lines in secs:
+            if want is None or want in title.lower():
+                show(title, lines)
+        print()
+        return 0
+
+    hits = 0
+    for title, lines in secs:
+        keep = [l for l in lines if arg in l.lower()]
+        if keep:
+            hits += show(f"{title} (matching '{arg}')", keep)
+    if not hits:
+        print(f"  nothing matching '{arg}'")
+    print()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -39,6 +39,43 @@ SIGNALS = [
 FALSIFIER = "What result would tell me this was the wrong approach?"
 CHEAPEST = "What is the cheapest thing that would produce that result if true?"
 
+# One standing check per process, from Proverbs. See methods/proverbs.md.
+#
+# Caleb asked on 2026-09-21 that Proverbs shape how this thing decides rather
+# than sit in a knowledge bank. A doctrine nothing reads is a knowledge bank,
+# so it enters here, in the block injected before work starts, at one line.
+#
+# Each verse is matched to the failure mode ITS process actually has, so the
+# line is a guard rather than a devotional. A rotating or random verse would
+# be decoration and would be tuned out inside a week, which is the same
+# failure as a check that talks every session.
+#
+# The striking part is that none of these introduced a new rule. Every one of
+# them already existed in this repo as a scar, written after it went wrong.
+STANDING = {
+    # Reading half the error and theorising from it is the whole of bad debugging.
+    "debug": ("Prov 18:13  He that answereth a matter before he heareth it, "
+              "it is folly. Read all of it first."),
+    # Grading your own benchmark is how a number stops meaning anything.
+    "experiment": ("Prov 11:1  A false balance is abomination, but a just "
+                   "weight is his delight. Do not grade your own work loosely."),
+    # The first source always sounds settled until a second one is asked.
+    "research": ("Prov 18:17  He that is first in his own cause seemeth just, "
+                 "but his neighbour cometh and searcheth him."),
+    # Your own design looks fine to you. That is the one opinion that cannot judge it.
+    "creative": ("Prov 16:2  All the ways of a man are clean in his own eyes. "
+                 "Get it weighed by something other than yourself."),
+    # The plausible option is the dangerous one. Solomon says this twice, 14:12 and 16:25.
+    "decision": ("Prov 14:12  There is a way which seemeth right unto a man, "
+                 "but the end thereof are the ways of death."),
+    # Handing back a command you could have run is the most common way to stop early.
+    "build": ("Prov 3:27  Withhold not good from them to whom it is due, when "
+              "it is in the power of thine hand to do it. Run it yourself."),
+    # A long answer is not a thorough one.
+    "consolidated": ("Prov 17:27  He that hath knowledge spareth his words. "
+                     "Match his length."),
+}
+
 
 def available():
     return sorted(p.stem for p in DIR.glob("*.md") if p.stem != "README")
@@ -67,6 +104,9 @@ def terse(name):
     out = [f"METHOD: {name}", f"  FALSIFIER  {FALSIFIER}", f"  CHEAPEST   {CHEAPEST}"]
     for q in qs:
         out.append(f"  ask        {q}")
+    standing = STANDING.get(name)
+    if standing:
+        out.append(f"  STANDING   {standing}")
     return "\n".join(out)
 
 

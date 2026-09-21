@@ -289,4 +289,27 @@ if command -v people >/dev/null 2>&1; then
   disown 2>/dev/null || true
 fi
 
+# ── What this kit decided to do, and has not done ─────────────────────────────
+#
+# Caleb, 2026-09-21: "how is chewbacca storing during session important context?
+# I feel like ur gonna forget the to dos we set at the beginning of this
+# session?" He was right, and nothing was storing it.
+#
+# ~/.chewbacca/session-state/ records which files a session WROTE. Nothing
+# recorded what a session DECIDED, so a backlog agreed at the top of a session
+# lived in one context window and died with it.
+#
+# Only the Now block, which is six rows. The rest is one `backlog all` away. A
+# session briefing that prints thirty items is one nobody reads, and this file's
+# own header already makes that argument about template scaffolding.
+if [ -x "$CHEWBACCA_ROOT/bin/backlog" ] || command -v backlog >/dev/null 2>&1; then
+  BL="$(command -v backlog || echo "$CHEWBACCA_ROOT/bin/backlog")"
+  OPEN="$("$BL" 2>/dev/null | grep -E "^ +[0-9]+ " | head -8)"
+  if [ -n "$OPEN" ]; then
+    echo ""
+    echo "Open in the Chewbacca backlog (BACKLOG.md, or \`backlog all\`):"
+    echo "$OPEN"
+  fi
+fi
+
 exit 0

@@ -480,6 +480,86 @@ if group "installer"; then
   check  "setup calls the Serena seeder before installing plugins" \
     grep -q "seed-serena-config.sh" "$ROOT/setup.sh"
 
+  # Caleb, 2026-09-21: "how is chewbacca storing during session important
+  # context? I feel like ur gonna forget the to dos we set at the beginning of
+  # this session?" Nothing was. session-state/ records files written, never
+  # decisions made.
+  check  "the backlog lists open work" bash -c '
+    out=$("$1/bin/backlog" 2>/dev/null)
+    case "$out" in *"open now"*) : ;;
+      *) echo "backlog printed nothing"; exit 1 ;; esac' _ "$ROOT"
+
+  check  "the backlog keeps dead items and their reason" bash -c '
+    "$1/bin/backlog" dead 2>/dev/null | grep -q . || {
+      echo "dead items vanished, so somebody will propose them again"; exit 1; }' _ "$ROOT"
+
+  # A store nobody reads is the failure this whole file keeps finding.
+  check  "SessionStart injects the backlog" \
+    grep -q "bin/backlog" "$ROOT/.claude/hooks/session-context.sh"
+
+  # Sagar, 2026-09-20, after installing: "i don't even know how to remove this
+  # agent", "seems like malware". uninstall.sh existed the whole time. The
+  # closing screen listed what Claude could now read and never said how to undo
+  # it, so the capability might as well not have shipped.
+  check  "the last screen says how to remove it" \
+    grep -q "chewbacca uninstall --dry-run" "$ROOT/setup.sh"
+
+  check  "removal is described as reading a manifest, not guessing" \
+    grep -q "install-manifest.json" "$ROOT/setup.sh"
+
+  # An earlier draft of that block said "this installer sends nothing anywhere",
+  # which is false: the GitHub path runs gh repo create and pushes twice. A
+  # reassuring sentence that is untrue costs more trust than saying nothing.
+  #
+  # Scoped to PRINTED lines, not comments. setup.sh says of Plynn that "speech
+  # recognition and cleanup both run on the Mac, nothing is uploaded", which is
+  # true of Plynn and is a note to a reader of the source. The rule is about
+  # blanket reassurance shown to a user who cannot check it.
+  check  "printed copy never claims nothing is uploaded" bash -c '
+    hits=$(grep -nE "^[[:space:]]*(echo|printf)" "$1/setup.sh" \
+      | grep -iE "sends nothing anywhere|nothing is upload|never uploads|no data leaves" || true)
+    [ -z "$hits" ] || { echo "$hits"; exit 1; }' _ "$ROOT"
+
+  # Caleb, 2026-09-21, handing over Proverbs: "this should dictate the way
+  # chewbacca lives. Not just as something deep in it's knowledge bank, but
+  # ingested into it's living infra on how to make decisions". A verse that only
+  # sits in methods/proverbs.md is the knowledge bank he ruled out, so the guard
+  # has to reach the block injected before work starts.
+  check  "every process carries its standing check into the injection" bash -c '
+    for m in debug experiment research creative decision build consolidated; do
+      "$1/bin/method" "$m" --terse | grep -q "^  STANDING   Prov " || {
+        echo "$m lost its standing check"; exit 1; }
+    done' _ "$ROOT"
+
+  # A process added to SIGNALS without a guard fails open and silently.
+  # Caleb, 2026-09-21: "Chewbacca's resourcefulness and use of agents is so
+  # retarded didn't we build a whole graph engineering knowledge base bruh".
+  # He was right. 105 skills were installed, nothing named one when work
+  # started, and a session had just hand-rolled subagents with no verifier
+  # while skills/graph-engineering sat there holding the task-graph rules.
+  check  "the skill router names a skill for a request one covers" bash -c '
+    out=$(printf "%s" "{\"prompt\":\"build a knowledge graph and dedupe entities across sources\",\"cwd\":\"$1\"}" \
+      | "$1/.claude/hooks/skill-route.sh" 2>/dev/null)
+    case "$out" in *graph-engineering*) : ;;
+      *) echo "router said nothing for a graph request"; exit 1 ;; esac' _ "$ROOT"
+
+  # A router that speaks on every prompt gets tuned out inside a week, which is
+  # the failure it exists to prevent. Silence is the common case.
+  check  "the skill router stays silent on an unrelated prompt" bash -c '
+    out=$(printf "%s" "{\"prompt\":\"whats the weather like today\",\"cwd\":\"$1\"}" \
+      | "$1/.claude/hooks/skill-route.sh" 2>/dev/null)
+    [ -z "$out" ] || { echo "routed noise: $out"; exit 1; }' _ "$ROOT"
+
+  # It shipped to one machine once before and never reached anybody else.
+  check  "the skill router is registered in the shipped settings" \
+    grep -q "skill-route.sh" "$ROOT/settings/settings.json"
+
+  check  "no process was added without a standing check" bash -c '
+    sigs=$(grep -cE "^    \(.[a-z]+., r." "$1/bin/method")
+    guards=$(grep -cE "^    .[a-z]+.: \(" "$1/bin/method")
+    [ "$sigs" -gt 0 ] || { echo "process grep drifted"; exit 1; }
+    [ "$guards" -ge "$sigs" ] || { echo "$sigs processes, $guards guards"; exit 1; }' _ "$ROOT"
+
   check  "the portable profile installs skills" bash -c '
     sandbox="$(mktemp -d)"
     HOME="$sandbox" bash "$1/setup.sh" --profile portable --name CI >/dev/null 2>&1
