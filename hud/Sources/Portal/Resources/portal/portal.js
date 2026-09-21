@@ -536,6 +536,7 @@
     sweep: 0,
     center: null,
     radius: 0,
+    roundness: 0,
     completed: false,
     direction: null,
     startAngle: null,
@@ -646,7 +647,7 @@
         else ctx.lineTo(qx, qy);
       }
     };
-    const rpxOf = (_cn, rn) => rn * RPX || 1;
+    const rpxOf = (rn) => rn * RPX || 1;
     const disc = (cn, rn) => {
       ctx.beginPath();
       ctx.arc(px(cn.x), py(cn.y), rn * RPX, 0, Math.PI * 2);
@@ -733,7 +734,7 @@
         completed: p.completed && !!p.center,
         progress: p.progress,
         center: p.center ? { x: mx(p.center.x), y: my(p.center.y) } : null,
-        radius: rpxOf(p.center, clampRN(p.radius))
+        radius: rpxOf(clampRN(p.radius))
       },
       { igniteMs: IGNITE_MS, closeMs: CLOSE_MS, minOpenMs: MIN_OPEN_MS }
     );
@@ -750,16 +751,16 @@
           r: p.radius
         };
       }
-      attract = { cx: geom.cx, cy: geom.cy, r: rpxOf({ x: geom.cx, y: geom.cy }, clampRN(geom.r)) };
+      attract = { cx: geom.cx, cy: geom.cy, r: rpxOf(clampRN(geom.r)) };
       window.webkit?.messageHandlers?.portal?.postMessage({
         event: "opened",
         x: mx(geom.cx),
         y: my(geom.cy),
-        r: rpxOf({ x: geom.cx, y: geom.cy }, clampRN(geom.r)),
+        r: rpxOf(clampRN(geom.r)),
         armed: armed?.label ?? null
       });
       comet = [];
-      const gr = rpxOf({ x: geom.cx, y: geom.cy }, clampRN(geom.r));
+      const gr = rpxOf(clampRN(geom.r));
       for (let i = 0; i < 700; i++) {
         const a = Math.random() * Math.PI * 2;
         spawnAt(
@@ -947,7 +948,7 @@
       const e = ease(ignite);
       const cn = { x: geom.cx, y: geom.cy };
       const rn = clampRN(geom.r) * (1 - ease(shut));
-      const rpx = rpxOf(cn, rn);
+      const rpx = rpxOf(rn);
       const vis = e * (1 - shut);
       const age = (now - S.born) / 1e3;
       if (S.phase === "open") attract = { cx: cn.x, cy: cn.y, r: rpx };

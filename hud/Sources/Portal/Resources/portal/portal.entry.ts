@@ -44,7 +44,7 @@ interface Spark {
 }
 
 const IDLE_PROGRESS: CircleProgress = {
-  progress: 0, sweep: 0, center: null, radius: 0,
+  progress: 0, sweep: 0, center: null, radius: 0, roundness: 0,
   completed: false, direction: null, startAngle: null, endAngle: null,
 };
 
@@ -332,7 +332,9 @@ function frame(now: number) {
     }
   };
   /** The on-screen radius of a normalized radius, for line widths and glows. */
-  const rpxOf = (_cn: { x: number; y: number }, rn: number) => rn * RPX || 1;
+  // Normalized radius to pixels. ONE radius for both axes, so a circle is
+  // a circle: dividing x by width and y by height is what made it an oval.
+  const rpxOf = (rn: number) => rn * RPX || 1;
   const disc = (cn: { x: number; y: number }, rn: number) => {
     ctx.beginPath();
     ctx.arc(px(cn.x), py(cn.y), rn * RPX, 0, Math.PI * 2);
@@ -522,7 +524,7 @@ function frame(now: number) {
       completed: p.completed && !!p.center,
       progress: p.progress,
       center: p.center ? { x: mx(p.center.x), y: my(p.center.y) } : null,
-      radius: rpxOf(p.center, clampRN(p.radius)),
+      radius: rpxOf(clampRN(p.radius)),
     },
     { igniteMs: IGNITE_MS, closeMs: CLOSE_MS, minOpenMs: MIN_OPEN_MS },
   );
@@ -544,18 +546,18 @@ function frame(now: number) {
         r: p.radius,
       };
     }
-    attract = { cx: geom.cx, cy: geom.cy, r: rpxOf({ x: geom.cx, y: geom.cy }, clampRN(geom.r)) };
+    attract = { cx: geom.cx, cy: geom.cy, r: rpxOf(clampRN(geom.r)) };
     // Tell the host where it landed, in CSS points, so it can put the target
     // window behind the hole. Sent once per opening, not per frame.
     window.webkit?.messageHandlers?.portal?.postMessage({
       event: "opened",
       x: mx(geom.cx),
       y: my(geom.cy),
-      r: rpxOf({ x: geom.cx, y: geom.cy }, clampRN(geom.r)),
+      r: rpxOf(clampRN(geom.r)),
       armed: armed?.label ?? null,
     });
     comet = [];
-    const gr = rpxOf({ x: geom.cx, y: geom.cy }, clampRN(geom.r));
+    const gr = rpxOf(clampRN(geom.r));
     for (let i = 0; i < 700; i++) {
       const a = Math.random() * Math.PI * 2;
       spawnAt(px(geom.cx) + Math.cos(a) * gr, py(geom.cy) + Math.sin(a) * gr,
@@ -863,7 +865,7 @@ function frame(now: number) {
     const e = ease(ignite);
     const cn = { x: geom.cx, y: geom.cy };
     const rn = clampRN(geom.r) * (1 - ease(shut));
-    const rpx = rpxOf(cn, rn);
+    const rpx = rpxOf(rn);
     const vis = e * (1 - shut);
     const age = (now - S.born) / 1000;
     if (S.phase === "open") attract = { cx: cn.x, cy: cn.y, r: rpx };
