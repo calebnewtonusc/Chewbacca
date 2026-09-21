@@ -60,17 +60,31 @@ case "$FILE" in
 esac
 
 OUT="$("$ENGINE/bin/ux-lint" "$TMP" --fix-help 2>/dev/null | sed "s|$TMP|$FILE|g")"
-HIGH="$(printf '%s' "$OUT" | grep -c '^HIGH' || true)"
-[ "${HIGH:-0}" -gt 0 ] || exit 0
+
+# ONLY BORROWED OR DECLARED AUTHORITY BLOCKS.
+#
+# research/16: Google requires ZERO effective false positives for anything
+# build-breaking, and under 10% for a review check. Measured LLM design
+# critique runs near 34%. A blocking gate made of house opinion is roughly
+# 3.4x over the line where tools get switched off, and the suppression
+# literature says what happens then: 61-68% of suppressions are "unactionable",
+# meaning the rule was right in general and wrong here.
+#
+# So this blocks only on rules tagged EXTERNAL, which cite WCAG, MDN, W3C or
+# NIST. Everything else prints and lets the write through. A project that
+# wants more enforced writes its own DENY.md, which is external authority from
+# this tool's point of view. That is the axe-core move.
+BLOCKING="$(printf '%s' "$OUT" | grep -c '^HIGH \[EXTERNAL\]' || true)"
+[ "${BLOCKING:-0}" -gt 0 ] || { printf '%s\n' "$OUT" | grep -q '^\(HIGH\|MED\|LOW\)' && printf '%s\n' "$OUT" >&2; exit 0; }
 
 {
-  echo "ux-guard: refusing to write $(basename "$FILE"). $HIGH high-severity generated-UI tell(s)."
+  echo "ux-guard: refusing to write $(basename "$FILE"). $BLOCKING finding(s) against a standard this tool did not write."
   echo
   printf '%s\n' "$OUT"
   echo
-  echo "Each COSTS line is the cost to the person using this, not a style"
-  echo "preference. Fix them and write again. If a rule is genuinely wrong for"
-  echo "this file, say why in one line rather than working around it."
+  echo "Only BLOCKING findings stopped this, and each cites WCAG, MDN or W3C."
+  echo "ADVISORY findings are this repo's reading and never block: disagree"
+  echo "and move on, or put it in DENY.md to make it enforceable here."
   echo
   echo "Derive the constraints first: ux-constrain"
 
