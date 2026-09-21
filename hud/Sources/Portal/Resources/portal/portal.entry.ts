@@ -845,7 +845,16 @@ function frame(now: number) {
       m.globalCompositeOperation = "destination-out";
       // Three overlapping, drifting slowly, so the thinning is uneven.
       for (let j = 0; j < 3; j++) {
-        const t = now / 2600 + seedI * 2.3 + j * 1.9;
+        // THE ARC, NOT THE CLOCK. The rule: while a circle is being drawn,
+        // every part of its shape is a function of how far round the hand
+        // has gone. The only time-based animation is the one that runs
+        // AFTER the circle completes.
+        //
+        // This was now/2600, so the thinning at the ends crept round on its
+        // own with the hand still. Driven by the drawn angle it evolves as
+        // the circle grows, which is motion the hand caused, and it stops
+        // dead when the hand does.
+        const t = drawnAng * 1.7 + seedI * 2.3 + j * 1.9;
         // The drift and the size are both kept inside the ribbon, or the
         // wander puts back what the bound above takes away.
         const jx = bx + Math.cos(t) * rad * 0.2;

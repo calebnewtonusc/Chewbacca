@@ -1,15 +1,3 @@
----
-paths:
-  - "**/*.swift"
-  - "**/portal/**/*.{ts,js,html}"
-  - "**/*.{metal,glsl}"
-  - "**/*{hand,gaze,landmark,tracker,overlay,canvas}*.{swift,ts,js,py}"
----
-
-<!-- This frontmatter is what defers the rule. Without it the file is
-     always-on however its first paragraph reads, which is what
-     `tests/run.sh` checks and what this file failed on arrival. -->
-
 # Spatial input: one mapping, applied once, at the door
 
 Loads when the work touches hand tracking, gaze, a HUD overlay, a canvas
@@ -83,3 +71,27 @@ Predictable beats correct when a person is aiming. A constant offset is
 learned in a minute without noticing; noise cannot be learned at all.
 
 See `second-brain/memory/feedback_one_mapping_for_spatial_input.md`.
+
+## While a gesture is being made, nothing is driven by the clock
+
+Everything about the shape of a gesture in progress is a function of the
+gesture: how far round, how far along, how fast the hand went. The only
+time-driven animation is the one that runs **after** the gesture completes.
+
+Break this and the artefact is always the same, and always reported as a
+bug rather than as a style: something moves while the hand is still. On the
+portal it came out three separate times.
+
+| What carried a clock | What the user saw |
+| --- | --- |
+| the spiral's radius, `sin(u*9.1 + now/950)` | "keeps oscillating... in waves", a 17px boundary sliding back and forth forever |
+| the thinning at the ends, `now/2600` | the edge creeping round on its own with the hand still |
+| drifting blobs along the boundary | weather that never settled, so no frame ever looked finished |
+
+Each one was added to stop a shape looking mechanical, which is a real
+problem with a real fix: make it a function of the gesture. `u`, the
+fraction along the arc, and the total angle drawn are both free and both
+stop the instant the hand does.
+
+**The test:** hold still. If anything is still moving, it is driven by the
+clock and it should not be.
