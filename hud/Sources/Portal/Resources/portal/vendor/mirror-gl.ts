@@ -83,6 +83,37 @@ uniform sampler2D uTex;
 
 const float TAU = 6.283185307179586;
 
+// CLOUD IS NOT A BENT EDGE, IT IS AN EDGE THAT BREAKS UP.
+//
+// "The dynamics of the edges are still sharp, super far from water/clouds
+// fading into each other."
+//
+// Everything before this moved the boundary: lobes on the inner edge, a
+// ragged reach on the ends. But the falloff across it stayed a single clean
+// smoothstep, and a clean ramp reads as a clean ramp however you bend its
+// centreline. What makes something look like cloud is the edge dissolving
+// into patches at several sizes at once, so there is no one line to find.
+//
+// Four octaves of value noise. The coarse ones tear the front into lobes
+// the size of a fist, the fine ones fray those into wisps, and because it
+// is sampled in screen position it does not swim when the circle grows.
+float hash21(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+float vnoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash21(i), hash21(i + vec2(1.0, 0.0)), f.x),
+             mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+float fbm(vec2 p) {
+  float v = 0.0, amp = 0.5;
+  for (int k = 0; k < 4; k++) { v += amp * vnoise(p); p *= 2.03; amp *= 0.5; }
+  return v;
+}
+
 // The inner edge, as a fraction of the radius consumed, at position u along
 // the arc. u 0 is where the line joined the circle, u 1 is the leading edge.
 //
@@ -318,7 +349,22 @@ void main() {
   float dAng = max(outAng * uR - reachHere, 0.0) * 0.55;
   float dRad = max(inner - r, 0.0);
   float dist = length(vec2(dAng, dRad));
-  float fBody = 1.0 - smoothstep(0.0, band, dist);
+  // The distance as a fraction of the band: 0 solid, 1 gone. Expressed this
+  // way so the noise below is in the same units whatever the band is doing.
+  float edge = dist / max(band, 1.0);
+
+  // Two scales of the same field. The coarse one decides which parts of the
+  // front have run ahead and which have lagged; the fine one frays those
+  // into wisps. Together they make the boundary a region rather than a line.
+  //
+  // Faded out by the fill, like every other irregularity here, so a
+  // finished portal has a clean rim and nothing survives completion.
+  float wispy = 1.0 - uLead;
+  float nCoarse = fbm(vPix * (2.6 / uR) + vec2(11.3, 7.9));
+  float nFine   = fbm(vPix * (9.0 / uR) + vec2(31.7, 2.4));
+  float wisp = ((nCoarse - 0.5) * 1.15 + (nFine - 0.5) * 0.45) * wispy;
+
+  float fBody = 1.0 - smoothstep(0.0, 1.0, edge + wisp);
 
   // A pixel of softness at the rim, so it is not a jagged cut.
   float fRim = smoothstep(uR, uR - 1.5, r);
