@@ -74,13 +74,19 @@ let parallaxStrength = PARALLAX_STRENGTH;
 // far wider arc than the hole anybody wants on screen. Tunable live:
 //   portal size 0.4
 let sizeScale = 0.45;
-// How far from the centre of the screen the hand can reach. 1 means the
-// full frame maps to the full display, which is what pushed everything to
-// the edges: a hand near the edge of the camera's view landed off screen.
-// Below 1 pulls every position toward the middle, so a wide arm sweep
-// covers a smaller area and nothing leaves the display. Tunable live:
-//   portal reach 0.4
-let reachScale = 0.5;
+// How far from the centre of the screen the hand can reach.
+//
+// DEFAULT 1, which is no compression at all: the fingertip is exactly where
+// the circle is drawn. Anything less moves the ring away from the hand that
+// drew it, and after a morning of stacking transforms on top of each other
+// he was blunt about it: "Literally just make the tip of the finger be
+// where the circle is being drawn like you had it before we added the eye
+// stuff."
+//
+// Below 1 still works and pulls everything toward the middle, but it is
+// off by default because being predictable beats covering less screen.
+//   portal reach 0.6
+let reachScale = 1;
 let lastSeen = 0;
 
 // The host pushes frames in here. Declared on window so evaluateJavaScript
@@ -222,12 +228,12 @@ function frame(now: number) {
     ctx.beginPath();
     for (let i = 0; i <= segs; i++) {
       const a = a0 + ((a1 - a0) * i) / segs;
-      let qx = px(cn.x + Math.cos(a) * rn);
-      let qy = py(cn.y + Math.sin(a) * rn);
-      if (jitterPx) {
-        qx += (Math.random() - 0.5) * jitterPx;
-        qy += (Math.random() - 0.5) * jitterPx;
-      }
+      // Wobble the RADIUS, not each mapped point. Jittering x and y
+      // independently moved every vertex in its own direction, which reads
+      // as a ragged polygon rather than a burning edge.
+      const rr = jitterPx ? rn * (1 + (Math.random() - 0.5) * jitterPx * 0.004) : rn;
+      const qx = px(cn.x + Math.cos(a) * rr);
+      const qy = py(cn.y + Math.sin(a) * rr);
       if (i === 0) ctx.moveTo(qx, qy); else ctx.lineTo(qx, qy);
     }
   };
