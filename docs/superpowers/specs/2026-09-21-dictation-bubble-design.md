@@ -75,16 +75,36 @@ catch that" said to somebody whose microphone had already been torn down.
 
 ## The socket verb
 
+Built as:
+
 ```
-b <id> <x> <y>              deploy at a point, or move an existing one there
+b                           one, beside the pill, named by the display
+b <id>                      that one, beside the pill
+b <id> <x> <y> [state=] [app=] [note=]   move it there, and restate it
+b <id> insert "<text>"      the cleaned text, from the bridge
 b <id> off                  take it down
-b <id> insert text="..."    the cleaned text, from the bridge
+b clear                     take them all down
 ```
 
-`b <id> <x> <y>` places a bubble and binds it in one step. `bin/hud-guide`
-already walks the front window's controls to find a field's coordinates, so
-"put a bubble on my messages" can land one directly. Dragging is for correcting
-it, and for the apps whose fields the tree does not expose.
+and back the other way:
+
+```
+b <id> <state> [app="..."] [note="..."]   it was dropped, refused, orphaned
+b <id> said "<text>"                      a sentence went into the field
+b <id> clean "<text>"                     tidy this up, quickly
+```
+
+**A bare `b` is the spawn, and the point is optional.** The design had a bubble
+placed by coordinates, on the reasoning that `bin/hud-guide` already finds a
+field's rectangle and could land one directly. That is still true and the
+coordinate form still exists for it, but where a *new* bubble goes is the
+display's question, not the sender's: it goes beside the pill, and the pill's
+position depends on its measured width and on which display the glass is
+currently on. A sender computing that gets it wrong on a second monitor.
+
+The insert carries a JSON string rather than `text=`, matching `s` and `h`
+rather than the prop-list verbs, because a dictated sentence has spaces in it
+and a prop reader takes the first word.
 
 ## How a bubble is asked for
 
@@ -139,15 +159,36 @@ does not return home once moved, and the home is free again for the next one.
 
 On deploy, and again on every drag release:
 
-1. `AXUIElementCopyElementAtPosition(systemWide, x, y)`.
-2. Walk up `kAXParentAttribute` to the first element whose role is
-   `AXTextField`, `AXTextArea`, or `AXComboBox`.
-3. Store the element, its pid, and the owning app's bundle identifier.
+1. Find the frontmost ordinary window under the point that is not ours, from
+   `CGWindowListCopyWindowInfo`, and take its pid.
+2. `AXUIElementCopyElementAtPosition(AXUIElementCreateApplication(pid), x, y)`.
+3. Walk up `kAXParentAttribute` to the first element whose role is
+   `AXTextField`, `AXTextArea` or `AXComboBox`, or whose subrole is
+   `AXSearchField`.
+4. Store the element, its pid, and the application's name.
 
-Nothing text-shaped under the point means the bubble snaps back to where it was
-and the pill says "no text field there". Snapping back rather than staying is
-deliberate: a bubble bound to nothing looks identical to a bound one, and the
-person finds out by speaking a sentence into a void.
+**Step 1 is not in the design and the feature does not work without it.** The
+plan asked the system-wide element, which answers with whatever is topmost at
+that point. The bubble is drawn on a window of this application directly over
+the field, so every bind came back with the display's own glass: the bubble
+bound to itself. Hit-testing inside the owning application is what makes the
+question mean "what is under the bubble" rather than "what is on top", and it
+needs no screen recording permission, because the window list gives bounds and
+owner pid without it and only titles are gated.
+
+Layer zero only, in that filter. The Dock sits at 20 and this display's glass at
+3, so excluding our own pid also excludes every other floating panel on the
+machine. That is the right default: a dictation bubble belongs on a document or
+a message field, and another application's HUD is not one.
+
+Nothing text-shaped under the point and the bubble **stays where it was dropped**
+and says "no text field there" in its own caption. That is a change from the
+design, which had it snap back to the pill. Snapping back was chosen to stop a
+bubble bound to nothing looking identical to a bound one, and the six states
+solve that better: `unbound` has a different glyph, a different rim and a
+different label from `idle`, visible from across the desk. Given that, staying
+put is strictly better, because the person aimed at something and moving the
+bubble hides what they aimed at.
 
 **A field whose `kAXSubroleAttribute` is `AXSecureTextField` is refused at bind
 time**, with the reason said out loud. A dictation tool that can be aimed at a
@@ -157,8 +198,30 @@ goes through a model under the cleanup rule below.
 ## Tracking
 
 While a bubble exists, read `kAXPositionAttribute` and `kAXSizeAttribute` on the
-bound element every `POLL` and draw against the result. The element vanishing, or
-the read failing twice in a row, moves the bubble to `orphaned`.
+bound element every `POLL`. The element vanishing moves the bubble to
+`orphaned`.
+
+**It moves by the field's delta, not to the field's edge, and that is a
+correction the probe forced.** The first version pinned the bubble to the
+trailing edge of the bound element, on the reasoning that a send button lives
+there and it is the part of a text box least likely to hold text somebody is
+reading. Then the probe bound to the middle of a Terminal window and the field
+came back as `230,-255 2117x1631` for a window about 1100 points tall, because
+an `AXTextArea`'s frame covers the whole scrollback rather than the visible box.
+Pinning to that edge threw the bubble hundreds of points from where it was
+dropped, and clean off the top of the screen in a long buffer.
+
+So the drop records where the field was and where the bubble was, and each poll
+moves the bubble by however far the field has moved. It is zero while the window
+is still, it is exact while the window is dragged, and it cannot be wrong about
+a field whose frame is nothing like its visible box. Editors, terminals and mail
+compose bodies are all that shape, so this was not an edge case.
+
+The result is clamped to the glass. A window dragged most of the way off screen
+should take its bubble with it, right up until the bubble is the part that has
+gone: at -40 it cannot be clicked or moved and the only way back is
+`hud-bubble clear`. It stops at the edge instead, still bound, and comes back
+when the window does.
 
 Foreground and background come from
 `NSWorkspace.didActivateApplicationNotification` compared against the stored
@@ -175,9 +238,24 @@ symptom.
 
 ## The microphone
 
-`.dictation` joins `.off`, `.pushToTalk` and `.wake` as a mode of the existing
-`VoiceListener`. One `AVAudioEngine` and one `SFSpeechRecognizer`, as now, so the
-two paths cannot both be live: there is one microphone and one person talking.
+**Built without a new mode, and that is a change from the design.** The plan
+put `.dictation` beside `.off`, `.pushToTalk` and `.wake` inside
+`VoiceListener`. What shipped leaves that class untouched and forks outside it:
+`AppDelegate.dictating` holds which bubble owns the open turn, and
+`dictationSignal` consumes `.partial`, `.heard`, `.failed`, `.level` and
+`.listening` before the assistant's handler sees them.
+
+The reason is the lesson in `hud/docs/VOICE-RESEARCH.md`, written the same day
+and paid for with a day: **a signal that is safe for idempotent consumers is not
+safe for a stateful one.** `VoiceListener` holds one microphone, one recogniser
+and one turn counter, and the deafness bug came from attaching something with
+memory to a signal feeding it. A `.dictation` mode would have put a second state
+machine inside the class that already holds the fragile one. The fork outside it
+cannot be reached by anything the bubble does, and push-to-talk's own tests
+still pin its behaviour unchanged.
+
+One `AVAudioEngine` and one `SFSpeechRecognizer` either way, so the two paths
+cannot both be live: there is one microphone and one person talking.
 
 | Event | What happens |
 | --- | --- |
@@ -197,7 +275,10 @@ loses nothing and matches the rule the rest of the loop already runs on, which
 `docs/VOICE-DESIGN.md` states as: what they most recently asked for is what they
 mean.
 
-The `SILENCE` backstop reuses the `silenceTimer` that wake mode already has.
+The `SILENCE` backstop is its own task in the display rather than wake mode's
+`silenceTimer`, for the reason above: that timer belongs to a mode this feature
+does not enter. It restarts on every `.partial`, so a revision is a sign of
+life.
 
 The last two rows both exist because there is one microphone and one caret. Two
 live bubbles would mean two transcripts racing for one recogniser. Inserting
@@ -238,6 +319,7 @@ write land" without writing:
 | Chrome, omnibox | YES | YES |
 | Terminal, toolbar search | no | YES |
 | Mail, toolbar search | no | YES |
+| Terminal, the shell itself (`AXTextArea`) | **no** | not probed |
 
 Every field that refused `kAXSelectedText` still offered `kAXValue`, which is
 the trap. Setting a value replaces the **entire** contents of the field, so a
@@ -247,13 +329,21 @@ looks like the easy answer and is the only one that destroys work, so the
 fallback stays `peekaboo paste`, which inserts at the caret and keeps what is
 already there.
 
-The per-app table is incomplete on purpose: an app in the background exposes
+The last row was measured on 2026-09-21 against the built `TextTarget`, with a
+throwaway probe that binds and asks but never writes. It matters more than the
+others: the shell is the single most likely place to want dictation that is not
+a message box, and it is a hard no on tier 1. **Tier 2 is the path for
+Terminal**, which is the strongest argument in this document for the clipboard
+tier existing at all.
+
+The rest of the table is incomplete on purpose: an app in the background exposes
 little or nothing of its text tree, so Messages and Notes returned no text
 element at depth 14 and Terminal and Mail returned their toolbars rather than
 their real inputs. Finishing it needs each app frontmost with a caret in it,
-which needs the machine for a minute. What the partial run did settle is that
-`AXIsProcessTrusted` is true here, that the settable check discriminates, and
-that the two-tier split is real rather than theoretical.
+which needs the machine for a minute. What the runs did settle is that the
+settable check discriminates, that the two-tier split is real rather than
+theoretical, and that hit-testing inside the owning application reaches past
+this display's own glass.
 
 ## Cleanup
 
@@ -261,14 +351,39 @@ On stop, the bubble's raw transcript goes to the bridge and the cleaned text
 comes back:
 
 ```
-HUD    -> e dictate id=msg text="hey so um can you tell caleb..." app=com.apple.MobileSMS
+HUD    -> b b1 clean "hey so um can you tell caleb comma i am running late"
 bridge -> haiku, one turn: punctuate, capitalise, remove filler words,
           change nothing else, return only the text
-bridge -> b msg insert text="Hey, can you tell Caleb I'm going to be about ten minutes late?"
+bridge -> b b1 insert "Hey, can you tell Caleb I'm running late?"
 ```
 
 The bridge owns this because the bridge owns every model call in this system.
 It is also the only thing in the feature that crosses the socket.
+
+**Two passes, not one, and the split is load-bearing.** `Bubble.punctuate` runs
+in the display on every transcript and is deliberately conservative: the
+multi-word forms ("question mark", "new paragraph") anywhere, and a single word
+like "period" or "comma" only as the last word of the utterance. That floor is
+what makes the hop optional rather than required.
+
+It stops there because "a period of time", "the colon", and "put a comma after
+the name" are all real sentences, and a rule that fired mid-utterance turned the
+first into "a. of time". Destroying a sentence to save a full stop is the wrong
+trade, so the aggressive half is the model's, which reads the whole sentence and
+can tell the two apart. That is the hop's reason to exist. Without the
+deterministic floor it would be a nicety; with it, the division is real.
+
+**The race is settled by a token, not by arrival order.** Two paths reach the
+insert, the answer and the timeout, and a text field takes both happily: a
+sentence typed twice is worse than a sentence typed without a comma. Each turn
+takes a token, the loser finds the token gone and does nothing. Same pattern as
+`VoiceListener.turn`, which exists for the same reason.
+
+**Nobody listening is answered at once, not after the budget.** The display
+knows whether a line was delivered, so a `clean` request that reached no bridge
+commits the deterministic version immediately. Waiting out 1.5 seconds of
+nothing in front of somebody who just finished speaking is the version of this
+that feels broken.
 
 **On `CLEAN_TIMEOUT` with no answer, the raw transcript is inserted instead.** A
 sentence is never lost to a model being slow, and a person who watched the
@@ -284,14 +399,18 @@ instruction and the answer goes straight into an app.
 
 | Name | Value | Evidence |
 | --- | --- | --- |
-| `SILENCE` | 2.0s | Chosen by Gavin from three stop mechanisms, 2026-09-21. `docs/VOICE-DESIGN.md` puts two seconds at the point where a person notices a gap in conversation, which is the same threshold at which a speaker has clearly finished rather than paused. Not measured against real dictation. |
-| `POLL` | 0.1s | Guessed against the eye. The bubble must not visibly trail a window being dragged, and 10Hz is the coarsest rate that does not read as lag. Never measured. |
-| `AX_TIMEOUT` | 0.1s | Guessed, with one hard constraint: it must stay below `POLL` or a hung app queues polls until the display stalls. |
-| `CLEAN_TIMEOUT` | 1.5s | Guessed. No measurement of a haiku turn from this bridge exists yet; the first week of `e dictate` lines should replace this number with one. |
+| `dictationSilence` | 6.0s | **Raised from the 2.0s in this design, deliberately.** Two seconds is the gap at which a person notices silence in a conversation, which is the right number for turn-taking and the wrong one for dictation: it fires while somebody is composing the second half of a sentence. Click-again is the primary way out, so this is a backstop and a backstop that cuts people off is the failure mode every silence timer in `hud/docs/VOICE-RESEARCH.md` outgrew. Guessed, never measured against this gesture. |
+| `Bubble.poll` | 0.1s | Guessed against the eye. The bubble must not visibly trail a window being dragged, and 10Hz is the coarsest rate that does not read as lag. Never measured past 30Hz, where the only difference on this machine was three times the IPC. |
+| `TextTarget.timeout` | 0.05s | One hard constraint: it must stay below `poll` or a hung app queues polls until the display stalls. Measured 2026-09-21: a settled application answers a position read in under 2ms, and only Chrome during a page load ever approached it. A timeout means "unchanged", so the bubble holds still for a frame. |
+| `cleanupBudget` | 1.5s | Guessed. No measurement of a haiku turn from this bridge exists; the first week of `b clean` lines replaces this number with one. |
+| `Bubble.size` | 34pt | Smaller than the 44pt Fitts's law floor on purpose, because the thing it sits on is a text field 22pt tall and a 44pt circle covers the field it points at. `hitFrame` pads to 44, so the target meets the floor while the circle stays out of the way. |
+| `Bubble.clickSlop` | 4pt | Not zero, because pressing a physical trackpad moves the cursor a point or two, and at zero roughly one click in four became a one-pixel drag: it rebound to the same field and did not start the turn, which reads as the bubble ignoring the click. |
+| `TextTarget.maxHops` | 6 | The probe's worst case doubled. Chrome's omnibox was three hops above the deepest hit. Walking further returns the window, which accepts a value set and puts the text nowhere. |
+| `OverlayModel.maxBubbles` | 3 | One is the case. Three because dictating into a chat and a terminal at once is a real thing to want; past that a click near two of them is ambiguous. At the cap the oldest is recycled rather than the new one refused: a silent no is indistinguishable from the feature being broken. |
 
 Every dictation writes a line with the tier that inserted, the transcript
-length, the model round trip, and whether the timeout fired. That is the data
-for moving all four.
+length, and whether the timeout fired: `log show --predicate 'subsystem ==
+"bob.hud" AND category == "bubble"'`. That is the data for moving all four.
 
 ## The spike
 
@@ -323,16 +442,32 @@ Swift tests alongside `hud_voicePackageTests`.
 
 | File | Change |
 | --- | --- |
-| `hud/Sources/BobHUDKit/DictationBubble.swift` | new: the state machine, binding, tracking |
-| `hud/Sources/BobHUDKit/TextInsertion.swift` | new: the two tiers |
-| `hud/Sources/BobHUDKit/Voice.swift` | the `.dictation` mode and the talk-key rule |
-| `hud/Sources/BobHUDKit/SocketServer.swift` | the `b` verb |
-| `hud/Sources/BobHUDKit/Overlay.swift` | register each bubble's rect as an interactive surface |
-| `hud/Sources/BobHUDKit/OverlayView.swift` | draw the bubble, the ring, the transcript, the drag |
-| `bin/hud-bubble` | new: the spoken vocabulary, `parse(said)`, and the command form |
-| `bin/hud-listen` | ask `hud-bubble.parse` before the router; `e dictate` to haiku to `b <id> insert`, with the timeout |
-| `bin/hud-agent.md` | when to deploy a bubble and how to place it |
-| `hud/CLAUDE.md` | the `b` verb in the vocabulary |
+As built, which differs from the plan above in three places: no `Voice.swift`
+change, the AX work in its own file rather than split in two, and the behaviour
+in the executable rather than the kit, because it drives the microphone and the
+window server and the kit owns neither.
+
+| File | Change |
+| --- | --- |
+| `hud/Sources/BobHUDKit/Bubble.swift` | new: the six states, the geometry, `punctuate` |
+| `hud/Sources/BobHUDKit/TextTarget.swift` | new: binding, following, the AX write |
+| `hud/Sources/BobHUDKit/BubbleView.swift` | new: the circle, the ring, the caption |
+| `hud/Sources/BobHUD/Dictation.swift` | new: the gesture, the turn, the two insert tiers |
+| `hud/Sources/BobHUDKit/Spec.swift` | `bubble`, `spawnBubble`, `unbubble`, `bubbleInsert` |
+| `hud/Sources/BobHUDKit/LineParser.swift` | the `b` verb, all five forms |
+| `hud/Sources/BobHUDKit/Interaction.swift` | `bubble`, `dictated` and `clean` going back |
+| `hud/Sources/BobHUDKit/OverlayModel.swift` | the bubbles, the spawn point, the hit test, `frames` |
+| `hud/Sources/BobHUDKit/OverlayView.swift` | draw them, on one 20Hz clock |
+| `hud/Sources/BobHUD/main.swift` | the monitors, the voice fork, the undelivered `clean` |
+| `bin/hud-bubble` | new: the spoken vocabulary, `parse(said)`, `doctor` |
+| `bin/hud-listen` | ask `hud-bubble.parse` first, ahead of the music and the router |
+| `hud/Tests/BobHUDKitTests/BubbleTests.swift` | new: 27 tests, the wire and the glass |
+| `tests/test_hud_bubble.py` | new: the vocabulary, including what must not match |
+| `tests/run.sh` | register it |
+
+Still to do: `bin/hud-agent.md` (when to put a bubble up), `hud/CLAUDE.md` (the
+`b` verb in the vocabulary), and the bridge's haiku turn for `b <id> clean`,
+which the deterministic floor makes optional rather than blocking.
 
 ## Later, deliberately not now
 

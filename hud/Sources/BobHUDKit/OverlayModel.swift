@@ -194,6 +194,22 @@ public final class OverlayModel {
             // is the only condition under which stopping it is correct.
             revision += 1
 
+        case .bubble(let id, let center, let state, let app, let note):
+            bubble(id: id, center: center, state: state, app: app, note: note)
+
+        case .spawnBubble(let id):
+            spawnBubble(id: id)
+
+        case .bubbleInsert:
+            // Answered by the display, which owns the turn and the field. Named
+            // here so it cannot fall through to `default` and be handed to a
+            // surface's data model, which would silently do nothing.
+            break
+
+        case .unbubble(let id):
+            if id.isEmpty { bubbles = [] } else { bubbles.removeAll { $0.id == id } }
+            revision += 1
+
         case .close(let id):
             if id.isEmpty { reset() } else { close(id) }
 
@@ -235,6 +251,25 @@ public final class OverlayModel {
     /// later.
     /// Marks drawn on the screen itself, newest last.
     public private(set) var markers: [Marker] = []
+
+    /// Dictation bubbles, in the order they were spawned. See `Bubble`.
+    public private(set) var bubbles: [Bubble] = []
+
+    /// Which bubble the pointer is over, so it can say what it is before it is
+    /// clicked. Set from the display's mouse monitor, which already runs on
+    /// every move for the presence field, rather than from a SwiftUI hover:
+    /// the glass ignores the mouse until the pointer is inside a rectangle the
+    /// window knows about, and `.onHover` on a view inside it never fires for
+    /// the move that crosses the boundary.
+    public private(set) var hoveredBubble: String?
+
+    /// The most bubbles at once.
+    ///
+    /// Three. One is the case; the reason it is not capped at one is that a
+    /// person dictating into a chat and a terminal at the same time is a real
+    /// thing to want. Past three the glass is a pinboard and a click near two
+    /// of them is ambiguous.
+    public static let maxBubbles = 3
 
     /// The most marks the layer will hold at once.
     ///
@@ -382,6 +417,147 @@ public final class OverlayModel {
                 payload: ["label": .string(marker.label)]))
         }
         return true
+    }
+
+    // MARK: Bubbles
+
+    /// Put a bubble up, or move and restate one that is already there.
+    ///
+    /// Same upsert as `mark` and for the same reason: the thing that follows a
+    /// field sends the same id with a new centre ten times a second, and a
+    /// version of this that appended would leave a comet trail of bubbles down
+    /// the screen.
+    public func bubble(
+        id: String, center: CGPoint, state: BubbleState? = nil,
+        app: String? = nil, note: String? = nil
+    ) {
+        if let index = bubbles.firstIndex(where: { $0.id == id }) {
+            bubbles[index].center = center
+            if let state {
+                // Coming out of `live` clears the words: they belong to the
+                // turn that just closed, and leaving them up means the next
+                // click starts with the last sentence still drawn.
+                if state != .live { bubbles[index].heard = "" }
+                bubbles[index].state = state
+            }
+            if let app { bubbles[index].app = app }
+            if let note { bubbles[index].note = note }
+        } else {
+            // At the cap the oldest goes, rather than the new one being
+            // refused. Somebody who asks for a bubble gets a bubble: a silent
+            // no is indistinguishable from the feature being broken, and the
+            // one they forgot about in a window they have closed is the one
+            // they meant to lose.
+            if bubbles.count >= Self.maxBubbles { bubbles.removeFirst() }
+            bubbles.append(
+                Bubble(
+                    id: id, center: center, state: state ?? .unbound,
+                    app: app, note: note))
+        }
+        revision += 1
+    }
+
+    /// Spawn one beside the pill and return it.
+    ///
+    /// Beside the pill because that is where the person is looking when they
+    /// ask for it: they spoke to the assistant, the pill is what answered, and a
+    /// bubble that appeared in a corner would have to be found before it could
+    /// be dragged. Asked for in exactly those words on 2026-09-21: "it needs to
+    /// spawn next to the hyper bar, then i can drag it to any window".
+    ///
+    /// Always `unbound`. It is sitting over the person's own wallpaper or over
+    /// whatever the pill is floating above, and binding it to that would be
+    /// binding it to the thing nobody pointed at.
+    @discardableResult
+    public func spawnBubble(id: String? = nil) -> Bubble {
+        let name = id ?? nextBubbleName()
+        bubble(id: name, center: spawnPoint(), state: .unbound)
+        // The cap recycles rather than refuses, so this is always there. The
+        // fallback exists so that stops being true by failing a test instead of
+        // by trapping in front of somebody.
+        return bubbles.first { $0.id == name }
+            ?? Bubble(id: name, center: spawnPoint(), state: .unbound)
+    }
+
+    /// Where a new bubble goes: left of the pill, centres level, 12 points of
+    /// gap. With the pill hidden, where the pill would be.
+    public func spawnPoint() -> CGPoint {
+        let gap: CGFloat = 12
+        if let pill = pillFrame {
+            return CGPoint(
+                x: pill.minX - gap - Bubble.size / 2, y: pill.midY)
+        }
+        guard let screen = OverlayWindow.active else {
+            return CGPoint(x: 80, y: 80)
+        }
+        let full = screen.frame
+        let bottomInset = screen.visibleFrame.minY - full.minY
+        // No pill on screen means no measured width, so this uses the widest
+        // the pill is allowed to be. It is a spawn point, not a layout: the
+        // person is about to drag it somewhere else.
+        let assumed = PillView.maxWidth
+        return CGPoint(
+            x: (full.width - assumed) / 2 - gap - Bubble.size / 2,
+            y: full.height - bottomInset - PillView.pillLift - 18)
+    }
+
+    /// `b1`, `b2`, `b3`: the lowest name not taken.
+    public func nextBubbleName() -> String {
+        for n in 1...(Self.maxBubbles + 1) {
+            let name = "b\(n)"
+            if !bubbles.contains(where: { $0.id == name }) { return name }
+        }
+        return "b1"
+    }
+
+    /// Move one by hand, mid-drag. Does not touch its state: a bubble being
+    /// dragged off a field is still bound to it until the drag lands.
+    public func moveBubble(_ id: String, to center: CGPoint) {
+        guard let index = bubbles.firstIndex(where: { $0.id == id }) else { return }
+        bubbles[index].center = center
+        revision += 1
+    }
+
+    public func setBubble(
+        _ id: String, state: BubbleState, app: String? = nil, note: String? = nil
+    ) {
+        guard let index = bubbles.firstIndex(where: { $0.id == id }) else { return }
+        if state != .live { bubbles[index].heard = "" }
+        bubbles[index].state = state
+        bubbles[index].app = app ?? bubbles[index].app
+        // A note is cleared by a state that has nothing to explain, so a
+        // refusal message does not outlive the refusal.
+        bubbles[index].note = note ?? (state == .orphaned ? bubbles[index].note : nil)
+        revision += 1
+    }
+
+    /// The words as they arrive. Drawn, never acted on.
+    public func setBubbleHeard(_ id: String, _ text: String) {
+        guard let index = bubbles.firstIndex(where: { $0.id == id }) else { return }
+        bubbles[index].heard = text
+        revision += 1
+    }
+
+    public func removeBubble(_ id: String) {
+        bubbles.removeAll { $0.id == id }
+        revision += 1
+    }
+
+    /// Note the pointer, for the caption. Cheap and called on every move, so
+    /// it writes only on a change: every write is a SwiftUI invalidation.
+    public func hoverBubble(_ id: String?) {
+        guard hoveredBubble != id else { return }
+        hoveredBubble = id
+        revision += 1
+    }
+
+    /// The bubble under a click, newest first, or nil.
+    ///
+    /// Newest first because bubbles are drawn in spawn order and the last one
+    /// spawned is on top, so a click in an overlap has to answer with the one
+    /// the person can actually see.
+    public func bubble(at point: CGPoint) -> Bubble? {
+        bubbles.reversed().first { $0.hitFrame.contains(point) }
     }
 
     /// Retire marks as they expire.
@@ -822,6 +998,9 @@ public final class OverlayModel {
                 height: height)
         }
         if let pillFrame { all.append(pillFrame) }
+        // A bubble has to be solid glass or it cannot be dragged: the window
+        // ignores the mouse everywhere it does not know something is drawn.
+        all.append(contentsOf: bubbles.map(\.hitFrame))
         return all
     }
 

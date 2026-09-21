@@ -184,6 +184,7 @@ SUPERASSISTANT = Path(__file__).resolve().parent / "superassistant"
 # measured on 2026-09-20) to reach `hud-music` now reaches it in the time
 # one search and one AppleScript take.
 MUSIC = Path(__file__).resolve().parent / "hud-music"
+BUBBLE = Path(__file__).resolve().parent / "hud-bubble"
 _superassistant: object = None
 
 
@@ -208,6 +209,33 @@ def superassistant():
     return _superassistant or None
 _music: object = None
 _music_stamp: float = 0.0
+_bubble: object = None
+_bubble_stamp: float = 0.0
+
+
+def bubble():
+    """The `hud-bubble` module next to this script, or None.
+
+    Reloaded on change, like `music()`, and for the same reason: the words are
+    edited more often than the bridge.
+    """
+    global _bubble, _bubble_stamp
+    try:
+        stamp = BUBBLE.stat().st_mtime
+    except OSError:
+        stamp = 0.0
+    if _bubble is None or stamp != _bubble_stamp:
+        _bubble_stamp = stamp
+        try:
+            loader = importlib.machinery.SourceFileLoader("hud_bubble", str(BUBBLE))
+            spec = importlib.util.spec_from_loader("hud_bubble", loader)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["hud_bubble"] = module
+            loader.exec_module(module)
+            _bubble = module
+        except Exception:  # noqa: BLE001
+            _bubble = False
+    return _bubble or None
 
 
 def music():
@@ -1326,6 +1354,8 @@ class Listener:
             # the exit just cleared.
             self.hush()
             self.shown = "p dormant"
+        elif line.startswith("b "):
+            self.bubble_line(line[2:])
         elif line.startswith("g "):
             parts = line.split()
             if len(parts) == 5:
@@ -1828,6 +1858,8 @@ class Listener:
                 return
             self.stop()
             return
+        if not relayed and self.bubble_request(said):
+            return
         if not relayed and self.music_request(said, typed):
             return
         # A relayed event (a click the display reported) and a request already
@@ -1878,6 +1910,109 @@ class Listener:
         with self.state:
             self.current = Request(said=req.said, spoken_at=req.spoken_at, pointed=None, typed=req.typed, hint=self.MUSIC_HINT)
         self._drain()
+
+    def bubble_line(self, rest: str) -> None:
+        """A dictation bubble said something: `<id> <state|said|clean> ...`.
+
+        Only the refusals are spoken. A bubble that bound, listened and typed
+        is already telling the person that on the glass, and narrating it would
+        be the voice talking over somebody who is mid-sentence in another app.
+        A refusal is different: the bubble looks broken and the fix is usually
+        one switch in System Settings that nothing else on the machine needs.
+        """
+        parts = rest.split(None, 2)
+        if len(parts) < 2:
+            return
+        ident, kind = parts[0], parts[1]
+        tail = parts[2] if len(parts) > 2 else ""
+
+        if kind == "clean":
+            # `b <id> clean "<raw transcript>"`. Answered with the tidied text,
+            # or not at all: the display inserts its own deterministic version
+            # when this does not come back inside its budget, so silence here
+            # costs the punctuation and never the sentence. Not wired to the
+            # model yet, and deliberately not blocking on it.
+            return
+        if kind == "said":
+            try:
+                text, _ = json.JSONDecoder().raw_decode(tail)
+            except json.JSONDecodeError:
+                return
+            self.log(f"bubble {ident} typed:", text)
+            return
+
+        note = ""
+        if 'note="' in tail:
+            try:
+                note, _ = json.JSONDecoder().raw_decode(tail[tail.index('note="') + 5:])
+            except (json.JSONDecodeError, ValueError):
+                note = ""
+        self.log(f"bubble {ident}:", kind + (f" ({note})" if note else ""))
+        if not note:
+            return
+        if "accessibility" in note:
+            # The one thing here nobody but them can do. The display holds
+            # Input Monitoring already, for the talk key; Accessibility is a
+            # separate switch and the bubble is the first thing that wants it.
+            self.say_aside(
+                "The bubble needs accessibility permission. "
+                "Open System Settings, Privacy and Security, Accessibility, "
+                "and switch on Bob HUD."
+            )
+        elif kind in ("unbound", "orphaned"):
+            self.say_aside(note)
+
+    def say_aside(self, phrase: str) -> None:
+        """One line on the pill and out loud, outside any request.
+
+        Not `ask`: there is nothing to answer and nothing to remember. This is
+        the display telling the person something it found out on its own.
+        """
+        self.hush()
+        self.send("s " + json.dumps(phrase))
+        self.speak(phrase)
+        self.settle("done", self.LEAVE_AFTER)
+
+    def bubble_request(self, said: str) -> bool:
+        """Put a dictation bubble up or take one down, with no model turn.
+
+        Asked first, ahead of the music and ahead of the router. The bubble
+        exists because the router cannot tell a request from a sentence
+        somebody wants typed, and on 2026-09-21 "create a bubble" with Terminal
+        in front came back as an offer to draft a terminal prompt. Routing the
+        request that creates the escape hatch through the thing it escapes is
+        the one bug this feature cannot have, so the words are read here.
+
+        `hud-bubble` owns the vocabulary, in one place for the bridge and the
+        command line, and matches whole utterances only: "the create a bubble
+        button is broken" is a sentence for the assistant.
+        """
+        module = bubble()
+        if module is None:
+            return False
+        try:
+            verb = module.parse(said)
+        except Exception:  # noqa: BLE001
+            return False
+        if verb is None:
+            return False
+        try:
+            answer, ok = module.perform(verb), True
+        except Exception as error:  # noqa: BLE001
+            # A display that is not running is the common case, and it is worth
+            # saying out loud rather than falling through to the model, which
+            # would answer a question nobody asked.
+            answer, ok = str(error), False
+        self.log(f"bubble: {verb}:", answer)
+        if self.in_flight():
+            # They want the bubble now, not the rest of a reply.
+            self.stop()
+        req = Request(said=said, spoken_at=time.monotonic(), pointed=None, typed=False)
+        self.remember(req, answer, ok, "done" if ok else "failed")
+        self.send("s " + json.dumps(answer))
+        self.speak(answer)
+        self.settle("done" if ok else "failed", self.LEAVE_AFTER)
+        return True
 
     def music_request(self, said: str, typed: bool, bare_stop: bool = False) -> bool:
         """Play, pause, skip or ask what is on, without the model.

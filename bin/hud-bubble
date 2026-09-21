@@ -1,0 +1,240 @@
+#!/usr/bin/env python3
+"""The dictation bubble: say where the words go, then say the words.
+
+    hud-bubble new [--id b1]      put one on the glass, beside the hyper bar
+    hud-bubble clear              take them all down
+    hud-bubble off <id>           take one down
+    hud-bubble parse "<said>"     what the words mean, for the bridge
+    hud-bubble doctor             whether it can work on this machine
+
+Hold the talk key and the assistant reads what you said and decides what you
+meant. That is right for a request and wrong for a sentence you want typed into
+a message, and nothing in the audio tells the two apart. On 2026-09-21, with
+Terminal in front, "create a bubble" came back as an offer to draft a terminal
+prompt: the router worked and the answer was useless.
+
+So the bubble is a destination the person names with their hand. Ask for one,
+drag it onto any text box in any application, click it, talk. The words go in
+that box. No model reads them and no router sees them.
+
+The vocabulary lives here rather than in the bridge, for the same reason
+`hud-music` owns "play X": the bridge asks `parse()` before it asks anything
+else, so summoning a bubble costs no model turn and cannot be reinterpreted.
+That is the whole point of the feature, so routing the request that creates it
+through the thing it exists to bypass would be the one unacceptable bug.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import socket
+import subprocess
+import sys
+from pathlib import Path
+
+BOB_DIR = Path(os.environ.get("BOB_DIR") or Path.home() / ".bob")
+SOCKET = os.environ.get("BOB_HUD_SOCKET") or str(BOB_DIR / "hud.sock")
+
+# Filler the recogniser leaves in front of a command.
+LEAD = re.compile(
+    r"^(?:hey |ok |okay |yo |please |can you |could you |would you |i want you to |"
+    r"i need you to |go ahead and |just )+"
+)
+TRAIL = re.compile(r"(?: please| for me| thanks| thank you| now| real quick| quick)$")
+
+# One pattern per verb, matched against the whole utterance.
+#
+# `fullmatch`, not `search`, and that is the load-bearing decision. "Create a
+# bubble" is a bubble; "the create a bubble button is broken" is a sentence
+# about one and belongs to the assistant. A substring match would swallow every
+# sentence with the word in it, which is exactly how a deterministic shortcut
+# turns into a thing people learn to talk around.
+PATTERNS = [
+    (
+        "new",
+        re.compile(
+            r"(?:make|create|generate|spawn|give me|drop|open|open up|put up|add|"
+            r"new|bring up)\s*(?:me\s+)?(?:a|an|the|another)?\s*"
+            r"(?:dictation\s+|talk\s+to\s+text\s+|voice\s+|text\s+)?bubble"
+            r"(?:\s+(?:up|please|for\s+me))?"
+        ),
+    ),
+    (
+        "clear",
+        re.compile(
+            r"(?:take|put)\s+(?:the\s+|that\s+|this\s+|these\s+|those\s+)?bubbles?\s+"
+            r"(?:down|away|off)"
+            r"|(?:close|remove|delete|dismiss|cancel|clear|hide|kill|"
+            r"get\s+rid\s+of)\s*(?:the\s+|that\s+|this\s+|these\s+|those\s+|all\s+the\s+|"
+            r"my\s+)?bubbles?"
+            r"|bubbles?\s+(?:off|away|down)"
+            r"|no\s+more\s+bubbles?"
+        ),
+    ),
+]
+
+
+class BubbleError(Exception):
+    """Something the person can act on, said in one line."""
+
+
+def normalise(said: str) -> str:
+    words = " ".join(re.sub(r"[^a-z0-9' ]", " ", said.lower()).split())
+    words = LEAD.sub("", words)
+    while True:
+        trimmed = TRAIL.sub("", words)
+        if trimmed == words:
+            break
+        words = trimmed
+    return words.strip()
+
+
+def parse(said: str) -> str | None:
+    """The verb in an utterance, or None when it is not about a bubble.
+
+    Returns "new" or "clear". The bridge calls this before the router and
+    before the model, and acts on anything that is not None.
+    """
+    words = normalise(said)
+    if not words:
+        return None
+    for verb, pattern in PATTERNS:
+        if pattern.fullmatch(words):
+            return verb
+    return None
+
+
+def send(text: str) -> None:
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(2)
+            sock.connect(SOCKET)
+            sock.sendall((text + "\n").encode("utf-8"))
+    except OSError as error:
+        why = error.strerror or str(error)
+        raise BubbleError(f"the display is not running ({why}); run: hud open") from None
+
+
+def perform(verb: str, ident: str = "") -> str:
+    """Run a parsed verb and answer in one sentence, for the voice."""
+    if verb == "new":
+        send(f"b {ident}" if ident else "b")
+        return "bubble up. Drag it onto the box you want and click it."
+    if verb == "clear":
+        send("b clear")
+        return "bubbles down."
+    if verb == "off":
+        if not ident:
+            raise BubbleError("which bubble: hud-bubble off b1")
+        send(f"b {ident} off")
+        return f"{ident} down."
+    raise BubbleError(f"unknown verb {verb}")
+
+
+def trusted() -> bool | None:
+    """Whether the display may read other applications' text fields.
+
+    None when it cannot be determined, which is not the same as False and must
+    not be reported as one. The check runs against the display's own bundle, so
+    it asks the display rather than guessing from this process, whose own grant
+    says nothing about the app's.
+    """
+    app = Path("/Applications/BobHUD.app")
+    if not app.exists():
+        return None
+    # The grant is per bundle identifier and the database is not readable, so
+    # the honest answer comes from the display's log: it writes a bind line on
+    # every attempt and a refusal names the reason.
+    try:
+        out = subprocess.run(
+            [
+                "/usr/bin/log", "show", "--last", "1h", "--style", "compact",
+                "--predicate", 'subsystem == "bob.hud" AND category == "bubble"',
+            ],
+            capture_output=True, text=True, timeout=20,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if "accessibility not granted" in out:
+        return False
+    if "bubble.bind" in out:
+        return True
+    return None
+
+
+def doctor() -> int:
+    """Whether a bubble can work here, and what to do when it cannot."""
+    ok = True
+    if Path(SOCKET).exists():
+        print(f"display    socket at {SOCKET}")
+    else:
+        print(f"display    NOT RUNNING (no socket at {SOCKET}); run: hud open")
+        ok = False
+
+    grant = trusted()
+    if grant is True:
+        print("accessibility  granted (a bubble has bound a field)")
+    elif grant is False:
+        print(
+            "accessibility  REFUSED. Open System Settings, Privacy & Security, "
+            "Accessibility, and switch on BobHUD."
+        )
+        ok = False
+    else:
+        print(
+            "accessibility  unknown until the first bubble. Ask for one and drop "
+            "it on a text box; macOS asks then."
+        )
+
+    if subprocess.run(["which", "peekaboo"], capture_output=True).returncode == 0:
+        print("paste tier     peekaboo found (for fields that refuse a direct write)")
+    else:
+        print(
+            "paste tier     peekaboo missing. Native fields still work; Electron "
+            "apps will leave the text on the clipboard."
+        )
+    return 0 if ok else 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="hud-bubble", description=__doc__.split("\n\n")[1])
+    commands = parser.add_subparsers(dest="command", required=True)
+    new = commands.add_parser("new", help="put a bubble on the glass")
+    new.add_argument("--id", default="", help="name it, instead of the next free name")
+    commands.add_parser("clear", help="take them all down")
+    off = commands.add_parser("off", help="take one down")
+    off.add_argument("id")
+    said = commands.add_parser("parse", help="what the words mean, for the bridge")
+    said.add_argument("words")
+    said.add_argument("--json", action="store_true", help="machine-readable")
+    commands.add_parser("doctor", help="whether it can work on this machine")
+    args = parser.parse_args(argv)
+
+    try:
+        if args.command == "doctor":
+            return doctor()
+        if args.command == "parse":
+            verb = parse(args.words)
+            if args.json:
+                print(json.dumps({"verb": verb}))
+            elif verb:
+                print(verb)
+            return 0 if verb else 1
+        if args.command == "new":
+            print(perform("new", args.id))
+        elif args.command == "clear":
+            print(perform("clear"))
+        elif args.command == "off":
+            print(perform("off", args.id))
+    except BubbleError as error:
+        print(str(error), file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

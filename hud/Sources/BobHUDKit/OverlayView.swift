@@ -46,6 +46,34 @@ public struct OverlayView: View {
             }
             .zIndex(1)
 
+            // Bubbles above the marks and under the pill.
+            //
+            // Above a mark because a bubble is a control and a mark is a note.
+            // Under the pill because the pill is where the bubble is spawned
+            // from and a new one landing on top of the words that announced it
+            // would cover them.
+            //
+            // One clock for all of them rather than a timer each: the ring
+            // breathes at 20fps, which is enough for a 34 point circle and is
+            // a twentieth of what an `.animation` loop per bubble would cost
+            // while three of them sit idle on the glass.
+            Group {
+                if !model.bubbles.isEmpty {
+                    TimelineView(.animation(minimumInterval: 1.0 / 20, paused: reduceMotion)) { clock in
+                        let beat = clock.date.timeIntervalSinceReferenceDate
+                            .truncatingRemainder(dividingBy: 2) / 2
+                        ForEach(model.bubbles) { bubble in
+                            BubbleView(
+                                bubble: bubble, hovered: model.hoveredBubble == bubble.id,
+                                beat: beat)
+                                .position(bubble.center)
+                                .transition(.scale(scale: 0.6).combined(with: .opacity))
+                        }
+                    }
+                }
+            }
+            .zIndex(2)
+
             // The ring, bottom right, above everything.
             //
             // It is the one thing on the glass that is always present, so it

@@ -190,7 +190,7 @@ immediately, and after that anything you send that it could not use comes back
 as a problem:
 
 ```
-v! "bobhud/1 verbs=c,>,d,r,@,-,p,s,q,m,u,listen"
+v! "bobhud/1 verbs=c,>,d,r,@,-,p,s,q,m,u,b,listen"
 ! "`c` needs an id and a type"
 ```
 
@@ -222,6 +222,44 @@ the same id with a new rectangle moves it rather than leaving a trail. That is
 deliberate and it is the rule that makes the layer trustworthy: a mark that
 outlives what it described is worse than no mark, because the person learns to
 disbelieve all of them.
+
+## The dictation bubble
+
+A mark says "look here". A bubble says "the words go here".
+
+```
+b                           one, beside the pill
+b <id>                      that one, beside the pill
+b <id> <x> <y> [state=] [app=] [note=]   move it, and restate it
+b <id> insert "<text>"      put this text in the field it is bound to
+b <id> off                  take it down
+b clear                     take them all down
+```
+
+The person drags it onto any text box in any application, clicks it, and talks.
+The words go in that box: no model reads them, no router sees them, and nothing
+about it touches the talk key. That is the whole point of it. Holding the talk
+key sends a sentence to the assistant, which decides what you meant, and on
+2026-09-21 "create a bubble" with Terminal in front came back as an offer to
+draft a terminal prompt. The bubble is a destination named by hand instead of
+guessed.
+
+So **do not put one up in the middle of something else**, and do not use it to
+type on their behalf. `b <id> insert` exists to answer `b <id> clean`, which is
+the display asking for one sentence to be punctuated. Use `bin/hud-bubble` from
+the command line rather than the socket:
+
+```bash
+hud-bubble new      # one on the glass
+hud-bubble clear    # all of them down
+hud-bubble doctor   # whether it can work on this machine
+```
+
+The display needs macOS Accessibility permission for the bubble and nothing
+else, so the first bubble of a fresh install can be refused with everything else
+working. `hud-bubble doctor` says which, and `bubble.bind` lines in
+`log show --predicate 'subsystem == "bob.hud" AND category == "bubble"'` say why
+a bind failed.
 
 Twelve marks maximum. Past a dozen the screen is not annotated, it is hatched.
 
