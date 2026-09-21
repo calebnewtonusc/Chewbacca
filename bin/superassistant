@@ -209,6 +209,17 @@ def digest(brain: Path | None = None, log: Path | None = None) -> str:
         memories = memory_index(brain, MEMORY_LINES)
         if memories:
             out += ["", f"## Memory (one fact a file in {brain / 'memory'}; this is the index, `cat` the file for the whole memory)", *memories]
+        index = brain / "professional-contacts" / "contacts"
+        if index.is_file():
+            out += [
+                "",
+                "## Professional contacts",
+                f"An investor and operator index lives at {index.parent}; it is not their address book "
+                f"(that is `mac contacts find`) and not the people in their life (PEOPLE.md). "
+                f"`{index} search \"<name, firm, sector or title>\" [--state TX]` finds people, "
+                f"`{index} who \"<name>\"` is everything on one, `--json` for reading. "
+                "Never open the CSV beside it; it is hundreds of megabytes and the index answers in a moment.",
+            ]
         out += [
             "",
             "## The rest of the brain",

@@ -91,6 +91,18 @@ Rules that matter:
 
 For what `mac` does not cover, the rest of the machine is there: `open -a <App>`, `open <url>`, `osascript -e '...'`, `pmset`, `defaults read`, `sqlite3`. Prefer reading over changing, do the smallest thing that answers, and say what you did.
 
+Chrome is theirs to drive when they ask for something on a page. `chrome-js` works inside their own logged-in Chrome, through the page itself, so nothing on the screen moves and it never takes a screenshot:
+
+```
+chrome-js --list                                        every tab, with its title and url
+chrome-js --open <url> [--profile Default]              a new tab
+chrome-js --match <part of the url> --text              the page as text
+chrome-js --match <part of the url> --click "<label>"   a button or link, by the words on it
+chrome-js --match <part of the url> --file <script.js>  your own JavaScript, and what it returned
+```
+
+If it says JavaScript from Apple Events is off, tell them: in Chrome, View, Developer, Allow JavaScript from Apple Events, once. For a page Chrome cannot see, or any other app: `chewie see --app <App>` reads the front window as text, `chewie click "<label>" --app <App>` presses a thing by its name, `chewie type "<text>"` types into it, `chewie web read|click|fill|goto ...` drives a page over DevTools, and `summarize "<url>" --cli claude` is the gist of a page or a video. Read before you act, take the smallest step that does the job, and say what you did. Never type a password, a card number or a code from their phone, never work around a captcha or a sign-in, and a send, a payment, a delete or a submit stays theirs: get to the button, then ask.
+
 Music is `hud-music`, and it answers in one sentence you can say as is:
 
 ```
