@@ -424,15 +424,25 @@ if group "installer"; then
 
   # An agent types this line, from a README it skimmed, and agents mistype.
   # Each of these spellings used to exit 2 with no install and no explanation.
-  # The phrase is "Nothing has been changed", not the old "stopping here":
-  # 10df181 replaced the one-line dry run with a full report of what would
-  # change and these five rows kept expecting the line it deleted, so all
-  # five failed on a start.sh that does exactly what they are checking for.
-  # What they are checking is that a mistyped flag is accepted and the dry
-  # run completes, not the wording of its last line.
+  # The assertion is the exit code, and it took two goes to get there. These
+  # rows matched "stopping here" until 10df181 replaced the one-line dry run
+  # with a full report and deleted that phrase. Matching the new last line
+  # instead, "Nothing has been changed", passed on a Mac and went on failing
+  # in CI: the dry run hands off to bin/preflight, which stops with the list
+  # of what is missing on a machine that cannot run the install at all, so on
+  # the Linux runner it never prints a closing line to match. Both spellings
+  # were checking the wording of a report that has no reason to be the same
+  # on two operating systems.
+  #
+  # What the row is for is narrower: each of these spellings is recognised as
+  # --full-send rather than shrugged at. The exit code cannot say that any
+  # more, because every flag now exits 0 and an unknown one only warns, so the
+  # row below would pass on --nonsense too. The warning is the signal: grep
+  # exits 1 when it is absent, which is what a recognised flag looks like, on
+  # a Mac and on the Linux runner alike.
   for _flag in --fullsend --full_send -full-send --FULL-SEND --yolo; do
-    expect "start.sh survives $_flag" "Nothing has been changed" \
-      bash "$ROOT/start.sh" "$_flag" --dry-run
+    exits "start.sh survives $_flag" 1 bash -c \
+      "bash '$ROOT/start.sh' '$_flag' --dry-run 2>&1 | grep -q 'ignoring unrecognized'"
   done
   expect "an unknown flag warns instead of aborting" "ignoring unrecognized option" \
     bash "$ROOT/start.sh" --nonsense --dry-run
