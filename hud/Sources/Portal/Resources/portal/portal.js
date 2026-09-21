@@ -19,6 +19,272 @@
     return pts;
   }
 
+  // vendor/mirror-gl.ts
+  var VERT = `#version 300 es
+in vec2 aPos;
+out vec2 vPix;
+uniform vec2 uSize;
+void main() {
+  vPix = (aPos * 0.5 + 0.5) * uSize;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}`;
+  var FRAG = `#version 300 es
+precision highp float;
+in vec2 vPix;
+out vec4 outColor;
+
+uniform vec2  uC;
+uniform float uR;
+uniform float uAStart, uASpan, uDir;
+uniform float uLead, uSpiral, uFog, uVeil, uStrength;
+uniform vec4  uImg;
+uniform sampler2D uTex;
+
+const float TAU = 6.283185307179586;
+
+// The inner edge, as a fraction of the radius consumed, at position u along
+// the arc. u 0 is where the line joined the circle, u 1 is the leading edge.
+//
+// wind makes it a spiral: shallow where the circle began, deepest at the
+// leading edge. It relaxes as the fill completes, so the two ends converge
+// and what is left at the end is a disc in the middle rather than a crescent
+// lying against the rim.
+float depthAt(float u) {
+  float wind = 1.0 + 1.6 * pow(max(0.0, 1.0 - u), 1.6) * uSpiral * (1.0 - uLead);
+  return clamp(pow(max(uLead, 1e-5), wind), 0.0, 1.0);
+}
+
+void main() {
+  vec2 d = vPix - uC;
+  float r = length(d);
+
+  // Position along the arc. Taken the way the hand went, so it is 0 at the
+  // start and grows to 1 at the leading edge, and anything past 1 is the
+  // wedge that has not been drawn.
+  float rel = mod((atan(d.y, d.x) - uAStart) * uDir + TAU, TAU);
+  float span = max(uASpan, 1e-4);
+  float u = rel / span;
+
+  float depth = depthAt(clamp(u, 0.0, 1.0));
+  float inner = uR * (1.0 - depth);
+
+  // LIQUID, NOT A COMPASS ARC. "It should feel like liquid on a table,
+  // expanding to fill the canvas and dissolving into each other."
+  //
+  // A few sines of different periods around the angle put slow lobes in the
+  // front, so it spreads unevenly the way a spill does instead of advancing
+  // as a perfect circle. It is a field, so where two lobes meet they simply
+  // add up and there is no join: dissolving into each other is not arranged
+  // here, it is what adding smooth functions does.
+  //
+  // Faded out by the fill, so the front is at its most liquid while it is
+  // spreading and is exactly circular by the time it arrives. Nothing
+  // survives completion.
+  float a2 = atan(d.y, d.x);
+  float lobes = sin(a2 * 3.0 + 1.7) * 0.55
+              + sin(a2 * 5.0 - 0.9) * 0.30
+              + sin(a2 * 8.0 + 2.3) * 0.15;
+  inner *= 1.0 + 0.09 * lobes * (1.0 - uLead);
+  inner = max(inner, 0.0);
+
+  // THE BAND IS A FRACTION OF THE HOLE, NOT OF THE REVEALED RIBBON.
+  //
+  // "It looks like a really hard spiral now."
+  //
+  // This was (uR - inner) * uFog, the thickness of what had ALREADY been
+  // revealed. Early in a fill that ribbon is a sliver: at 30% filled it is
+  // 1.9% of the radius, so the soft band came out about 5px and the spiral
+  // had a hard edge exactly when it is most visible.
+  //
+  // Measured against the hole the front is moving INTO instead, held at a
+  // constant width so the softness does not change as it advances, and
+  // capped by the hole itself so it cannot reach past the middle and is
+  // squeezed to nothing as the hole closes.
+  //
+  //   fill   hole    band was   band now
+  //   0.30   95.1%      1.9%      18.0%
+  //   0.60   72.1%     10.6%      18.0%
+  //   0.90   23.2%     29.2%      18.0%
+  //   0.97    7.3%     35.2%       7.3%
+  //   1.00    0.0%     38.0%       0.0%
+  float band = max(1.0, min(uR * uFog, inner));
+
+  // Radial: transparent at inner - band, solid by inner. The soft side faces
+  // the CENTRE, so the fog is pushed ahead of the edge rather than straddling
+  // it.
+  float fRad = smoothstep(inner - band, inner, r);
+
+  // Angular: the same band, measured in arc length and converted to u so the
+  // fade reads the same distance in both directions.
+  float bandU = band / max(uR * span, 1.0);
+  float fAng = smoothstep(0.0, bandU, u) * smoothstep(0.0, bandU, 1.0 - u);
+  // Past the leading edge is the undrawn wedge. Nothing there.
+  fAng *= step(u, 1.0 + bandU);
+
+  // ONCE THE CIRCLE IS CLOSED THERE ARE NO ENDS TO FADE. At a full turn the
+  // two ends of the arc are the same place, so fading both of them cut a
+  // wedge of nothing from the centre out to the rim along the seam, which
+  // is the white slice left in an otherwise finished portal. Blended out as
+  // the span reaches a turn, so the ends stop existing rather than meeting.
+  fAng = mix(fAng, 1.0, smoothstep(TAU - 0.35, TAU - 0.02, uASpan));
+
+  // A pixel of softness at the rim, so it is not a jagged cut.
+  float fRim = smoothstep(uR, uR - 1.5, r);
+
+  // Fades toward the rim while the circle is still filling.
+  float veil = 1.0 - uVeil * mix(0.3, 1.0, clamp(r / uR, 0.0, 1.0));
+
+  float a = fRad * fAng * fRim * veil * uStrength;
+  if (a <= 0.002) discard;
+
+  vec3 col = texture(uTex, (vPix - uImg.xy) / uImg.zw).rgb;
+  // STRAIGHT ALPHA, NOT PREMULTIPLIED. "There's a shadow on the outside now
+  // that I don't like." drawImage reads this canvas as an ordinary image,
+  // which means straight alpha; handed premultiplied pixels it darkens
+  // everything the closer that pixel is to transparent, which draws a dirty
+  // ring exactly where the edge fades out.
+  outColor = vec4(col, a);
+}`;
+  function compile(gl, type, src) {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      throw new Error(gl.getShaderInfoLog(sh) || "shader failed");
+    }
+    return sh;
+  }
+  var MirrorGL = class {
+    constructor() {
+      __publicField(this, "canvas");
+      __publicField(this, "gl", null);
+      __publicField(this, "prog", null);
+      __publicField(this, "tex", null);
+      __publicField(this, "loc", {});
+      /** Set once the image is uploaded. */
+      __publicField(this, "uploaded", false);
+      /** Non-null once something has gone wrong; the caller falls back. */
+      __publicField(this, "error", null);
+      this.canvas = document.createElement("canvas");
+      try {
+        const gl = this.canvas.getContext("webgl2", {
+          alpha: true,
+          premultipliedAlpha: false,
+          antialias: false,
+          // TRUE, OR drawImage READS AN EMPTY CANVAS.
+          //
+          // This canvas is never displayed; it exists to be copied into the 2D
+          // canvas with drawImage. With preserveDrawingBuffer false the
+          // drawing buffer may be discarded as soon as the frame is
+          // composited, and a copy taken afterwards comes back blank. It
+          // rendered during the draw and vanished once the portal opened,
+          // which looked like a shader bug and was a lifetime bug.
+          preserveDrawingBuffer: true
+        });
+        if (!gl) throw new Error("no webgl2");
+        this.gl = gl;
+        const prog = gl.createProgram();
+        gl.attachShader(prog, compile(gl, gl.VERTEX_SHADER, VERT));
+        gl.attachShader(prog, compile(gl, gl.FRAGMENT_SHADER, FRAG));
+        gl.linkProgram(prog);
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+          throw new Error(gl.getProgramInfoLog(prog) || "link failed");
+        }
+        this.prog = prog;
+        gl.useProgram(prog);
+        const buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(
+          gl.ARRAY_BUFFER,
+          new Float32Array([-1, -1, 3, -1, -1, 3]),
+          gl.STATIC_DRAW
+        );
+        const aPos = gl.getAttribLocation(prog, "aPos");
+        gl.enableVertexAttribArray(aPos);
+        gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+        for (const n of [
+          "uSize",
+          "uC",
+          "uR",
+          "uAStart",
+          "uASpan",
+          "uDir",
+          "uLead",
+          "uSpiral",
+          "uFog",
+          "uVeil",
+          "uStrength",
+          "uImg",
+          "uTex"
+        ]) {
+          this.loc[n] = gl.getUniformLocation(prog, n);
+        }
+        this.tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, this.tex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      } catch (e) {
+        this.error = String(e);
+        this.gl = null;
+      }
+    }
+    /** Upload the other side. Once; the image never changes. */
+    setImage(img) {
+      const gl = this.gl;
+      if (!gl || !this.tex) return;
+      try {
+        gl.bindTexture(gl.TEXTURE_2D, this.tex);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+        this.uploaded = true;
+      } catch (e) {
+        this.error = "texture upload: " + String(e);
+        this.uploaded = false;
+      }
+    }
+    get ready() {
+      return !!this.gl && this.uploaded;
+    }
+    /** Draw one frame. Returns the canvas to composite, or null. */
+    render(f) {
+      const gl = this.gl;
+      if (!gl || !this.prog || !this.uploaded) return null;
+      if (this.canvas.width !== f.size || this.canvas.height !== f.size) {
+        this.canvas.width = f.size;
+        this.canvas.height = f.size;
+      }
+      gl.viewport(0, 0, f.size, f.size);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.useProgram(this.prog);
+      gl.uniform2f(this.loc.uSize, f.size, f.size);
+      gl.uniform2f(this.loc.uC, f.cx, f.size - f.cy);
+      gl.uniform1f(this.loc.uR, f.R);
+      gl.uniform1f(this.loc.uAStart, -f.aStart);
+      gl.uniform1f(this.loc.uASpan, f.aSpan);
+      gl.uniform1f(this.loc.uDir, -f.dir);
+      gl.uniform1f(this.loc.uLead, f.lead);
+      gl.uniform1f(this.loc.uSpiral, f.spiral);
+      gl.uniform1f(this.loc.uFog, f.fog);
+      gl.uniform1f(this.loc.uVeil, f.veil);
+      gl.uniform1f(this.loc.uStrength, f.strength);
+      gl.uniform4f(
+        this.loc.uImg,
+        f.img.x,
+        f.size - f.img.y - f.img.h,
+        f.img.w,
+        f.img.h
+      );
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.tex);
+      gl.uniform1i(this.loc.uTex, 0);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      return this.canvas;
+    }
+  };
+
   // vendor/circle.ts
   var EMPTY = {
     progress: 0,
@@ -621,6 +887,7 @@
   var lastFill = 0;
   var drawnMax = 0;
   var cancelling = false;
+  var ccwLatch = null;
   var arcStart = null;
   var arcSpan = 0;
   var cancelEat = 0;
@@ -687,9 +954,38 @@
       }
     } catch (e) {
     }
+    mirrorGL.setImage(mirror);
+    if (!mirrorGL.ready) {
+      fetch("mirror.jpg").then((r) => r.blob()).then((b) => createImageBitmap(b)).then((bmp) => {
+        mirrorGL.setImage(bmp);
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "log",
+          text: `mirror-gl bitmap upload: ${mirrorGL.ready ? "ok" : "still no"}`
+        });
+      }).catch((e) => {
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "log",
+          text: `mirror-gl bitmap failed: ${e}`
+        });
+      });
+    }
+    if (!mirrorGL.ready) {
+      fetch("mirror.jpg").then((r) => r.blob()).then((b) => createImageBitmap(b)).then((bmp) => {
+        mirrorGL.setImage(bmp);
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "log",
+          text: `mirror-gl via bitmap: ${mirrorGL.ready ? "ok" : "still no"}`
+        });
+      }).catch((e) => {
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "log",
+          text: `mirror-gl bitmap failed: ${e}`
+        });
+      });
+    }
     window.webkit?.messageHandlers?.portal?.postMessage({
       event: "log",
-      text: `mirror loaded ${mirror.width}x${mirror.height}`
+      text: `mirror loaded ${mirror.width}x${mirror.height} gl=${mirrorGL.ready ? "yes" : "NO"}`
     });
   };
   mirror.onerror = () => {
@@ -698,7 +994,14 @@
       text: "mirror FAILED to load"
     });
   };
-  mirror.src = "mirror.jpg";
+  mirror.src = window.__mirrorDataURL || "mirror.jpg";
+  var mirrorGL = new MirrorGL();
+  if (mirrorGL.error) {
+    window.webkit?.messageHandlers?.portal?.postMessage({
+      event: "log",
+      text: `mirror-gl unavailable, using canvas: ${mirrorGL.error}`
+    });
+  }
   var LATCH_AT = 0.8;
   var lastSeen = 0;
   var armed = null;
@@ -914,6 +1217,48 @@
     const maskCtx = maskCv.getContext("2d");
     const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw, cloud, fill, spiral) => {
       if (!mirrorReady || !maskCtx || strength <= 4e-3 || Rp < 3) return;
+      if (mirrorGL.ready) {
+        const gpad = 2;
+        const gsize = Math.ceil(2 * Rp + gpad * 2);
+        const gox = cxp - Rp - gpad, goy = cyp - Rp - gpad;
+        const gdir = ccw ? -1 : 1;
+        const gspan = Math.min(Math.PI * 2, (1 - gapSize) * Math.PI * 2);
+        const gf = Math.max(0, Math.min(1, fill));
+        const gsc = Math.max(W / mirror.width, H / mirror.height);
+        const gdw = mirror.width * gsc, gdh = mirror.height * gsc;
+        const out = mirrorGL.render({
+          size: gsize,
+          cx: Rp + gpad,
+          cy: Rp + gpad,
+          R: Rp,
+          aStart: gapFrom - gdir * gspan,
+          aSpan: gspan,
+          dir: gdir,
+          lead: Math.pow(gf, 2.5),
+          spiral,
+          // A fraction of the hole, so it cannot touch the middle early and
+          // cannot outlive completion.
+          fog: 0.18,
+          veil: (1 - gf) * 0.75,
+          strength,
+          img: {
+            x: (W - gdw) / 2 - gox,
+            y: (H - gdh) / 2 - goy,
+            w: gdw,
+            h: gdh
+          }
+        });
+        if (out) {
+          const pOp = ctx.globalCompositeOperation;
+          const pA = ctx.globalAlpha;
+          ctx.globalCompositeOperation = "source-over";
+          ctx.globalAlpha = 1;
+          ctx.drawImage(out, gox, goy);
+          ctx.globalCompositeOperation = pOp;
+          ctx.globalAlpha = pA;
+          return;
+        }
+      }
       const hole = Math.max(0, 1 - Math.pow(Math.max(0, Math.min(1, fill)), 2.5));
       const blurPx = cloud > 2e-3 ? Math.max(1, Rp * hole * 0.14 * cloud) : 0;
       const pad = Math.max(16, blurPx * 2.6);
@@ -971,37 +1316,42 @@
         }
       };
       const innerAt = (u, reach) => Math.max(0, Rp * (1 - depthAt(u)) * (1 - reach));
-      const ribbon = (reach) => {
+      const ribbon = (reach, trim) => {
+        const u0 = trim, uSpan = Math.max(0.02, 1 - 2 * trim);
+        const uAt = (i) => u0 + i / STEPS * uSpan;
         m.beginPath();
         for (let i = 0; i <= STEPS; i++) {
-          const q = ptAt(i / STEPS, Rp);
+          const q = ptAt(uAt(i), Rp);
           if (i) m.lineTo(q.x, q.y);
           else m.moveTo(q.x, q.y);
         }
-        capTo(ptAt(1, Rp), ptAt(1, innerAt(1, reach)), dir);
+        const uEnd = uAt(STEPS), uBeg = uAt(0);
+        capTo(ptAt(uEnd, Rp), ptAt(uEnd, innerAt(uEnd, reach)), dir);
         for (let i = STEPS; i >= 0; i--) {
-          const u = i / STEPS;
+          const u = uAt(i);
           const q = ptAt(u, innerAt(u, reach));
           m.lineTo(q.x, q.y);
         }
-        capTo(ptAt(0, innerAt(0, reach)), ptAt(0, Rp), -dir);
+        capTo(ptAt(uBeg, innerAt(uBeg, reach)), ptAt(uBeg, Rp), -dir);
         m.closePath();
         m.fill();
       };
       m.fillStyle = "#fff";
-      const FOG_STAMPS = 14;
+      const endBand = Math.min(0.42, 0.38 * hole / Math.max(0.2, drawnAng));
+      const FOG_STAMPS = 24;
       let covered = 0;
       for (let j = FOG_STAMPS; j >= 1; j--) {
-        const target = Math.pow(1 - j / FOG_STAMPS, 1.4);
+        const t = j / FOG_STAMPS;
+        const target = 1 - t;
         const a = (target - covered) / (1 - covered);
         if (a > 2e-3) {
           m.globalAlpha = Math.min(1, a);
-          ribbon(j / FOG_STAMPS * 0.38);
+          ribbon(t * 0.38, t * endBand);
           covered = target;
         }
       }
       m.globalAlpha = 1;
-      ribbon(0);
+      ribbon(0, 0);
       m.shadowBlur = 0;
       m.shadowOffsetX = 0;
       const dissolve = (u, _spanR, strength2, seedI) => {
@@ -1258,6 +1608,7 @@
       drawnMax = 0;
     }
     if (!pinched && !cancelling) arcStart = null;
+    if (!pinched && !cancelling) ccwLatch = null;
     if (!pinched && !cancelling) softFit = null;
     if (!portalUp) placedOk = false;
     if (!portalUp) {
@@ -1364,7 +1715,8 @@
       const want = !portalUp && fitC && recognised ? 0.12 + 0.88 * reveal : 0;
       mirrorAmt += (want - mirrorAmt) * (want > mirrorAmt ? 0.15 : 0.09);
       if (recognised) {
-        openCcw = p.sweep < 0;
+        if (ccwLatch === null && p.direction) ccwLatch = p.direction === "ccw";
+        openCcw = ccwLatch ?? p.sweep < 0;
         const dirS = openCcw ? -1 : 1;
         const headAng = p.endAngle ?? 0;
         if (arcStart === null && fitC && stroke.length > 2) {
@@ -1404,6 +1756,7 @@
         const Rv = Math.max(4, fitC.r * RPX);
         const drawnNow = (1 - openGap) * Math.PI * 2;
         const leadNow = holdOld + (openCcw ? -1 : 1) * drawnNow;
+        openGapFrom = leadNow;
         paintMirror(cvx, cvy, Rv, mirrorAmt, leadNow, openGap, openCcw, 1, lastFill, 1);
       }
       ctx.globalCompositeOperation = "lighter";
