@@ -570,11 +570,30 @@ function frame(now: number) {
       //      50%         0.82 R           0.50 R
       //      75%         0.55 R           0.25 R
       //     100%         0.00 R           0.00 R   they meet
+      // NOT LINEAR. "linear looks to engineered", and it does, because a
+      // linear wind steps the radius by the same amount every sample. At half
+      // drawn, the step between quarter points:
+      //
+      //     linear    0.062  0.062  0.062  0.062
+      //     u^2.4     0.009  0.038  0.078  0.125
+      //
+      // Four identical steps is a machine. Each step two to three times the
+      // last is the constant-factor growth a real spiral has, so it hugs the
+      // rim where it began and dives as it comes round to the fingers:
+      //
+      //     u        0.00   0.25   0.50   0.75   1.00
+      //     linear   0.750  0.688  0.625  0.562  0.500
+      //     u^2.4    0.750  0.741  0.703  0.625  0.500
+      //
+      // `spiral` still unwinds the whole thing to a uniform depth as the
+      // portal opens, and the ends still meet at fill = 1, because the wind
+      // term is blended by (1 - fill) and vanishes there.
       const depthAt = (u: number) => {
-        const wind = 1 + 1.5 * (1 - u) * spiral;
+        const wound = Math.pow(u, 2.4) * spiral + (1 - spiral);
+        const g = wound * (1 - f) + f;
         const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950)
                         + 0.028 * Math.sin(u * 15.7 - now / 1500);
-        return Math.max(0, Math.min(1, Math.pow(f, wind))) * rough;
+        return Math.max(0, Math.min(1, f * g)) * rough;
       };
 
       ctx.globalCompositeOperation = "destination-out";
