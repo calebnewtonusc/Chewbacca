@@ -132,6 +132,28 @@ let drawnMax = 0;
 // A CANCEL IS AN ANIMATION, NOT AN EVENT. True from the frame the fingers
 // open until the line has finished retracting back to where it started.
 let cancelling = false;
+// WHERE THE SPIRAL BEGINS. The angle at which the drawn line first joined
+// the circle, held for the life of the gesture.
+//
+// "The beginning of the spiral should start at the beginning of where the
+// line gets drawn on the circle, not the beginning of the arc we measured to
+// conclude that a circle should be started."
+//
+// The trailing edge used to be derived, aNew minus everything the detector
+// had measured. The detector starts counting at the first movement of the
+// pinch, which includes the lead-in wander before any circle existed, so the
+// spiral began at a point on the rim where nothing had ever been drawn.
+// Recorded instead, once, from the oldest point of the stroke at the moment
+// the line snaps on.
+let arcStart: number | null = null;
+// Radians travelled from arcStart to the leading edge, monotonic, lap-aware.
+let arcSpan = 0;
+// Points of line to drop per frame during a cancel, fixed when it begins so
+// the retraction is LINEAR rather than an exponential ease.
+let cancelEat = 0;
+// How many frames a cancel takes. Matched to CLOSE_MS so an abandoned circle
+// and a closing portal retract at the same speed.
+const CANCEL_FRAMES = 37;
 // Where the circle BEGAN, held. A cancelled circle winds back toward this
 // point, so the angle that has to survive the cancel is the start and not the
 // leading edge.
@@ -513,7 +535,7 @@ function frame(now: number) {
         text: `demo ${demoName} t=${demoT.toFixed(1)} phase=${state.phase}`
           + ` lm=${latest ? "yes" : "NO"} pinch=${lastPinched ? "yes" : "NO"}`
           + ` sweep=${Math.abs(lastProgress.sweep).toFixed(2)}/5.40`
-          + ` round=${lastProgress.roundness.toFixed(2)}`,
+          + ` round=${lastProgress.roundness.toFixed(2)}`
       });
     }
   } else if (demoName) {
@@ -781,7 +803,31 @@ function frame(now: number) {
     // boundary is at its largest and most visible. A floor keeps it soft
     // while any of the circle is unfilled, and it still reaches exactly zero
     // once the portal is open, because cloud does.
-    const blurPx = cloud > 0.002 ? Math.max(Rp * 0.09, Rp * 0.16 * cloud) : 0;
+    // THE SOFT EDGE IS AS BIG AS THE HOLE, SO IT COLLAPSES WITH IT.
+    //
+    // "The white fog ends up circling around the midpoint between the
+    // outside and the middle, and that shouldn't be a thing, it should
+    // collapse as the circle starts to close."
+    //
+    // The blur was a fraction of the PORTAL's radius with a floor of 9% of
+    // it. The floor was added to stop the edge hardening into a cut near the
+    // end, and it does, but it also means the softness stays the same width
+    // while the thing it is softening shrinks to nothing. At 95% filled the
+    // unfilled hole is 18% of the radius and the blur is 17% of it: the blur
+    // is the whole hole, which is why it reads as a band of fog sitting at
+    // mid radius rather than as an edge. Then cloud crosses 0.002 and it
+    // snaps to zero.
+    //
+    // Measured against the hole instead. `hole` is the fraction of the
+    // radius still unfilled, the same quantity the spiral's own inner edge
+    // is built from, so the softness is always a proportion of the edge it
+    // belongs to. It shrinks as the hole shrinks and arrives at zero at the
+    // same moment, continuously, with nothing left to snap.
+    const hole = Math.max(0, 1 - Math.pow(Math.max(0, Math.min(1, fill)), 2.5));
+    // Small now. The inward softness is the stamped fog below, which is
+    // asymmetric and moves with the edge; this is only here to keep the rim
+    // and the two end caps from reading as cut paper.
+    const blurPx = cloud > 0.002 ? Math.max(1, Rp * hole * 0.14 * cloud) : 0;
     const pad = Math.max(16, blurPx * 2.6);
     const size = Math.ceil(2 * Rp + pad * 2);
     if (maskCv.width !== size || maskCv.height !== size) {
@@ -852,7 +898,26 @@ function frame(now: number) {
     // further out than the rim.
     const lead = Math.pow(f, 2.5);
     const depthAt = (u: number) => {
-      const wind = 1 + 1.6 * Math.pow(1 - u, 1.6) * spiral;
+      // AND IT UNWINDS INTO A CIRCLE AS IT FINISHES, OR THE HOLE CLOSES
+      // AGAINST THE RIM. "The completion animation is going the opposite
+      // direction lmfao."
+      //
+      // wind makes the inner edge a spiral: shallow where the circle began,
+      // deepest at the leading edge, which is the shape asked for ("the
+      // beginning of the spiral should be further from the center than the
+      // end of it"). But it was at full strength for the whole draw, so the
+      // shallow end stayed shallow to the last frame. The final scrap left
+      // to fill was therefore a crescent lying against the rim near the
+      // start angle, and the reveal closed OUTWARD onto the edge instead of
+      // inward onto the middle.
+      //
+      // Relaxed by how far the fill has got. Early it is a full spiral;
+      // approaching completion wind goes to 1 at every u, the inner edge
+      // becomes concentric, and what is left is a disc in the middle that
+      // shrinks to a point. The same clause is the other half of "both of
+      // them scaling with progression to meet at 100%": the two ends of the
+      // spiral converge because the thing separating them is fading.
+      const wind = 1 + 1.6 * Math.pow(1 - u, 1.6) * spiral * (1 - lead);
       // IRREGULAR, NOT ANIMATED. "that blue semi circle cutout on the right
       // keeps oscillating back and forth, revealing the desktop behind it in
       // waves."
@@ -873,7 +938,22 @@ function frame(now: number) {
       // for the life of the gesture. The pattern is nailed to the screen and
       // the arc grows through it.
       const thAbs = aOld + dir * u * drawnAng;
-      const rough = 1 + 0.045 * Math.sin(thAbs * 9.1) + 0.028 * Math.sin(thAbs * 15.7);
+      // AND IT HAS TO REACH EXACTLY ONE, OR THERE IS A STAR IN THE MIDDLE.
+      //
+      // "It ends with a little star in the middle."
+      //
+      // This roughness multiplies the depth, and it dips to 0.927 at its
+      // troughs. At full fill the depth should be 1 everywhere, which puts
+      // the spiral's inner edge at the centre and leaves no hole. Multiplied
+      // by 0.927 it stops at 0.927, so a disc 7.3% of the radius across
+      // never fills: on a 450px portal that is a 33px speck sitting dead
+      // centre for as long as the portal is open.
+      //
+      // Faded out by how far the fill has got, so the edge is as irregular
+      // as before while there is anything left to fill, and is exactly
+      // smooth at the instant there is not. Nothing survives completion.
+      const wob = 1 - lead;
+      const rough = 1 + (0.045 * Math.sin(thAbs * 9.1) + 0.028 * Math.sin(thAbs * 15.7)) * wob;
       return Math.max(0, Math.min(1, Math.pow(lead, wind))) * rough;
     };
 
@@ -931,25 +1011,96 @@ function frame(now: number) {
       }
     };
 
+    // The ribbon, with its inner edge optionally pushed further toward the
+    // centre. reach 0 is the spiral's true edge; reach 1 would take it all
+    // the way in.
+    const innerAt = (u: number, reach: number) =>
+      Math.max(0, Rp * (1 - depthAt(u)) * (1 - reach));
+    const ribbon = (reach: number) => {
+      m.beginPath();
+      for (let i = 0; i <= STEPS; i++) {
+        const q = ptAt(i / STEPS, Rp);
+        if (i) m.lineTo(q.x, q.y); else m.moveTo(q.x, q.y);
+      }
+      capTo(ptAt(1, Rp), ptAt(1, innerAt(1, reach)), dir);
+      for (let i = STEPS; i >= 0; i--) {
+        const u = i / STEPS;
+        const q = ptAt(u, innerAt(u, reach));
+        m.lineTo(q.x, q.y);
+      }
+      capTo(ptAt(0, innerAt(0, reach)), ptAt(0, Rp), -dir);
+      m.closePath();
+      m.fill();
+    };
+
     m.fillStyle = "#fff";
-    m.beginPath();
-    // Outer boundary: the rim, across the part already drawn.
-    for (let i = 0; i <= STEPS; i++) {
-      const q = ptAt(i / STEPS, Rp);
-      if (i) m.lineTo(q.x, q.y); else m.moveTo(q.x, q.y);
+
+    // THE FOG IS PUSHED AHEAD OF THE EDGE, INTO THE MIDDLE, AND SQUEEZED OUT.
+    //
+    // "As the outside of the circle expands toward the middle, especially at
+    // the end, it should push/fade the fog away toward the middle, with
+    // there being none left at the end."
+    //
+    // A blur cannot do this. A blur is symmetric: it spreads the edge the
+    // same distance outward into what is already revealed and inward into
+    // what is not, so the soft band straddles the boundary and sits still
+    // while the boundary moves. That is the band of fog hanging at mid
+    // radius.
+    //
+    // Built out of the ribbon itself instead. The same shape is stamped
+    // several times at low alpha, each one reaching a little further toward
+    // the centre than the last. Where many stamps overlap, just inside the
+    // edge, the alpha accumulates to solid; the deepest stamp is covered
+    // once and is nearly transparent. The result is a graded band that lives
+    // entirely on the UNREVEALED side of the edge and moves with it.
+    //
+    // Two properties come free, and both are things asked for before:
+    //
+    //   It cannot touch the middle early. The band's depth is a fraction of
+    //   the hole that is left, so when the hole is large the fog is a rim
+    //   around it and the centre is untouched. "The middle shouldn't even be
+    //   touched until the very end."
+    //
+    //   It cannot survive completion. The hole reaches zero, so the band
+    //   reaches zero with it, continuously, rather than being switched off.
+    //   "There should be 0 dissolve at the end anywhere."
+    //
+    // 0.38 of the remaining hole is deep enough to read as fog and shallow
+    // enough to leave the middle alone while there is any middle left.
+    // NO CONTOUR ANYWHERE IN IT, OR IT IS A BUBBLE. "The fog looks like a
+    // bubble forming and then popping lol."
+    //
+    // The first version stamped at a flat alpha. A flat alpha means the
+    // deepest stamp puts a hard step from nothing to 0.3 at its own edge,
+    // and a hard step along a closed curve is a skin. It read as a bubble
+    // because it WAS one: a shape with a rim, inflating and then vanishing.
+    //
+    // So the alpha per stamp is solved rather than chosen. Pick the coverage
+    // the band should have at each depth, T going from 1 at the edge to
+    // exactly 0 at the deepest, then invert the compositing to get the alpha
+    // that lands on it:
+    //
+    //     coverage after a stamp   C' = C + a(1 - C)
+    //     so the alpha needed is   a  = (T - C) / (1 - C)
+    //
+    // The deepest stamp asks for T = 0 and therefore draws nothing at all,
+    // which is the point: the band has no outer boundary to see. The 1.4
+    // exponent front-loads the ramp so it is densest against the edge and
+    // trails away, which is how fog behaves and is also what stops the
+    // midpoint of the band reading as a line.
+    const FOG_STAMPS = 14;
+    let covered = 0;
+    for (let j = FOG_STAMPS; j >= 1; j--) {
+      const target = Math.pow(1 - j / FOG_STAMPS, 1.4);
+      const a = (target - covered) / (1 - covered);
+      if (a > 0.002) {
+        m.globalAlpha = Math.min(1, a);
+        ribbon((j / FOG_STAMPS) * 0.38);
+        covered = target;
+      }
     }
-    // Round the leading end, across the full depth of the spiral there.
-    capTo(ptAt(1, Rp), ptAt(1, Math.max(0, Rp * (1 - depthAt(1)))), dir);
-    // Inner boundary: the spiral, back the other way.
-    for (let i = STEPS; i >= 0; i--) {
-      const u = i / STEPS;
-      const q = ptAt(u, Math.max(0, Rp * (1 - depthAt(u))));
-      m.lineTo(q.x, q.y);
-    }
-    // And round the end where the circle began.
-    capTo(ptAt(0, Math.max(0, Rp * (1 - depthAt(0)))), ptAt(0, Rp), -dir);
-    m.closePath();
-    m.fill();
+    m.globalAlpha = 1;
+    ribbon(0);
     m.shadowBlur = 0; m.shadowOffsetX = 0;
 
     // THE ENDS DISSOLVE, THEY ARE NOT CAPPED. "The edge of the radial cut
@@ -1263,19 +1414,29 @@ function frame(now: number) {
     // retracts on the same 0.10 ease so the two stay locked together. The
     // spiral, the sparks and the tangent all read `stroke`, so they follow
     // it home without knowing anything about cancelling.
+    // LINEAR, AND FIXED WHEN THE CANCEL BEGINS.
+    //
+    // 10% of the remaining length per frame was an exponential, the same
+    // shape the arc used to unwind on, and it has the same fault: the line
+    // rushes away from the fingers and then the last few points crawl. A
+    // constant number of points a frame retracts at constant speed along
+    // the path, which is what "linearly around the circumference" means for
+    // the line as well as for the arc.
+    //
+    // Computed once from the length at the moment the fingers opened, so
+    // the whole retraction lands in CANCEL_FRAMES however long the line is,
+    // matching the arc and the depth beside it.
+    if (!cancelling) cancelEat = Math.max(1, Math.ceil(stroke.length / CANCEL_FRAMES));
     cancelling = true;
-    // EXACTLY 10% A FRAME, the same rate the mirror's arc and depth ease
-    // back on, so the line and the spiral arrive home together. An earlier
-    // floor of 2 points broke that on short strokes: 40 points reeled in
-    // over 0.25s against the mirror's 0.63s, so the line beat the spiral
-    // home and the last of the unwind played against nothing. `ceil` is
-    // already never less than 1, so no floor is needed to terminate.
-    const eat = Math.ceil(stroke.length * 0.10);
-    stroke.length = Math.max(0, stroke.length - eat);
-    if (stroke.length < 3) { stroke = []; cancelling = false; softFit = null; }
+    stroke.length = Math.max(0, stroke.length - cancelEat);
+    if (stroke.length < 3) {
+      stroke = []; cancelling = false; softFit = null; arcStart = null; arcSpan = 0;
+    }
   } else if (cancelling) {
     cancelling = false;
     softFit = null;
+    arcStart = null;
+    arcSpan = 0;
   }
 
   let p: CircleProgress;
@@ -1463,6 +1624,7 @@ function frame(now: number) {
   // the instant the fingers opened left the retraction with no circle to
   // retract along, which is half of why a cancel just blinked out.
   if (!pinched) { trimmedAtLatch = false; announcedAtLatch = false; recognisedLatch = false; drawnMax = 0; }
+  if (!pinched && !cancelling) arcStart = null;
   if (!pinched && !cancelling) softFit = null;
   if (!portalUp) placedOk = false;
   if (!portalUp) { settleX = 0; settleV = 0; arcX = 0; arcV = 0; }
@@ -1781,26 +1943,78 @@ function frame(now: number) {
       // Arc already drawn does not un-draw. The extent only ever grows
       // within one pinch, and resets when the fingers open. Noise can no
       // longer take anything back, and the edge can only advance.
-      drawnMax = Math.max(drawnMax, Math.min(1, Math.abs(p.sweep) / (Math.PI * 2)));
+      openCcw = p.sweep < 0;
+      const dirS = openCcw ? -1 : 1;
+      const headAng = p.endAngle ?? 0;
+
+      // THE SPIRAL BEGINS WHERE THE LINE JOINED THE CIRCLE.
+      //
+      // Recorded once, from the OLDEST point still in the stroke at the
+      // moment the line snaps on, which is the oldest part of the line the
+      // eye can see sitting on the rim. The detector's own start is further
+      // back, in the lead-in wander before there was a circle at all, and
+      // anchoring there put the trailing edge on a stretch of rim where
+      // nothing had ever been drawn.
+      if (arcStart === null && fitC && stroke.length > 2) {
+        const o = stroke[0];
+        arcStart = Math.atan2(my(o.ry) - my(fitC.cy), mx(o.rx) - mx(fitC.cx));
+        arcSpan = 0;
+      }
+
+      // Span from that origin to the leading edge, unwrapped so it can pass
+      // a full turn, and monotonic so hand noise cannot shorten it.
+      if (arcStart !== null) {
+        let raw = (headAng - arcStart) * dirS;
+        while (raw < 0) raw += Math.PI * 2;
+        const laps = Math.floor(arcSpan / (Math.PI * 2));
+        const cand = raw + laps * Math.PI * 2;
+        arcSpan = Math.max(arcSpan,
+          cand < arcSpan - Math.PI ? cand + Math.PI * 2 : cand);
+      }
+
+      drawnMax = Math.max(drawnMax,
+        arcStart !== null
+          ? Math.min(1, arcSpan / (Math.PI * 2))
+          : Math.min(1, Math.abs(p.sweep) / (Math.PI * 2)));
       const doneTurns = drawnMax;
       // Followed, not assigned. The fit moves a little every frame and the
       // boundary is a big shape, so even a correct change reads as a jerk
       // when it lands in one step.
       const gapTarget = Math.max(0, 1 - doneTurns);
       openGap += (gapTarget - openGap) * 0.3;
-      openCcw = p.sweep < 0;
       lastFill += (doneTurns - lastFill) * 0.3;
-      // Angles take the short way round, or the boundary sweeps the long way
-      // whenever the fit crosses PI.
-      const oldTarget = (p.endAngle ?? 0) - (openCcw ? -1 : 1) * doneTurns * Math.PI * 2;
+      // HELD, NOT DERIVED. This was headAng minus everything measured, so
+      // every correction to the measurement moved the trailing edge. It is
+      // now the recorded origin, and the easing below only absorbs drift in
+      // the fitted centre. Angles take the short way round, or the boundary
+      // sweeps the long way whenever the fit crosses PI.
+      const oldTarget = arcStart ?? (headAng - dirS * doneTurns * Math.PI * 2);
       let d = oldTarget - holdOld;
       while (d > Math.PI) d -= Math.PI * 2;
       while (d < -Math.PI) d += Math.PI * 2;
       holdOld += d * 0.3;
     } else if (mirrorAmt > 0.006) {
-      // Unwinding. Depth back to the rim and arc back to the start point.
-      lastFill += (0 - lastFill) * 0.10;
-      openGap += (1 - openGap) * 0.10;
+      // UNWINDING, LINEARLY, AND THE SPIRAL PLAYED BACKWARDS.
+      //
+      // "When the arc is cancelled and the line goes away, it should be done
+      // linearly around the circumference, and the animation should play in
+      // reverse for the spiral to scale down and disappear."
+      //
+      // Both of these used to be exponential eases toward a target. An ease
+      // covers most of the distance immediately and then crawls, so the
+      // leading edge tore away from the finger and the last third of the arc
+      // took as long as the first two thirds. Around a circumference that
+      // reads as a slip, not a retraction.
+      //
+      // A constant angular rate instead: the leading edge sweeps back at the
+      // same speed the whole way, and it takes proportionally less time for
+      // less arc, which is what constant speed means.
+      openGap = Math.min(1, openGap + 1 / CANCEL_FRAMES);
+      // AND THE SPIRAL IN REVERSE, EXACTLY. On the way in the depth tracked
+      // how much of the circle was drawn. On the way out it tracks the same
+      // quantity as the arc gives it back, so the spiral unwinds along the
+      // identical path it wound, rather than fading on a curve of its own.
+      lastFill = Math.max(0, 1 - openGap);
     }
 
     if (fitC && !portalUp && mirrorAmt > 0.006) {
