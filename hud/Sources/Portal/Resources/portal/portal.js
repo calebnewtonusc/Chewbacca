@@ -1233,6 +1233,14 @@
         for (let i = 1; i < SP.length; i++) ctx.lineTo(SP[i].x, SP[i].y);
       };
       strokeDrawnThisFrame = !portalUp;
+      const hideInside = fitC && mirrorAmt > 0.01;
+      if (hideInside) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, W, H);
+        ctx.arc(mx(fitC.cx), my(fitC.cy), Math.max(2, fitC.r * RPX * 0.99), 0, Math.PI * 2);
+        ctx.clip("evenodd");
+      }
       if (!portalUp) {
         ctx.shadowBlur = 10 + 22 * k;
         ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
@@ -1247,6 +1255,7 @@
         ctx.stroke();
       }
       ctx.shadowBlur = 0;
+      if (hideInside) ctx.restore();
       const boundShare = Math.min(0.4, conf * conf * 0.45);
       const bindMaybe = () => Math.random() < boundShare;
       if (fitC && conf > 0.05 && !portalUp) {
@@ -1475,14 +1484,12 @@
       ctx.lineTo(sp.x - sp.vx / speed * len, sp.y - sp.vy / speed * len);
       ctx.stroke();
     }
-    if (portalUp && now - lastInsideCheck > 1e3) {
+    if (pinched && p.progress > 0.75 && now - lastInsideCheck > 700) {
       lastInsideCheck = now;
-      if (sparksInHole > 0 || strokeDrawnThisFrame) {
-        window.webkit?.messageHandlers?.portal?.postMessage({
-          event: "log",
-          text: `inside the portal: ${sparksInHole} sparks, stroke drawn ${strokeDrawnThisFrame}`
-        });
-      }
+      window.webkit?.messageHandlers?.portal?.postMessage({
+        event: "log",
+        text: `phase=${S.phase} progress=${p.progress.toFixed(2)} sweep=${Math.abs(p.sweep).toFixed(2)}/5.40 round=${p.roundness.toFixed(2)}/0.55 r=${p.radius.toFixed(3)} sparksInHole=${sparksInHole}`
+      });
     }
     sparks = alive.length > 1400 ? alive.slice(-1400) : alive;
   }

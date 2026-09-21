@@ -1565,7 +1565,31 @@ function frame(now: number) {
     // refused while a portal is open, so the line was promising a second
     // portal the reducer would never grant. The stroke belongs to drawing a
     // circle, and with one already open there is no circle to draw.
+    // THE LINE NEVER CROSSES THE PORTAL. "That line does not belong there
+    // during the drawing!!!"
+    //
+    // The stroke is the whole path the hand has taken, and a hand drawing a
+    // circle wanders inside it: the lead-in, the part before the fit settled,
+    // anything that cut the corner. Those points sat on top of the mirror as
+    // a thin curve with a blob on its end, which is what the close-up showed.
+    //
+    // Hiding it only once a portal OPENED was the wrong condition. It does
+    // not belong there the moment the other side is visible, which is from
+    // half a turn, long before anything opens.
+    //
+    // Clipped to outside the circle rather than trimmed from the path,
+    // because which points are inside changes every frame as the fit moves,
+    // and a geometric test per point would have to agree with the mirror's
+    // geometry exactly or leave slivers.
     strokeDrawnThisFrame = !portalUp;
+    const hideInside = fitC && mirrorAmt > 0.01;
+    if (hideInside) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, W, H);
+      ctx.arc(mx(fitC.cx), my(fitC.cy), Math.max(2, fitC.r * RPX * 0.99), 0, Math.PI * 2);
+      ctx.clip("evenodd");
+    }
     if (!portalUp) {
       ctx.shadowBlur = 10 + 22 * k;
       ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
@@ -1579,6 +1603,7 @@ function frame(now: number) {
       path(); ctx.stroke();
     }
     ctx.shadowBlur = 0;
+    if (hideInside) ctx.restore();
 
     // BINDING IS A PROPORTION, NOT A SWITCH. A spark bound to the circle
     // is pulled onto it; an unbound one drifts and dies where it was born.
@@ -1956,14 +1981,25 @@ function frame(now: number) {
   // the last attempt was aimed at sparks on the strength of a guess. This
   // says what is inside an open portal rather than assuming: how many sparks,
   // and whether the stroke path ran this frame.
-  if (portalUp && now - lastInsideCheck > 1000) {
+  // WHY A CIRCLE THAT LOOKS FINISHED IS NOT FINISHING.
+  //
+  // The first version of this only reported while portalUp, and it said the
+  // stroke was being drawn, which means portalUp was FALSE: what looked like
+  // an open portal in the screenshots was the drawing preview all along, with
+  // the mirror nearly filled and the line correctly still on it.
+  //
+  // So the question is not what is drawn inside a portal. It is why the
+  // gesture does not complete. Completion needs three things and this says
+  // which one is missing.
+  if (pinched && p.progress > 0.75 && now - lastInsideCheck > 700) {
     lastInsideCheck = now;
-    if (sparksInHole > 0 || strokeDrawnThisFrame) {
-      window.webkit?.messageHandlers?.portal?.postMessage({
-        event: "log",
-        text: `inside the portal: ${sparksInHole} sparks, stroke drawn ${strokeDrawnThisFrame}`,
-      });
-    }
+    window.webkit?.messageHandlers?.portal?.postMessage({
+      event: "log",
+      text: `phase=${S.phase} progress=${p.progress.toFixed(2)} `
+        + `sweep=${Math.abs(p.sweep).toFixed(2)}/5.40 `
+        + `round=${p.roundness.toFixed(2)}/0.55 `
+        + `r=${p.radius.toFixed(3)} sparksInHole=${sparksInHole}`,
+    });
   }
   sparks = alive.length > 1400 ? alive.slice(-1400) : alive;
 }
