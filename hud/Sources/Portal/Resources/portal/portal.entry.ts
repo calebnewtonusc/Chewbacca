@@ -151,6 +151,13 @@ let ccwLatch: boolean | null = null;
 // When the pinch last genuinely read true, and where the cursor was then.
 let lastPinchAt = 0;
 let heldCursor: { x: number; y: number } | null = null;
+// The hand's angular speed while drawing, radians a second, and the samples
+// it is measured from. The ignition finishes the arc at this rate.
+let handRate = 0;
+let rateAt = 0;
+let rateSpan = 0;
+// The arc still to close once the portal has opened, swept shut at handRate.
+let igniteGap = 0;
 // True from the frame a forming portal stops being a circle, until the line
 // has finished reeling back in. Distinct from `cancelling`, which is the
 // fingers opening; this one happens with the hand still down.
@@ -412,7 +419,21 @@ const LATCH_AT = 0.8;
 // the opening condition any more: see the detector above. A full turn from
 // the initiation point is what opens a portal.
 const SWEEP_TO_RECOGNISE = 5.4;
-const SWEEP_TO_OPEN = Math.PI * 2;
+// THREE QUARTERS OF A TURN AFTER INITIATION. "Let's do 270, and then the
+// rest goes at the same rate you were going."
+//
+//   radius   initiate   + 270   total
+//    0.06      114 deg          384 deg
+//    0.15       90 deg          360 deg
+//    0.30       51 deg          321 deg
+//    0.40       31 deg          301 deg
+//
+// This is the version that needs no compromise. The mask stays exactly on
+// the line for the whole draw, because the angular extent tracks the hand
+// one to one; the portal opens with 90 degrees still to go; and the
+// ignition sweeps that last quarter closed at the speed the hand was
+// travelling. Nothing leads the finger and nothing jumps.
+const SWEEP_TO_OPEN = Math.PI * 1.5;
 // How long a gesture survives the pinch reading false. See the pinch gate.
 const PINCH_GRACE_MS = 200;
 let lastSeen = 0;
@@ -1932,6 +1953,18 @@ function frame(now: number) {
   if (!portalUp) placedOk = false;
   if (!portalUp) { settleX = 0; settleV = 0; arcX = 0; arcV = 0; }
   if (portalUp) stroke = [];
+  // THE LAST QUARTER KEEPS GOING AT THE HAND'S SPEED. Seeded on the frame
+  // the portal opens with whatever arc is still open, then swept shut at
+  // the angular rate the hand was travelling, so the sweep does not change
+  // pace at the handover and nothing has to be faked closed.
+  if (portalUp && prevPhase !== "igniting" && prevPhase !== "open"
+      && prevPhase !== "closing") {
+    igniteGap = openGap;
+  }
+  if (portalUp && igniteGap > 0) {
+    const rate = Math.max(1.2, Math.abs(handRate));   // rad/s, floored
+    igniteGap = Math.max(0, igniteGap - (rate * frameDt) / (Math.PI * 2));
+  }
   if (!portalUp && prevPhase === "closing") {
     // The detector no longer resets itself on completion, so a closed
     // portal has to clear the recorded origin too or the next circle would
@@ -2316,12 +2349,20 @@ function frame(now: number) {
     //
     // Measured in ARC, not time. Thirty five degrees of drawing during
     // which the fitted radius never moved more than 12%.
+    // MEASURED ON THE DETECTOR'S SWEEP, NOT ON arcSpan. arcSpan only
+    // advances inside the recognised branch below, and recognising requires
+    // this gate, so measuring the settling window in arcSpan was a deadlock:
+    // arcSpan stayed at zero, the window never opened, nothing was ever
+    // recognised, and a circle drawn through 2657 degrees at 0.92 roundness
+    // was refused. The detector's sweep is running the whole time and is
+    // the same quantity in the same units.
     const rNow = fitC ? fitC.r : 0;
+    const sweepNow = Math.abs(p.sweep);
     if (fitRRef <= 0 || Math.abs(rNow - fitRRef) / Math.max(rNow, 1e-4) > 0.12) {
       fitRRef = rNow;
-      fitJumpAt = arcSpan;
+      fitJumpAt = sweepNow;
     }
-    const fitSettled = arcSpan - fitJumpAt > 0.6;
+    const fitSettled = sweepNow - fitJumpAt > 0.6;
 
     if (!fitSettled) recognisedLatch = false;
     else if (p.roundness >= 0.42) recognisedLatch = true;
@@ -2440,11 +2481,30 @@ function frame(now: number) {
       // other side; it only lights the ring. It also means the spill closes
       // its own gap slightly before the hand finishes the circle, which is
       // the same liquid behaviour the reach already gives it.
-      drawnMax = Math.max(drawnMax,
-        arcStart !== null
-          ? Math.min(1, arcSpan / SWEEP_TO_OPEN)
-          : Math.min(1, Math.abs(p.sweep) / SWEEP_TO_OPEN));
+      // TWO QUANTITIES, NOT ONE. The angular extent of the reveal and how
+      // deep it has eaten used to be the same number, which forced a choice
+      // between the mask following the line and the reveal being finished
+      // when the portal opens. They are separate:
+      //
+      //   the ARC follows the hand exactly, one degree drawn is one degree
+      //   revealed, so the mask's edge is the line's edge
+      //
+      //   the DEPTH completes over the 270 degrees that open the portal, so
+      //   the other side is at full depth the moment it opens
+      //
+      // What is left at that moment is the last 90 degrees of arc, and the
+      // ignition sweeps it closed at the rate the hand was going.
+      drawnMax = Math.max(drawnMax, Math.min(1, arcSpan / SWEEP_TO_OPEN));
       const doneTurns = drawnMax;
+      const drawnArc = Math.min(1, arcSpan / (Math.PI * 2));
+
+      // The hand's angular speed, for the ignition to continue at. Measured
+      // over a quarter second so one jittery frame cannot set it.
+      if (now - rateAt > 250) {
+        if (rateAt > 0) handRate = (arcSpan - rateSpan) / ((now - rateAt) / 1000);
+        rateAt = now;
+        rateSpan = arcSpan;
+      }
       // Followed, not assigned. The fit moves a little every frame and the
       // boundary is a big shape, so even a correct change reads as a jerk
       // when it lands in one step.
@@ -2469,7 +2529,7 @@ function frame(now: number) {
       // jitter in the measurement, and the ratchet above already removed
       // that jitter by refusing to let the extent go backwards, so nothing
       // is left for it to do.
-      openGap = Math.max(0, 1 - doneTurns);
+      openGap = Math.max(0, 1 - drawnArc);
       lastFill = doneTurns;
       // HELD, NOT DERIVED. This was headAng minus everything measured, so
       // every correction to the measurement moved the trailing edge. It is
@@ -2882,7 +2942,8 @@ function frame(now: number) {
         // leading end catches up, and by the end the depth is uniform and the
         // whole circle is the other side.
         paintMirror(cx0, cy0, rpx, 1 - shut2,
-          openGapFrom, openGap * (1 - arcClose), openCcw, 1 - clearing,
+          // The hand's own rate, not a spring. See igniteGap.
+          openGapFrom, igniteGap, openCcw, 1 - clearing,
           lastFill + (1 - lastFill) * closing, 1 - closing);
       }
 

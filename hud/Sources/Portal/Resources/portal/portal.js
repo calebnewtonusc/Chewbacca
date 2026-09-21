@@ -1176,6 +1176,10 @@ void main() {
   var ccwLatch = null;
   var lastPinchAt = 0;
   var heldCursor = null;
+  var handRate = 0;
+  var rateAt = 0;
+  var rateSpan = 0;
+  var igniteGap = 0;
   var breaking = false;
   var formingLast = false;
   var fitRRef = 0;
@@ -1296,7 +1300,7 @@ void main() {
   }
   var LATCH_AT = 0.8;
   var SWEEP_TO_RECOGNISE = 5.4;
-  var SWEEP_TO_OPEN = Math.PI * 2;
+  var SWEEP_TO_OPEN = Math.PI * 1.5;
   var PINCH_GRACE_MS = 200;
   var lastSeen = 0;
   var armed = null;
@@ -1957,6 +1961,13 @@ void main() {
       arcV = 0;
     }
     if (portalUp) stroke = [];
+    if (portalUp && prevPhase !== "igniting" && prevPhase !== "open" && prevPhase !== "closing") {
+      igniteGap = openGap;
+    }
+    if (portalUp && igniteGap > 0) {
+      const rate = Math.max(1.2, Math.abs(handRate));
+      igniteGap = Math.max(0, igniteGap - rate * frameDt / (Math.PI * 2));
+    }
     if (!portalUp && prevPhase === "closing") {
       detector.reset();
       comet = [];
@@ -2059,11 +2070,12 @@ void main() {
       })();
       if (!pinched || p.progress < REVEAL_AT - 0.05) recognisedLatch = false;
       const rNow = fitC ? fitC.r : 0;
+      const sweepNow = Math.abs(p.sweep);
       if (fitRRef <= 0 || Math.abs(rNow - fitRRef) / Math.max(rNow, 1e-4) > 0.12) {
         fitRRef = rNow;
-        fitJumpAt = arcSpan;
+        fitJumpAt = sweepNow;
       }
-      const fitSettled = arcSpan - fitJumpAt > 0.6;
+      const fitSettled = sweepNow - fitJumpAt > 0.6;
       if (!fitSettled) recognisedLatch = false;
       else if (p.roundness >= 0.42) recognisedLatch = true;
       else if (p.roundness < 0.34) recognisedLatch = false;
@@ -2090,12 +2102,15 @@ void main() {
             cand < arcSpan - Math.PI ? cand + Math.PI * 2 : cand
           );
         }
-        drawnMax = Math.max(
-          drawnMax,
-          arcStart !== null ? Math.min(1, arcSpan / SWEEP_TO_OPEN) : Math.min(1, Math.abs(p.sweep) / SWEEP_TO_OPEN)
-        );
+        drawnMax = Math.max(drawnMax, Math.min(1, arcSpan / SWEEP_TO_OPEN));
         const doneTurns = drawnMax;
-        openGap = Math.max(0, 1 - doneTurns);
+        const drawnArc = Math.min(1, arcSpan / (Math.PI * 2));
+        if (now - rateAt > 250) {
+          if (rateAt > 0) handRate = (arcSpan - rateSpan) / ((now - rateAt) / 1e3);
+          rateAt = now;
+          rateSpan = arcSpan;
+        }
+        openGap = Math.max(0, 1 - drawnArc);
         lastFill = doneTurns;
         holdOld = arcStart ?? headAng - dirS * doneTurns * Math.PI * 2;
       } else if (mirrorAmt > 6e-3) {
@@ -2253,8 +2268,9 @@ void main() {
             cy0,
             rpx,
             1 - shut2,
+            // The hand's own rate, not a spring. See igniteGap.
             openGapFrom,
-            openGap * (1 - arcClose),
+            igniteGap,
             openCcw,
             1 - clearing,
             lastFill + (1 - lastFill) * closing,
