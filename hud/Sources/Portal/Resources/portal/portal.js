@@ -613,7 +613,7 @@
       p = IDLE_PROGRESS;
     }
     if (stroke.length) {
-      const keep = p.progress > 0.2 ? 260 : 34;
+      const keep = p.progress > 0.34 ? 260 : 16;
       while (stroke.length > keep) stroke.shift();
     }
     const prevPhase = state.phase;
@@ -734,7 +734,7 @@
         } : raw;
       }
       const fitC = drawing ?? softFit;
-      const conf = Math.max(0, Math.min(1, (p.progress - 0.2) / 0.25));
+      const conf = Math.max(0, Math.min(1, (p.progress - 0.34) / 0.26));
       const k = Math.pow(conf, 0.9);
       if (fitC) {
         const rate = 0.12 + 0.3 * conf;
@@ -822,7 +822,7 @@
           bindMaybe()
         );
       }
-      if (fitC && conf > 0.15) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
+      if (fitC && conf > 0.2) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
     }
     if (S.phase === "drawing" && p.center && p.startAngle !== null && p.progress > 0.16) {
       const LATCH_AT = 0.45;
