@@ -480,6 +480,47 @@ if group "installer"; then
   check  "setup calls the Serena seeder before installing plugins" \
     grep -q "seed-serena-config.sh" "$ROOT/setup.sh"
 
+  # Sagar, 2026-09-20, after installing: "i don't even know how to remove this
+  # agent", "seems like malware". uninstall.sh existed the whole time. The
+  # closing screen listed what Claude could now read and never said how to undo
+  # it, so the capability might as well not have shipped.
+  check  "the last screen says how to remove it" \
+    grep -q "chewbacca uninstall --dry-run" "$ROOT/setup.sh"
+
+  check  "removal is described as reading a manifest, not guessing" \
+    grep -q "install-manifest.json" "$ROOT/setup.sh"
+
+  # An earlier draft of that block said "this installer sends nothing anywhere",
+  # which is false: the GitHub path runs gh repo create and pushes twice. A
+  # reassuring sentence that is untrue costs more trust than saying nothing.
+  #
+  # Scoped to PRINTED lines, not comments. setup.sh says of Plynn that "speech
+  # recognition and cleanup both run on the Mac, nothing is uploaded", which is
+  # true of Plynn and is a note to a reader of the source. The rule is about
+  # blanket reassurance shown to a user who cannot check it.
+  check  "printed copy never claims nothing is uploaded" bash -c '
+    hits=$(grep -nE "^[[:space:]]*(echo|printf)" "$1/setup.sh" \
+      | grep -iE "sends nothing anywhere|nothing is upload|never uploads|no data leaves" || true)
+    [ -z "$hits" ] || { echo "$hits"; exit 1; }' _ "$ROOT"
+
+  # Caleb, 2026-09-21, handing over Proverbs: "this should dictate the way
+  # chewbacca lives. Not just as something deep in it's knowledge bank, but
+  # ingested into it's living infra on how to make decisions". A verse that only
+  # sits in methods/proverbs.md is the knowledge bank he ruled out, so the guard
+  # has to reach the block injected before work starts.
+  check  "every process carries its standing check into the injection" bash -c '
+    for m in debug experiment research creative decision build consolidated; do
+      "$1/bin/method" "$m" --terse | grep -q "^  STANDING   Prov " || {
+        echo "$m lost its standing check"; exit 1; }
+    done' _ "$ROOT"
+
+  # A process added to SIGNALS without a guard fails open and silently.
+  check  "no process was added without a standing check" bash -c '
+    sigs=$(grep -cE "^    \(.[a-z]+., r." "$1/bin/method")
+    guards=$(grep -cE "^    .[a-z]+.: \(" "$1/bin/method")
+    [ "$sigs" -gt 0 ] || { echo "process grep drifted"; exit 1; }
+    [ "$guards" -ge "$sigs" ] || { echo "$sigs processes, $guards guards"; exit 1; }' _ "$ROOT"
+
   check  "the portable profile installs skills" bash -c '
     sandbox="$(mktemp -d)"
     HOME="$sandbox" bash "$1/setup.sh" --profile portable --name CI >/dev/null 2>&1
