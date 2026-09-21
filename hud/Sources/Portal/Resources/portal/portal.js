@@ -1377,8 +1377,17 @@
       if (sp.bind && attract) {
         const Cx = mx(attract.cx), Cy = my(attract.cy), R = attract.r || 1;
         const dx = sp.x - Cx, dy = sp.y - Cy;
-        const dl = Math.hypot(dx, dy) || 1;
-        const nx = dx / dl, ny = dy / dl;
+        let dl = Math.hypot(dx, dy);
+        let nx, ny;
+        if (dl < 0.5) {
+          const a = Math.random() * Math.PI * 2;
+          nx = Math.cos(a);
+          ny = Math.sin(a);
+          dl = 0.5;
+        } else {
+          nx = dx / dl;
+          ny = dy / dl;
+        }
         if (dl < R) {
           sp.vx += nx * (R - dl) * 0.06;
           sp.vy += ny * (R - dl) * 0.06;
@@ -1395,6 +1404,7 @@
       sp.x += sp.vx;
       sp.y += sp.vy;
       sp.life -= sp.decay;
+      sp.life -= 4e-3;
       if (sp.life <= 0) continue;
       alive.push(sp);
       const speed = Math.hypot(sp.vx, sp.vy) || 1;
