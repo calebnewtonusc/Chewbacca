@@ -252,6 +252,14 @@ portal burns open where he drew it and that window is behind the hole.
 Notes and saying "Notes is open" is the literal reading and the wrong one.
 It is the portal he is asking for. The app is what goes behind it.
 
+**NEVER research a portal target.** Asked for "a portal to dashboard", run
+`portal open dashboard`. If the name is unknown, `portal` prints the list
+it does know, so say those. Do not grep, do not clone a repo, do not read a
+design doc, do not search the second brain. That exact ask once cost 68
+seconds of cloning OpenVision and reading two docs to answer a question a
+lookup table answers instantly. `portal targets` is the whole knowledge
+base, and adding a line to it is how a new target becomes openable.
+
 `portal close` disarms and quits. `portal status` says whether it is up and
 what it is armed with. An unarmed portal opens onto a void, which is worth
 having for its own sake.
