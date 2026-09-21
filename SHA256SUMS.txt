@@ -15,7 +15,7 @@ b171a2205fc3864dbe4057ce09bd5915b267c098480a184d77c7a9a9355ef87d  .claude/hooks/
 3112c3417166483f1bb58bee7ade978502cd7c707d2c33d1c637095cdf1550da  .claude/hooks/stop-check.sh
 4a95c5c590419c23989685b2b3122c54e09f8660237e8e03242cde51e022a03e  .claude/hooks/terminal-loop.sh
 a1403fdb87442604e8d9aecaadcff2b2de7f13bec444aeb7f69149ebb4b51723  .claude/hooks/ux-guard.sh
-8c9a53c17aad350ac3b82dddcb2c0085eb0e6b76e4695da849afd2f3b52e957b  .claude/hooks/write-log.sh
+87e25255eb0c878c9b363948c7b4f8139597da5b4081621718fb873027479b04  .claude/hooks/write-log.sh
 dc4e7733cbe795305be8ee8f06ec7bd0e1c71680e367bb393ceedf2e5f774995  .claude/hooks/youtube-transcript-ready.sh
 e4b82810d5060fd9f2b34d9e84aaa208bed2264db51851e8c6e7a16d530e33c7  add-skill.sh
 770ed9ddfeed0ca1b7b006e0d88961871857f74b9fc35ddb985760ddc48ed3f8  bin/ai-scan

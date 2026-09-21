@@ -138,7 +138,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|Bash|NotebookEdit",
         "hooks": [
           {
             "type": "command",
