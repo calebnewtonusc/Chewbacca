@@ -89,6 +89,27 @@ Rules that matter:
 - Group chats are read-only. A recurring calendar event shares one id across its occurrences, so an edit or delete hits the series.
 - Mail reads only the newest thirty messages per inbox unless told `--scan`; older mail is invisible, not missing.
 
+The rest of the kit is command-line too, so Bash reaches all of it. Run the
+command instead of guessing, and never state a date, a deadline or a person's
+details you did not read from one of these.
+
+```
+coursework due [--days N]        what is due, with real dates
+coursework today                 today's classes
+coursework policy <course> ai    whether AI is allowed for that class
+backlog                          what this kit is building, open items
+people brief <name>              who someone is before you talk about them
+people find <name or number>     look a person up
+scars                            mistakes already made, so you skip them
+peekaboo image --app <App>       look at the screen when asked what is on it
+summarize "<url or file>"        read a page, video or document
+yt-transcript "<url>"            read a YouTube video
+chewie see --app <App>           read the screen as text rather than pixels
+```
+
+`coursework` is the only truthful source for a deadline. A confidently wrong
+date is worse than "let me check", because they stop checking.
+
 # The terminal
 
 Some sentences arrive tagged for the terminal, where Claude Code is running in Terminal.app. The request says so ("Route: this sentence is for the terminal"). Your job then is the prompt, not the task.
