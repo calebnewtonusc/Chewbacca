@@ -33,23 +33,38 @@ question anyway.
 | `whats_due` | real deadlines from your syllabus ledger |
 | `course_ai_policy` | what a course allows regarding AI help |
 
-## Claude Desktop or Claude Code
+## You do not configure anything
 
-```json
-{
-  "mcpServers": {
-    "chewbacca": { "command": "/Users/YOU/.local/bin/chewbacca-mcp" }
-  }
-}
+`setup.sh` runs `chewbacca-mcp --register`, which writes the server into every
+MCP client already on the machine: Claude Desktop, Claude Code and Codex. You
+open the app and the tools are there. **No port, no URL, no JSON, no settings
+page.**
+
+That is the whole point, and an earlier version of this document got it wrong
+by leading with a localhost address. Caleb's response was the correct one:
+"that means someone would have to open a browser, that's terrible UX." Pasting
+a URL once is still once too many for somebody who does not know what a port
+is.
+
+Registration is idempotent and backs up each config to
+`<config>.before-chewbacca` first. It edits files other programs depend on,
+and a corrupted `claude_desktop_config.json` would stop *their* servers
+working, which is worse than this tool not being registered.
+
+To register by hand later, or after installing a new client:
+
+```
+chewbacca-mcp --register
 ```
 
-## A browser client that accepts a URL
+## The HTTP transport, for clients that take a URL
+
+Some browser clients accept a custom connector URL instead of launching a
+binary. For those only:
 
 ```
 chewbacca-mcp --http 7788
 ```
-
-Then point the connector at `http://127.0.0.1:7788`.
 
 **It binds to 127.0.0.1 and nothing else.** This serves an entire relationship
 history and message archive; binding to `0.0.0.0` would publish that to the

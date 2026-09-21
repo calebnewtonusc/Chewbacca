@@ -805,6 +805,15 @@ for _tool in hud hud-listen hud-context hud-watch chewbacca-mcp; do
     _installed_hud="$_installed_hud $_tool"
   fi
 done
+
+# Register the MCP server with every client already on this machine, so the
+# person never sees a port or pastes a URL. Caleb's reaction to the localhost
+# transport was "that means someone would have to open a browser, that's
+# terrible UX", and he was right: once is still once too many. Idempotent, and
+# it backs up each config before touching it.
+if [ -x "$HOME/.local/bin/chewbacca-mcp" ]; then
+  "$HOME/.local/bin/chewbacca-mcp" --register 2>/dev/null | sed 's/^/    /'
+fi
 if [ -n "$_installed_hud" ]; then
   log "Installed to ~/.local/bin/:$_installed_hud"
   # The commands are useless without the app that draws. Say so once, here,

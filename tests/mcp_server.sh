@@ -51,4 +51,26 @@ rpc "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\
 out="$(printf 'not json\n{"jsonrpc":"2.0","id":5,"method":"tools/list"}\n' | "$MCP" 2>/dev/null | tail -1)"
 echo "$out" | grep -q '"tools"' || fail "server did not recover from malformed input"
 
+# 6. --register must be idempotent and must not destroy an existing config.
+#    This writes files other programs depend on. A corrupted
+#    claude_desktop_config.json stops THEIR servers working, which is a worse
+#    outcome than this tool not being registered at all.
+tmp="$(mktemp -d)"
+mkdir -p "$tmp/Library/Application Support/Claude"
+cfg="$tmp/Library/Application Support/Claude/claude_desktop_config.json"
+printf '%s' '{"mcpServers":{"theirs":{"command":"/bin/true"}},"preferences":{"keep":"me"}}' > "$cfg"
+
+HOME="$tmp" "$MCP" --register >/dev/null 2>&1
+HOME="$tmp" "$MCP" --register >/dev/null 2>&1   # twice: must not duplicate
+
+python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert "theirs" in d["mcpServers"], "destroyed an existing server"
+assert d.get("preferences", {}).get("keep") == "me", "dropped an unrelated key"
+assert "chewbacca" in d["mcpServers"], "did not register itself"
+' "$cfg" || fail "--register damaged a config"
+
+[ -f "$cfg.before-chewbacca" ] || fail "--register did not back the config up"
+
 exit 0
