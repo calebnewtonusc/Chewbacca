@@ -48,6 +48,13 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
     private var armTimer: Timer?
     private static let armFile = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".chewbacca/portal-target")
+    /// How much parallax correction to apply, 0 to 1. A file rather than a
+    /// launch argument for the same reason the target is: the portal is
+    /// usually already running when somebody wants to change it, and finding
+    /// the right value means moving a hand and watching, not restarting.
+    private static let gainFile = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".chewbacca/portal-gain")
+    private var gain: Double?
 
     func applicationDidFinishLaunching(_: Notification) {
         // Bundle.main first, because that is where bundle-portal.sh puts the
@@ -120,8 +127,12 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         // second is imperceptible next to drawing a circle, and an FSEvents
         // stream for one path is more machinery than the problem deserves.
         readArm()
+        readGain()
         armTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
-            Task { @MainActor in self.readArm() }
+            Task { @MainActor in
+                self.readArm()
+                self.readGain()
+            }
         }
 
         // Esc quits. The panel never takes focus, so this is a global monitor
@@ -138,6 +149,9 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
     func webView(_: WKWebView, didFinish _: WKNavigation!) {
         ready = true
         applyArm()
+        if let g = gain {
+            web?.evaluateJavaScript("window.chewbaccaGain&&window.chewbaccaGain(\(g))")
+        }
     }
 
     /// `bin/portal open --app Notes` writes the name here; `portal close`
@@ -162,6 +176,16 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
                 _ = WindowPlacer.ensureRunning(appName: name)
             }
         }
+    }
+
+    private func readGain() {
+        let text = (try? String(contentsOf: Self.gainFile, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let text, let value = Double(text) else { return }
+        guard gain != value else { return }
+        gain = value
+        guard ready, let web else { return }
+        web.evaluateJavaScript("window.chewbaccaGain&&window.chewbaccaGain(\(value))")
     }
 
     private func applyArm() {

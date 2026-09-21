@@ -136,6 +136,22 @@ export const ROUGH_HAND_MM = 350;
  */
 export const DEPTH_ADAPT = 0.02;
 
+/**
+ * How much of the parallax correction to actually apply, 0 to 1.
+ *
+ * 0 is the raw camera point. 1 is the full eye-through-fingertip ray. The
+ * blend exists because the ray is geometrically right and practically
+ * aggressive: its gain is eyeZ / (eyeZ - fingerZ), about 2.4 at a normal
+ * sitting distance, so every offset from the centre of the frame is
+ * multiplied. A fingertip a third of the way to the edge lands most of the
+ * way there, and Caleb's report was "Most of it is still barely on screen."
+ *
+ * Starting low and raising it is the right order. An under-corrected cursor
+ * sits a little off your fingertip and stays usable; an over-corrected one
+ * leaves the display and cannot be aimed at all.
+ */
+export const PARALLAX_STRENGTH = 0.25;
+
 /** Plausible human range, so a bad frame cannot drag the estimate anywhere. */
 export const EYE_RANGE_MM: [number, number] = [300, 1100];
 export const HAND_RANGE_MM: [number, number] = [150, 700];
@@ -276,6 +292,11 @@ export function mmToPixels(xMm: number, yMm: number, screen: ScreenModel): { x: 
   };
 }
 
+export interface PointingOptions {
+  /** 0 to 1. See PARALLAX_STRENGTH. */
+  strength?: number;
+}
+
 export interface PointingInput {
   /** Both pupils, normalized image coordinates. */
   leftEye: { x: number; y: number };
@@ -300,6 +321,7 @@ export function pointingPoint(
   cam: CameraModel = MAC_CAMERA,
   anthro: Anthropometrics = DEFAULT_ANTHRO,
   depths?: DepthTracker,
+  options: PointingOptions = {},
 ): { x: number; y: number; eyeMm: number; fingerMm: number } | null {
   const { leftEye, rightEye, hand } = input;
   if (!hand || hand.length < 21) return null;
@@ -328,6 +350,16 @@ export function pointingPoint(
   const t = hand[input.tip ?? 8];
   const finger = cameraSpace(t.x, t.y, steady.handMm, cam);
 
-  const p = rayToScreen(eye, finger, screen);
-  return { x: p.x, y: p.y, eyeMm: steady.eyeMm, fingerMm: steady.handMm };
+  const ray = rayToScreen(eye, finger, screen);
+  // The uncorrected answer: the fingertip where the camera sees it. Blending
+  // toward the ray rather than replacing with it is what keeps the cursor on
+  // the display while still following the head.
+  const plain = mmToPixels(finger.x, finger.y, screen);
+  const k = Math.max(0, Math.min(1, options.strength ?? PARALLAX_STRENGTH));
+  return {
+    x: plain.x + (ray.x - plain.x) * k,
+    y: plain.y + (ray.y - plain.y) * k,
+    eyeMm: steady.eyeMm,
+    fingerMm: steady.handMm,
+  };
 }

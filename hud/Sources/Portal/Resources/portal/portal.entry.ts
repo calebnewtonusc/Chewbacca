@@ -9,7 +9,8 @@ import { PinchDetector } from "./vendor/pinch";
 import { FINGER_TIPS } from "./vendor/skeleton";
 import type { Landmark } from "./vendor/types";
 import {
-  pointingPoint, DepthTracker, MACBOOK_14, type ScreenModel,
+  pointingPoint, DepthTracker, MACBOOK_14, PARALLAX_STRENGTH,
+  type ScreenModel,
 } from "./vendor/pointing";
 
 /**
@@ -63,6 +64,11 @@ let latestEyes: { left: { x: number; y: number }; right: { x: number; y: number 
 // Kept across frames so the depths drift over seconds instead of jumping
 // every frame. This object is the whole fix. See ROUGH_EYE_MM in pointing.ts.
 const depths = new DepthTracker();
+// How much of the parallax correction to apply. Low on purpose: the ray's
+// gain is about 2.4, which pushed the portal off the edges. Tunable live so
+// the right value can be found by moving a hand rather than by rebuilding:
+//   window.chewbaccaGain(0.4)
+let parallaxStrength = PARALLAX_STRENGTH;
 let lastSeen = 0;
 
 // The host pushes frames in here. Declared on window so evaluateJavaScript
@@ -75,6 +81,7 @@ declare global {
     ) => void;
     chewbaccaPortalState: () => string;
     chewbaccaArm: (label: string | null) => void;
+    chewbaccaGain: (k?: number) => number;
     webkit?: { messageHandlers?: { portal?: { postMessage: (m: unknown) => void } } };
   }
 }
@@ -88,6 +95,12 @@ declare global {
  * the target window behind the circle once it knows where the circle landed.
  */
 let armed: { label: string } | null = null;
+window.chewbaccaGain = (k) => {
+  if (typeof k === "number" && isFinite(k)) {
+    parallaxStrength = Math.max(0, Math.min(1, k));
+  }
+  return parallaxStrength;
+};
 window.chewbaccaArm = (label) => {
   armed = label ? { label } : null;
 };
@@ -224,7 +237,7 @@ function frame(now: number) {
       };
       const r = pointingPoint(
         { leftEye: latestEyes.left, rightEye: latestEyes.right, hand: lm },
-        screen, undefined, undefined, depths,
+        screen, undefined, undefined, depths, { strength: parallaxStrength },
       );
       if (r) {
         // Back into the normalized space mx/my expect. mx flips x, so
