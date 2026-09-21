@@ -66,6 +66,13 @@ check(
 
 # The check that did not exist at all.
 check("doctor.sh has a display section", 'section "The display"' in doctor)
+# Two readings of one question in two sections of one run is one check and
+# one lie. Both live in `hud doctor` now.
+check(
+    "doctor.sh keeps no second copy of the staleness check",
+    doctor.count("BobHUD") == 1,
+    "the mtime comparison belongs in hud doctor, beside the build-number one",
+)
 check(
     "doctor.sh delegates to hud doctor rather than copying the chain",
     "doctor --no-lights" in doctor,
@@ -78,6 +85,7 @@ for needle, why in [
     ("is at $head", "app older than the code that was merged"),
     ("installed but not running", "app present, never launched"),
     ("no socket at", "nothing can reach the glass"),
+    ("newer than the installed binary", "sources edited since the build"),
     ("Metal shader did not compile", "the field's one silent failure"),
     ("menu bar", "the border is on the other display"),
 ]:

@@ -143,6 +143,29 @@ hud_doctor() {
     elif [ "$built" -gt 0 ]; then
       pass_ "build $built matches the repo"
     fi
+
+    # The commit count above only moves when something is committed, so an
+    # edited but uncommitted Sources tree looks current to it. Caleb found
+    # the same staleness from the other side on 2026-09-21, a binary dated
+    # Sep 5 against sources dated Sep 20: the globe key did nothing because
+    # the app listening for it predated the code that handles it, and 159
+    # commits were not running. Both readings are kept because each one is
+    # blind where the other sees: mtimes survive an uncommitted edit and lie
+    # after a fresh clone, which sets every file to checkout time.
+    local newest binat
+    if [ -d "$repo/hud/Sources" ]; then
+      newest="$(find "$repo/hud/Sources" -name '*.swift' -print0 2>/dev/null |
+        xargs -0 stat -f '%m' 2>/dev/null | sort -rn | head -1)"
+      binat="$(stat -f '%m' "$app/Contents/MacOS/BobHUD" 2>/dev/null || echo 0)"
+      case "$newest" in ''|*[!0-9]*) newest=0 ;; esac
+      case "$binat" in ''|*[!0-9]*) binat=0 ;; esac
+      if [ "$newest" -gt 0 ] && [ "$binat" -gt 0 ] && [ "$newest" -gt "$binat" ]; then
+        fail_ "hud/Sources is $(( (newest - binat) / 86400 )) day(s) newer than the installed binary, so Swift changes are not running" \
+          "cd $repo/hud && ./scripts/bundle.sh && cp -R build/BobHUD.app /Applications/ && killall BobHUD; open -a BobHUD"
+      elif [ "$binat" -gt 0 ]; then
+        pass_ "the binary is at least as new as hud/Sources"
+      fi
+    fi
   fi
 
   # Running, and running the copy that was just checked. Two copies on one
