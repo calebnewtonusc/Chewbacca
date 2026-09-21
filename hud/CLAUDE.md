@@ -261,6 +261,17 @@ working. `hud-bubble doctor` says which, and `bubble.bind` lines in
 `log show --predicate 'subsystem == "bob.hud" AND category == "bubble"'` say why
 a bind failed.
 
+A granted permission can still be refused, and this is the one failure the
+person cannot see. macOS stores a code requirement rather than an app, and an
+ad-hoc signature gives it nothing to name but the binary's own hash, so a
+rebuild leaves the switch in System Settings on and the app untrusted. That
+happened on 2026-09-21: granted at 05:13:59, rebuilt at 13:40:12, three
+`bubble.bind refused` lines, and a dialogue asking for a permission that was
+already given. `hud-bubble doctor` names that state instead of sending someone
+back to a switch that is already correct, `hud-bubble doctor --repair` clears
+the dead grant, and `hud/scripts/signing-identity.sh` ends it for good by
+signing with a certificate that outlives the build.
+
 Twelve marks maximum. Past a dozen the screen is not annotated, it is hatched.
 
 ## Guiding a person

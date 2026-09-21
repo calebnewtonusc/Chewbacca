@@ -845,6 +845,13 @@ if group "hud"; then
   # no network.
   check  "hud-music reads the words and drives the players" python3 "$ROOT/tests/test_hud_music.py"
   check  "hud-bubble reads the words and never needs the router" python3 "$ROOT/tests/test_hud_bubble.py"
+  # Whether an Accessibility grant still belongs to the app that is
+  # installed. On 2026-09-21 one did not, the switch in System Settings
+  # read as on regardless, and every click of the bubble reopened the
+  # dialogue. Hermetic: a temp database, and tccutil is never run.
+  check  "axgrant tells a live grant from a dead one" python3 "$ROOT/tests/test_axgrant.py"
+  check  "the bundler parses"  bash -n "$ROOT/hud/scripts/bundle.sh"
+  check  "the signing identity script parses" bash -n "$ROOT/hud/scripts/signing-identity.sh"
   check  "superassistant parses" python3 -m py_compile "$ROOT/bin/superassistant"
   # The voice's memory both ways: the brain digest it is given, and the log
   # of what it was asked. Hermetic: a temp brain and a temp log.

@@ -100,20 +100,51 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Ad-hoc signing is enough to run locally and keeps macOS from re-prompting
-# about an unsigned binary on every launch.
+# Sign with something that outlives the build when there is anything to sign
+# with, and fall back to ad-hoc when there is not.
 #
-# The designated requirement is spelled out because the default one for an
-# ad-hoc signature is the binary's own hash, and that is what macOS keys the
-# microphone and speech grants to. On 2026-09-19 every rebuild came up with a
-# new hash, tccd logged "Failed to match existing code requirement" for
-# dev.bobthebuilder.hud, and the app prompted for both permissions again; with
-# nobody at the Mac to click, `authorized` stayed false and a press of the
-# globe key opened nothing. Pinning the requirement to the bundle identifier
-# is what a signing certificate would do, without needing one in the keychain.
-codesign --force --sign - --identifier dev.bobthebuilder.hud \
-  --requirements '=designated => identifier "dev.bobthebuilder.hud"' "$APP" 2>/dev/null \
-  || echo "  (unsigned; it will still run)"
+# macOS does not record "this app may use Accessibility". It records a code
+# requirement, and for an ad-hoc signature with no team identifier the only
+# thing it can pin is the binary's own hash. The grant for dev.bobthebuilder.hud
+# was recorded on 2026-09-21 at 05:13:59 against cdhash
+# 2efeddb7a49900f9f1d0d2a27e1ea2298b806558; this script rebuilt the bundle at
+# 13:40:12 as a4246cb7228c1b8662ccd2972f304ce75777334b. The switch in System
+# Settings stayed on, `AXIsProcessTrusted()` answered false, and every click of
+# the dictation bubble reopened the dialogue asking for a permission that had
+# already been given. Nothing the person does in System Settings can fix that,
+# because the switch is already where they put it.
+#
+# A certificate is what breaks the cycle: the requirement then names the
+# certificate and the identifier, both of which survive a rebuild. That is why
+# the microphone and speech grants, recorded the same day from the same binary,
+# still work: those rows hold `identifier "dev.bobthebuilder.hud"`.
+#
+# `hud/scripts/signing-identity.sh` makes one. Without it the ad-hoc branch
+# still runs and still works; the Accessibility grant is what it costs, and
+# `hud-bubble doctor` says so in those words.
+IDENTITY="${CHEWBACCA_SIGN_IDENTITY:-}"
+if [ -z "$IDENTITY" ]; then
+  IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null |
+    sed -n 's/.*"\(Chewbacca Local Signing\)".*/\1/p' | head -1)"
+fi
+
+if [ -n "$IDENTITY" ]; then
+  if codesign --force --sign "$IDENTITY" --identifier dev.bobthebuilder.hud "$APP" 2>/dev/null; then
+    echo "  signed as $IDENTITY; permissions survive this rebuild"
+  else
+    echo "  ($IDENTITY would not sign; falling back to ad-hoc)"
+    IDENTITY=""
+  fi
+fi
+
+if [ -z "$IDENTITY" ]; then
+  # The designated requirement is still spelled out, because it is what the
+  # user-level grants key off and those do survive. It does not reach the
+  # system-level Accessibility row, which is the one the bubble needs.
+  codesign --force --sign - --identifier dev.bobthebuilder.hud \
+    --requirements '=designated => identifier "dev.bobthebuilder.hud"' "$APP" 2>/dev/null \
+    || echo "  (unsigned; it will still run)"
+fi
 
 echo "Built $APP"
 echo
