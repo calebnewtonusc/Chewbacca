@@ -460,6 +460,7 @@
   var depths = new DepthTracker();
   var parallaxStrength = PARALLAX_STRENGTH;
   var sizeScale = 0.45;
+  var drawing = null;
   var reachScale = 1;
   var handScale = 0.45;
   var lastSeen = 0;
@@ -617,7 +618,9 @@
     const S = state;
     const portalUp = S.phase === "igniting" || S.phase === "open" || S.phase === "closing";
     if (S.phase === "igniting" && prevPhase !== "igniting") {
-      if (p.center) {
+      if (drawing) {
+        geom = { cx: drawing.cx, cy: drawing.cy, r: drawing.r };
+      } else if (p.center) {
         const rn = clampRN(p.radius);
         geom = {
           cx: Math.max(rn, Math.min(1 - rn, p.center.x)),
@@ -648,6 +651,7 @@
         );
       }
     }
+    if (S.phase !== "drawing" && drawing) drawing = null;
     if (!portalUp && prevPhase === "closing") {
       detector.reset();
       comet = [];
@@ -697,11 +701,14 @@
       }
     }
     if (S.phase === "drawing" && p.center && p.startAngle !== null && p.progress > 0.16) {
-      const cn = p.center;
-      const rn = clampRN(p.radius);
+      if (!drawing) {
+        drawing = { cx: p.center.x, cy: p.center.y, r: p.radius, a0: p.startAngle };
+      }
+      const cn = { x: drawing.cx, y: drawing.cy };
+      const rn = clampRN(drawing.r);
       const rpx = rpxOf(cn, rn);
       const swept = Math.max(-Math.PI * 2, Math.min(Math.PI * 2, p.sweep));
-      const a0 = p.startAngle;
+      const a0 = drawing.a0;
       const a1 = a0 + swept;
       const k = Math.pow(p.progress, 1.6);
       ctx.globalCompositeOperation = "lighter";
