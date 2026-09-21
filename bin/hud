@@ -22,6 +22,7 @@ hud demo            put one of everything on screen
 hud screen          the display size in points, for marker coordinates
 hud status          is the display running
 hud open            start the display
+hud doctor          why the border is not on this screen
 
 Bob Lines, in full:
 
@@ -58,6 +59,163 @@ send() {
   # `nc -U` speaks Unix sockets on macOS and is present on every install.
   # The HUD reads to EOF, so closing stdin is what ends the stream.
   nc -U "$SOCK"
+}
+
+
+# Where this command came from, through the symlink setup.sh makes into
+# ~/.local/bin. Only the repo knows what the build number should be, so
+# `hud doctor` cannot answer "is your display out of date" without it.
+repo_root() {
+  local p="$0" t
+  while [ -L "$p" ]; do
+    t="$(readlink "$p")"
+    case "$t" in /*) p="$t" ;; *) p="$(dirname "$p")/$t" ;; esac
+  done
+  (cd "$(dirname "$p")/.." && pwd)
+}
+
+# Why is there no border on this screen?
+#
+# Five things have to be true before the presence field is visible and on
+# 2026-09-21 every one of them could fail without saying a word. Caleb merged
+# the presence field and saw nothing on his Mac: setup.sh links the `hud`
+# commands and only warns, once, about the app that actually draws, and
+# doctor.sh had twenty sections and none of them knew the display existed.
+# At that same moment this Mac was running build 590 against a repo at 660,
+# seventy commits of drift including the field itself, and nothing anywhere
+# said so.
+#
+# So: walk the chain in the order it breaks, name the first broken link with
+# the command that repairs it, then light the field, because the only honest
+# test of something visual is looking at it.
+hud_doctor() {
+  local fails=0 warns=0 app="" live=1 repo ver major built head runbin
+  [ "${1:-}" = "--no-lights" ] && live=0
+
+  pass_() { printf '  pass  %s\n' "$1"; }
+  warn_() { warns=$((warns + 1)); printf '  warn  %s\n' "$1"; }
+  fail_() {
+    fails=$((fails + 1))
+    printf '  FAIL  %s\n' "$1"
+    if [ -n "${2:-}" ]; then printf '        fix: %s\n' "$2"; fi
+  }
+
+  repo="$(repo_root)"
+  echo "The display"
+
+  # The floor. The bundle declares LSMinimumSystemVersion 14.0, so an older
+  # Mac does not draw a broken border, it refuses to launch the app at all
+  # and leaves someone staring at a screen with nothing wrong on it.
+  ver="$(sw_vers -productVersion 2>/dev/null || echo 0)"
+  major="${ver%%.*}"
+  case "$major" in ''|*[!0-9]*) major=0 ;; esac
+  if [ "$major" -lt 14 ]; then
+    fail_ "macOS $ver is below the 14.0 floor, so the app will not launch" \
+      "update macOS; the rest of Chewbacca works without the display"
+  else
+    pass_ "macOS $ver is new enough"
+  fi
+
+  # The app itself. `hud` is a wrapper over a socket, so with nothing on the
+  # other end every draw fails with a socket error that says nothing about
+  # the real cause.
+  local p
+  for p in /Applications/BobHUD.app "$HOME/Applications/BobHUD.app" "$repo/hud/build/BobHUD.app"; do
+    if [ -d "$p" ]; then app="$p"; break; fi
+  done
+  if [ -z "$app" ]; then
+    fail_ "BobHUD.app is not on this Mac, so there is nothing to draw on" \
+      "cd $repo/hud && ./scripts/bundle.sh && cp -r build/BobHUD.app /Applications/"
+  else
+    pass_ "app installed at $app"
+
+    # Stale build. The one that cost the most and showed the least: the app
+    # keeps running the binary it was built from, so merging a feature and
+    # never rebuilding leaves you looking for a border that is not in the
+    # code you are running. CFBundleVersion is the commit count at build.
+    built="$(defaults read "$app/Contents/Info.plist" CFBundleVersion 2>/dev/null || echo 0)"
+    head="$(git -C "$repo" rev-list --count HEAD 2>/dev/null || echo 0)"
+    case "$built" in ''|*[!0-9]*) built=0 ;; esac
+    case "$head" in ''|*[!0-9]*) head=0 ;; esac
+    if [ "$head" -gt 0 ] && [ "$built" -lt "$head" ]; then
+      fail_ "the installed display is build $built and the repo is at $head, so anything merged since is not running" \
+        "cd $repo/hud && ./scripts/bundle.sh && cp -r build/BobHUD.app /Applications/ && killall BobHUD; open -a BobHUD"
+    elif [ "$built" -gt 0 ]; then
+      pass_ "build $built matches the repo"
+    fi
+  fi
+
+  # Running, and running the copy that was just checked. Two copies on one
+  # Mac is normal here: hud/build/BobHUD.app is what bundle.sh writes and
+  # /Applications is what gets launched, and they drift.
+  runbin="$(pgrep -lf 'BobHUD.app/Contents/MacOS/BobHUD' 2>/dev/null | head -1 | cut -d' ' -f2- || true)"
+  if [ -z "$runbin" ]; then
+    if [ -n "$app" ]; then
+      fail_ "the display is installed but not running" "hud open, and add Bob HUD to System Settings > General > Login Items"
+    fi
+  else
+    pass_ "running: $runbin"
+    case "$runbin" in
+      "$app"/*) : ;;
+      *) warn_ "the running copy is not the one checked above; two builds are installed" ;;
+    esac
+  fi
+
+  # The socket, which is the only way anything reaches the glass.
+  if [ -S "$SOCK" ]; then
+    pass_ "socket open at $SOCK"
+  else
+    fail_ "no socket at $SOCK, so nothing can draw" "hud open"
+  fi
+
+  # The field's one silent failure. A Metal pipeline that will not compile
+  # leaves the rest of the HUD working and writes a single line to the
+  # system log. See the catch in PresenceField.swift.
+  if [ -n "$runbin" ]; then
+    # `process == "BobHUD"` is load-bearing. Without it the query matches
+    # itself: the `log` command writes its own argv into the log, predicate
+    # text and all, so the check reported a shader failure on a Mac whose
+    # shader was fine, forever, from its own first run.
+    if log show --style compact --last 2h \
+         --predicate 'process == "BobHUD" AND eventMessage CONTAINS "presence field unavailable"' \
+         2>/dev/null | grep -q "presence field unavailable"; then
+      fail_ "the field's Metal shader did not compile on this GPU, so the border cannot draw" \
+        "send this to whoever built it: log show --last 2h --predicate 'eventMessage CONTAINS \"presence field\"'"
+    else
+      pass_ "no shader failure in the last two hours of log"
+    fi
+  fi
+
+  # Nothing above proves a person can see it. This does.
+  if [ "$live" -eq 1 ] && [ -S "$SOCK" ]; then
+    echo
+    echo "  Lighting the field for six seconds. It draws on the display holding"
+    echo "  the menu bar, as liquid banked against all four edges of the screen:"
+    echo "  white and breathing, then green while it works, then it settles."
+    printf 'p attentive\n' | nc -U "$SOCK" >/dev/null 2>&1 || true
+    sleep 2
+    printf 'p acting\n' | nc -U "$SOCK" >/dev/null 2>&1 || true
+    sleep 2
+    printf 'p done\n' | nc -U "$SOCK" >/dev/null 2>&1 || true
+    sleep 2
+    printf 'p dormant\n' | nc -U "$SOCK" >/dev/null 2>&1 || true
+    echo
+    echo "  Nothing appeared? Then it is which screen you are looking at, not the"
+    echo "  code. The glass is locked to the main display, the one with the menu"
+    echo "  bar in System Settings > Displays > Arrange."
+  fi
+
+  echo
+  if [ "$fails" -gt 0 ]; then
+    echo "  $fails thing$([ "$fails" -eq 1 ] || echo s) stop$([ "$fails" -eq 1 ] && echo s) the border drawing. Fix the first one first."
+  elif [ "$warns" -gt 0 ]; then
+    echo "  Nothing is broken. $warns thing$([ "$warns" -eq 1 ] || echo s) worth knowing."
+  else
+    echo "  Everything the border needs is in place."
+  fi
+  [ "$fails" -eq 0 ] || return 2
+  [ "$warns" -eq 0 ] || return 1
+  return 0
 }
 
 case "${1:-}" in
@@ -122,6 +280,7 @@ OSA
   open)   open -a BobHUD 2>/dev/null || { echo "BobHUD.app is not installed" >&2; exit 1; }
           for _ in 1 2 3 4 5 6 7 8 9 10; do running && break; sleep 0.3; done
           running && echo "running: $SOCK" || { echo "did not come up" >&2; exit 1; } ;;
+  doctor) shift || true; rc=0; hud_doctor "$@" || rc=$?; exit "$rc" ;;
   ""|-h|--help|help) usage ;;
   *)      echo "unknown: $1" >&2; usage >&2; exit 2 ;;
 esac

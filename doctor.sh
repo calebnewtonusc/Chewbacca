@@ -613,6 +613,42 @@ else
   fi
 fi
 
+# ── The display ───────────────────────────────────────────────────────────────
+section "The display"
+
+# Twenty sections and not one of them knew the display existed, which made the
+# most visible thing the kit does the only thing it could not check. Caleb
+# merged the presence field on 2026-09-21, saw no border on his Mac, and had
+# nothing to run that would say why.
+#
+# The chain itself lives in `hud doctor`, not here. Two copies of a check are
+# one check and one lie, and the one that drifts is always the copy that lives
+# away from the thing it checks.
+if [ "$(uname)" != "Darwin" ]; then
+  warn "not macOS, so there is no display to check"
+else
+  DISPLAY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  HUD_BIN="$(command -v hud 2>/dev/null || echo "$DISPLAY_DIR/bin/hud")"
+  if [ ! -x "$HUD_BIN" ]; then
+    warn "hud is not installed, so the display cannot be checked (re-run setup.sh)"
+  else
+    _pending=""
+    while IFS= read -r line; do
+      case "$line" in
+        *"  pass  "*) ok "display: ${line#*pass  }" ;;
+        *"  warn  "*) warn "display: ${line#*warn  }" ;;
+        *"  FAIL  "*) _pending="${line#*FAIL  }" ;;
+        *"        fix: "*)
+          [ -n "$_pending" ] && bad "display: $_pending" "${line#*fix: }" major
+          _pending="" ;;
+      esac
+    done < <("$HUD_BIN" doctor --no-lights 2>/dev/null || true)
+    # A failure whose fix line never arrived is still a failure.
+    [ -n "$_pending" ] && bad "display: $_pending" "hud doctor" major
+    unset _pending
+  fi
+fi
+
 # ── Coursework ────────────────────────────────────────────────────────────────
 section "Coursework"
 

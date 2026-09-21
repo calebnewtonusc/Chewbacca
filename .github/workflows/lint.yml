@@ -18,7 +18,7 @@ jobs:
 
       - name: Shell syntax
         run: |
-          for f in setup.sh doctor.sh install.sh add-skill.sh bin/*.sh bin/lib/*.sh bin/chewbacca bin/chrome-js bin/peekaboo bin/mac-use; do
+          for f in setup.sh doctor.sh install.sh add-skill.sh bin/*.sh bin/lib/*.sh bin/chewbacca bin/chrome-js bin/peekaboo bin/mac-use bin/hud hud/scripts/*.sh; do
             [ -f "$f" ] || continue
             bash -n "$f" || { echo "syntax error: $f"; exit 1; }
             echo "ok  $f"
@@ -27,7 +27,7 @@ jobs:
       - name: Shellcheck
         run: |
           sudo apt-get update -qq && sudo apt-get install -y shellcheck
-          shellcheck -S error setup.sh doctor.sh install.sh add-skill.sh uninstall.sh bin/chewbacca bin/lib/*.sh
+          shellcheck -S error setup.sh doctor.sh install.sh add-skill.sh uninstall.sh bin/chewbacca bin/hud bin/lib/*.sh hud/scripts/*.sh
 
       - name: Embedded Python compiles
         run: |
