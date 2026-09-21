@@ -174,6 +174,17 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
     nonisolated func userContentController(
         _: WKUserContentController, didReceive message: WKScriptMessage
     ) {
+        // WebKit delivers script messages on the main thread, and in the 15.x
+        // SDK `WKScriptMessage.body` became main-actor isolated, so reading it
+        // from a `nonisolated` method is an error on Swift 6.1.2: the Portal
+        // target did not compile and it took `swift test` for the whole package
+        // down with it. `assumeIsolated` states the guarantee WebKit already
+        // makes rather than hopping, which would reorder the message against
+        // the `Task` below.
+        MainActor.assumeIsolated { handle(message) }
+    }
+
+    private func handle(_ message: WKScriptMessage) {
         guard let body = message.body as? [String: Any],
               let event = body["event"] as? String
         else { return }
