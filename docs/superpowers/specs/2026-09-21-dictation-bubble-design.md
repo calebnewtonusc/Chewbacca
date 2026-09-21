@@ -56,14 +56,14 @@ One bubble per `id`, so several can exist at once: one parked on iMessage, one
 on the Terminal. Each is a small draggable disc on the glass with a ring that
 pulses while it is live and the transcript running under it.
 
-| State | What it means | What a click does |
-| --- | --- | --- |
-| `unbound` | just spawned, sitting at its home by the pill | says "drag me onto a text box", and nothing else |
-| `idle` | bound, and its app is frontmost | starts dictating |
-| `dimmed` | bound, its app is behind or hidden | nothing, and the pill says which app it is waiting for |
-| `live` | microphone open, words accumulating on the bubble | stops and inserts |
-| `thinking` | stopped, the cleanup call is in flight | nothing |
-| `orphaned` | the element is gone | nothing; the bubble fades after saying so |
+| State      | What it means                                     | What a click does                                      |
+| ---------- | ------------------------------------------------- | ------------------------------------------------------ |
+| `unbound`  | just spawned, sitting at its home by the pill     | says "drag me onto a text box", and nothing else       |
+| `idle`     | bound, and its app is frontmost                   | starts dictating                                       |
+| `dimmed`   | bound, its app is behind or hidden                | nothing, and the pill says which app it is waiting for |
+| `live`     | microphone open, words accumulating on the bubble | stops and inserts                                      |
+| `thinking` | stopped, the cleanup call is in flight            | nothing                                                |
+| `orphaned` | the element is gone                               | nothing; the bubble fades after saying so              |
 
 `dimmed` is the safety property, not a nicety. A bubble that fires while its app
 is behind is a bubble that types a sentence into whatever happens to be in
@@ -97,7 +97,7 @@ b <id> clean "<text>"                     tidy this up, quickly
 **A bare `b` is the spawn, and the point is optional.** The design had a bubble
 placed by coordinates, on the reasoning that `bin/hud-guide` already finds a
 field's rectangle and could land one directly. That is still true and the
-coordinate form still exists for it, but where a *new* bubble goes is the
+coordinate form still exists for it, but where a _new_ bubble goes is the
 display's question, not the sender's: it goes beside the pill, and the pill's
 position depends on its measured width and on which display the glass is
 currently on. A sender computing that gets it wrong on a second monitor.
@@ -195,6 +195,15 @@ time**, with the reason said out loud. A dictation tool that can be aimed at a
 password box will eventually be aimed at one, and the transcript of a password
 goes through a model under the cleanup rule below.
 
+**Every attempt writes one line to the log**, `bubble.bind ok` or
+`bubble.bind refused`, and that line is the contract `hud-bubble doctor` reads
+to answer whether Accessibility is on. Both halves were documented before
+either was written, so for the first hour of this feature's life the one
+question it gets stuck on had no answer anywhere on the machine, and doctor
+said "unknown until the first bubble" after a dozen refused binds. Doctor reads
+the **last** such line and not the window, because a refusal from before the
+switch was flipped otherwise outlives the grant it describes.
+
 ## Tracking
 
 While a bubble exists, read `kAXPositionAttribute` and `kAXSizeAttribute` on the
@@ -257,14 +266,14 @@ still pin its behaviour unchanged.
 One `AVAudioEngine` and one `SFSpeechRecognizer` either way, so the two paths
 cannot both be live: there is one microphone and one person talking.
 
-| Event | What happens |
-| --- | --- |
-| click an `idle` bubble | mode goes to `.dictation`, microphone opens, `.partial` signals route to that bubble instead of the pill |
-| click a `live` bubble | commit: microphone closes, state goes to `thinking`, and insertion follows the cleanup hop below |
-| `SILENCE` of quiet | same as a second click |
-| Escape | cancel: microphone closes, nothing is inserted, nothing is sent to the model |
-| talk key down while live | **commit as above, then hand the microphone to push to talk** |
-| click a second bubble while one is live | the live one commits first, then the second goes live |
+| Event                                       | What happens                                                                                                                         |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| click an `idle` bubble                      | mode goes to `.dictation`, microphone opens, `.partial` signals route to that bubble instead of the pill                             |
+| click a `live` bubble                       | commit: microphone closes, state goes to `thinking`, and insertion follows the cleanup hop below                                     |
+| `SILENCE` of quiet                          | same as a second click                                                                                                               |
+| Escape                                      | cancel: microphone closes, nothing is inserted, nothing is sent to the model                                                         |
+| talk key down while live                    | **commit as above, then hand the microphone to push to talk**                                                                        |
+| click a second bubble while one is live     | the live one commits first, then the second goes live                                                                                |
 | the live bubble's app leaves the foreground | microphone closes, the text stays on the bubble, and nothing is inserted until that app is frontmost again and the bubble is clicked |
 
 That last row is the rule Gavin approved on 2026-09-21, and it is chosen over
@@ -314,12 +323,12 @@ puts the caret where it needs to be for tier 2 to work.
 on 2026-09-21 with `AXUIElementIsAttributeSettable`, which answers "would a
 write land" without writing:
 
-| field | `kAXSelectedText` | `kAXValue` |
-| --- | --- | --- |
-| Chrome, omnibox | YES | YES |
-| Terminal, toolbar search | no | YES |
-| Mail, toolbar search | no | YES |
-| Terminal, the shell itself (`AXTextArea`) | **no** | not probed |
+| field                                     | `kAXSelectedText` | `kAXValue` |
+| ----------------------------------------- | ----------------- | ---------- |
+| Chrome, omnibox                           | YES               | YES        |
+| Terminal, toolbar search                  | no                | YES        |
+| Mail, toolbar search                      | no                | YES        |
+| Terminal, the shell itself (`AXTextArea`) | **no**            | not probed |
 
 Every field that refused `kAXSelectedText` still offered `kAXValue`, which is
 the trap. Setting a value replaces the **entire** contents of the field, so a
@@ -397,16 +406,16 @@ instruction and the answer goes straight into an app.
 
 ## Constants, and what set them
 
-| Name | Value | Evidence |
-| --- | --- | --- |
-| `dictationSilence` | 6.0s | **Raised from the 2.0s in this design, deliberately.** Two seconds is the gap at which a person notices silence in a conversation, which is the right number for turn-taking and the wrong one for dictation: it fires while somebody is composing the second half of a sentence. Click-again is the primary way out, so this is a backstop and a backstop that cuts people off is the failure mode every silence timer in `hud/docs/VOICE-RESEARCH.md` outgrew. Guessed, never measured against this gesture. |
-| `Bubble.poll` | 0.1s | Guessed against the eye. The bubble must not visibly trail a window being dragged, and 10Hz is the coarsest rate that does not read as lag. Never measured past 30Hz, where the only difference on this machine was three times the IPC. |
-| `TextTarget.timeout` | 0.05s | One hard constraint: it must stay below `poll` or a hung app queues polls until the display stalls. Measured 2026-09-21: a settled application answers a position read in under 2ms, and only Chrome during a page load ever approached it. A timeout means "unchanged", so the bubble holds still for a frame. |
-| `cleanupBudget` | 1.5s | Guessed. No measurement of a haiku turn from this bridge exists; the first week of `b clean` lines replaces this number with one. |
-| `Bubble.size` | 34pt | Smaller than the 44pt Fitts's law floor on purpose, because the thing it sits on is a text field 22pt tall and a 44pt circle covers the field it points at. `hitFrame` pads to 44, so the target meets the floor while the circle stays out of the way. |
-| `Bubble.clickSlop` | 4pt | Not zero, because pressing a physical trackpad moves the cursor a point or two, and at zero roughly one click in four became a one-pixel drag: it rebound to the same field and did not start the turn, which reads as the bubble ignoring the click. |
-| `TextTarget.maxHops` | 6 | The probe's worst case doubled. Chrome's omnibox was three hops above the deepest hit. Walking further returns the window, which accepts a value set and puts the text nowhere. |
-| `OverlayModel.maxBubbles` | 3 | One is the case. Three because dictating into a chat and a terminal at once is a real thing to want; past that a click near two of them is ambiguous. At the cap the oldest is recycled rather than the new one refused: a silent no is indistinguishable from the feature being broken. |
+| Name                      | Value | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dictationSilence`        | 6.0s  | **Raised from the 2.0s in this design, deliberately.** Two seconds is the gap at which a person notices silence in a conversation, which is the right number for turn-taking and the wrong one for dictation: it fires while somebody is composing the second half of a sentence. Click-again is the primary way out, so this is a backstop and a backstop that cuts people off is the failure mode every silence timer in `hud/docs/VOICE-RESEARCH.md` outgrew. Guessed, never measured against this gesture. |
+| `Bubble.poll`             | 0.1s  | Guessed against the eye. The bubble must not visibly trail a window being dragged, and 10Hz is the coarsest rate that does not read as lag. Never measured past 30Hz, where the only difference on this machine was three times the IPC.                                                                                                                                                                                                                                                                       |
+| `TextTarget.timeout`      | 0.05s | One hard constraint: it must stay below `poll` or a hung app queues polls until the display stalls. Measured 2026-09-21: a settled application answers a position read in under 2ms, and only Chrome during a page load ever approached it. A timeout means "unchanged", so the bubble holds still for a frame.                                                                                                                                                                                                |
+| `cleanupBudget`           | 1.5s  | Guessed. No measurement of a haiku turn from this bridge exists; the first week of `b clean` lines replaces this number with one.                                                                                                                                                                                                                                                                                                                                                                              |
+| `Bubble.size`             | 34pt  | Smaller than the 44pt Fitts's law floor on purpose, because the thing it sits on is a text field 22pt tall and a 44pt circle covers the field it points at. `hitFrame` pads to 44, so the target meets the floor while the circle stays out of the way.                                                                                                                                                                                                                                                        |
+| `Bubble.clickSlop`        | 4pt   | Not zero, because pressing a physical trackpad moves the cursor a point or two, and at zero roughly one click in four became a one-pixel drag: it rebound to the same field and did not start the turn, which reads as the bubble ignoring the click.                                                                                                                                                                                                                                                          |
+| `TextTarget.maxHops`      | 6     | The probe's worst case doubled. Chrome's omnibox was three hops above the deepest hit. Walking further returns the window, which accepts a value set and puts the text nowhere.                                                                                                                                                                                                                                                                                                                                |
+| `OverlayModel.maxBubbles` | 3     | One is the case. Three because dictating into a chat and a terminal at once is a real thing to want; past that a click near two of them is ambiguous. At the cap the oldest is recycled rather than the new one refused: a silent no is indistinguishable from the feature being broken.                                                                                                                                                                                                                       |
 
 Every dictation writes a line with the tier that inserted, the transcript
 length, and whether the timeout fired: `log show --predicate 'subsystem ==
@@ -440,30 +449,30 @@ Swift tests alongside `hud_voicePackageTests`.
 
 ## Files
 
-| File | Change |
-| --- | --- |
-As built, which differs from the plan above in three places: no `Voice.swift`
-change, the AX work in its own file rather than split in two, and the behaviour
-in the executable rather than the kit, because it drives the microphone and the
-window server and the kit owns neither.
+| File                                                                            | Change |
+| ------------------------------------------------------------------------------- | ------ |
+| As built, which differs from the plan above in three places: no `Voice.swift`   |
+| change, the AX work in its own file rather than split in two, and the behaviour |
+| in the executable rather than the kit, because it drives the microphone and the |
+| window server and the kit owns neither.                                         |
 
-| File | Change |
-| --- | --- |
-| `hud/Sources/BobHUDKit/Bubble.swift` | new: the six states, the geometry, `punctuate` |
-| `hud/Sources/BobHUDKit/TextTarget.swift` | new: binding, following, the AX write |
-| `hud/Sources/BobHUDKit/BubbleView.swift` | new: the circle, the ring, the caption |
-| `hud/Sources/BobHUD/Dictation.swift` | new: the gesture, the turn, the two insert tiers |
-| `hud/Sources/BobHUDKit/Spec.swift` | `bubble`, `spawnBubble`, `unbubble`, `bubbleInsert` |
-| `hud/Sources/BobHUDKit/LineParser.swift` | the `b` verb, all five forms |
-| `hud/Sources/BobHUDKit/Interaction.swift` | `bubble`, `dictated` and `clean` going back |
-| `hud/Sources/BobHUDKit/OverlayModel.swift` | the bubbles, the spawn point, the hit test, `frames` |
-| `hud/Sources/BobHUDKit/OverlayView.swift` | draw them, on one 20Hz clock |
-| `hud/Sources/BobHUD/main.swift` | the monitors, the voice fork, the undelivered `clean` |
-| `bin/hud-bubble` | new: the spoken vocabulary, `parse(said)`, `doctor` |
-| `bin/hud-listen` | ask `hud-bubble.parse` first, ahead of the music and the router |
-| `hud/Tests/BobHUDKitTests/BubbleTests.swift` | new: 27 tests, the wire and the glass |
-| `tests/test_hud_bubble.py` | new: the vocabulary, including what must not match |
-| `tests/run.sh` | register it |
+| File                                         | Change                                                          |
+| -------------------------------------------- | --------------------------------------------------------------- |
+| `hud/Sources/BobHUDKit/Bubble.swift`         | new: the six states, the geometry, `punctuate`                  |
+| `hud/Sources/BobHUDKit/TextTarget.swift`     | new: binding, following, the AX write                           |
+| `hud/Sources/BobHUDKit/BubbleView.swift`     | new: the circle, the ring, the caption                          |
+| `hud/Sources/BobHUD/Dictation.swift`         | new: the gesture, the turn, the two insert tiers                |
+| `hud/Sources/BobHUDKit/Spec.swift`           | `bubble`, `spawnBubble`, `unbubble`, `bubbleInsert`             |
+| `hud/Sources/BobHUDKit/LineParser.swift`     | the `b` verb, all five forms                                    |
+| `hud/Sources/BobHUDKit/Interaction.swift`    | `bubble`, `dictated` and `clean` going back                     |
+| `hud/Sources/BobHUDKit/OverlayModel.swift`   | the bubbles, the spawn point, the hit test, `frames`            |
+| `hud/Sources/BobHUDKit/OverlayView.swift`    | draw them, on one 20Hz clock                                    |
+| `hud/Sources/BobHUD/main.swift`              | the monitors, the voice fork, the undelivered `clean`           |
+| `bin/hud-bubble`                             | new: the spoken vocabulary, `parse(said)`, `doctor`             |
+| `bin/hud-listen`                             | ask `hud-bubble.parse` first, ahead of the music and the router |
+| `hud/Tests/BobHUDKitTests/BubbleTests.swift` | new: 27 tests, the wire and the glass                           |
+| `tests/test_hud_bubble.py`                   | new: the vocabulary, including what must not match              |
+| `tests/run.sh`                               | register it                                                     |
 
 Still to do: `bin/hud-agent.md` (when to put a bubble up), `hud/CLAUDE.md` (the
 `b` verb in the vocabulary), and the bridge's haiku turn for `b <id> clean`,

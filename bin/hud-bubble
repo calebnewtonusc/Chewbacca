@@ -158,10 +158,22 @@ def trusted() -> bool | None:
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return None
-    if "accessibility not granted" in out:
-        return False
-    if "bubble.bind" in out:
-        return True
+    return grant_from_log(out)
+
+
+def grant_from_log(text: str) -> bool | None:
+    """Read the grant off the display's own bind lines.
+
+    The LAST bind line decides, not any of them. Scanning the whole window for
+    a refusal reports the past: the grant was switched on at 05:40 on
+    2026-09-21 while a refusal from 05:02 was still inside the hour, so doctor
+    said REFUSED about a permission that was already granted, which is the one
+    answer it exists to get right.
+    """
+    for line in reversed(text.splitlines()):
+        if "bubble.bind" not in line:
+            continue
+        return "accessibility not granted" not in line
     return None
 
 
