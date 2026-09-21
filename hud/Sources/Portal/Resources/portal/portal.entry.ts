@@ -1,4 +1,4 @@
-import { CircleGestureDetector, mirrorAngle, type CircleProgress } from "./vendor/circle";
+import { CircleGestureDetector, type CircleProgress } from "./vendor/circle";
 import {
   initialPortalState,
   stepPortal,
@@ -187,16 +187,55 @@ function frame(now: number) {
   // frame's landmarks hang on screen forever if the host stops pushing.
   const lm = now - lastSeen < 300 ? latest : null;
 
-  // ONE PLACE where a normalized position becomes a screen position, so the
-  // display choices live here and nothing upstream is affected.
+  // ═══════════════════════════════════════════════════════════════════════
+  // ONE MAPPING. THE RULE THIS FILE LEARNED THE HARD WAY.
+  //
+  // A landmark becomes a screen position in exactly one place, `toScreen`,
+  // and EVERYTHING downstream works in the space it produces: the gesture
+  // detector, the fingertip lights, the ring, the sparks, the hole.
+  //
+  // WHY. Over one morning the ring and the fingers came apart six separate
+  // times, and every cause was the same shape: two paths from a landmark to
+  // a pixel, and an adjustment applied to one of them.
+  //
+  //   the eye ray used a physical screen model while the tips used a mirror
+  //   `reach` compressed the position and left the radius alone
+  //   the radius had its own scale factor while the centre used mx/my
+  //   `reach` reached the DETECTOR and shrank the gesture as well
+  //   mapping x by width and y by height stretched the circle to an oval
+  //   `hand` shrank the drawn pinch point and not the detected one
+  //
+  // Each was fixed on its own and the next adjustment broke it again, which
+  // is what a wrong shape does. Tuning cannot be safe while a knob has to
+  // be remembered in more than one place.
+  //
+  // So: transform at the door. The detector is fed `toScreen` output, so
+  // the circle it fits is already in screen space and the ring is drawn
+  // from it directly. A new knob added inside `toScreen` moves the fingers,
+  // the gesture and the ring together, because by then there is nothing
+  // left that could disagree.
+  //
+  // THE TEST, for any spatial thing after this: can a new adjustment be
+  // added in one place? If it has to be remembered twice, the shape is
+  // wrong and no amount of care will hold it.
+  // ═══════════════════════════════════════════════════════════════════════
   //
   // `reachScale` pulls everything toward the middle, because the camera sees
   // a wide field and an arm uses all of it, so mapping it one to one runs
   // off both edges. The clamp is the guarantee that a wrong mapping is
   // VISIBLE rather than silent: "I cant see the knob its prob off screen".
   const fit = (v: number) => Math.max(0.02, Math.min(0.98, 0.5 + (v - 0.5) * reachScale));
-  const mx = (nx: number) => (1 - fit(nx)) * W;
-  const my = (ny: number) => fit(ny) * H;
+  // Normalized landmark -> normalized screen. Mirror, reach, clamp. The one
+  // door. Kept in normalized units so the detector, which works in them,
+  // sees exactly what is drawn.
+  const toScreen = (p: { x: number; y: number }, hub?: { x: number; y: number }) => {
+    const sx = hub ? hub.x + (p.x - hub.x) * handScale : p.x;
+    const sy = hub ? hub.y + (p.y - hub.y) * handScale : p.y;
+    return { x: fit(1 - sx), y: fit(sy) };
+  };
+  // Screen-normalized -> pixels. No decisions here, just units.
+  const mx = (nx: number) => nx * W;
+  const my = (ny: number) => ny * H;
   const RMIN = 24;
   const RMAX = Math.min(W, H) * 0.42;
   // THE RADIUS IS COMPRESSED TOO. `fit` pulls every POSITION toward the
@@ -335,7 +374,10 @@ function frame(now: number) {
     // and they did not: "it's not even close to my finger". The correction
     // being switched off was never the same thing as the correction not
     // running.
-    if (parallaxStrength <= 0) return pinch.center;
+    // Through the door, once. The detector then fits a circle in screen
+    // space, so the ring is drawn from numbers that are already correct and
+    // no second transform can disagree with this one.
+    if (parallaxStrength <= 0) return toScreen(pinch.center, lm ? lm[9] : undefined);
     if (latestEyes && lm) {
       const screen: ScreenModel = {
         ...MACBOOK_14,
@@ -461,14 +503,13 @@ function frame(now: number) {
     // as the fingers open and close, so shrinking around it does not make
     // the hand appear to drift.
     const hub = lm[9];
-    const shrinkX = (v: number) => hub.x + (v - hub.x) * handScale;
-    const shrinkY = (v: number) => hub.y + (v - hub.y) * handScale;
     for (const t of FINGER_TIPS) {
       ctx.shadowBlur = pinched ? 9 : 6;
       ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
       ctx.fillStyle = `rgba(${SPARK_HOT}, ${pinched ? 1 : 0.8})`;
       ctx.beginPath();
-      ctx.arc(mx(shrinkX(lm[t].x)), my(shrinkY(lm[t].y)), pinched ? 1.7 : 1.4, 0, Math.PI * 2);
+      const q = toScreen(lm[t], hub);
+      ctx.arc(mx(q.x), my(q.y), pinched ? 1.7 : 1.4, 0, Math.PI * 2);
       ctx.fill();
     }
     // The pinch point is the pen, so it is the brightest thing on the hand.
@@ -477,7 +518,8 @@ function frame(now: number) {
       ctx.shadowColor = `rgba(${CORE}, 1)`;
       ctx.fillStyle = `rgba(${CORE}, 1)`;
       ctx.beginPath();
-      ctx.arc(mx(shrinkX(pinch.center.x)), my(shrinkY(pinch.center.y)), 1.9, 0, Math.PI * 2);
+      const q = toScreen(pinch.center, hub);
+      ctx.arc(mx(q.x), my(q.y), 1.9, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.shadowBlur = 0;
@@ -488,8 +530,9 @@ function frame(now: number) {
     // look identical and there is nothing to correct toward. A ring that
     // fills as the turning accumulates makes the gesture learnable.
     if (pinched && pinch?.center) {
-      const cx0 = mx(shrinkX(pinch.center.x));
-      const cy0 = my(shrinkY(pinch.center.y));
+      const q = toScreen(pinch.center, hub);
+      const cx0 = mx(q.x);
+      const cy0 = my(q.y);
       const k = Math.max(0, Math.min(1, p.progress));
       ctx.strokeStyle = `rgba(${SPARK_MID}, 0.25)`;
       ctx.lineWidth = 2;
@@ -517,8 +560,16 @@ function frame(now: number) {
     const rpx = rpxOf(cn, rn);
     // Normalized angles do not survive the mirror: phi = PI - theta, and the
     // map negates the angle, so the sweep flips with it.
-    const swept = -Math.max(-Math.PI * 2, Math.min(Math.PI * 2, p.sweep));
-    const a0 = mirrorAngle(p.startAngle);
+    // NO mirrorAngle, and no negated sweep. Both existed because the
+    // detector used to work in landmark space while the ring was drawn in
+    // mirrored screen space. The detector is fed toScreen output now, so
+    // its angles ARE screen angles and flipping them again would send the
+    // arc backwards, which is the same bug from the other direction.
+    //
+    // This is what one door buys: the correction disappears rather than
+    // needing to be maintained.
+    const swept = Math.max(-Math.PI * 2, Math.min(Math.PI * 2, p.sweep));
+    const a0 = p.startAngle;
     const a1 = a0 + swept;
     const k = Math.pow(p.progress, 1.6);
 
