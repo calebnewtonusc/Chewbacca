@@ -58,9 +58,12 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         .appendingPathComponent(".chewbacca/portal-size")
     private static let reachFile = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".chewbacca/portal-reach")
+    private static let handFile = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".chewbacca/portal-hand")
     private var gain: Double?
     private var size: Double?
     private var reach: Double?
+    private var hand: Double?
 
     func applicationDidFinishLaunching(_: Notification) {
         // Bundle.main first, because that is where bundle-portal.sh puts the
@@ -136,12 +139,14 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         readGain()
         readSize()
         readReach()
+        readHand()
         armTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
             Task { @MainActor in
                 self.readArm()
                 self.readGain()
                 self.readSize()
                 self.readReach()
+                self.readHand()
             }
         }
 
@@ -167,6 +172,9 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         }
         if let rh = reach {
             web?.evaluateJavaScript("window.chewbaccaReach&&window.chewbaccaReach(\(rh))")
+        }
+        if let hd = hand {
+            web?.evaluateJavaScript("window.chewbaccaHand&&window.chewbaccaHand(\(hd))")
         }
     }
 
@@ -220,6 +228,15 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         reach = value
         guard ready, let web else { return }
         web.evaluateJavaScript("window.chewbaccaReach&&window.chewbaccaReach(\(value))")
+    }
+
+    private func readHand() {
+        let text = (try? String(contentsOf: Self.handFile, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let text, let value = Double(text), hand != value else { return }
+        hand = value
+        guard ready, let web else { return }
+        web.evaluateJavaScript("window.chewbaccaHand&&window.chewbaccaHand(\(value))")
     }
 
     private func applyArm() {
