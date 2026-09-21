@@ -354,6 +354,12 @@ if group "installer"; then
   check  "pre-commit refuses an index holding two sessions' work" \
     bash "$ROOT/tests/precommit_authorship.sh" "$ROOT"
 
+  # Same failure at the other end: the Stop reminder counted the dirty files
+  # without asking who wrote them, and told the reader to commit a second live
+  # session's work.
+  check  "the Stop reminder will not push you to commit another session's work" \
+    bash "$ROOT/tests/stop_check_authorship.sh" "$ROOT"
+
   check  "committed checksums describe the committed tree" \
     python3 "$ROOT/tools/committed_checksums.py"
 

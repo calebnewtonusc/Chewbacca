@@ -12,7 +12,7 @@ baff09b097b67758927ae5ea8ed991dc855687ccd34face005381a4fb432ab42  .claude/hooks/
 b171a2205fc3864dbe4057ce09bd5915b267c098480a184d77c7a9a9355ef87d  .claude/hooks/session-context.sh
 1ba82310f6557d4a28d77cd35b2c68f0405b4bacd4c5027d1a8e3aac298ff33a  .claude/hooks/slop-guard.sh
 991de99509214748f9352ebe1d62e423cf9d78a2b195b099c914315330bf86ea  .claude/hooks/statusline.sh
-3112c3417166483f1bb58bee7ade978502cd7c707d2c33d1c637095cdf1550da  .claude/hooks/stop-check.sh
+a99ff95340db4cb2a625c70ef60aae153379e4577076a5b0c384b470e8809e80  .claude/hooks/stop-check.sh
 3f3cfad70e0d0cb86db7824b7cbee449f5dac7e57c0afc1aeb184814005db0e9  .claude/hooks/submit-guard.sh
 4a95c5c590419c23989685b2b3122c54e09f8660237e8e03242cde51e022a03e  .claude/hooks/terminal-loop.sh
 a1403fdb87442604e8d9aecaadcff2b2de7f13bec444aeb7f69149ebb4b51723  .claude/hooks/ux-guard.sh

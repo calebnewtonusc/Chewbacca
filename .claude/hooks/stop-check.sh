@@ -13,6 +13,10 @@ type hook_init >/dev/null 2>&1 && hook_init stop-check.sh 10
 
 set -uo pipefail
 
+# The Stop payload carries session_id. This hook never read it, which is why it
+# could not tell the user's own work from another live session's.
+INPUT="$(cat 2>/dev/null || true)"
+
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 
 # A home directory under git is somebody's dotfiles repo, and `git status`
@@ -57,6 +61,42 @@ elif git remote | grep -q .; then
   NO_UPSTREAM=1
 fi
 
+# WHOSE work is this?
+#
+# Volume noise was fixed twice above. Authorship noise was never fixed at all.
+# On 2026-09-21 this hook reported "4 uncommitted changes" for files a SECOND
+# live session had written seconds earlier, and told the reader to commit them.
+# Acting on that absorbs another session's in-flight work into your commit,
+# which is the exact failure .githooks/pre-commit and .claude/hooks/write-log.sh
+# were both written to catch. Warning someone toward a trap the rest of the kit
+# then springs on them is worse than saying nothing.
+#
+# So attribute the dirty tracked files before reporting them. write-log.tsv
+# holds "epoch<TAB>session_id<TAB>absolute path". Everything here degrades to
+# the previous behaviour when the log is missing, empty, unreadable, or when
+# jq is absent, because a guard that suppresses a real warning on a bad day is
+# worse than one that occasionally repeats itself.
+MINE_COUNT=0
+OTHERS_COUNT=0
+_SID=""
+if command -v jq >/dev/null 2>&1; then
+  _SID="$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)"
+fi
+_WLOG="${CHEWBACCA_WRITE_LOG:-$HOME/.chewbacca/write-log.tsv}"
+if [ -n "$_SID" ] && [ -s "$_WLOG" ]; then
+  while IFS= read -r _f; do
+    [ -n "$_f" ] || continue
+    _last="$(grep -F "	$REPO_ROOT/$_f" "$_WLOG" 2>/dev/null | tail -1)"
+    [ -n "$_last" ] || continue
+    _author="$(printf '%s' "$_last" | cut -f2)"
+    if [ "$_author" = "$_SID" ]; then
+      MINE_COUNT=$((MINE_COUNT + 1))
+    else
+      OTHERS_COUNT=$((OTHERS_COUNT + 1))
+    fi
+  done <<< "$(git status --porcelain 2>/dev/null | grep -v '^??' | sed 's/^...//' | sed 's/.* -> //')"
+fi
+
 # Repeating a warning the user has already seen and declined to act on is the
 # same noise this hook was twice rewritten to stop making. A reminder that
 # fires every turn against unchanged state trains the reader to skip it, so the
@@ -82,12 +122,12 @@ if [ "$DIRTY_COUNT" -eq 0 ] && [ "$AHEAD_COUNT" -eq 0 ] && [ "$NO_UPSTREAM" -eq 
 fi
 
 if [ -n "$STATE_FILE" ]; then
-  FINGERPRINT="$(git status --porcelain 2>/dev/null | shasum 2>/dev/null | cut -d' ' -f1)|$AHEAD_COUNT|$NO_UPSTREAM"
+  FINGERPRINT="$(git status --porcelain 2>/dev/null | shasum 2>/dev/null | cut -d' ' -f1)|$AHEAD_COUNT|$NO_UPSTREAM|$MINE_COUNT|$OTHERS_COUNT"
   [ "$(cat "$STATE_FILE" 2>/dev/null)" = "$FINGERPRINT" ] && exit 0
   printf '%s' "$FINGERPRINT" > "$STATE_FILE" 2>/dev/null || true
 fi
 
-export DIRTY_COUNT AHEAD_COUNT NO_UPSTREAM
+export DIRTY_COUNT AHEAD_COUNT NO_UPSTREAM MINE_COUNT OTHERS_COUNT
 export BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
 
 python3 <<'PY'
@@ -97,6 +137,8 @@ dirty = int(os.environ.get("DIRTY_COUNT", "0"))
 ahead = int(os.environ.get("AHEAD_COUNT", "0"))
 no_upstream = os.environ.get("NO_UPSTREAM", "0") == "1"
 branch = os.environ.get("BRANCH", "?")
+mine = int(os.environ.get("MINE_COUNT", "0"))
+others = int(os.environ.get("OTHERS_COUNT", "0"))
 
 bits = []
 if dirty:
@@ -106,12 +148,28 @@ if ahead:
 if no_upstream:
     bits.append(f"branch '{branch}' has no upstream, so nothing here is pushed")
 
+advice = (
+    "If the work is finished, commit and push it. If it is mid-flight, ignore this."
+)
+if others and not mine:
+    advice = (
+        f"{others} of those file(s) were last written by a DIFFERENT session, and none "
+        "by this one. That is another tab's work in flight. Do not commit it: "
+        ".githooks/pre-commit refuses an index holding two authors. Leave it alone "
+        "and say so."
+    )
+elif others and mine:
+    advice = (
+        f"{mine} of those file(s) are this session's and {others} belong to a different "
+        "session. Committing them together will be refused by .githooks/pre-commit. "
+        "Stage only your own paths by name, never -A."
+    )
+
 print(json.dumps({
     "hookSpecificOutput": {
         "hookEventName": "Stop",
         "additionalContext": (
-            f"Uncommitted or unpushed work in this repo: {'; '.join(bits)}. "
-            "If the work is finished, commit and push it. If it is mid-flight, ignore this."
+            f"Uncommitted or unpushed work in this repo: {'; '.join(bits)}. " + advice
         ),
     }
 }))
