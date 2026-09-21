@@ -816,6 +816,7 @@ if group "hud"; then
   # silently on somebody else's Mac before this existed.
   check  "the display can say why it is not drawing" python3 "$ROOT/tests/test_hud_doctor.py"
   check  "hud-listen parses"  python3 -m py_compile "$ROOT/bin/hud-listen"
+  check  "a greeting costs no model turn" python3 "$ROOT/tests/test_pleasantry.py"
   check  "hud-speak parses"   python3 -m py_compile "$ROOT/bin/hud-speak"
   # The voice, minus the model: sentence splitting and the cache of short
   # lines, which is what "Done." costs after the first time.
