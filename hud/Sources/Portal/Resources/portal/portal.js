@@ -757,6 +757,19 @@
       ctx.fill();
       ctx.globalAlpha = 1;
       drawMirror(strength);
+      const veil = (1 - Math.max(0, Math.min(1, fill))) * 0.8;
+      if (veil > 4e-3) {
+        ctx.globalCompositeOperation = "destination-out";
+        const vg = ctx.createRadialGradient(cxp, cyp, 0, cxp, cyp, Rp);
+        vg.addColorStop(0, `rgba(0,0,0,${veil * 0.35})`);
+        vg.addColorStop(0.65, `rgba(0,0,0,${veil * 0.6})`);
+        vg.addColorStop(1, `rgba(0,0,0,${veil})`);
+        ctx.fillStyle = vg;
+        ctx.beginPath();
+        ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalCompositeOperation = "source-over";
+      }
       if (cloud > 2e-3) {
         const dir = ccw ? -1 : 1;
         const drawnAng = Math.min(Math.PI * 2, (1 - gapSize) * Math.PI * 2);
@@ -766,12 +779,12 @@
         const f = Math.max(0, Math.min(1, fill));
         const STEPS = 64;
         const depthAt = (u) => {
-          const wound = (1 - u) * spiral + (1 - spiral);
+          const wind = 1 + 1.5 * (1 - u) * spiral;
           const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950) + 0.028 * Math.sin(u * 15.7 - now / 1500);
-          return Math.max(0, Math.min(1, f * wound)) * rough;
+          return Math.max(0, Math.min(1, Math.pow(f, wind))) * rough;
         };
         ctx.globalCompositeOperation = "destination-out";
-        ctx.filter = `blur(${Math.max(3, Rp * 0.07).toFixed(1)}px)`;
+        ctx.filter = `blur(${Math.max(7, Rp * 0.17).toFixed(1)}px)`;
         ctx.beginPath();
         for (let i = 0; i <= STEPS; i++) {
           const u = i / STEPS;
@@ -788,7 +801,7 @@
           }
         }
         ctx.closePath();
-        ctx.fillStyle = "rgba(0,0,0,1)";
+        ctx.fillStyle = "rgba(0,0,0,0.93)";
         ctx.fill();
         for (let i = 0; i < 6; i++) {
           const t = now / 3e3 + i * 1.7;
