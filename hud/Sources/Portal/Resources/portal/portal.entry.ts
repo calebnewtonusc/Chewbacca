@@ -131,6 +131,7 @@ let holdOld = 0;
 let settleX = 0, settleV = 0;   // the spiral relaxing, and the middle filling
 let arcX = 0, arcV = 0;         // the last of the circle closing
 let lastFrameMs = 0;
+let lastMaskCheck = 0;
 const stepSpring = (x: number, v: number, k: number, dt: number) => {
   const c = 2 * Math.sqrt(k);            // critical damping, so it never overshoots
   const a = k * (1 - x) - c * v;
@@ -665,8 +666,16 @@ function frame(now: number) {
     m.arc(mx0, my0, Rp, 0, Math.PI * 2);
     m.clip();
 
-    const OFF = size + 64;      // far enough that the shape itself misses the canvas
-    if (blurPx > 0.5) {
+    // THE OFFSET ONLY EXISTS TO HIDE THE SHAPE BEHIND ITS OWN SHADOW.
+    //
+    // With no blur there is no shadow, so an offset shape is simply drawn off
+    // the canvas and the mask comes back EMPTY. And blurPx is Rp * 0.16 *
+    // cloud, which reaches zero exactly when the portal finishes opening, so
+    // the other side disappeared at the precise moment it was supposed to be
+    // fully visible: a bright ring around nothing.
+    const soft = blurPx > 0.5;
+    const OFF = soft ? size + 64 : 0;
+    if (soft) {
       m.shadowColor = "rgba(255,255,255,1)";
       m.shadowBlur = blurPx;
       m.shadowOffsetX = OFF;
@@ -719,6 +728,31 @@ function frame(now: number) {
     const dw = mirror.width * sc, dh = mirror.height * sc;
     m.drawImage(mirror, (W - dw) / 2 - ox, (H - dh) / 2 - oy, dw, dh);
     m.globalCompositeOperation = "source-over";
+
+    // A MASK THAT CAME OUT EMPTY IS A BUG, NOT A LOOK.
+    //
+    // Twice now a drawing assumption has failed silently and taken the other
+    // side off the glass with it: a blur that was never applied, and a shape
+    // drawn off its own canvas. Both looked like a tuning problem from
+    // outside, and both cost several rounds.
+    //
+    // Once a second, when the portal should be plainly visible, check that
+    // the mask actually has something in it and say so if it does not.
+    // Cheap: four pixels, once a second, and only when it matters.
+    if (strength > 0.5 && now - lastMaskCheck > 1000) {
+      lastMaskCheck = now;
+      try {
+        const d = m.getImageData(Math.floor(size / 2), Math.floor(size / 2), 2, 2).data;
+        let a = 0;
+        for (let i = 3; i < d.length; i += 4) a = Math.max(a, d[i]);
+        if (a === 0) {
+          window.webkit?.messageHandlers?.portal?.postMessage({
+            event: "log",
+            text: `mask EMPTY at strength ${strength.toFixed(2)}, fill ${fill.toFixed(2)}, cloud ${cloud.toFixed(2)}`,
+          });
+        }
+      } catch (e) { /* nothing to report */ }
+    }
 
     ctx.save();
     ctx.globalCompositeOperation = "source-over";
