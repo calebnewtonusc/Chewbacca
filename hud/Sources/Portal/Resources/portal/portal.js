@@ -327,6 +327,8 @@
   var FINGER_TIPS = [4, 8, 12, 16, 20];
 
   // vendor/pointing.ts
+  var MIN_SEPARATION_MM = 120;
+  var MAX_RAY_GAIN = 8;
   var DEFAULT_ANTHRO = { ipdMm: 63, palmMm: 97 };
   var MACBOOK_14 = {
     widthMm: 302.4,
@@ -354,10 +356,13 @@
   }
   function rayToScreen(eye, finger, screen) {
     const dz = eye.z - finger.z;
-    if (!(dz > 1e-6)) {
+    if (!(dz > MIN_SEPARATION_MM)) {
       return mmToPixels(finger.x, finger.y, screen);
     }
     const t = eye.z / dz;
+    if (!isFinite(t) || t > MAX_RAY_GAIN) {
+      return mmToPixels(finger.x, finger.y, screen);
+    }
     return mmToPixels(
       eye.x + (finger.x - eye.x) * t,
       eye.y + (finger.y - eye.y) * t,
