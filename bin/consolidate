@@ -1,0 +1,226 @@
+#!/usr/bin/env python3
+"""Promote what keeps happening, retire what stopped mattering.
+
+    consolidate                  what the episodes are asking to become
+    consolidate --promote        write the proposed rules into methods/
+    consolidate --decay          report scars nothing has touched in N days
+    consolidate --days 120
+
+WHY THIS EXISTS. research/what-is-actually-proprietary.md measured it: every
+idea in this kit is public and copyable in an afternoon, so the only moat
+available to a public repo is ACCUMULATION. And nothing accumulates. scars
+grows, the trial log has one entry, the design prior has ten samples. A fresh
+install is as good as a two-year-old one, which means there is no moat at any
+level of secrecy and no reason for the kit to get better by being used.
+
+THE ARCHITECTURE IS BORROWED AND ATTRIBUTED. Aryaa SK's influence ladder, read
+in full and critiqued in research/aryaa-memory-architecture.md: hold new things
+in the high-plasticity layer, then consolidate DOWNWARD into lower-plasticity
+layers as they prove themselves. Same shape as hippocampus to neocortex to
+basal ganglia.
+
+    scars       episodic    highest plasticity   what happened once
+    methods/    semantic    medium               what keeps happening
+    hooks       procedural  lowest               what must never happen again
+
+53 episodes have never become a rule. A rule has never become a gate. This
+moves things down one level when the evidence says they have earned it.
+
+AND IT PRUNES. Every bank in this kit only grows: 120 questions, 53 scars, 30
+lint rules. crafts/web-ux.md opens with "removal is free" and the repo has
+never had a removal pass. Synaptic density peaks in childhood and is cut back
+through adolescence; the mature system is not the one with the most
+connections.
+
+OFFLINE ON PURPOSE. The brain consolidates during sleep because the operation
+cannot run while the system is behaving. This is a command you run between
+sessions, not a hook that fires inside one.
+
+WHAT IT CANNOT DO. It proposes; it does not decide. Clustering by shared
+mechanism is a heuristic and a wrong promotion is worse than none, because a
+rule nobody believes teaches people to skip rules. Every proposal names its
+episodes so the claim can be checked against the commits it came from.
+"""
+import argparse
+import collections
+import json
+import math
+import pathlib
+import re
+import subprocess
+import sys
+import time
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+SCARS = pathlib.Path.home() / ".chewbacca" / "scars.json"
+METHODS = ROOT / "methods"
+
+# The mechanisms that have actually recurred here, each with the rule it
+# implies. Hand-authored from reading the corpus, not inferred: a cluster
+# label a machine invented would be a rule nobody wrote and nobody believes.
+MECHANISMS = [
+    ("silent-failure",
+     r"silent|silently|swallow|swallowed|exit 0|no error|without complaint|"
+     r"failed quietly|no output|vacuous",
+     "Anything that can fail quietly must be made to say so, even when that "
+     "makes the output uglier. A clean run over missing data is worse than a "
+     "crash, because it ends the investigation."),
+    ("never-fires",
+     r"never fires?|did nothing|nothing loaded|not registered|unregistered|"
+     r"guidance does not run|judgment in markdown|was enforced by nothing",
+     "Knowledge that is retrieved does not fire; knowledge that is injected "
+     "or enforced does. If a rule has no gate, assume it is not in effect."),
+    ("wrong-condition",
+     r"wrong condition|passing vacuously|its own comment|own documentation|"
+     r"tested .{0,30}wrong|did not exercise|no-op run",
+     "A passing test that does not exercise the condition is worse than no "
+     "test: it ends the investigation. Force the failing state and confirm "
+     "the check catches it."),
+    ("stale-or-generated",
+     r"generated block|generator .{0,20}revert|regenerat|rewrite each other|"
+     r"churn|stale|out of date",
+     "Never hand-edit a generated block. Make the generator emit what the "
+     "formatter already wants, so the two cannot disagree."),
+    ("unverified-specific",
+     r"unverified|unsourced|not findable|invented|no denominator|"
+     r"could not point to|plausible number",
+     "A number without a source or a denominator is the shape of a "
+     "measurement, not a measurement. Leave a marker instead."),
+    ("crossed-sessions",
+     r"absorbed|another session|parallel session|other tab|git add -A|"
+     r"swept up|unrelated message",
+     "Commit only your own paths with `git commit -- <paths>`. A bare commit "
+     "takes the whole index, including work another session staged."),
+]
+
+MIN_EPISODES = 3          # below this it is a coincidence, not a pattern
+DEFAULT_DECAY_DAYS = 120
+
+
+def load_scars():
+    if not SCARS.exists():
+        print(f"no scar index at {SCARS}. Run: scars reindex", file=sys.stderr)
+        return None
+    try:
+        return json.loads(SCARS.read_text())
+    except json.JSONDecodeError as e:
+        print(f"scar index is not valid JSON: {e}", file=sys.stderr)
+        return None
+
+
+def cluster(scars):
+    """Group episodes by the mechanism they share, not by word overlap."""
+    out = collections.OrderedDict()
+    for name, rx, rule in MECHANISMS:
+        pat = re.compile(rx, re.I)
+        hits = [s for s in scars
+                if pat.search(s.get("what_happened", "") + " " + s.get("subject", ""))]
+        if hits:
+            out[name] = {"rule": rule, "episodes": hits}
+    return out
+
+
+def already_covered(rule_text):
+    """Do not propose what methods/ already says."""
+    key = {w for w in re.findall(r"[a-z]{5,}", rule_text.lower())}
+    for f in METHODS.glob("*.md"):
+        body = set(re.findall(r"[a-z]{5,}", f.read_text().lower()))
+        if len(key & body) / max(len(key), 1) > 0.55:
+            return f.name
+    return None
+
+
+def commit_ages(scars):
+    """Days since each scar's commit. A scar nobody has revisited is decaying."""
+    ages = {}
+    now = time.time()
+    for s in scars:
+        sha = s.get("sha", "")
+        if not sha:
+            continue
+        r = subprocess.run(["git", "-C", str(ROOT), "show", "-s", "--format=%ct", sha],
+                           capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip().isdigit():
+            ages[sha] = (now - int(r.stdout.strip())) / 86400
+    return ages
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--promote", action="store_true",
+                    help="write proposed rules into methods/consolidated.md")
+    ap.add_argument("--decay", action="store_true")
+    ap.add_argument("--days", type=int, default=DEFAULT_DECAY_DAYS)
+    a = ap.parse_args()
+
+    scars = load_scars()
+    if scars is None:
+        return 1
+    print(f"{len(scars)} episode(s) in the index\n")
+
+    if a.decay:
+        ages = commit_ages(scars)
+        old = sorted(((ages.get(s["sha"], 0), s) for s in scars
+                      if ages.get(s["sha"], 0) > a.days), reverse=True)
+        if not old:
+            print(f"nothing older than {a.days} days. Nothing to retire.")
+            return 0
+        print(f"{len(old)} episode(s) older than {a.days} days.")
+        print("Age is not wrongness. Retire one only if the mechanism it "
+              "records can no longer happen,\nbecause a gate now prevents it. "
+              "Otherwise it is still the cheapest warning available.\n")
+        for age, s in old[:12]:
+            print(f"  {int(age):>4}d  [{s['sha']}]  {s['subject'][:60]}")
+        return 0
+
+    groups = cluster(scars)
+    ready = {k: v for k, v in groups.items() if len(v["episodes"]) >= MIN_EPISODES}
+    thin = {k: v for k, v in groups.items() if len(v["episodes"]) < MIN_EPISODES}
+
+    print(f"{len(ready)} mechanism(s) with {MIN_EPISODES}+ episodes, "
+          f"which is the bar for becoming a rule")
+    for name, g in ready.items():
+        covered = already_covered(g["rule"])
+        mark = f"  ALREADY IN {covered}" if covered else "  NOT YET A RULE"
+        print(f"\n  [{name}]  {len(g['episodes'])} episodes{mark}")
+        print(f"      {g['rule']}")
+        for s in g["episodes"][:4]:
+            print(f"        {s['sha']}  {s['subject'][:58]}")
+
+    if thin:
+        print(f"\n{len(thin)} mechanism(s) below the bar, left as episodes:")
+        for name, g in thin.items():
+            print(f"  {name} ({len(g['episodes'])})")
+
+    novel = {k: v for k, v in ready.items() if not already_covered(v["rule"])}
+    if not novel:
+        print("\nNothing to promote: every recurring mechanism is already a rule.")
+        print("That is the healthy state, not a failure.")
+        return 0
+
+    print(f"\n{len(novel)} rule(s) the episodes have earned and methods/ "
+          f"does not yet carry.")
+    if not a.promote:
+        print("Run with --promote to write them.")
+        return 0
+
+    dest = METHODS / "consolidated.md"
+    lines = ["# Consolidated from episodes", "",
+             "Promoted by `consolidate --promote` from the kit's own recorded",
+             "failures. Every rule names the episodes it came from, so the claim",
+             "can be checked against the commits rather than believed.", "",
+             "These are PROPOSALS. A rule nobody believes teaches people to skip",
+             "rules, so delete any that do not survive reading.", ""]
+    for name, g in novel.items():
+        lines += [f"## {name}", "", g["rule"], "",
+                  f"Earned by {len(g['episodes'])} episodes:", ""]
+        lines += [f"- `{s['sha']}` {s['subject']}" for s in g["episodes"][:8]]
+        lines += [""]
+    dest.write_text("\n".join(lines))
+    print(f"wrote {dest}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

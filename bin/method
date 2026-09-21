@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""Which process fits this work, and what would prove it wrong.
+
+    method                     the processes available
+    method build               the questions for one
+    method pick "<task>"       classify a task and print its questions
+    method pick "<task>" --terse   the short form the hook injects
+
+crafts/ answers what makes a good ARTIFACT. This answers how to run the WORK.
+
+Deterministic and model-free, because it runs on every prompt and a
+classifier that costs a second per turn gets removed within a week.
+"""
+import argparse
+import pathlib
+import re
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+DIR = ROOT / "methods"
+HOME = pathlib.Path.home() / ".chewbacca" / "methods"
+
+# Ordered: the first match wins, so the more specific patterns come first.
+SIGNALS = [
+    ("debug", r"\b(bug|broken|fails?|failing|error|crash|wrong|regress|"
+              r"why (is|does|isn'?t|doesn'?t)|not work|stopped work)\b"),
+    ("experiment", r"\b(measure|experiment|benchmark|a/?b test|hypothes|"
+                   r"validate|verify|prove|false positive|baseline|sample size)\b"),
+    ("research", r"\b(research|prior art|has anyone|who else|state of the art|"
+                 r"literature|find out|look into|investigate|survey)\b"),
+    ("creative", r"\b(design|creative|aesthetic|look|style|beautiful|taste|"
+                 r"cool|slop|brand|layout|typography|animation)\b"),
+    ("decision", r"\b(should (i|we)|which (one|approach|option)|decide|"
+                 r"choose between|worth it|trade ?off|pros and cons)\b"),
+    ("build", r"\b(build|implement|create|add|write|make|ship|set ?up|"
+              r"wire|refactor|port|generate)\b"),
+]
+
+FALSIFIER = "What result would tell me this was the wrong approach?"
+CHEAPEST = "What is the cheapest thing that would produce that result if true?"
+
+
+def available():
+    return sorted(p.stem for p in DIR.glob("*.md") if p.stem != "README")
+
+
+def classify(task):
+    t = task.lower()
+    for name, rx in SIGNALS:
+        if re.search(rx, t):
+            return name
+    return None
+
+
+def read(name):
+    local = HOME / f"{name}.md"
+    src = local if local.exists() else DIR / f"{name}.md"
+    return src.read_text() if src.exists() else None
+
+
+def terse(name):
+    """Four lines. The hook injects this on every build-intent prompt, and a
+    long injection is an ignored one."""
+    text = read(name) or ""
+    qs = [l.strip("- ").strip() for l in text.split("\n")
+          if l.startswith("- ")][:3]
+    out = [f"METHOD: {name}", f"  FALSIFIER  {FALSIFIER}", f"  CHEAPEST   {CHEAPEST}"]
+    for q in qs:
+        out.append(f"  ask        {q}")
+    return "\n".join(out)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("name", nargs="?")
+    ap.add_argument("task", nargs="?")
+    ap.add_argument("--terse", action="store_true")
+    a = ap.parse_args()
+
+    if not a.name:
+        print("processes. crafts/ is what makes a good artifact; this is how "
+              "to run the work.\n")
+        for n in available():
+            first = (read(n) or "").split("\n")
+            head = next((l for l in first if l.startswith("**Falsifier:**")), "")
+            print(f"  {n:<12} {head.replace('**Falsifier:**', '').strip()[:60]}")
+        print(f"\n  Every one of them reduces to: {FALSIFIER}")
+        return 0
+
+    if a.name == "pick":
+        if not a.task:
+            print("method pick \"<task>\"", file=sys.stderr)
+            return 2
+        got = classify(a.task)
+        if not got:
+            # Refuse to guess. A wrong process is worse than no process,
+            # because it looks like the question was already considered.
+            print("no process matched. Pick one deliberately:",
+                  ", ".join(available()), file=sys.stderr)
+            return 1
+        print(terse(got) if a.terse else read(got))
+        return 0
+
+    if a.name not in available():
+        print(f"no method '{a.name}'. Have: {', '.join(available())}",
+              file=sys.stderr)
+        return 1
+    print(terse(a.name) if a.terse else read(a.name))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

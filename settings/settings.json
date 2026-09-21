@@ -147,6 +147,32 @@
             "statusMessage": "Checking for unpushed work..."
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/kit-autopush.sh",
+            "timeout": 30,
+            "statusMessage": "Pushing the kit..."
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/list-guard.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/kit-debt.sh"
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -157,6 +183,17 @@
             "type": "command",
             "command": "$HOME/.claude/hooks/env-guard.sh",
             "statusMessage": "Checking file safety..."
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/ux-guard.sh",
+            "timeout": 20,
+            "statusMessage": "Checking the interface before writing it..."
           }
         ]
       }

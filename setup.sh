@@ -108,6 +108,11 @@ Who this install is for:
                                           and the study skills.
                                developer  Everything. The default, and what
                                           every previous version did.
+  --fast                       Install only what makes the agent know you:
+                               settings, rules, skills, subagents. Skips brew
+                               packages, plugins, MCP servers and dictation.
+                               Takes about two minutes instead of thirty. Run
+                               `chewbacca setup` later for the rest.
   --no-github                  Skip GitHub entirely. Your second brain stays a
                                folder on this Mac. Implied by --profile personal
                                and --profile student.
@@ -128,7 +133,7 @@ Behaviors, both off unless asked for:
 Re-running:
   --only <section>             Run one section. Safe to repeat.
                                prereq repos settings editor desktop mcp rules
-                               plugins tools mac plynn verify
+                               plugins tools agents mac plynn verify
   --dry-run                    Print what would run and exit.
   -h, --help                   This text.
 USAGE
@@ -138,6 +143,7 @@ NAME=""; GITHUB_USER=""; REPO_DIR=""; ANTHROPIC_KEY=""; GITHUB_PAT=""
 TODOIST_TOKEN=""; COMPOSIO_URL=""; COMPOSIO_KEY=""; ANSWERS=""
 SESSION_OPENER="none"; BYPASS_PERMS="no"; ONLY=""; DRY_RUN=0
 PROFILE="developer"; NO_GITHUB=0; ONLY_PORTABLE=0
+FAST=0
 SKIP_SECTIONS=""
 declare -a SKIPPED=()
 # Only these reach settings.json, and only when passed here in this run.
@@ -167,7 +173,7 @@ while [ $# -gt 0 ]; do
       # portable is the neutral half: standards, skills, commands, subagents.
       # No Homebrew, no Mac tools, no MCP, no permissions, no repos. It is the
       # only profile that works on a machine this kit does not otherwise run on,
-      # and the only one that touches nothing outside ~/.claude.
+      # and configures both agent homes without installing Mac tools.
       if [ "$PROFILE" = portable ]; then NO_GITHUB=1; ONLY_PORTABLE=1; fi
       shift 2 ;;
     --no-github) NO_GITHUB=1; shift ;;
@@ -176,6 +182,15 @@ while [ $# -gt 0 ]; do
     # --only ran one section and there was no way to run everything except
     # one. Repeatable: --skip plynn --skip mac.
     --skip) SKIP_SECTIONS="$SKIP_SECTIONS ${2:-}"; shift 2 ;;
+    # The whole install is a few gigabytes of Homebrew formulae, nineteen Claude
+    # plugins and twelve MCP servers, and it ran past thirty minutes in testing
+    # on 2026-09-19. That is fine for the person who lives in this kit and
+    # useless in a twenty minute call, where the thing being shown is ingestion
+    # and nothing else. --fast installs the part that makes the agent know you:
+    # settings, rules, skills, subagents. Everything else is one later command.
+    --fast|--minimal)
+      SKIP_SECTIONS="$SKIP_SECTIONS editor desktop mcp plugins tools plynn"
+      FAST=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) err "unknown argument: $1"; echo; usage; exit 2 ;;
@@ -245,7 +260,7 @@ case "$WORKSPACE_DIR" in /*) ;; *) WORKSPACE_DIR="$PWD/$WORKSPACE_DIR" ;; esac
 # A dry run must not touch the disk. This mkdir ran before the dry-run branch,
 # so `--dry-run --repo-dir /somewhere` created /somewhere and then printed that
 # it would not do anything.
-if [ "$DRY_RUN" -eq 0 ]; then
+if [ "$DRY_RUN" -eq 0 ] && [ "$ONLY" != agents ]; then
   mkdir -p "$WORKSPACE_DIR"
   WORKSPACE_DIR="$(cd "$WORKSPACE_DIR" && pwd)"
 fi
@@ -253,14 +268,14 @@ fi
 # --only runs one section. Everything here is written to be safe to repeat, so
 # a run that died halfway, or a tool that arrived after the first run, is one
 # flag away rather than a hand-copied block from this file.
-SECTIONS="prereq repos settings editor desktop mcp rules plugins tools plynn verify"
+SECTIONS="prereq repos settings editor desktop mcp rules skills plugins tools agents plynn verify manifest"
 if [ -n "$ONLY" ]; then
   case " $SECTIONS " in
     *" $ONLY "*) ;;
     *) err "unknown section: $ONLY"; err "one of: $SECTIONS"; exit 2 ;;
   esac
 fi
-PORTABLE_SECTIONS=" settings rules manifest verify "
+PORTABLE_SECTIONS=" settings rules skills agents manifest verify "
 should_run() {
   case " $SKIP_SECTIONS " in
     *" $1 "*) SKIPPED+=("$1 (--skip)"); return 1 ;;
@@ -278,9 +293,107 @@ should_run() {
   return 0
 }
 
+initialize_personal_context() {
+  # Modern second brains already own their layout. Flat templates are additive.
+  [ -d "$PC_DIR/core" ] && return 0
+  mkdir -p "$PC_DIR/memory"
+  local context_file
+  for context_file in YOU NOW PEOPLE VOICE SYSTEM STACK SCHOOL; do
+    if [ ! -e "$PC_DIR/$context_file.md" ]; then
+      cp "$SCRIPT_DIR/second-brain/context/$context_file.md" "$PC_DIR/$context_file.md"
+      if [ "$context_file" = YOU ] && [ -n "$USER_NAME" ]; then
+        sedi "s/YOUR_NAME/$USER_NAME/g" "$PC_DIR/YOU.md"
+        sedi "s/YOUR_GITHUB_USERNAME/${GITHUB_USER:-}/g" "$PC_DIR/YOU.md"
+      fi
+    fi
+  done
+  if [ ! -e "$PC_DIR/memory/MEMORY.md" ]; then
+    printf '# Memory index\n\nAdd links to shared personal memory here as it is recorded.\n' > "$PC_DIR/memory/MEMORY.md"
+  fi
+}
+
+# Telling somebody their PATH is wrong, at the end of an install, is handing
+# them a chore. start.sh already writes this line into their shell; setup.sh
+# run on its own did not, so it warned twice about something it could have
+# fixed in three lines. Do the edit, then say what it did.
+ensure_local_bin_on_path() {
+  local rc added=0
+  case ":$PATH:" in *":$HOME/.local/bin:"*) return 0 ;; esac
+  for rc in "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.profile"; do
+    [ -f "$rc" ] || continue
+    grep -q '.local/bin' "$rc" 2>/dev/null && continue
+    printf '\n# Added by Chewbacca\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$rc"
+    added=1
+  done
+  export PATH="$HOME/.local/bin:$PATH"
+  [ "$added" -eq 1 ] && log "Added ~/.local/bin to your PATH. New terminals pick it up automatically."
+  return 0
+}
+
+link_tool() {
+  local name="$1" src="$SCRIPT_DIR/bin/$1" dst="$HOME/.local/bin/$1"
+  [ -f "$src" ] || return 1
+  mkdir -p "$HOME/.local/bin"
+  # -n so that when dst is already a symlink to a DIRECTORY we replace it rather
+  # than writing inside it; -f to replace an existing copy from an older setup.
+  ln -sfn "$src" "$dst"
+  chmod +x "$src"
+}
+
+install_backend_launchers() {
+  local backend_tool
+  for backend_tool in chatgpt-tab chatgpt-gateway mac-use chrome-js; do
+    link_tool "$backend_tool"
+  done
+  log "Chewbacca backend launchers refreshed in ~/.local/bin"
+}
+
+# agent-neutral.md is written for the OTHER agent. Its own text says so: "The
+# detailed standards live in .claude/rules/ and in the user's global
+# instructions, both of which already load for the primary agent. Nothing here
+# restates them." Claude was loading all 1,176 tokens of it in every session
+# anyway, because a rule with no `paths:` frontmatter is always-on, and the
+# source file has none on purpose: it is also the source for AGENTS.md, where
+# Claude-specific frontmatter would be noise.
+#
+# So the scoping is added here, on the way into ~/.claude/rules, and the source
+# stays agent-neutral. The rule now loads when the work is actually about
+# another agent, and Codex's export is unchanged.
+install_agent_neutral_rule() {
+  local dst="$HOME/.claude/rules/agent-neutral.md"
+  mkdir -p "$HOME/.claude/rules"
+  {
+    printf '%s\n' '---'
+    printf '%s\n' 'paths:'
+    printf '%s\n' '  - "**/AGENTS.md"'
+    printf '%s\n' '  - "**/.codex/**"'
+    printf '%s\n' '  - "**/*codex*"'
+    printf '%s\n' '  - "**/instructions/agent-neutral.md"'
+    printf '%s\n' '---'
+    cat "$SCRIPT_DIR/instructions/agent-neutral.md"
+  } > "$dst"
+}
+
+install_agent_instructions() {
+  install_agent_neutral_rule
+  python3 "$SCRIPT_DIR/tools/agents_md.py"
+  initialize_personal_context
+  python3 "$SCRIPT_DIR/tools/codex_context.py" install --brain-dir "$PC_DIR" --both
+  python3 "$SCRIPT_DIR/tools/codex_hooks.py" install
+  if ! command -v jq >/dev/null 2>&1; then
+    warn "jq is missing: context loading works, but shared file and reply checks require jq"
+  fi
+  if command -v codex >/dev/null 2>&1; then
+    log "Codex installed (optional secondary agent); AGENTS.md ready"
+  else
+    log "Codex absent (optional); Claude Code remains primary"
+  fi
+}
+
+
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "Would run: ${ONLY:-all sections}${SKIP_SECTIONS:+, skipping$SKIP_SECTIONS}"
-  echo "  profile:         $PROFILE$([ "$ONLY_PORTABLE" -eq 1 ] && echo "  (~/.claude only, no Mac tools)")"
+  echo "  profile:         $PROFILE$([ "$ONLY_PORTABLE" -eq 1 ] && echo "  (Claude and Codex configuration, no Mac tools)")"
   echo "  github:          $([ "$NO_GITHUB" -eq 1 ] && echo "skipped, brain stays local" || echo "two repos created and pushed")"
   echo "  name:            ${USER_NAME:-<unset>}"
   echo "  repo dir:        $WORKSPACE_DIR"
@@ -289,6 +402,20 @@ if [ "$DRY_RUN" -eq 1 ]; then
   for pair in "anthropic:$ANTHROPIC_KEY" "github:$GITHUB_PAT" "todoist:$TODOIST_TOKEN"; do
     [ -n "${pair#*:}" ] && echo "  credential:      ${pair%%:*} (would be written to settings.json)"
   done
+  exit 0
+fi
+
+if [ -n "${CHEWBACCA_BRAIN_DIR:-}" ]; then
+  PC_DIR="$(python3 "$SCRIPT_DIR/tools/codex_context.py" path)"
+elif [ -n "$USER_NAME" ]; then
+  PC_DIR="$WORKSPACE_DIR/$PERSONAL_REPO"
+else
+  PC_DIR="$(python3 "$SCRIPT_DIR/tools/codex_context.py" path)"
+fi
+
+if [ "$ONLY" = agents ]; then
+  if [ "$ONLY_PORTABLE" -eq 0 ]; then install_backend_launchers; fi
+  install_agent_instructions
   exit 0
 fi
 
@@ -373,7 +500,18 @@ else
 fi
 
 # A passed --github-user wins; the logged-in account is only the fallback.
-GITHUB_USER="${GITHUB_USER:-$(gh api user --jq .login 2>/dev/null)}"
+#
+# `VAR="$(failing-cmd)"` as a standalone assignment exits under set -e, and
+# `gh api user` exits 4 on a machine where gh is installed but nobody has
+# signed in, which is every machine running the personal profile. The whole
+# install died right here, silently, with no error and exit 4, after printing
+# one line about git identity. The same mistake was already found and fixed
+# thirteen lines below this one; this copy was missed.
+#
+# NO_GITHUB means no repo is ever created, so there is nothing to look up.
+if [ "$NO_GITHUB" -eq 0 ]; then
+  GITHUB_USER="${GITHUB_USER:-$(gh api user --jq .login 2>/dev/null || true)}"
+fi
 fi
 
 # ── Collect info ──────────────────────────────────────────────────────────────
@@ -392,25 +530,13 @@ log "Repos: $WORKSPACE_DIR"
 if should_run repos && [ -n "${USER_NAME:-}" ]; then
 section "Creating $PERSONAL_REPO (private personal brain)"
 
-PC_DIR="$WORKSPACE_DIR/$PERSONAL_REPO"
 export D1_PC_DIR="$PC_DIR"
-mkdir -p "$PC_DIR"
-
-cp "$SCRIPT_DIR/second-brain/context/YOU.md"    "$PC_DIR/YOU.md"
-cp "$SCRIPT_DIR/second-brain/context/NOW.md"    "$PC_DIR/NOW.md"
-cp "$SCRIPT_DIR/second-brain/context/PEOPLE.md" "$PC_DIR/PEOPLE.md"
-cp "$SCRIPT_DIR/second-brain/context/SYSTEM.md" "$PC_DIR/SYSTEM.md"
-cp "$SCRIPT_DIR/second-brain/context/STACK.md"  "$PC_DIR/STACK.md"
-cp "$SCRIPT_DIR/second-brain/context/SCHOOL.md" "$PC_DIR/SCHOOL.md"
-
-# Pre-fill the name placeholder
-sedi "s/YOUR_NAME/$USER_NAME/g" "$PC_DIR/YOU.md"
-sedi "s/YOUR_GITHUB_USERNAME/$GITHUB_USER/g" "$PC_DIR/YOU.md"
+initialize_personal_context
 
 log "Templates copied to $PC_DIR"
 
 echo ""
-echo "  Claude reads YOU.md at the start of every session."
+echo "  Claude and Codex read the same personal context at session start."
 echo ""
 # This used to launch $EDITOR, falling back to nano and then vi, and block until
 # the file was closed. On a Mac with no EDITOR set that is vi, and someone who
@@ -460,7 +586,7 @@ Thumbs.db
 *.log
 GITIGNORE
 
-git add -- .gitignore YOU.md NOW.md PEOPLE.md SYSTEM.md STACK.md SCHOOL.md
+git add -- .gitignore YOU.md NOW.md PEOPLE.md VOICE.md SYSTEM.md STACK.md SCHOOL.md memory/MEMORY.md
 # A commit needs an identity. On the no-GitHub path we may not have one, and
 # asking for an email to make a local commit nobody will ever read is exactly
 # the kind of question this profile exists to delete.
@@ -604,15 +730,7 @@ log "Hooks installed to ~/.claude/hooks/"
 #
 # A symlink makes the repo the only copy, so pulling the repo IS updating the
 # tool. `tests/live/people.sh` asserts the link, so this cannot quietly regress.
-link_tool() {
-  local name="$1" src="$SCRIPT_DIR/bin/$1" dst="$HOME/.local/bin/$1"
-  [ -f "$src" ] || return 1
-  mkdir -p "$HOME/.local/bin"
-  # -n so that when dst is already a symlink to a DIRECTORY we replace it rather
-  # than writing inside it; -f to replace an existing copy from an older setup.
-  ln -sfn "$src" "$dst"
-  chmod +x "$src"
-}
+# link_tool is defined above, before its first caller in the agents section.
 
 # Both scanners score something with no model in the loop, so a cheap
 # deterministic check can run before anything spends tokens. ai-scan reads prose
@@ -653,12 +771,32 @@ if [ -n "$_installed_scanners" ]; then
   else
     warn "Installed$_installed_scanners but node is missing, so they will not run until you install node >= 18"
   fi
-  case ":$PATH:" in
-    *":$HOME/.local/bin:"*) ;;
-    *) warn "~/.local/bin is not on your PATH. Add it to run$_installed_scanners by name." ;;
-  esac
+  ensure_local_bin_on_path
 fi
 unset _tool _installed_scanners
+
+# brief-audio renders text to a listenable MP3 with Kokoro-82M, locally. It is
+# deliberately not in the scanner loop above: those need node, this needs python
+# and ffmpeg, and warning about the wrong missing dependency sends people to fix
+# something unrelated. It builds its own venv at ~/.chewbacca/audio-venv on first
+# run, so nothing heavy is installed here.
+if [ -f "$SCRIPT_DIR/bin/brief-audio" ]; then
+  link_tool brief-audio
+  log "brief-audio installed to ~/.local/bin/"
+  ensure_local_bin_on_path
+fi
+
+# list-audit is pure stdlib python, no venv and no network, so it installs with
+# no dependency check at all. list-gate ships with it: audit reads a bought file,
+# gate refuses to ship a generated one, and the Stop hook calls the gate by name.
+for _tool in list-audit list-gate kit-debt; do
+  if [ -f "$SCRIPT_DIR/bin/$_tool" ]; then
+    link_tool "$_tool"
+    log "$_tool installed to ~/.local/bin/"
+  fi
+done
+ensure_local_bin_on_path
+unset _tool
 
 # The display: hud draws interfaces on top of everything on screen, hud-listen
 # turns what is said to it into an answer, hud-context reports what is in front
@@ -666,12 +804,21 @@ unset _tool _installed_scanners
 # hud calls the others by path, so installing one alone gives a command that
 # fails halfway.
 _installed_hud=""
-for _tool in hud hud-listen hud-context hud-watch hud-speak hud-guide hud-music superassistant; do
+for _tool in hud hud-listen hud-context hud-watch hud-speak hud-guide hud-music superassistant chewbacca-mcp; do
   if [ -f "$SCRIPT_DIR/bin/$_tool" ]; then
     link_tool "$_tool"
     _installed_hud="$_installed_hud $_tool"
   fi
 done
+
+# Register the MCP server with every client already on this machine, so the
+# person never sees a port or pastes a URL. Caleb's reaction to the localhost
+# transport was "that means someone would have to open a browser, that's
+# terrible UX", and he was right: once is still once too many. Idempotent, and
+# it backs up each config before touching it.
+if [ -x "$HOME/.local/bin/chewbacca-mcp" ]; then
+  "$HOME/.local/bin/chewbacca-mcp" --register 2>/dev/null | sed 's/^/    /'
+fi
 if [ -n "$_installed_hud" ]; then
   log "Installed to ~/.local/bin/:$_installed_hud"
   # The commands are useless without the app that draws. Say so once, here,
@@ -686,10 +833,7 @@ if [ -n "$_installed_hud" ]; then
     warn "hud-voice is not built; replies are read by hud-speak, which needs uv and espeak-ng."
     warn "Build it: $(dirname "$0")/voice/build.sh, then HUD_SPEAKER=hud-voice for hud-listen."
   fi
-  case ":$PATH:" in
-    *":$HOME/.local/bin:"*) ;;
-    *) warn "~/.local/bin is not on your PATH. Add it to run$_installed_hud by name." ;;
-  esac
+  ensure_local_bin_on_path
 fi
 unset _tool _installed_hud
 
@@ -741,6 +885,12 @@ cat > "$HOME/.claude/d1-config.sh" << D1CONFIG
 PERSONAL_CONTEXT_DIR="$PC_DIR"
 PUBLIC_CONTEXT_DIR="$CC_DIR"
 CONTEXT_OWNER="$USER_NAME"
+
+# Where this kit's own checkout lives, so kit-autopush.sh can push fixes to it
+# without anybody remembering to. It falls back to the repo path in
+# ~/.chewbacca/install-manifest.json, so moving the checkout and re-running
+# setup is enough; this line is the override for a second checkout.
+CHEWBACCA_REPO_DIR="$SCRIPT_DIR"
 D1CONFIG
 log "Hook config written to ~/.claude/d1-config.sh"
 
@@ -1297,6 +1447,7 @@ mkdir -p "$GLOBAL_CLAUDE/commands" "$GLOBAL_CLAUDE/rules"
 
 cp "$SCRIPT_DIR/.claude/commands/"*.md "$GLOBAL_CLAUDE/commands/" 2>/dev/null || true
 cp "$SCRIPT_DIR/.claude/rules/"*.md    "$GLOBAL_CLAUDE/rules/"    2>/dev/null || true
+install_agent_neutral_rule
 mkdir -p "$GLOBAL_CLAUDE/agents"
 cp "$SCRIPT_DIR/.claude/agents/"*.md   "$GLOBAL_CLAUDE/agents/"   2>/dev/null || true
 
@@ -1311,7 +1462,7 @@ cp "$SCRIPT_DIR/.claude/output-styles/"*.md "$GLOBAL_CLAUDE/output-styles/" 2>/d
 # about someone's calendar. That is the right file for people who write code
 # and the wrong file for everyone else.
 case "$PROFILE" in
-  personal|student) STANDARDS="$SCRIPT_DIR/CLAUDE-PERSONAL.md" ;;
+  personal|student) STANDARDS="$SCRIPT_DIR/docs/CLAUDE-PERSONAL.md" ;;
   *)                STANDARDS="$SCRIPT_DIR/CLAUDE.md" ;;
 esac
 # Merge, do not clobber. Anyone who already had a CLAUDE.md lost it here, with
@@ -1355,9 +1506,15 @@ installed_count "$SCRIPT_DIR/.claude/agents"   "$GLOBAL_CLAUDE/agents"   "Subage
 log "CLAUDE.md installed to ~/.claude/CLAUDE.md ($(basename "$STANDARDS"))"
 fi
 
+# ── Shared agent context ─────────────────────────────────────────────────────
+if should_run agents; then
+if [ "$ONLY_PORTABLE" -eq 0 ]; then install_backend_launchers; fi
+install_agent_instructions
+fi
+
 # ── Skills and plugins ────────────────────────────────────────────────────────
-if should_run plugins; then
-section "Installing skills and plugins"
+if should_run skills; then
+section "Installing skills"
 
 mkdir -p "$GLOBAL_CLAUDE/skills"
 # Symlink each skill, and count what landed.
@@ -1399,6 +1556,31 @@ fi
 unset _sk _skn _dst _skills_want _skills_have
 log "Skills installed to ~/.claude/skills/"
 
+fi
+
+# Split out from the skills above on 2026-09-19. Skills are plain markdown and
+# work on any machine any agent runs on, but they lived inside this section, so
+# the portable profile, which is the only non-macOS path, installed 57 commands
+# and 14 rules and zero skills. The largest single piece of the kit was missing
+# from every Windows and Linux install.
+#
+# The comment goes above the header, not below it: a section header has to be
+# immediately followed by `if should_run` or the guard closes early and the
+# section runs on every invocation, including --only.
+# ── Plugins and MCP ───────────────────────────────────────────────────────────
+if should_run plugins; then
+
+# Nothing this installs may open a window or a browser tab on somebody's
+# machine without being asked. Serena's upstream default does exactly that, and
+# it is why a browser window appeared on a tester's computer on 2026-09-19 and
+# he concluded the kit was dangerous. The logic lives in its own file so it can
+# be tested; it could not be, inside a shell function in a 2,000-line installer.
+if [ -x "$SCRIPT_DIR/bin/lib/seed-serena-config.sh" ]; then
+  if [ -n "$(bash "$SCRIPT_DIR/bin/lib/seed-serena-config.sh")" ]; then
+    log "Serena dashboard disabled (it opens a browser tab by default)"
+  fi
+fi
+
 # BEGIN GENERATED: extensions
 # Upstream skills are cloned rather than vendored, so each stays updatable and
 # keeps the LICENSE it shipped with. add-skill.sh does the same thing by hand.
@@ -1432,17 +1614,53 @@ no-ai-slop|https://github.com/petergyang/no-ai-slop|skills/no-ai-slop|MIT|peterg
 youtube-transcripts|https://github.com/calebnewtonusc/claude-youtube-transcripts|skills/youtube-transcripts|MIT|calebnewtonusc
 UPSTREAM_SKILLS
 
-# A missing claude CLI used to drop every plugin with one warning. The
-# installer already needs node, so install the CLI rather than skip the
-# largest single piece of what this kit is.
-if ! command -v claude &>/dev/null && command -v npm &>/dev/null; then
-  log "claude CLI not found, installing it"
+# INSTALL AN AGENT ONLY IF THEY HAVE NONE.
+#
+# This used to install Claude Code whenever `claude` was missing, full
+# stop. On 2026-09-19 that put Sagar, who runs Codex, in front of a
+# Claude credits purchase during the install of a kit sold as model
+# agnostic. He said so and stopped: "how is this model agnostic? i
+# don't want to add claude credits." Karthik seconded it. Neither has
+# onboarded since. Installing a second paid subscription nobody asked
+# for is not a missing-dependency fix, it is the product contradicting
+# its own claim on the last screen.
+#
+# If any supported agent is already here, use it and install nothing.
+# The plugins that genuinely need Claude warn on their own.
+KIT_AGENT=""
+for a in claude codex gemini; do
+  if command -v "$a" &>/dev/null; then KIT_AGENT="$a"; break; fi
+done
+
+if [ -n "$KIT_AGENT" ]; then
+  log "using the agent already installed: $KIT_AGENT"
+elif command -v npm &>/dev/null; then
+  log "no coding agent found, installing Claude Code (the free tier works)"
   npm install -g @anthropic-ai/claude-code &>/dev/null \
-    && log "claude CLI installed" \
-    || warn "could not install the claude CLI: npm install -g @anthropic-ai/claude-code"
+    && { KIT_AGENT="claude"; log "claude CLI installed"; } \
+    || warn "could not install an agent: npm install -g @anthropic-ai/claude-code"
+else
+  warn "no coding agent and no npm. Install Claude Code, Codex or Gemini CLI first."
 fi
 
+# `command -v claude` only proves a binary is on PATH. It does not prove
+# the CLI can do anything, and on a machine where it was npm-installed a
+# minute ago and never signed in, every plugin install below fails. Two
+# people testing this on 2026-09-19 watched nineteen consecutive red
+# lines scroll past, which reads as a broken product rather than as one
+# optional step being unavailable. Ask it one cheap question first.
+PLUGINS_OK=0
 if command -v claude &>/dev/null; then
+  if claude plugin marketplace list </dev/null &>/dev/null; then
+    PLUGINS_OK=1
+  else
+    warn "Claude Code is installed but not signed in yet, so plugins were skipped."
+    warn "  Sign in by running: claude"
+    warn "  Then install them with: chewbacca setup --only plugins"
+  fi
+fi
+
+if [ "$PLUGINS_OK" -eq 1 ]; then
   for m in \
     Egonex-AI/Understand-Anything \
     anthropics/claude-plugins-official \
@@ -1484,10 +1702,10 @@ if command -v claude &>/dev/null; then
   if [ "$PLUGIN_FAILED" -eq 1 ]; then
     warn "Some plugins failed. Retry individually: claude plugin install <name>"
   fi
-  warn "Plugins needing OAuth (Vercel, Railway) stay inert until you run /mcp and authorize."
-else
+  log "Plugins needing OAuth (Vercel, Railway) stay inert until you run /mcp and authorize."
+elif ! command -v claude &>/dev/null; then
   warn "claude CLI still missing. Plugins skipped: install node, then re-run"
-  warn "  ./setup.sh --only plugins"
+  warn "  chewbacca setup --only plugins"
 fi
 
 # MCP servers, curated from mcpmarket.com. See docs/EXTENSIONS.md.
@@ -1497,7 +1715,9 @@ fi
 # exported, because `claude mcp add` will happily register a server that
 # fails on every call, and a broken tool in the list is worse than a
 # missing one: the agent keeps reaching for it.
-if command -v claude &>/dev/null; then
+# Same probe as the plugins above: a signed-out CLI registers nothing
+# and warns once per server.
+if [ "$PLUGINS_OK" -eq 1 ]; then
   mcp_present() { claude mcp list 2>/dev/null | grep -q "^$1:"; }
 
   while IFS='|' read -r M_NAME M_CMD M_ARGS; do
@@ -1575,8 +1795,7 @@ section "Installing macOS tools"
 mkdir -p "$HOME/.local/bin"
 for HELPER in peekaboo chrome-js slop-check; do
   if [ -f "$SCRIPT_DIR/bin/$HELPER" ]; then
-    cp "$SCRIPT_DIR/bin/$HELPER" "$HOME/.local/bin/$HELPER"
-    chmod +x "$HOME/.local/bin/$HELPER"
+    link_tool "$HELPER"
     log "$HELPER installed to ~/.local/bin/"
   fi
 done
@@ -1687,11 +1906,14 @@ else
   [ -d "$MU_DIR/.git" ] || git clone -q --depth 1 \
     https://github.com/browser-use/macOS-use.git "$MU_DIR" 2>/dev/null || true
   if [ -d "$MU_DIR" ]; then
-    cp "$SCRIPT_DIR/bin/mac_use_cli.py" "$MU_DIR/mac_use_cli.py"
-    cp "$SCRIPT_DIR/bin/mac_use_claude.py" "$MU_DIR/mac_use_claude.py"
-    mkdir -p "$HOME/.local/bin"
-    cp "$SCRIPT_DIR/bin/mac-use" "$HOME/.local/bin/mac-use"
-    chmod +x "$HOME/.local/bin/mac-use"
+    # macOS-use supplies the runtime and the venv; Chewbacca owns the
+    # provider adapters and reads them out of its own bin/ via the
+    # resolved symlink. The two copies that used to land in $MU_DIR were
+    # writes into somebody else's checkout that nothing ever read, and
+    # they overwrote any local work there. link_tool, not cp: bin/mac-use
+    # walks its own symlink back to find the adapters, so a plain copy
+    # points it at the wrong tree.
+    link_tool mac-use
     if (cd "$MU_DIR" && uv venv --python 3.11 &>/dev/null \
         && uv pip install --python .venv/bin/python --editable . &>/dev/null); then
       log "mac-use installed"
@@ -1847,6 +2069,15 @@ section "Verifying the install"
 if [ -x "$SCRIPT_DIR/doctor.sh" ]; then
   if "$SCRIPT_DIR/doctor.sh"; then
     log "All checks passed"
+  elif [ "$FAST" -eq 1 ] || [ "$ONLY_PORTABLE" -eq 1 ] || [ -n "$SKIP_SECTIONS" ]; then
+    # An install that left whole sections out on purpose is supposed to fail
+    # the checks for those sections. Ending a successful install on "some
+    # checks failed" tells the person their new tool is broken when it is
+    # doing exactly what they asked, which is the single worst sentence to end
+    # an install on. Portable skips nearly everything by design and hit this
+    # too.
+    log "Checks for the sections this install skipped did not pass, as expected."
+    log "  Install the rest with: chewbacca setup"
   else
     warn "Some checks failed. Fix them, then re-run: ./doctor.sh"
   fi

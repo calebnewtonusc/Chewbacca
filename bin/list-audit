@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""Audit a purchased or scraped contact list before anyone sequences off it.
+
+Built 2026-09-20 against a 1,039,715-row investor file a client had paid a lot
+for. The honest usable pool was 81,460 rows, 7.8 percent. Three defects were
+real and none were visible from the row count, which is the number the seller
+quotes and the only number anybody repeats.
+
+  list-audit contacts.csv
+  list-audit contacts.csv --grades A,B      # what counts as usable
+  list-audit contacts.csv --json            # machine-readable
+
+Columns are auto-detected, so this works on a file it has never seen. It reads
+the file once and holds nothing but counters, so size is not a problem.
+"""
+import csv, sys, json, re, unicodedata, argparse
+from collections import Counter
+
+csv.field_size_limit(10**9)
+
+# Column aliases, lowercased and stripped of separators before matching.
+# Free consumer mailboxes. A contact reachable only here, on a row with no
+# company, is not a sourced lead.
+FREE_MAIL = {
+    "gmail.com", "hotmail.com", "yahoo.com", "yahoo.co.in", "yahoo.co.uk",
+    "yahoo.com.ph", "rediffmail.com", "mail.ru", "live.com", "outlook.com",
+    "aol.com", "icloud.com", "me.com", "msn.com", "protonmail.com",
+    "hotmail.co.uk", "gmx.de", "web.de", "qq.com", "163.com",
+}
+# Placeholders a scraper writes when it found nothing.
+NULL_ORG = {"unknown", "person", "company", "n/a", "none", "-"}
+
+ALIASES = {
+    "name":    ("fullname", "name", "contactname", "personname", "fullnames"),
+    "email":   ("email", "emailaddress", "workemail", "primaryemail", "mail"),
+    "linkedin":("linkedin", "linkedinurl", "linkedinprofile", "li", "liurl"),
+    "company": ("organization", "company", "companyname", "org", "employer", "account"),
+    "grade":   ("grade", "tier", "quality", "rating"),
+    "kind":    ("entitykind", "kind", "type", "recordtype", "entitytype"),
+}
+
+def slug(s):
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+def ascii_tokens(s):
+    s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode().lower()
+    return [t for t in re.split(r"[^a-z]+", s) if len(t) > 2]
+
+def detect(fieldnames):
+    found, used = {}, set()
+    for key, names in ALIASES.items():
+        for col in fieldnames or []:
+            if col in used:
+                continue
+            if slug(col) in names:
+                found[key] = col
+                used.add(col)
+                break
+    return found
+
+def audit(path, usable_grades):
+    with open(path, newline="", encoding="utf-8", errors="replace") as f:
+        reader = csv.DictReader(f)
+        cols = detect(reader.fieldnames)
+        if "name" not in cols and "email" not in cols:
+            sys.exit("could not find a name or email column; is this a contact list?")
+
+        n = usable = people = qualified = 0
+        junk = free_mail = no_org = 0
+        have = Counter(); grades = Counter()
+        org_junk = 0                      # company cell holding an image or a URL
+        nan_name = 0; nan_other = 0       # the pandas NaN-strip signature
+        li_checked = li_flagged = 0
+        li_conf_bad = li_ambig = 0        # triangulated against the email
+        samples = []
+
+        for row in reader:
+            n += 1
+            name  = row.get(cols.get("name", ""), "") or ""
+            email = (row.get(cols.get("email", ""), "") or "").strip()
+            li    = (row.get(cols.get("linkedin", ""), "") or "").strip()
+            comp  = (row.get(cols.get("company", ""), "") or "").strip()
+            grade = (row.get(cols.get("grade", ""), "") or "").strip()
+
+            if email: have["email"] += 1
+            if li:    have["linkedin"] += 1
+            if grade: grades[grade] += 1
+            kind = (row.get(cols.get("kind", ""), "") or "").strip().lower()
+            is_person = kind == "person" if kind else bool(name and " " in name.strip())
+            if is_person: people += 1
+            graded_ok = (not usable_grades or grade in usable_grades)
+            if email and graded_ok: usable += 1
+
+            # The qualified tier. Grade plus an email is not enough: a row can be
+            # a name and a gmail address with no company, no title and no
+            # LinkedIn, which is a consumer list wearing a business label.
+            dom = email.split("@")[-1].lower() if "@" in email else ""
+            is_free = dom in FREE_MAIL
+            org_null = (not comp) or comp.strip().lower() in NULL_ORG
+            if email and graded_ok and is_person:
+                if is_free: free_mail += 1
+                if org_null: no_org += 1
+                if is_free and org_null:
+                    junk += 1
+                elif not is_free and not org_null:
+                    qualified += 1
+
+            # company cell carrying an attachment URL or a bare link
+            low = comp.lower()
+            if low.endswith((".jpg", ".png")) or "airtable" in low or low.startswith(("http://", "https://", "www.")):
+                org_junk += 1
+
+            # the literal substring "nan" stripped out of real words by a NaN cleanup.
+            # Ferdez<-Fernandez, Herdez<-Hernandez, Ficial<-Financial, Fice<-Finance.
+            if re.search(r"\b\w*(?:Ferdez|Herdez)\w*\b", name): nan_name += 1
+            if re.search(r"\b(?:Ficial|Fice)\b", " ".join(str(v) for v in row.values() if v)): nan_other += 1
+
+            # LinkedIn slug vs the name, then triangulated against the email so the
+            # number is an error rate and not just an upper bound.
+            if is_person and name and "/in/" in li:
+                s = re.sub(r"[^a-z]", "", unicodedata.normalize("NFKD", li.split("/in/")[-1])
+                           .encode("ascii", "ignore").decode().lower())
+                parts = ascii_tokens(name)
+                if s and parts:
+                    li_checked += 1
+                    if not any(p in s for p in parts):
+                        li_flagged += 1
+                        if email:
+                            local = re.sub(r"[^a-z]", "", email.split("@")[0].lower())
+                            if any(p in local for p in parts):
+                                li_conf_bad += 1
+                                if len(samples) < 6:
+                                    samples.append({"name": name, "email": email,
+                                                    "linkedin": li.split("/in/")[-1][:40]})
+                            else:
+                                li_ambig += 1
+
+    pct = lambda a, b: (a / b * 100) if b else 0.0
+    return {
+        "file": path, "columns_detected": cols, "rows": n, "people": people,
+        "organizations": n - people, "with_email": have["email"],
+        "with_linkedin": have["linkedin"], "grades": dict(grades.most_common()),
+        "usable_rows": usable, "usable_pct": round(pct(usable, n), 1),
+        "qualified_rows": qualified, "qualified_pct": round(pct(qualified, n), 1),
+        "junk_rows": junk, "free_mail_rows": free_mail, "no_org_rows": no_org,
+        "company_cell_is_junk": org_junk,
+        "nan_strip_names": nan_name, "nan_strip_other_fields": nan_other,
+        "linkedin_checked": li_checked, "linkedin_flagged": li_flagged,
+        "linkedin_confirmed_wrong": li_conf_bad, "linkedin_ambiguous": li_ambig,
+        "linkedin_confirmed_rate_pct": round(pct(li_conf_bad, li_conf_bad + li_ambig), 1),
+        "linkedin_projected_wrong": round(li_flagged * pct(li_conf_bad, li_conf_bad + li_ambig) / 100)
+                                    if (li_conf_bad + li_ambig) else None,
+        "samples": samples,
+    }
+
+def report(r, grades):
+    p = print
+    p(f"\n{r['file']}")
+    p(f"  columns detected: {', '.join(f'{k}={v}' for k, v in r['columns_detected'].items()) or 'none'}")
+    p(f"\n  rows {r['rows']:,}   people {r['people']:,}   organizations {r['organizations']:,}")
+    p(f"  with email {r['with_email']:,}   with linkedin {r['with_linkedin']:,}")
+    if r["grades"]:
+        p(f"  grades: {', '.join(f'{k} {v:,}' for k, v in r['grades'].items())}")
+    label = f"grade in {sorted(grades)} and an email" if grades else "an email"
+    p(f"\n  usable ({label}): {r['usable_rows']:,}  ({r['usable_pct']}% of the file)")
+    p(f"    of those, free consumer mailbox  {r['free_mail_rows']:,}")
+    p(f"    of those, no real company name   {r['no_org_rows']:,}")
+    p(f"    junk (both at once)              {r['junk_rows']:,}")
+    p(f"\n  QUALIFIED (a person, a real company and a work email): {r['qualified_rows']:,}"
+      f"  ({r['qualified_pct']}% of the file)")
+    p("  Plan against the qualified number. The row count is what the seller quotes.")
+
+    issues = []
+    if r["company_cell_is_junk"]:
+        issues.append(f"{r['company_cell_is_junk']:,} rows have an image or a bare URL where the company name goes, so {{{{company}}}} breaks")
+    if r["nan_strip_names"] or r["nan_strip_other_fields"]:
+        issues.append(f"NaN-strip corruption: {r['nan_strip_names']:,} names and {r['nan_strip_other_fields']:,} other fields "
+                      f"(Fernandez became Ferdez, Financial became Ficial)")
+    if r["linkedin_flagged"]:
+        line = f"{r['linkedin_flagged']:,} of {r['linkedin_checked']:,} linkedin slugs match no part of the name"
+        if r["linkedin_projected_wrong"] is not None:
+            line += (f"; triangulated against the email, {r['linkedin_confirmed_rate_pct']}% of those are confirmed wrong, "
+                     f"so about {r['linkedin_projected_wrong']:,} rows carry a stranger's profile")
+        issues.append(line)
+
+    if issues:
+        p("\n  DEFECTS")
+        for i in issues: p(f"    - {i}")
+    else:
+        p("\n  no defects detected by these checks")
+    for s in r["samples"]:
+        p(f"      {s['name']}  |  {s['email']}  |  /in/{s['linkedin']}")
+    p("")
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("csv")
+    ap.add_argument("--grades", default="A,B", help="grades that count as usable; empty means any row with an email")
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args()
+    g = {x.strip() for x in a.grades.split(",") if x.strip()}
+    result = audit(a.csv, g)
+    print(json.dumps(result, indent=2)) if a.json else report(result, g)

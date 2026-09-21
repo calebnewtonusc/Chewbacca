@@ -37,9 +37,22 @@ SLOP=$(command -v slop-check || echo "$HOME/.local/bin/slop-check")
 # draft passed both ai-scan and slop-check while carrying six kickers.
 PROSE=$(command -v prose-check || echo "$HOME/.local/bin/prose-check")
 if [ -x "$PROSE" ]; then
+  # --chat adds the REGISTER rules: anaphoric triples, bold used as paragraph
+  # scaffolding, headers and tables in a reply, reflex next-steps endings, and
+  # formal constructions where he runs 74 contractions to 4. It also drops the
+  # essay-only rules, because his median sent message is 5 words and stacked
+  # short lines are his native register rather than a rhythm trick.
+  #
+  # Added 2026-09-20. He asked why the guard let "Same brief, same stance,
+  # same model" through. It did because slop-check scored that reply 0 and
+  # prose-check had no concept of register: voice.md loaded every session and
+  # was enforced by nothing.
+  #
+  # No "# reply" wrapper any more. In chat mode prose-check does not strip to
+  # the first header, so a wrapper would trip the chat-header rule on itself.
   TMPMD="${TMPDIR:-/tmp}/slop-guard-reply-$$.md"
-  printf '# reply\n\n%s\n' "$MSG" > "$TMPMD"
-  if ! PROSE_REPORT=$("$PROSE" "$TMPMD" 2>/dev/null); then
+  printf '%s\n' "$MSG" > "$TMPMD"
+  if ! PROSE_REPORT=$("$PROSE" --chat "$TMPMD" 2>/dev/null); then
     rm -f "$TMPMD"
     : > "$GUARD"
     PROSE_DETAIL=$(printf '%s' "$PROSE_REPORT" | tail -n +2 | head -20)

@@ -37,6 +37,7 @@ def counts():
         "commands": len(list((REPO / ".claude/commands").glob("*.md"))),
         "rules": len(re.findall(r"^@~/\.claude/rules/", claude_md(), re.M)),
         "rules_on_demand": len(list((REPO / ".claude/rules").glob("*.md")))
+                           + int((REPO / "instructions/agent-neutral.md").is_file())
                            - len(re.findall(r"^@~/\.claude/rules/", claude_md(), re.M)),
         "hooks": len(list((REPO / ".claude/hooks").glob("*.sh"))),
         "subagents": len(list((REPO / ".claude/agents").glob("*.md"))),
@@ -115,7 +116,28 @@ def main():
     if current.strip() == want.strip():
         print("counts already current")
         return 0
-    readme.write_text(text[: m.start(1)] + want + text[m.end(1) :], encoding="utf-8")
+    # Emit the blank line prettier wants after the BEGIN comment, so the two
+    # cannot disagree.
+    #
+    # Measured 2026-09-20. Prettier inserts a blank line after an HTML comment
+    # in markdown. This writer replaces the whole region and drops it. The
+    # comparison above uses .strip(), so on a run where the numbers have NOT
+    # changed nothing happens and the pair looks stable: that is exactly the
+    # test I ran, and it was the wrong condition. On any run where the counts
+    # DO change, the region is rewritten without the blank line and prettier
+    # adds it straight back, which is one spurious dirty file per count
+    # change, forever.
+    #
+    # .prettierignore already documents this same class of fight twice, for
+    # CLAUDE.md and settings/toolkit.json, and in both cases the fix was to
+    # exempt the file. Exempting README would stop it being formatted at all.
+    # Emitting what prettier already wants is the smaller and more durable fix.
+    # A blank line on BOTH sides. Prettier surrounds a markdown HTML comment
+    # with blank lines, and the first attempt at this fix only added the
+    # leading one, so it still churned. Diffed the two outputs byte for byte
+    # rather than guessing a second time.
+    readme.write_text(text[: m.start(1)] + "\n" + want + "\n" + text[m.end(1) :],
+                      encoding="utf-8")
     print(f"README.md counts updated: {want[:70]}...")
     return 0
 

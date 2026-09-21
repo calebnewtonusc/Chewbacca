@@ -1,3 +1,17 @@
+---
+paths:
+  - "**/*.{tsx,jsx,ts,js}"
+  - "**/*.{css,scss}"
+  - "**/*.{html,vue,svelte}"
+---
+
+> This frontmatter is what defers the rule. The file below says it costs
+> "roughly 4,000 tokens on every session with no use for a line of it" and that
+> it was moved out of CLAUDE.md for exactly that reason, but the move was never
+> finished: nothing scoped it, so every install paid for the Framer Motion rules
+> in shell and Swift sessions. One machine had the scoping, added by hand, and a
+> routine reinstall overwrote it.
+
 # Design system
 
 Loads when a UI file is open. This used to live in CLAUDE.md, so a shell script

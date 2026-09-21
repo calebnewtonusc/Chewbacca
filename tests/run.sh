@@ -96,6 +96,17 @@ if group "people"; then
     expect "list includes the person" "Test Person" "${P[@]}" list
     check  "log an interaction" "${P[@]}" log "test person" --channel call "caught up"
     check  "rank runs" "${P[@]}" rank --limit 5
+
+    # reconnect used to rank by nothing. urgency was score * (1 + over/cadence),
+    # base_score is 0 for anyone with no hand-written observation, and zero
+    # times anything is zero, so every row tied at 0, the sort was a no-op and
+    # the list came out in table order. Gavin hit it with 944 of his 945 people
+    # at score 0 and got an alphabetical list. These three people all have score
+    # 0 and differ only in how overdue they are, so the ONLY thing that can
+    # order them correctly is the lateness term.
+    check "reconnect ranks by lateness when every score is zero" \
+      bash "$ROOT/tests/reconnect_ranking.sh" "${P[@]}"
+
     check  "score runs" "${P[@]}" score
     check  "birthdays runs" "${P[@]}" birthdays --days 30
     check  "reconnect runs" "${P[@]}" reconnect
@@ -189,6 +200,7 @@ if group "doctor"; then
   # The mutant: with every rule present the same check must go quiet, or it is
   # reporting the weather rather than the install.
   cp "$ROOT/.claude/rules/"*.md "$D/.claude/rules/"
+  cp "$ROOT/instructions/agent-neutral.md" "$D/.claude/rules/agent-neutral.md"
   expect "and passes once they are all there" "always-on imports resolve" \
     bash -c "HOME='$D' bash '$ROOT/doctor.sh' 2>&1"
 
@@ -206,7 +218,7 @@ if group "tools"; then
   check  "context cost --json is valid" bash -c "python3 '$ROOT/tools/context_cost.py' --json | python3 -m json.tool"
   # Not --check: every commit made after the last regeneration invalidates it,
   # so a --check here would fail on the commit that adds a test.
-  check  "changelog generates" python3 "$ROOT/tools/changelog.py"
+  check  "changelog generates" env PYTHONPATH="$ROOT/tools" python3 -c 'import changelog; assert changelog.build().startswith("# Changelog")'
   if [ -f "$HOME/second-brain/memory/MEMORY.md" ]; then
     check "memory compact dry run is safe" python3 "$ROOT/tools/memory_compact.py" --dry-run
   else
@@ -214,6 +226,26 @@ if group "tools"; then
   fi
   check  "secret scan finds nothing in the repo" python3 "$ROOT/bin/secret-scan" "$ROOT"
   check  "checksums are current" python3 "$ROOT/tools/checksums.py" --check
+  # The checksum file is not decoration. start.sh verifies every downloaded
+  # file against it and aborts the install on a single mismatch. On 2026-09-19
+  # a generated edit to setup.sh shipped without regenerating it, so the
+  # README's one-line install died on every machine while a pinned tag still
+  # worked, and it looked like the testers' fault. This walks the same loop
+  # start.sh walks, against the real tree.
+  check  "start.sh's own checksum gate passes on this tree" bash -c '
+    cd "$1" || exit 1
+    mismatches=0
+    while IFS= read -r line; do
+      want="${line%% *}"; file="${line##* }"
+      [ -f "$file" ] || continue
+      got="$(shasum -a 256 "$file" | cut -d" " -f1)"
+      [ "$want" = "$got" ] || { echo "mismatch: $file"; mismatches=$((mismatches + 1)); }
+    done < SHA256SUMS.txt
+    [ "$mismatches" -eq 0 ]' _ "$ROOT"
+  # The generator that rewrites setup.sh has to rewrite the checksums with it,
+  # or the two drift apart again the next time the inventory regenerates.
+  check  "the inventory generator regenerates checksums too" \
+    grep -q "checksums.py" "$ROOT/tools/inventory.py"
   check  "skills declare their tool dependencies" bash -c "python3 '$ROOT/tools/skill_requires.py' | grep -q '^chewie:'"
   # A skill whose YAML is malformed is not registered, so it never fires and
   # the user concludes the skill is bad at triggering. life-ops shipped that
@@ -295,9 +327,185 @@ if group "installer"; then
   expect "uninstall --dry-run says so" "Dry run" bash "$ROOT/uninstall.sh" --dry-run
   exits  "uninstall rejects an unknown flag" 2 bash "$ROOT/uninstall.sh" --nonsense
   expect "--skip is repeatable" "skipping plynn mac" bash "$ROOT/setup.sh" --dry-run --skip plynn --skip mac --name CI
-  expect "portable profile installs no Mac tools" "~/.claude only" bash "$ROOT/setup.sh" --dry-run --profile portable --name CI
+  expect "portable profile installs no Mac tools" "Claude and Codex configuration, no Mac tools" bash "$ROOT/setup.sh" --dry-run --profile portable --name CI
   exits  "an unknown profile exits 2" 2 bash "$ROOT/setup.sh" --dry-run --profile nonsense --name CI
   check  "no read calls in the installer" bash -c "! grep -nE '^[[:space:]]*read (-[a-z]+ )*' '$ROOT/setup.sh'"
+
+  # start.sh and start.ps1 both refuse to install when the download does not
+  # match SHA256SUMS.txt, so a manifest that does not describe its own commit
+  # breaks every fresh install. The working-tree check cannot see it.
+  # The install must not reach for Claude on a machine that already has an
+  # agent. Sagar runs Codex, hit a Claude credits purchase on the last screen
+  # of a kit sold as model agnostic, and stopped. He has still not onboarded.
+  check  "the install uses the agent already on the machine" \
+    bash "$ROOT/tests/agent_agnostic.sh" "$ROOT"
+
+  # list-gate must refuse the exact defects that shipped four times on
+  # 2026-09-20. A gate whose own tests are not asserted is decoration.
+  check  "list-gate refuses the defects it exists for" \
+    bash "$ROOT/tests/list_gate.sh" "$ROOT"
+
+  # The rule Caleb had to state four times in one session. A gate, not a note.
+  check  "kit-debt fires when a session taught the kit nothing" \
+    bash "$ROOT/tests/kit_debt.sh" "$ROOT"
+
+  check  "committed checksums describe the committed tree" \
+    python3 "$ROOT/tools/committed_checksums.py"
+
+  # The negative control is real history, not a fixture. 8de1739 published a
+  # hash for .claude/hooks/kit-autopush.sh that its own committed hook did not
+  # have, and curl | bash refused on main until somebody looked. A checker
+  # that cannot fail on that commit is not checking anything.
+  if git -C "$ROOT" cat-file -e 8de1739^{commit} 2>/dev/null; then
+    exits "it fails on the commit that actually shipped broken" 1 \
+      python3 "$ROOT/tools/committed_checksums.py" 8de1739
+  else
+    skip "the known-broken commit" "shallow clone, 8de1739 not fetched"
+  fi
+
+  # This check lived only in CI, so a header inserted in the wrong place passed
+  # 206 local tests and failed after the push. A rule worth enforcing is worth
+  # enforcing where the work happens.
+  check  "every section is guarded by --only" python3 "$ROOT/tests/check_sections.py" "$ROOT/setup.sh"
+
+  # A rule with no `paths:` frontmatter is always-on. design-system.md opens by
+  # saying it costs ~4,000 tokens on every session with no use for a line of it,
+  # and that it was moved out of CLAUDE.md for that reason, but nothing ever
+  # scoped it, so every install kept paying. Only one machine had the scoping,
+  # added by hand, and a reinstall overwrote it.
+  check  "rules that claim to load on demand carry paths frontmatter" bash -c '
+    missing=""
+    for f in "$1"/.claude/rules/*.md; do
+      head -20 "$f" | grep -qiE "^loads (when|before)|load when the work|Applies to" || continue
+      head -1 "$f" | grep -q -- "---" || missing="$missing $(basename "$f")"
+    done
+    [ -z "$missing" ] || { echo "always-on despite claiming otherwise:$missing"; exit 1; }' _ "$ROOT"
+
+  # Everything below was found by watching two people install this on their own
+  # machines on 2026-09-19. Each one is a thing they hit, not a thing imagined.
+
+  # The personal profile creates no repos, so demanding a GitHub account and a
+  # git identity produced a screenful of red BLOCKED lines about something the
+  # install never needed. Red text during an install reads as a broken product.
+  check  "bootstrap does not demand GitHub in the personal profile" bash -c "
+    ! bash '$ROOT/bin/bootstrap.sh' --check --profile personal 2>&1 | grep -qi 'gh auth login'"
+  check  "bootstrap still demands GitHub in the developer profile" bash -c "
+    bash '$ROOT/bin/bootstrap.sh' --check --profile developer 2>&1 | grep -qiE 'gh auth login|signed in as'"
+  check  "start.sh passes the profile to bootstrap" \
+    grep -q 'bootstrap.sh" --profile' "$ROOT/start.sh"
+
+  # An agent types this line, from a README it skimmed, and agents mistype.
+  # Each of these spellings used to exit 2 with no install and no explanation.
+  for _flag in --fullsend --full_send -full-send --FULL-SEND --yolo; do
+    expect "start.sh survives $_flag" "stopping here" \
+      bash "$ROOT/start.sh" "$_flag" --dry-run
+  done
+  expect "an unknown flag warns instead of aborting" "ignoring unrecognized option" \
+    bash "$ROOT/start.sh" --nonsense --dry-run
+  # --version used to silently mean "pin to this tag", so it ate the next
+  # argument and never printed a version.
+  check  "start.sh --version prints a version" bash -c "
+    bash '$ROOT/start.sh' --version | grep -q 'repo version'"
+
+  # Thirty-plus minutes is fine for the person who lives in this kit and
+  # useless inside a twenty minute call.
+  expect "--fast skips the slow sections" "skipping editor desktop mcp plugins tools plynn" \
+    bash "$ROOT/setup.sh" --dry-run --fast --name CI
+
+  # A signed-out Claude CLI failed all nineteen plugin installs, one red line
+  # each. Probe once, skip once.
+  check  "the plugin section probes the CLI before looping" \
+    grep -q "claude plugin marketplace list </dev/null" "$ROOT/setup.sh"
+
+  # The worst one. `gh api user` exits 4 when nobody is signed in, and as a bare
+  # assignment under set -e that killed the whole install after a single line of
+  # output, with no error. Every new personal-profile install died there. This
+  # runs the real thing into a throwaway HOME and insists it reaches the end.
+  check  "a personal install finishes in a clean HOME with no GitHub" bash -c '
+    sandbox="$(mktemp -d)"
+    HOME="$sandbox" bash "$1/setup.sh" --profile personal --fast \
+      --name CI > "$sandbox/install.log" 2>&1 || {
+        echo "install exited $?"; tail -5 "$sandbox/install.log"; exit 1; }
+    grep -q "Try asking it" "$sandbox/install.log"' _ "$ROOT"
+
+  # Skills are plain markdown and run wherever an agent runs, but they lived
+  # inside the plugins section, so portable, the only non-macOS profile,
+  # installed 57 commands and zero skills. The biggest piece of the kit was
+  # missing from every Windows and Linux install.
+  # Every install starts on a machine with nothing on it, and that path had
+  # never been executed, so the dead end bootstrap's own header says was fixed
+  # was still there: "brew install node" printed to someone with no brew.
+  check  "a bare Mac gets no dead ends" bash "$ROOT/tests/bare_machine.sh"
+
+  # Sagar installed this on 2026-09-19 and a browser window opened on his
+  # computer by itself, because Serena's upstream default starts a web
+  # dashboard and opens a tab on first run. He concluded the kit was dangerous.
+  # That is the right conclusion to draw about software that opens windows
+  # unannounced, and it is fatal for a kit whose install line is `curl | bash`.
+  check  "nothing in the install opens a window or a browser" bash -c '
+    hits="$(grep -nE "^[[:space:]]*(open|xdg-open)[[:space:]]|--open\b|webbrowser" \
+      "$1/setup.sh" "$1/start.sh" "$1/bin/bootstrap.sh" 2>/dev/null | grep -v "no-open" || true)"
+    [ -z "$hits" ] || { echo "$hits"; exit 1; }' _ "$ROOT"
+
+  check  "Serena's dashboard is disabled before its first run" bash -c '
+    cfg="$(mktemp -d)/serena_config.yml"
+    bash "$1/bin/lib/seed-serena-config.sh" "$cfg" >/dev/null
+    grep -q "^web_dashboard_open_on_launch: false" "$cfg" || { echo "tab still opens"; exit 1; }
+    grep -q "^web_dashboard: false" "$cfg" || { echo "dashboard still on"; exit 1; }' _ "$ROOT"
+
+  check  "an existing Serena config keeps the user settings" bash -c '
+    cfg="$(mktemp -d)/serena_config.yml"
+    printf "language_backend: LSP\nweb_dashboard: true\nweb_dashboard_open_on_launch: true\n" > "$cfg"
+    bash "$1/bin/lib/seed-serena-config.sh" "$cfg" >/dev/null
+    grep -q "^language_backend: LSP" "$cfg" || { echo "clobbered their settings"; exit 1; }
+    grep -q "^web_dashboard_open_on_launch: false" "$cfg" || { echo "tab still opens"; exit 1; }' _ "$ROOT"
+
+  check  "setup calls the Serena seeder before installing plugins" \
+    grep -q "seed-serena-config.sh" "$ROOT/setup.sh"
+
+  check  "the portable profile installs skills" bash -c '
+    sandbox="$(mktemp -d)"
+    HOME="$sandbox" bash "$1/setup.sh" --profile portable --name CI >/dev/null 2>&1
+    n=$(ls "$sandbox/.claude/skills" 2>/dev/null | wc -l)
+    [ "$n" -gt 20 ] || { echo "only $n skills installed"; exit 1; }' _ "$ROOT"
+fi
+
+# ── Windows installer ─────────────────────────────────────────────────────────
+if group "windows installer"; then
+  # Windows ships PowerShell 5.1. Every 7-only operator in this file is a parse
+  # error on exactly the machines it was written for, and a parse error means
+  # the install does not start at all.
+  check  "no PowerShell 7-only operators" bash -c '
+    ! grep -nE "(\?\?|\?\.)" "$1/start.ps1" | grep -vE "^[0-9]+:[[:space:]]*#"' _ "$ROOT"
+  check  "the disclaimer names both folders it writes" bash -c '
+    grep -q "chewbacca" "$1/start.ps1" && grep -q "does NOT ask for administrator" "$1/start.ps1"' _ "$ROOT"
+  check  "it verifies checksums like start.sh does" \
+    grep -q "SHA256SUMS.txt" "$ROOT/start.ps1"
+  check  "checksums cover the Windows installer" \
+    grep -q "start.ps1" "$ROOT/SHA256SUMS.txt"
+
+  # Parsing is not running. If pwsh is on this machine, run the whole thing.
+  if command -v pwsh >/dev/null 2>&1 || [ -x /tmp/pwsh/pwsh ]; then
+    PWSH="$(command -v pwsh 2>/dev/null || echo /tmp/pwsh/pwsh)"
+    check "start.ps1 parses" "$PWSH" -NoProfile -Command "
+      \$e=\$null
+      \$null=[System.Management.Automation.Language.Parser]::ParseFile('$ROOT/start.ps1',[ref]\$null,[ref]\$e)
+      if(\$e){\$e|%{Write-Host \$_.Message}; exit 1}"
+    check "start.ps1 installs into a clean HOME" bash -c '
+      sandbox="$(mktemp -d)"
+      HOME="$sandbox" "$2" -NoProfile -File "$1/start.ps1" > "$sandbox/win.log" 2>&1 || {
+        echo "exited $?"; tail -5 "$sandbox/win.log"; exit 1; }
+      n=$(ls "$sandbox/.claude/skills" 2>/dev/null | wc -l)
+      [ "$n" -gt 20 ] || { echo "only $n skills"; exit 1; }
+      [ -f "$sandbox/.claude/CLAUDE.md" ] || { echo "no CLAUDE.md"; exit 1; }' _ "$ROOT" "$PWSH"
+    check "start.ps1 keeps a CLAUDE.md the user already had" bash -c '
+      sandbox="$(mktemp -d)"; mkdir -p "$sandbox/.claude"
+      printf "# mine\n\nAlways use tabs.\n" > "$sandbox/.claude/CLAUDE.md"
+      HOME="$sandbox" "$2" -NoProfile -File "$1/start.ps1" >/dev/null 2>&1
+      grep -q "Always use tabs" "$sandbox/.claude/CLAUDE.md"' _ "$ROOT" "$PWSH"
+  else
+    skip "start.ps1 runs" "no pwsh on this machine"
+  fi
 fi
 
 # ── CLAUDE.md merge ───────────────────────────────────────────────────────────
@@ -352,9 +560,133 @@ if group "hooks"; then
   '
   check  "the hook log was written" test -f "$CHEWBACCA_LOG_DIR/hooks.log"
   expect "log rows carry a duration" "|ok|" cat "$CHEWBACCA_LOG_DIR/hooks.log"
+
+  # kit-autopush pushes to a real remote without being asked, so every path
+  # that decides NOT to push is tested against an actual bare repo rather than
+  # read and trusted. Each case builds its own origin and asserts the remote
+  # SHA afterwards, because "it printed the right thing" and "it did not push"
+  # are different claims.
+  #
+  # CHEWBACCA_REPO_DIR is exported in each case on purpose. The hook takes an
+  # explicit environment value over ~/.claude/d1-config.sh, and if it did not,
+  # this test would push the author's real checkout.
+  # `git -C <bare>` dies under safe.bareRepository=explicit, so every read of
+  # the origin below uses --git-dir. Two of these cases passed vacuously first
+  # time round, comparing one empty string against another.
+  autopush_fixture() {
+    # $1 = branch to end up on. Prints the work tree path.
+    local d; d="$(mktemp -d)"
+    git -c init.defaultBranch=main init -q --bare "$d/origin.git"
+    git -c init.defaultBranch=main clone -q "$d/origin.git" "$d/work" 2>/dev/null
+    cd "$d/work" || return 1
+    git config user.email t@t; git config user.name t
+    git symbolic-ref HEAD refs/heads/main
+    # -u is load-bearing, and init.defaultBranch is why.
+    #
+    # Cloning an empty repo configures the upstream for whatever that default
+    # is. The author's ~/.gitconfig sets it to main, so the clone configures
+    # main and a plain push is enough. A CI runner defaults to master, the
+    # clone configures master, the symbolic-ref above moves HEAD to a main that
+    # has no upstream, and the hook exits at its no-upstream check without ever
+    # reaching a gate. Both cases below then failed on the runner while passing
+    # on the laptop, which is the worst way for a test to be wrong.
+    echo one > a.txt; git add a.txt; git commit -qm init; git push -q -u origin main
+    # A non-main branch is pushed once so it HAS an upstream. Without that the
+    # hook exits at the no-upstream check and never reaches the branch guard,
+    # so the case proved nothing: deleting the guard left it green.
+    if [ "$1" != "main" ]; then
+      git checkout -qb "$1"
+      git push -q -u origin "$1"
+    fi
+    # Gate stubs that exit 0. Without them every gate fails for want of a
+    # tools/ directory, and a case meant to prove the BRANCH guard stops the
+    # push passes because the gates stopped it instead. Breaking the branch
+    # check left that case green, which is how this was caught.
+    mkdir -p tools bin
+    for f in tools/checksums.py tools/committed_checksums.py tools/counts.py tools/frontmatter.py tools/evals.py bin/secret-scan; do
+      echo "import sys; sys.exit(0)" > "$f"
+    done
+    git add tools bin
+    echo two >> a.txt; git add a.txt; git commit -qm ahead
+    printf '%s' "$d"
+  }
+
+  # Every ref, not just main. `git push origin HEAD` from a feature branch
+  # creates refs/heads/feature/x and leaves main alone, so a main-only
+  # assertion stays green with the branch guard deleted. It did.
+  check "a feature branch is never auto-published" bash -c '
+    d="$('"$(declare -f autopush_fixture)"'; autopush_fixture feature/x)"
+    before="$(git --git-dir="$d/origin.git" show-ref | sort)"
+    CHEWBACCA_REPO_DIR="$d/work" bash "'"$ROOT"'/.claude/hooks/kit-autopush.sh" >/dev/null 2>&1
+    after="$(git --git-dir="$d/origin.git" show-ref | sort)"
+    [ "$before" = "$after" ] || { echo "the remote grew a ref: $after" >&2; exit 1; }
+    exit 0
+  '
+
+  # One gate is made to fail on purpose. The point is that a failed gate leaves
+  # the remote exactly where it was and says so out loud.
+  check "a failed gate blocks the push and leaves the remote alone" bash -c '
+    d="$('"$(declare -f autopush_fixture)"'; autopush_fixture main)"
+    echo "import sys; sys.exit(1)" > "$d/work/tools/checksums.py"
+    before="$(git --git-dir="$d/origin.git" rev-parse main)"
+    out="$(CHEWBACCA_REPO_DIR="$d/work" bash "'"$ROOT"'/.claude/hooks/kit-autopush.sh" 2>&1)"
+    after="$(git --git-dir="$d/origin.git" rev-parse main)"
+    [ "$before" = "$after" ] || { echo "it pushed past a failed gate" >&2; exit 1; }
+    echo "$out" | grep -q BLOCKED || { echo "said nothing: $out" >&2; exit 1; }
+    exit 0
+  '
+
+  # The fixture's gates all pass, so nothing is left to stop the push.
+  check "gates passing on main pushes, and the remote actually moves" bash -c '
+    d="$('"$(declare -f autopush_fixture)"'; autopush_fixture main)"
+    before="$(git --git-dir="$d/origin.git" rev-parse main)"
+    local_head="$(git -C "$d/work" rev-parse HEAD)"
+    CHEWBACCA_REPO_DIR="$d/work" bash "'"$ROOT"'/.claude/hooks/kit-autopush.sh" >/dev/null 2>&1
+    after="$(git --git-dir="$d/origin.git" rev-parse main)"
+    [ "$before" != "$after" ] || { echo "nothing was pushed" >&2; exit 1; }
+    [ "$after" = "$local_head" ] || { echo "remote is not at the local head" >&2; exit 1; }
+    exit 0
+  '
+
+  # Gavin's guard. A fork has BOTH origin and upstream. The fixture keeps both
+  # and points the branch at upstream, so origin still exists and a push to it
+  # would succeed: the ONLY thing that can stop it is the guard. An earlier
+  # version renamed origin away, which made the push fail for lack of a remote
+  # and passed with the guard deleted.
+  check "it refuses to push when the branch does not track origin" bash -c '
+    d="$('"$(declare -f autopush_fixture)"'; autopush_fixture main)"
+    git -c init.defaultBranch=main init -q --bare "$d/upstream.git"
+    git -C "$d/work" remote add upstream "$d/upstream.git"
+    git -C "$d/work" push -q -u upstream main
+    echo three >> "$d/work/a.txt"
+    git -C "$d/work" add a.txt
+    git -C "$d/work" commit -qm "ahead of both"
+    before="$(git --git-dir="$d/origin.git" show-ref | sort)"
+    CHEWBACCA_REPO_DIR="$d/work" bash "'"$ROOT"'/.claude/hooks/kit-autopush.sh" >/dev/null 2>&1
+    after="$(git --git-dir="$d/origin.git" show-ref | sort)"
+    [ "$before" = "$after" ] || { echo "origin moved while the branch tracked upstream" >&2; exit 1; }
+    exit 0
+  '
+
+  check "a repo in sync with its remote says nothing" bash -c '
+    d="$('"$(declare -f autopush_fixture)"'; autopush_fixture main)"
+    git -C "$d/work" reset -q --hard HEAD~1
+    out="$(CHEWBACCA_REPO_DIR="$d/work" bash "'"$ROOT"'/.claude/hooks/kit-autopush.sh" 2>&1)"
+    [ -z "$out" ] || { echo "spoke when it had nothing to say: $out" >&2; exit 1; }
+    exit 0
+  '
 fi
 
 # ── the display ───────────────────────────────────────────────────────────────
+if group "mcp"; then
+  if command -v node >/dev/null 2>&1; then
+    check "the MCP server speaks the protocol and refuses a shell" \
+      bash "$ROOT/tests/mcp_server.sh" "$ROOT"
+  else
+    skip "mcp" "node not installed"
+  fi
+fi
+
 if group "hud"; then
   check  "hud parses"         bash -n "$ROOT/bin/hud"
   check  "hud-listen parses"  python3 -m py_compile "$ROOT/bin/hud-listen"
@@ -475,6 +807,24 @@ for c in cs:
     assert c.get('expect_any') is not None or c.get('expect_tool') is not None, c
 \""
   exits  "an unknown check exits 2" 2 bash "$ROOT/bin/live-check" no-such-check
+fi
+
+# Browser/backend tests replace transports with fixtures; no model quota is used.
+if group "reasoning backends"; then
+  check "shared agent instructions are current" python3 "$ROOT/tools/agents_md.py" --check
+  check "ChatGPT turn boundaries" python3 "$ROOT/tests/test_chatgpt_tab.py"
+  check "gateway protocol and execution" python3 "$ROOT/tests/test_chatgpt_gateway.py"
+  check "provider selection and ownership" python3 "$ROOT/tests/test_mac_use_providers.py"
+  check "Codex shared instructions and optional health" python3 "$ROOT/tests/test_codex.py"
+  check "Codex personal context startup" python3 "$ROOT/tests/test_codex_context.py"
+  check "Codex native lifecycle hooks" python3 "$ROOT/tests/test_codex_hooks.py"
+  _model_python="${MACOS_USE_HOME:-$HOME/Projects/macOS-use}/.venv/bin/python"
+  [ -x "$_model_python" ] || _model_python=python3
+  if "$_model_python" -c 'import langchain_core, pydantic' >/dev/null 2>&1; then
+    check "structured JSON validation and repair" "$_model_python" "$ROOT/tests/test_mac_use_structured.py"
+  else
+    skip "structured JSON validation and repair" "LangChain/Pydantic runtime absent"
+  fi
 fi
 
 # ── verdict ───────────────────────────────────────────────────────────────────

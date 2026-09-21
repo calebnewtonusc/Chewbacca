@@ -1,6 +1,6 @@
 ---
 name: people
-description: Remember everything about the people in the user's life, answer questions about their network, and notice who is slipping. Use when they mention a person by name, tell you something about someone, ask who they know at a company or in a field, ask who to reconnect with, mention a birthday or a job change, come back from a meeting or a call, or ask what you know about someone. Also use before drafting any message to a named person, so the draft is grounded in what is actually true about them. Also use for when did I last talk to someone, how long has it been since I spoke to them, what did we talk about last time, catch me up on this person before I see them, and who have I not replied to. ALWAYS use for any question shaped like "who do I know who ...", including who do I know in a city, at a company, in an industry, who has raised money, who is a founder or an investor, who went to my school, who could introduce me to someone, who did I meet through a person, who from a place has been funded, and who that I know has moved into a more senior role. Also use when they want to import or sync a LinkedIn export, match LinkedIn connections to their contacts, find where their connections live or work, or spot who changed jobs.
+description: 'Remember everything about the people in the user''s life, answer questions about their network, and notice who is slipping. Use when they mention a person by name, tell you something about someone, ask what you know about someone, ask who to reconnect with, mention a birthday or job change, or come back from a meeting or call. Use before drafting any message to a named person, so the draft is grounded in what is true about them. Use for last-contact questions: when did I last talk to them, how long has it been, what did we talk about, catch me up before I see them, who have I not replied to. ALWAYS use for anything shaped like "who do I know who ..." (in a city, at a company, in an industry, who raised money, who is a founder or investor, who went to my school, who could introduce me to someone, who moved into a senior role). Also use to import or sync a LinkedIn export, match connections to contacts, or spot who changed jobs.'
 requires: [people]
 ---
 
@@ -202,6 +202,35 @@ run it again and it skips everyone already done.
 `people linkedin changes` finds job changes for free by comparing two exports.
 For anyone already connected, a fresh export is the cheapest job-change feed
 there is, and no paid lookup is needed.
+
+### Shortlists: one filter hides most of the network
+
+"Everyone I talk to, narrowed down to X" is a different question from `people
+who`. Who to invite, who to beta test, who to ask for a favour. The filter is
+the easy half. The enumeration underneath it is where this goes wrong.
+
+Measured on a real address book, a single sweep of one-to-one iMessage with a
+volume floor and a recency cutoff dropped most of the network:
+
+- one-to-one only: hid 109 people active in group chats that year
+- 40 or more messages sent: hid 161 quieter threads
+- last three months only: hid 34 strong threads that had gone cold in spring
+
+Both of the strongest candidates sat in the discarded set. One fell four weeks
+past the recency cutoff. The other was a single message under the volume floor.
+
+Enumerate all of these before applying any filter:
+
+1. one-to-one threads, no volume floor and no recency cutoff
+2. group chats, where the people who never text directly live
+3. quiet threads, far below whatever floor looks reasonable
+4. threads that went cold, because cold and unimportant are different things
+5. the `people` store, and the other messaging apps on the machine
+
+Then name the sources checked and the ones skipped. WhatsApp is usually on the
+machine and usually thin; Instagram DMs are usually not there at all. The user
+is the only one who knows who is still missing, and they can only tell you that
+if they can see what was swept.
 
 ## Questions that need more than one source
 

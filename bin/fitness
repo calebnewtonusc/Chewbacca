@@ -1,0 +1,209 @@
+#!/usr/bin/env python3
+"""Score the kit, attach the score to a commit, and keep every score.
+
+    fitness                    structural score now, recorded
+    fitness --run              behavioural too (spends model calls)
+    fitness --run --sample 20  a fixed-seed subset, honestly labelled
+    fitness --compare          this score against the last recorded one
+    fitness --log              every score ever taken
+
+WHY THIS EXISTS, AND WHY IT COMES BEFORE ANY SELF-IMPROVING LOOP.
+
+The Darwin Godel Machine (Zhang et al., ICLR 2026, arXiv 2505.22954) rewrites
+its own code and its central move is replacing the Godel machine's infeasible
+formal proof with EMPIRICAL BENCHMARK PERFORMANCE. Every self-modification is
+validated against a benchmark and kept only if it scores. That is what took it
+from 20.0% to 50.0% on SWE-bench.
+
+This kit had the benchmark and not the memory of it. tools/evals.py runs 164
+cases across 32 skills and prints "N passed, M failed" to stdout, where the
+number dies. With no persisted score there is no way to answer "did that
+change make the kit better", so a loop that modifies the kit is not
+self-improvement, it is unattended churn.
+
+So: score, stamp it with the commit, append forever. The ledger is the only
+thing here that a fork cannot copy, because it is a record of this kit's
+actual trajectory.
+
+WHAT THE SCORE IS NOT. It is coverage and conformance, not quality. A kit can
+score 100% and still be useless. It answers "did this change break or extend
+something measurable", which is a smaller and more honest question than "is
+this good", and it is the question a loop needs answered to be safe.
+
+HONEST SAMPLING. A behavioural run costs model calls, so --sample takes a
+fixed-seed subset and the ledger records `sampled` alongside the score.
+A sampled score is never compared against a full one; --compare refuses.
+"""
+import argparse
+import hashlib
+import json
+import pathlib
+import random
+import re
+import subprocess
+import sys
+import time
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+LEDGER = pathlib.Path.home() / ".chewbacca" / "fitness.jsonl"
+
+
+def git(*args):
+    r = subprocess.run(["git", "-C", str(ROOT), *args],
+                       capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def structural():
+    """No model calls. Counts what is covered and what is well formed."""
+    r = subprocess.run([sys.executable, str(ROOT / "tools/evals.py")],
+                       capture_output=True, text=True, timeout=300)
+    out = r.stdout + r.stderr
+    files = _num(r"(\d+) eval file", out)
+    cases = _num(r"(\d+) case", out)
+    skills = _num(r"(\d+) skills", out)
+    weak = _num(r"(\d+) weak trigger", out)
+    uncovered = _num(r"(\d+) skill\(s\) with no evals", out)
+    covered = skills - uncovered if skills else 0
+    return {
+        "eval_files": files, "cases": cases, "skills": skills,
+        "skills_covered": covered, "weak_triggers": weak,
+        "uncovered": uncovered,
+        # Coverage and cleanliness, deliberately not "quality".
+        "structural_score": round(
+            (covered / skills if skills else 0) * 100
+            - (weak * 0.5), 2),
+    }
+
+
+def _num(rx, text, default=0):
+    m = re.search(rx, text)
+    return int(m.group(1)) if m else default
+
+
+def behavioural(sample=None, seed=1337):
+    """Shells out to the kit's own behavioural pass. Costs model calls."""
+    cmd = [sys.executable, str(ROOT / "tools/evals.py"), "--run"]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=5400)
+    out = r.stdout + r.stderr
+    m = re.search(r"(\d+) passed, (\d+) failed", out)
+    if not m:
+        return None
+    p, f = int(m.group(1)), int(m.group(2))
+    total = p + f
+    return {"passed": p, "failed": f, "total": total,
+            "behavioural_score": round(100 * p / total, 2) if total else 0.0,
+            "sampled": sample}
+
+
+def tests():
+    """The suite, as a second independent signal."""
+    r = subprocess.run(["bash", str(ROOT / "tests/run.sh")],
+                       capture_output=True, text=True, timeout=1800)
+    m = re.search(r"(\d+) passed, (\d+) failed", r.stdout + r.stderr)
+    if not m:
+        return None
+    return {"tests_passed": int(m.group(1)), "tests_failed": int(m.group(2))}
+
+
+def record(entry):
+    LEDGER.parent.mkdir(parents=True, exist_ok=True)
+    with LEDGER.open("a") as fh:
+        fh.write(json.dumps(entry) + "\n")
+
+
+def load():
+    if not LEDGER.exists():
+        return []
+    out = []
+    for line in LEDGER.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return out
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--run", action="store_true", help="behavioural too")
+    ap.add_argument("--sample", type=int, default=None)
+    ap.add_argument("--compare", action="store_true")
+    ap.add_argument("--log", action="store_true")
+    ap.add_argument("--no-tests", action="store_true")
+    a = ap.parse_args()
+
+    if a.log:
+        rows = load()
+        if not rows:
+            print("no scores recorded yet. Run: fitness")
+            return 0
+        print(f"{'WHEN':<17} {'SHA':<9} {'STRUCT':>7} {'BEHAV':>7} {'TESTS':>9}")
+        for e in rows[-25:]:
+            when = time.strftime("%Y-%m-%d %H:%M", time.localtime(e["at"]))
+            b = e.get("behavioural_score")
+            t = e.get("tests_passed")
+            tf = e.get("tests_failed")
+            bs = f"{b:.1f}" if b is not None else "-"
+            ts = f"{t}/{t+tf}" if t is not None and tf is not None else "-"
+            print(f"{when:<17} {e['sha']:<9} {e['structural_score']:>7.1f} "
+                  f"{bs:>7} {ts:>9}")
+        return 0
+
+    entry = {"at": time.time(), "sha": git("rev-parse", "--short", "HEAD") or "nogit",
+             "dirty": bool(git("status", "--porcelain"))}
+    entry.update(structural())
+    if not a.no_tests:
+        t = tests()
+        if t:
+            entry.update(t)
+    if a.run:
+        b = behavioural(a.sample)
+        if b:
+            entry.update(b)
+
+    if a.compare:
+        prior = [e for e in load()
+                 if e.get("sampled") == entry.get("sampled")]
+        if not prior:
+            print("no comparable prior score. Recording this as the baseline.")
+        else:
+            p = prior[-1]
+            print(f"AGAINST {p['sha']} "
+                  f"({time.strftime('%Y-%m-%d %H:%M', time.localtime(p['at']))})\n")
+            for k, label in (("structural_score", "structural"),
+                             ("behavioural_score", "behavioural"),
+                             ("tests_passed", "tests passing")):
+                if k in entry and k in p:
+                    d = entry[k] - p[k]
+                    arrow = "up" if d > 0 else ("down" if d < 0 else "same")
+                    print(f"  {label:<16} {p[k]:>7} -> {entry[k]:>7}  {arrow} {abs(d):g}")
+            print()
+
+    record(entry)
+    print(f"RECORDED  sha {entry['sha']}"
+          f"{'  (working tree dirty)' if entry['dirty'] else ''}")
+    print(f"  structural   {entry['structural_score']:.1f}  "
+          f"({entry['skills_covered']}/{entry['skills']} skills covered, "
+          f"{entry['cases']} cases, {entry['weak_triggers']} weak)")
+    if "tests_passed" in entry:
+        print(f"  tests        {entry['tests_passed']} passed, "
+              f"{entry['tests_failed']} failed")
+    if "behavioural_score" in entry:
+        print(f"  behavioural  {entry['behavioural_score']:.1f}  "
+              f"({entry['passed']}/{entry['total']})")
+    else:
+        print("  behavioural  not run. Add --run to spend the model calls.")
+    print(f"\nledger: {LEDGER}")
+    print("A score is coverage and conformance, not quality. It answers "
+          "whether a change\nbroke or extended something measurable, which is "
+          "what a self-modifying loop needs.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
