@@ -98,11 +98,16 @@ if should_format; then
   if ensure_node; then
     if PRETTIER="$(find_prettier)"; then
       "$PRETTIER" --write "$f" --log-level silent 2>/dev/null || true
-    else
-      # No local or global install, so fall back to npx even though it
-      # re-resolves the package on every write.
-      npx --yes prettier --write "$f" --log-level silent 2>/dev/null || true
     fi
+    # NO npx FALLBACK. Measured 2026-09-20: this hook runs in 260ms when
+    # prettier resolves, and doctor caught a p95 of 4761ms on 1 run in 20.
+    # The spike was `npx --yes prettier`, which re-resolves the package from
+    # the registry on every write.
+    #
+    # Four seconds of latency on a tool call, to format a file, on a machine
+    # where prettier is not installed, is a bad trade every single time. If
+    # prettier is not present the file is left alone and `chewbacca doctor`
+    # reports it. Skipping is cheap and visible; npx is expensive and silent.
   fi
 fi
 
