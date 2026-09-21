@@ -106,7 +106,7 @@ it.** Build the teaching half at the same time as the doing half, not after.
 | --- | --- | --- | --- |
 | 1 | **GTM engineering for Jonah and his 5 companies** | doing | Sagar, 9/20: "i need you to do one thing." Tooling shipped at `calebnewtonusc/prometheus-targeting` (private). **Blocked on one fact: which 5 companies are raising.** One-pagers exist for 8 |
 | 2 | **Onboarding: single paste, allow-once permissions, no visible API keys, Mac then Windows** | open | Caleb's #8. Now evidence-backed: Sagar called the installer malware on 9/20 and a second person flagged permissions the same afternoon. Closing screen fixed in `8e47d04`; the flow itself is not |
-| 3 | **Skill descriptions cannot route** | open | 105 skills installed, nothing names one when work starts. `skill-route.sh` built and unregistered in `4cca1fd` after misfiring twice. skill-scan grades the descriptions at 16-21 trigger points of 25. Fix descriptions first |
+| 3 | **Skill descriptions cannot route** | done | 105 skills installed, nothing names one when work starts. `skill-route.sh` built and unregistered in `4cca1fd` after misfiring twice. skill-scan grades the descriptions at 16-21 trigger points of 25. Fix descriptions first |
 | 4 | **TTS site** | open | Needs the design corpus in #5. ArcRank mockup shows the real competitor set: SparkSC, Sigma Eta Pi, LavaLab, TroyLabs, VC Academy |
 | 5 | **Deep UI/UX research, component and workflow frameworks** | open | Caleb's #2. Four reference images captured 9/21. `dembrandt` (3,506 stars) already extracts tokens, type scale, motion and hover patterns from a live site into a DESIGN.md |
 | 6 | **Self-correcting cold outreach** | open | Caleb to Sagar: "has anyone ever built that?" Sagar: "unless you set up some cli magic." Caleb: "cli magic it is." The genuinely novel item |
@@ -139,6 +139,13 @@ it.** Build the teaching half at the same time as the doing half, not after.
 | 28 | `hud-voice` does not build | open | Fails fetching FluidAudio, "unable to read tree". Never bisected |
 | 29 | `hud doctor` does not check Accessibility | open | It is the permission the whole voice path depends on and doctor is blind to it |
 | 30 | pre-commit's advice message is wrong | open | It says to name your paths, but the two-live-sessions gate inspects the index, which `git commit -- paths` does not change. Only `CHEWBACCA_PATHSPEC_COMMIT=1` clears it |
+
+| 30b | **Finish the interface and ship a beta** | open | Caleb's #3, and the only one of his original 22 that was never written down. `skills/interface` exists and the HUD is the surface. "Some sort of beta" needs a definition of what a beta means here: who installs it, what they are asked to do, and what counts as it working. Five testers were asked on 9/20 ([[../memory/project_chewbacca_tester_outreach]]) with no beta to give them |
+| 31 | **Ingest more of Scripture, NASB95** | open | Gavin, 9/21: "Make it NASB95. Most accurate translation." Proverbs is in (`8e47d04`) as a standing check per process. Which books earn a place, and on what test, is unanswered: `methods/proverbs.md` says a line only belongs if it names a failure it would have caught |
+| 32 | **Prompting that reads itself as self-learning** | open | Gavin, 9/21, and Caleb loved it: "Figure out a way we can just automate prompting where whatever I say automatically gets interpretted by the engine as self learning." The nearest existing pieces are `bin/scars`, `memory/` and `bin/evolve`. Nothing closes the loop from a sentence he says to a change in the kit |
+| 33 | **Reorganize and refactor the files** | open | Caleb, 9/21: "a bunch of them need reorganizing and refactoring." The audit so far found 3 orphan hooks, 5 undocumented commands and 57 dead links, all now fixed or recorded. The reorganize itself is untouched |
+| 34 | **Make it an actual graph engineer** | open | Caleb, 9/21: "I shouldn't hv to ever ask this question if chewbacca was truly an intelligent graph engineer." `skills/graph-engineering` holds both halves already and nothing routes to it. Same blocker as item 3 |
+| 35 | `superassistant` is not on PATH | open | The voice prompt references it and the module loads by path, but the CLI named in `CLAUDE.md` (`superassistant recent 10`) does not run |
 
 ## Done this session
 

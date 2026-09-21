@@ -211,8 +211,8 @@ narrative puts supreme craft and idolatrous craft back to back on purpose. Skill
 does not justify itself, and the text says so by arrangement rather than by
 argument.
 
-So: **a theology of excellence with no "enough" is not a theology, it is a
-justification.** Dorothy Sayers wrote the best sentence in this whole tradition,
+So: **a theology of excellence with no "enough" is a justification wearing
+theology's clothes.** Dorothy Sayers wrote the best sentence in this whole tradition,
 that no work untrue to its own technique can be redeemed by the worker's piety.
 In the same essay she calls limits on working hours "a monstrous interference
 with the liberty of the subject." She has no stop rule. Exodus does, twice,
@@ -249,10 +249,49 @@ the failure it would have caught. No failure, no line.
 disorder with a hospitalization in his history, and that hospitalization is part
 of why he is alive. "Renew your mind" and "be transformed" get used, in exactly
 the tradition he stands in, to imply that a person can think their way out of an
-illness. `domains/staci-rivera.md` documents the mechanism in detail and rejects
-it. No output of this kit may frame medication, psychiatry or hospitalization as
-a failure of faith. That rule is part of the doctrine and carries its full
-weight.
+illness. No output of this kit may frame medication, psychiatry or
+hospitalization as a failure of faith. That rule is part of the doctrine and
+carries its full weight.
+
+The exegesis is on the rule's side, which matters because the misuse quotes a
+verse:
+
+- **Both verbs in Romans 12:2 are passive.** God is the agent, on Paul's own
+  usage (2 Cor 3:18 names it: "from the Lord, the Spirit"). Augustine drew the
+  conclusion in *De Trinitate* XIV.16.22: **"that image cannot form itself again,
+  as it could deform itself."** Calvin, on the same verse, says reason is called
+  the leading power, "**but Paul pulls her down from her throne.**" A reading in
+  which the mind renovates itself has the sentence backwards.
+- **The purpose clause is δοκιμάζειν**, testing what God's will is, reversing the
+  ἀδόκιμον νοῦν of Romans 1:28. The renewed mind is the faculty that discerns.
+  It is not a mood-regulation system.
+- **The method outlived the theology.** Kate Bowler, tracing the prosperity
+  gospel to E. W. Kenyon: he "chided their content, not their method... New
+  Thought employed the right process with the wrong theology." That is how
+  "renew your mind" becomes "think yourself well" inside orthodox vocabulary.
+- **The tradition itself already rejected it.** The Assemblies of God General
+  Presbytery, 1980, on positive confession: **"Problems are not always an
+  indication of lack of faith. To the contrary, they can be a tribute to
+  faith."** Their 2010 healing paper: "some are healed instantly, some
+  gradually, and others are not healed", and belief in divine healing "neither
+  opposes nor competes with medical doctors."
+- **Gordon Fee**, a Pentecostal who believes in the gift, on Epaphroditus,
+  Trophimus and Timothy: "**never** is their sickness attributed to lack of
+  faith, nor their recovery to great faith."
+- **Spurgeon**, who cannot be accused of a low view of Scripture, in "The
+  Minister's Fainting Fits": "**Fits of depression come over the most of us**...
+  As to mental maladies, is any man altogether sane?" He never prescribes a
+  renewed mind as the cure.
+
+Two honest notes on what is NOT established, because overclaiming here would be
+the same sin in the other direction. Paul never says praying in tongues renews
+the *nous*; at 1 Cor 14:14 he says the opposite, that in that act "my nous is
+unfruitful", and any link between the two is a constructive argument rather than
+his. And the Philokalic *nous*, the "eye of the heart", is not Paul's *nous*:
+Romanides, its strongest modern advocate, concedes that "what St. Paul calls the
+nous is the same as what the Fathers call dianoia", and Romans 12:2 is cited
+exactly twice in the whole Philokalia, never by Maximus, Palamas, Gregory of
+Sinai or Evagrius.
 
 ## Sources
 
