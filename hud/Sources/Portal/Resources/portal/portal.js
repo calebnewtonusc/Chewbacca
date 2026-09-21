@@ -333,7 +333,7 @@
   var ROUGH_EYE_MM = 600;
   var ROUGH_HAND_MM = 350;
   var DEPTH_ADAPT = 0.02;
-  var PARALLAX_STRENGTH = 0.25;
+  var PARALLAX_STRENGTH = 0;
   var EYE_RANGE_MM = [300, 1100];
   var HAND_RANGE_MM = [150, 700];
   var clamp = (v, [lo, hi]) => Math.max(lo, Math.min(hi, v));
@@ -511,16 +511,13 @@
     ctx.fillStyle = "rgba(0, 0, 0, 0.20)";
     ctx.fillRect(0, 0, W, H);
     const lm = now - lastSeen < 300 ? latest : null;
-    const mx = (nx) => (1 - nx) * W;
-    const my = (ny) => ny * H;
+    const fit = (v) => Math.max(0.02, Math.min(0.98, 0.5 + (v - 0.5) * reachScale));
+    const mx = (nx) => (1 - fit(nx)) * W;
+    const my = (ny) => fit(ny) * H;
     const RSCALE = (W + H) / 2;
     const RMIN = 24;
     const RMAX = Math.min(W, H) * 0.42;
     const clampR = (r) => Math.max(RMIN, Math.min(RMAX, r * sizeScale));
-    const squeeze = (p2) => ({
-      x: Math.max(0.02, Math.min(0.98, 0.5 + (p2.x - 0.5) * reachScale)),
-      y: Math.max(0.02, Math.min(0.98, 0.5 + (p2.y - 0.5) * reachScale))
-    });
     const px = mx;
     const py = my;
     const arcPath = (cn, r, a0, a1, segs = 96, jitterPx = 0) => {
@@ -575,10 +572,10 @@
           { strength: parallaxStrength }
         );
         if (r) {
-          return squeeze({ x: r.x / window.innerWidth, y: r.y / window.innerHeight });
+          return { x: r.x / window.innerWidth, y: r.y / window.innerHeight };
         }
       }
-      return squeeze(pinch.center);
+      return pinch.center;
     })();
     let p;
     if (cursor) {

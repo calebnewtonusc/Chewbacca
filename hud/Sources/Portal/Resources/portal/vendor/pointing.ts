@@ -146,11 +146,26 @@ export const DEPTH_ADAPT = 0.02;
  * multiplied. A fingertip a third of the way to the edge lands most of the
  * way there, and Caleb's report was "Most of it is still barely on screen."
  *
- * Starting low and raising it is the right order. An under-corrected cursor
- * sits a little off your fingertip and stays usable; an over-corrected one
- * leaves the display and cannot be aimed at all.
+ * DEFAULT 0, which is no correction at all. Caleb, after a morning of it:
+ * "The portal was significantly better before we tried to do the eye stuff.
+ * It sucked but at least I could kinda navigate where it was gonna go."
+ *
+ * The measurement agreed and was taken before the ray shipped, which is the
+ * part worth remembering. A still hand with realistic landmark jitter:
+ *
+ *     no correction        x  6px of wander
+ *     ray, best tuning     x 31px   y 17px
+ *
+ * Predictable beats correct when a person is aiming. The parallax the ray
+ * removes is a fixed offset you learn in a minute without noticing; the
+ * noise it adds is different every frame and cannot be learned at all. A
+ * cursor you can aim badly is usable and one you cannot predict is not.
+ *
+ * The maths stays, tested, behind this number. Raise it if a depth sensor
+ * ever replaces the size estimate, because then the noise goes away and the
+ * correction is free.
  */
-export const PARALLAX_STRENGTH = 0.25;
+export const PARALLAX_STRENGTH = 0;
 
 /** Plausible human range, so a bad frame cannot drag the estimate anywhere. */
 export const EYE_RANGE_MM: [number, number] = [300, 1100];
