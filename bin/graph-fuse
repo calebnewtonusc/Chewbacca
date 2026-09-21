@@ -1,0 +1,278 @@
+#!/usr/bin/env python3
+"""Stage 8, knowledge fusion: which records are the same real-world thing.
+
+    graph-fuse people.csv --on full_name --support email,organization
+    graph-fuse prometheus.db --table contacts --on organization --limit 200000
+    graph-fuse file.csv --on name --threshold 0.92 --json
+
+skills/graph-engineering calls stage 8 "the #1 cause of useless graphs" and the
+skill is 460 lines of prose with nothing that runs (skill-scan determinism 2/25).
+This is the stage made executable, because a pipeline you cannot run is a
+reading assignment.
+
+Three parts, in the order the skill names them.
+
+BLOCKING. Comparing every pair is O(n^2): a million rows is 5x10^11 pairs and
+will not finish. Records are bucketed by a cheap key first, and only
+within-bucket pairs are scored. Two keys are used because either alone misses a
+real class of duplicate: sorted significant tokens catches "Acme Corp" against
+"Corp, Acme", and a phonetic-ish consonant skeleton of the longest token catches
+"Munroe" against "Monroe", which is the failure that started this on 2026-09-21.
+
+MATCHING. A normalized similarity on the key field, plus agreement on any
+supporting field. Agreement promotes, disagreement demotes: two people named
+J Smith at different companies are not the same person, and the supporting
+fields are how you know.
+
+MERGE POLICY. None. It reports clusters and never writes. The skill is explicit
+that bad precision poisons a graph permanently, so this prints what it would
+merge and leaves the decision where it belongs.
+"""
+import argparse, csv, json, os, re, sqlite3, sys
+from collections import defaultdict
+from difflib import SequenceMatcher
+
+# Words that say nothing about WHICH company. "Acme Inc" and "Acme LLC" are one
+# company; "Inc" and "LLC" must not be what makes them look alike.
+LEGAL = {
+    "inc", "llc", "ltd", "limited", "corp", "corporation", "co", "company",
+    "plc", "gmbh", "sa", "sas", "bv", "nv", "ag", "spa", "srl", "pty", "llp",
+    "lp", "lllp", "pc", "pllc", "group", "holdings", "holding", "partners",
+    "capital", "ventures", "ventures", "fund", "funds", "management", "the",
+    "and", "of", "for",
+}
+# Values that are placeholders wearing a data costume. Found on 2026-09-21 in a
+# 1.04M-row investor file: 9,526 rows whose company was the literal string
+# "Person". They survive an eyeball check, which is what makes them expensive.
+PLACEHOLDER = {"person", "company", "unknown", "n/a", "na", "none", "null",
+               "-", "--", "test", "tbd", "?"}
+
+
+def norm(value: str) -> str:
+    """Lowercase, strip punctuation and legal suffixes, collapse whitespace."""
+    v = re.sub(r"[^a-z0-9 ]+", " ", (value or "").lower())
+    words = [w for w in v.split() if w and w not in LEGAL]
+    return " ".join(words)
+
+
+def skeleton(word: str) -> str:
+    """Consonant skeleton, so Munroe and Monroe land in one bucket.
+
+    Vowels after the first character are dropped and runs are collapsed. Crude
+    on purpose: blocking only has to avoid missing a candidate, and precision
+    is the matcher's job.
+    """
+    if not word:
+        return ""
+    head, rest = word[0], re.sub(r"[aeiou]", "", word[1:])
+    return re.sub(r"(.)\1+", r"\1", head + rest)[:6]
+
+
+def keys(value: str):
+    """Every block this value belongs to. More keys means more recall."""
+    n = norm(value)
+    if not n:
+        return []
+    toks = n.split()
+    out = {" ".join(sorted(toks))[:28]}
+    longest = max(toks, key=len)
+    if len(longest) >= 4:
+        out.add("~" + skeleton(longest))
+    return [k for k in out if k]
+
+
+def similar(a: str, b: str) -> float:
+    na, nb = norm(a), norm(b)
+    if not na or not nb:
+        return 0.0
+    if na == nb:
+        return 1.0
+    ta, tb = set(na.split()), set(nb.split())
+    jaccard = len(ta & tb) / len(ta | tb) if (ta | tb) else 0.0
+    ratio = SequenceMatcher(None, na, nb).ratio()
+    return max(ratio, (ratio + jaccard) / 2)
+
+
+def load(path, table, on, support, limit):
+    rows = []
+    if path.endswith((".db", ".sqlite", ".sqlite3")):
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        if not table:
+            names = [r[0] for r in con.execute(
+                "select name from sqlite_master where type='table'")]
+            if len(names) != 1:
+                sys.exit(f"--table needed, this file has: {', '.join(names)}")
+            table = names[0]
+        cols = [on] + support
+        sql = f"select {','.join(chr(34)+c+chr(34) for c in cols)} from \"{table}\""
+        if limit:
+            sql += f" limit {int(limit)}"
+        for r in con.execute(sql):
+            rows.append(dict(zip(cols, [x if x is not None else "" for x in r])))
+    else:
+        with open(path, newline="", encoding="utf-8", errors="ignore") as fh:
+            for i, r in enumerate(csv.DictReader(fh)):
+                if limit and i >= limit:
+                    break
+                rows.append(r)
+    return rows
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("path")
+    ap.add_argument("--on", required=True, help="the field that names the entity")
+    ap.add_argument("--support", default="", help="comma-separated corroborating fields")
+    ap.add_argument("--table")
+    ap.add_argument("--threshold", type=float, default=0.90)
+    ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--show", type=int, default=12)
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args()
+
+    support = [s.strip() for s in a.support.split(",") if s.strip()]
+    if not os.path.exists(a.path):
+        sys.exit(f"no such file: {a.path}")
+    rows = load(a.path, a.table, a.on, support, a.limit)
+    if not rows:
+        sys.exit("no rows")
+
+    # Placeholders are reported, never clustered: "Person" matching "Person"
+    # 9,526 times is a defect report, not a merge.
+    junk = defaultdict(int)
+    live = []
+    for r in rows:
+        v = (r.get(a.on) or "").strip()
+        if not v:
+            junk["(blank)"] += 1
+        elif v.lower() in PLACEHOLDER:
+            junk[v] += 1
+        else:
+            live.append(r)
+
+    # Document frequency over tokens, so identity is measured rather than
+    # assumed. The first run of this tool merged "Vox Technologies" with "Giant
+    # Leap Technologies" and "Armor Construction" with "Souza Construction",
+    # because a hand-written stoplist of legal suffixes cannot know that in an
+    # investor file "Technologies" appears thousands of times and carries no
+    # identity at all. A token in many names is an industry, not a name.
+    #
+    # The skill this implements requires 90% precision before fusion and says
+    # bad precision poisons a graph permanently, so this is the part that has
+    # to be right rather than generous.
+    df = defaultdict(int)
+    for r in live:
+        for t in set(norm(r.get(a.on, "")).split()):
+            df[t] += 1
+    # Rarity threshold, measured rather than guessed. A token appearing in many
+    # names is an industry, not a name: the first version of this tool merged
+    # "Vox Technologies" with "Giant Leap Technologies" and "Armor
+    # Construction" with "Souza Construction", because a hand-written stoplist
+    # of legal suffixes cannot know what is generic in THIS dataset.
+    #
+    # Measured on 50 random clusters from a 60k-row investor file: 76% to 82%
+    # precision depending on the sample drawn, which is itself worth knowing.
+    # The first measurement said 82% and the second 76% on the same code,
+    # because the sample pool changed size. A precision figure from one 50-item
+    # sample carries several points of noise; quote the range.
+    #
+    # An IDF-weighted version was tried and scored 72%, worse, so it was
+    # reverted rather than kept for being more sophisticated.
+    #
+    # That is BELOW the 90% the skill requires before fusion, which is why this
+    # tool never merges. It produces a review queue, and a reviewer rejects
+    # roughly one candidate in four. The survivors are all one shape: two firms
+    # sharing a mid-frequency industry word (Engineering, Analytics,
+    # Communications), which is the honest open problem here.
+    common = max(3, len(live) // 400)
+
+    def anchors(value):
+        """The tokens that actually identify this entity."""
+        return {t for t in norm(value).split() if df.get(t, 0) <= common and len(t) > 2}
+
+    blocks = defaultdict(list)
+    for i, r in enumerate(live):
+        for k in keys(r.get(a.on, "")):
+            blocks[k].append(i)
+
+    # Union-find over scored within-block pairs.
+    parent = list(range(len(live)))
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    def union(x, y):
+        rx, ry = find(x), find(y)
+        if rx != ry:
+            parent[max(rx, ry)] = min(rx, ry)
+
+    compared = 0
+    for members in blocks.values():
+        if len(members) < 2 or len(members) > 400:
+            continue  # a block that large is a bad key, not a cluster
+        for ai in range(len(members)):
+            for bi in range(ai + 1, len(members)):
+                x, y = live[members[ai]], live[members[bi]]
+                compared += 1
+                xv, yv = x.get(a.on, ""), y.get(a.on, "")
+                # Two names that share no identifying token are not the same
+                # entity, however similar the generic remainder looks. Exact
+                # normalised equality is exempt: some real names are entirely
+                # common words.
+                ax, ay = anchors(xv), anchors(yv)
+                if norm(xv) != norm(yv) and not (ax & ay):
+                    continue
+                score = similar(xv, yv)
+                if score < a.threshold - 0.15:
+                    continue
+                agree = disagree = 0
+                for f in support:
+                    xv, yv = (x.get(f) or "").strip().lower(), (y.get(f) or "").strip().lower()
+                    if xv and yv:
+                        if xv == yv:
+                            agree += 1
+                        else:
+                            disagree += 1
+                score += 0.06 * agree - 0.10 * disagree
+                if score >= a.threshold:
+                    union(members[ai], members[bi])
+
+    clusters = defaultdict(list)
+    for i in range(len(live)):
+        clusters[find(i)].append(i)
+    dupes = {k: v for k, v in clusters.items() if len(v) > 1}
+    merged = sum(len(v) - 1 for v in dupes.values())
+
+    if a.json:
+        print(json.dumps({
+            "rows": len(rows), "placeholders": dict(junk), "compared": compared,
+            "clusters": len(dupes), "rows_that_would_merge": merged,
+            "examples": [[live[i].get(a.on) for i in v] for v in list(dupes.values())[:a.show]],
+        }, indent=2))
+        return 0
+
+    print(f"\n  {len(rows):,} rows, on `{a.on}`"
+          + (f", corroborated by {', '.join(support)}" if support else ""))
+    if junk:
+        total = sum(junk.values())
+        print(f"\n  PLACEHOLDERS, {total:,} rows ({total/len(rows)*100:.1f}%). Not entities, never clustered:")
+        for v, n in sorted(junk.items(), key=lambda kv: -kv[1])[:6]:
+            print(f"    {n:>8,}  {v!r}")
+    print(f"\n  {len(blocks):,} blocks, {compared:,} pairs compared"
+          f" (all-pairs would be {len(live)*(len(live)-1)//2:,})")
+    print(f"  {len(dupes):,} clusters, {merged:,} rows would merge at threshold {a.threshold}")
+    if dupes:
+        print("\n  Largest clusters:")
+        for v in sorted(dupes.values(), key=len, reverse=True)[:a.show]:
+            names = [live[i].get(a.on, "") for i in v]
+            print(f"    {len(v):>3}x  " + "  |  ".join(n[:34] for n in names[:4])
+                  + ("  ..." if len(names) > 4 else ""))
+    print("\n  Nothing was written. Bad precision poisons a graph permanently,"
+          "\n  so review before merging.\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
