@@ -68,8 +68,7 @@
 ---
 
 <!-- BEGIN GENERATED: counts -->
-
-One command installs **57 slash commands, 87 skills (32 written here, 6 cloned from upstream, 49 from a skill pack), 12 MCP servers, 13 hooks, 4 subagents, 9 command-line tools and 12 always-on standards (plus 2 that load only when the work calls for them).** About 91,000 lines, every one of them plain text you can read.
+One command installs **57 slash commands, 87 skills (32 written here, 6 cloned from upstream, 49 from a skill pack), 12 MCP servers, 14 hooks, 4 subagents, 9 command-line tools and 12 always-on standards (plus 2 that load only when the work calls for them).** About 92,000 lines, every one of them plain text you can read.
 <!-- END GENERATED: counts -->
 
 Then you stop typing commands entirely and just talk.

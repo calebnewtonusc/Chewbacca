@@ -1,0 +1,141 @@
+#!/usr/bin/env python3
+"""list-gate: refuse to ship an outbound list that repeats a known mistake.
+
+THE FAILURE THIS EXISTS FOR. On 2026-09-20 this kit built five investor lists
+and reported them finished four separate times. Each time Caleb said "I have a
+feeling you still are stupid", and each time reading the OUTPUT found real
+defects the code review had missed: the same person on four lists, ten partners
+at one fund, info@ mailboxes, analysts who cannot write a cheque, 843 rows whose
+company name was the literal string "Company", one fund counted as four because
+of spelling, and the single most obvious target in the file silently discarded.
+
+Every one of those was written up as guidance in a skill. Guidance does not run.
+So this is the same content as a program that exits 1.
+
+    list-gate out/*.csv
+    list-gate out/*.csv --expect andreessen,sequoia,accel     recall test
+    list-gate out/*.csv --per-list-firm 1 --json
+
+Columns are auto-detected. Checks are per-file where that is the right scope and
+across all files where the sender is one sender.
+"""
+import argparse, collections, csv, glob, json, re, sys, unicodedata
+
+csv.field_size_limit(10**9)
+
+ROLE = re.compile(r"^(info|contact|admin|hello|hi|team|office|support|sales|enquiries|"
+                  r"inquiries|general|mail|ir|investor|investorrelations|invest|press|"
+                  r"media|careers|jobs|help|noreply|no-reply|accounts|finance|hr)[.@+-]", re.I)
+JUNIOR = re.compile(r"(executive assistant|assistant|coordinator|receptionist|intern\b|"
+                    r"^analyst|^associate$|^senior associate$|office manager|secretary|"
+                    r"^mr\.?$|^ms\.?$|^mrs\.?$)", re.I)
+NULL_ORG = {"", "unknown", "person", "company", "n/a", "none", "-", "null", "test"}
+FREE = {"gmail.com","hotmail.com","yahoo.com","yahoo.co.in","yahoo.co.uk","yahoo.com.ph",
+        "rediffmail.com","mail.ru","live.com","outlook.com","aol.com","icloud.com","me.com",
+        "msn.com","protonmail.com","hotmail.co.uk","gmx.de","web.de","qq.com","163.com"}
+EMAIL_OK = re.compile(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$", re.I)
+NAN_STRIP = re.compile(r"\b(Ficial|Fice|Ferdez|Herdez)\b")
+SUFFIX = re.compile(r"\b(llc|ltd|limited|inc|incorporated|llp|lp|plc|pty|gmbh|ag|co|corp|"
+                    r"corporation|company|holdings?|group|partners?|capital|ventures?|"
+                    r"management|advisors?|fund[s]?)\b")
+ALIASES = {"name": ("fullname","name","contactname","full_name"),
+           "email": ("email","emailaddress","workemail","mail"),
+           "company": ("organization","company","companyname","org","employer","account"),
+           "title": ("title","jobtitle","role","position"),
+           "id": ("recordid","record_id","id","contactid")}
+
+def slug(s): return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+def firm_key(name):
+    k = unicodedata.normalize("NFKD", name or "").encode("ascii","ignore").decode().lower()
+    k = re.sub(r"[^a-z0-9 ]", " ", k)
+    st = SUFFIX.sub(" ", k)
+    return re.sub(r"\s+", " ", (st if st.strip() else k)).strip()
+
+def detect(fields):
+    out = {}
+    for key, names in ALIASES.items():
+        for c in fields or []:
+            if slug(c) in names and c not in out.values():
+                out[key] = c; break
+    return out
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("files", nargs="+")
+    ap.add_argument("--expect", default="", help="comma-separated firms that MUST appear (recall test)")
+    ap.add_argument("--per-list-firm", type=int, default=1,
+                    help="max contacts from one firm on ONE list (same pitch twice is the offence)")
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args()
+
+    paths = [p for pat in a.files for p in sorted(glob.glob(pat))] or a.files
+    fails, warns = [], []
+    seen_people = collections.Counter()
+    all_firms = set()
+    total = 0
+
+    for path in paths:
+        try:
+            rows = list(csv.DictReader(open(path, newline="", encoding="utf-8", errors="replace")))
+        except OSError as e:
+            fails.append(f"{path}: cannot read ({e})"); continue
+        c = detect(rows[0].keys() if rows else [])
+        if not rows:
+            fails.append(f"{path}: EMPTY, zero rows"); continue
+        total += len(rows)
+
+        def g(r, k): return (r.get(c.get(k, ""), "") or "").strip()
+
+        bad_mail   = [r for r in rows if ROLE.match(g(r, "email"))]
+        bad_syntax = [r for r in rows if g(r, "email") and not EMAIL_OK.match(g(r, "email"))]
+        freemail   = [r for r in rows if g(r, "email").split("@")[-1].lower() in FREE]
+        junior     = [r for r in rows if g(r, "title") and JUNIOR.search(g(r, "title"))]
+        nullorg    = [r for r in rows if g(r, "company").lower() in NULL_ORG]
+        corrupt    = [r for r in rows if any(NAN_STRIP.search(v or "") for v in r.values())]
+
+        firms = collections.Counter(firm_key(g(r, "company")) for r in rows if g(r, "company"))
+        all_firms |= set(firms)
+        overfirm = {f: n for f, n in firms.items() if n > a.per_list_firm}
+
+        for r in rows:
+            seen_people[g(r, "id") or g(r, "email").lower()] += 1
+
+        name = path.split("/")[-1]
+        if bad_mail:   fails.append(f"{name}: {len(bad_mail)} shared mailboxes (info@, ir@) nobody reads")
+        if bad_syntax: fails.append(f"{name}: {len(bad_syntax)} malformed email addresses")
+        if junior:     fails.append(f"{name}: {len(junior)} contacts too junior to decide")
+        if nullorg:    fails.append(f"{name}: {len(nullorg)} rows whose company is a placeholder")
+        if corrupt:    fails.append(f"{name}: {len(corrupt)} rows carry NaN-strip corruption (Ficial/Ferdez)")
+        if overfirm:
+            worst = sorted(overfirm.items(), key=lambda kv: -kv[1])[:3]
+            fails.append(f"{name}: {len(overfirm)} firms get the SAME pitch more than "
+                         f"{a.per_list_firm}x, worst {worst}")
+        if freemail:   warns.append(f"{name}: {len(freemail)} free consumer mailboxes")
+
+    dupes = {k: v for k, v in seen_people.items() if v > 1 and k}
+    if dupes:
+        fails.append(f"ACROSS LISTS: {len(dupes)} people appear on more than one list. "
+                     f"One sender means one person gets one email.")
+
+    if a.expect:
+        want = [w.strip().lower() for w in a.expect.split(",") if w.strip()]
+        missing = [w for w in want if not any(w in f for f in all_firms)]
+        if missing:
+            fails.append(f"RECALL: {len(missing)} of {len(want)} expected firms are absent: "
+                         f"{missing[:8]}. Either the filter is wrong or the file lacks them. "
+                         f"Check which before shipping.")
+
+    if a.json:
+        print(json.dumps({"files": len(paths), "rows": total,
+                          "fails": fails, "warnings": warns}, indent=2))
+    else:
+        print(f"\nlist-gate: {len(paths)} file(s), {total:,} rows, {len(all_firms):,} firms")
+        for w in warns: print(f"  warn  {w}")
+        for f in fails: print(f"  FAIL  {f}")
+        if not fails:
+            print("  pass  every check. Ship it.")
+    return 1 if fails else 0
+
+if __name__ == "__main__":
+    sys.exit(main())
