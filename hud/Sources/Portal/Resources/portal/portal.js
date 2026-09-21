@@ -621,6 +621,10 @@
   var lastFill = 0;
   var drawnMax = 0;
   var cancelling = false;
+  var arcStart = null;
+  var arcSpan = 0;
+  var cancelEat = 0;
+  var CANCEL_FRAMES = 37;
   var holdOld = 0;
   var settleX = 0;
   var settleV = 0;
@@ -910,7 +914,8 @@
     const maskCtx = maskCv.getContext("2d");
     const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw, cloud, fill, spiral) => {
       if (!mirrorReady || !maskCtx || strength <= 4e-3 || Rp < 3) return;
-      const blurPx = cloud > 2e-3 ? Math.max(Rp * 0.09, Rp * 0.16 * cloud) : 0;
+      const hole = Math.max(0, 1 - Math.pow(Math.max(0, Math.min(1, fill)), 2.5));
+      const blurPx = cloud > 2e-3 ? Math.max(1, Rp * hole * 0.14 * cloud) : 0;
       const pad = Math.max(16, blurPx * 2.6);
       const size = Math.ceil(2 * Rp + pad * 2);
       if (maskCv.width !== size || maskCv.height !== size) {
@@ -931,9 +936,10 @@
       const STEPS = 72;
       const lead = Math.pow(f, 2.5);
       const depthAt = (u) => {
-        const wind = 1 + 1.6 * Math.pow(1 - u, 1.6) * spiral;
+        const wind = 1 + 1.6 * Math.pow(1 - u, 1.6) * spiral * (1 - lead);
         const thAbs = aOld + dir * u * drawnAng;
-        const rough = 1 + 0.045 * Math.sin(thAbs * 9.1) + 0.028 * Math.sin(thAbs * 15.7);
+        const wob = 1 - lead;
+        const rough = 1 + (0.045 * Math.sin(thAbs * 9.1) + 0.028 * Math.sin(thAbs * 15.7)) * wob;
         return Math.max(0, Math.min(1, Math.pow(lead, wind))) * rough;
       };
       m.save();
@@ -964,22 +970,38 @@
           m.lineTo(cx2 + Math.cos(a) * rad, cy2 + Math.sin(a) * rad);
         }
       };
+      const innerAt = (u, reach) => Math.max(0, Rp * (1 - depthAt(u)) * (1 - reach));
+      const ribbon = (reach) => {
+        m.beginPath();
+        for (let i = 0; i <= STEPS; i++) {
+          const q = ptAt(i / STEPS, Rp);
+          if (i) m.lineTo(q.x, q.y);
+          else m.moveTo(q.x, q.y);
+        }
+        capTo(ptAt(1, Rp), ptAt(1, innerAt(1, reach)), dir);
+        for (let i = STEPS; i >= 0; i--) {
+          const u = i / STEPS;
+          const q = ptAt(u, innerAt(u, reach));
+          m.lineTo(q.x, q.y);
+        }
+        capTo(ptAt(0, innerAt(0, reach)), ptAt(0, Rp), -dir);
+        m.closePath();
+        m.fill();
+      };
       m.fillStyle = "#fff";
-      m.beginPath();
-      for (let i = 0; i <= STEPS; i++) {
-        const q = ptAt(i / STEPS, Rp);
-        if (i) m.lineTo(q.x, q.y);
-        else m.moveTo(q.x, q.y);
+      const FOG_STAMPS = 14;
+      let covered = 0;
+      for (let j = FOG_STAMPS; j >= 1; j--) {
+        const target = Math.pow(1 - j / FOG_STAMPS, 1.4);
+        const a = (target - covered) / (1 - covered);
+        if (a > 2e-3) {
+          m.globalAlpha = Math.min(1, a);
+          ribbon(j / FOG_STAMPS * 0.38);
+          covered = target;
+        }
       }
-      capTo(ptAt(1, Rp), ptAt(1, Math.max(0, Rp * (1 - depthAt(1)))), dir);
-      for (let i = STEPS; i >= 0; i--) {
-        const u = i / STEPS;
-        const q = ptAt(u, Math.max(0, Rp * (1 - depthAt(u))));
-        m.lineTo(q.x, q.y);
-      }
-      capTo(ptAt(0, Math.max(0, Rp * (1 - depthAt(0)))), ptAt(0, Rp), -dir);
-      m.closePath();
-      m.fill();
+      m.globalAlpha = 1;
+      ribbon(0);
       m.shadowBlur = 0;
       m.shadowOffsetX = 0;
       const dissolve = (u, _spanR, strength2, seedI) => {
@@ -1118,17 +1140,21 @@
       stroke.push({ x: sm.x, y: sm.y, rx: sm.x, ry: sm.y, t: now });
       while (stroke.length > 260) stroke.shift();
     } else if (stroke.length) {
+      if (!cancelling) cancelEat = Math.max(1, Math.ceil(stroke.length / CANCEL_FRAMES));
       cancelling = true;
-      const eat = Math.ceil(stroke.length * 0.1);
-      stroke.length = Math.max(0, stroke.length - eat);
+      stroke.length = Math.max(0, stroke.length - cancelEat);
       if (stroke.length < 3) {
         stroke = [];
         cancelling = false;
         softFit = null;
+        arcStart = null;
+        arcSpan = 0;
       }
     } else if (cancelling) {
       cancelling = false;
       softFit = null;
+      arcStart = null;
+      arcSpan = 0;
     }
     let p;
     if (cursor) {
@@ -1231,6 +1257,7 @@
       recognisedLatch = false;
       drawnMax = 0;
     }
+    if (!pinched && !cancelling) arcStart = null;
     if (!pinched && !cancelling) softFit = null;
     if (!portalUp) placedOk = false;
     if (!portalUp) {
@@ -1337,20 +1364,40 @@
       const want = !portalUp && fitC && recognised ? 0.12 + 0.88 * reveal : 0;
       mirrorAmt += (want - mirrorAmt) * (want > mirrorAmt ? 0.15 : 0.09);
       if (recognised) {
-        drawnMax = Math.max(drawnMax, Math.min(1, Math.abs(p.sweep) / (Math.PI * 2)));
+        openCcw = p.sweep < 0;
+        const dirS = openCcw ? -1 : 1;
+        const headAng = p.endAngle ?? 0;
+        if (arcStart === null && fitC && stroke.length > 2) {
+          const o = stroke[0];
+          arcStart = Math.atan2(my(o.ry) - my(fitC.cy), mx(o.rx) - mx(fitC.cx));
+          arcSpan = 0;
+        }
+        if (arcStart !== null) {
+          let raw2 = (headAng - arcStart) * dirS;
+          while (raw2 < 0) raw2 += Math.PI * 2;
+          const laps = Math.floor(arcSpan / (Math.PI * 2));
+          const cand = raw2 + laps * Math.PI * 2;
+          arcSpan = Math.max(
+            arcSpan,
+            cand < arcSpan - Math.PI ? cand + Math.PI * 2 : cand
+          );
+        }
+        drawnMax = Math.max(
+          drawnMax,
+          arcStart !== null ? Math.min(1, arcSpan / (Math.PI * 2)) : Math.min(1, Math.abs(p.sweep) / (Math.PI * 2))
+        );
         const doneTurns = drawnMax;
         const gapTarget = Math.max(0, 1 - doneTurns);
         openGap += (gapTarget - openGap) * 0.3;
-        openCcw = p.sweep < 0;
         lastFill += (doneTurns - lastFill) * 0.3;
-        const oldTarget = (p.endAngle ?? 0) - (openCcw ? -1 : 1) * doneTurns * Math.PI * 2;
+        const oldTarget = arcStart ?? headAng - dirS * doneTurns * Math.PI * 2;
         let d = oldTarget - holdOld;
         while (d > Math.PI) d -= Math.PI * 2;
         while (d < -Math.PI) d += Math.PI * 2;
         holdOld += d * 0.3;
       } else if (mirrorAmt > 6e-3) {
-        lastFill += (0 - lastFill) * 0.1;
-        openGap += (1 - openGap) * 0.1;
+        openGap = Math.min(1, openGap + 1 / CANCEL_FRAMES);
+        lastFill = Math.max(0, 1 - openGap);
       }
       if (fitC && !portalUp && mirrorAmt > 6e-3) {
         const cvx = mx(fitC.cx), cvy = my(fitC.cy);
