@@ -58,3 +58,71 @@ Never average them, never pick the later one.
 - Re-run the ingest. It must add zero. A second run that adds anything means
   the dedupe is broken, and a doubled calendar is worse than no calendar.
 - Read back what landed. A script's success message is not evidence.
+
+---
+
+# D2L Brightspace (Valence)
+
+Blackboard Ultra above is one school's LMS. USC runs **D2L Brightspace**, and
+the route in is different enough to be worth writing down. The API is called
+Valence. `https://brightspace.usc.edu/d2l/api/versions/` answers without auth;
+everything past that needs a session.
+
+The official OAuth route needs an App ID and Key that only the school's D2L
+admin issues, so the working route is **the student's own browser cookies**:
+`d2lSessionVal` and `d2lSecureSessionVal`, both v10-encrypted, in the Chrome
+profile they actually sign in with. Decrypt with PBKDF2-SHA1 over the Chrome
+Safe Storage password, then AES-128-CBC with a 16-space IV. They expire, so
+re-decrypt every run rather than caching the string.
+
+Use `cryptography`, which is already on the machine. `pycryptodome` will not
+install under PEP 668 without `--break-system-packages`, and breaking the system
+Python to read a due date is not a trade worth making.
+
+**Do not drive the browser to do this.** Chrome does not expose page content to
+the accessibility tree, AppleScript addresses the wrong Chrome instance when
+several are running, and the devtools relay shows `about:blank`. An hour went
+into learning that on 2026-09-21. Go to the cookies and the API first.
+
+## The endpoints that matter
+
+```
+/lp/1.63/enrollments/myenrollments/?orgUnitTypeId=3   every course + org unit id
+/le/1.99/{ou}/content/root/                           modules and topic ids
+/le/1.99/{ou}/content/topics/{id}                     one topic, incl. its file Url
+/le/1.99/{ou}/dropbox/folders/                        assignments, names + due dates
+/le/1.99/{ou}/dropbox/folders/{id}/submissions/       SEE BELOW
+/le/1.99/{ou}/quizzes/                                quizzes with dates and attempt rules
+```
+
+A topic's `Url` is a path under `/content/enforced/{ou}-{section}/`, fetched with
+the same cookie header. That is how an assignment prompt PDF comes down the
+moment the instructor posts it, which is often mid-class and days before the
+student opens it.
+
+Quiz *questions* are instructor-only: `/quizzes/{id}/questions/` returns 403
+`Quizzing.ManageQuizzes`. Reading a quiz means opening the attempt in a browser,
+and **that consumes an attempt**. Do not.
+
+## Submission status is checkable. Check it.
+
+`/dropbox/folders/{id}/submissions/` works with a student token and returns that
+student's own row: submission id, exact `SubmissionDate`, the filename, and the
+byte size. An empty array means nothing was ever submitted.
+
+This is the single most useful thing on this list, because "did you turn that
+in?" is a question the ledger cannot answer and the student answers from memory.
+On 2026-09-21 a `status: todo` essay turned out to have been filed three minutes
+before its deadline, and the ancillary self-assessment sitting on the same line
+of the syllabus had never been submitted at all. Asking would have surfaced the
+first and hidden the second, because he would have thought of the essay.
+
+So: before reporting anything as overdue, and before asking whether something
+went in, **read the dropbox**. Write the submission id and timestamp into the
+deliverable's `notes` so the claim is checkable later. This is the durable fix
+for a ledger drifting out of sync with reality, and it is what
+`feedback_two_day_rule` and `feedback_answer_it_before_asking_it` both point at.
+
+**Verifying a submission is not permission to make one.** Reading the dropbox
+tells you where things stand; the student submits. The `submit-guard` hook
+exists because that line got crossed twice in one night.
