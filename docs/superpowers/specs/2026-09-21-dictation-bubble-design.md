@@ -58,6 +58,7 @@ pulses while it is live and the transcript running under it.
 
 | State | What it means | What a click does |
 | --- | --- | --- |
+| `unbound` | just spawned, sitting at its home by the pill | says "drag me onto a text box", and nothing else |
 | `idle` | bound, and its app is frontmost | starts dictating |
 | `dimmed` | bound, its app is behind or hidden | nothing, and the pill says which app it is waiting for |
 | `live` | microphone open, words accumulating on the bubble | stops and inserts |
@@ -67,6 +68,10 @@ pulses while it is live and the transcript running under it.
 `dimmed` is the safety property, not a nicety. A bubble that fires while its app
 is behind is a bubble that types a sentence into whatever happens to be in
 front, which is how "running ten late" becomes a shell command.
+
+`unbound` answers a click with words rather than silence. A bubble that looks
+ready and does nothing is the failure the pill spent today teaching: "Did not
+catch that" said to somebody whose microphone had already been torn down.
 
 ## The socket verb
 
@@ -108,10 +113,27 @@ The same reasoning puts the phrases in a module rather than in the prompt. A
 prompt instruction is advice the model can weigh against everything else in its
 context. A regex is not.
 
-Placement, when the words did not say where: under the pointer if it is over a
-text field, otherwise on the front window's first text field via `hud-guide`,
-otherwise centre screen unbound and dimmed, waiting to be dragged. It never
-guesses an app.
+## Where it spawns
+
+Next to the hyper bar, every time, unbound. Gavin, 2026-09-21: "it needs to
+spawn next to the hyper bar, then i can drag it to any window that i want to
+use talk to text for."
+
+One home, one gesture, no inference. The earlier draft of this section guessed:
+under the pointer if it happened to be over a field, else the front window's
+first text field, else centre screen. That is three rules to learn and it is the
+same instinct the router already proves wrong, applied to geometry instead of
+destinations. A fixed home is muscle memory.
+
+The home is **to the left of the pill**, vertically centred on it, with a 12pt
+gap. The pill is bottom centre at `PillView.maxWidth` 440, and the presence ring
+owns bottom-trailing at `bottomInset + 14`, so the right-hand side is taken. A
+bubble that sat right of the pill on a wide display and flipped left on a narrow
+one would have no home at all, which is the one property this rule is for.
+
+Spawning never binds. The bubble arrives `unbound` and stays there until it is
+dropped on something text-shaped, so a bubble is only ever aimed by hand. It
+does not return home once moved, and the home is free again for the next one.
 
 ## Binding
 
