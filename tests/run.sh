@@ -708,6 +708,9 @@ fi
 
 if group "hud"; then
   check  "hud parses"         bash -n "$ROOT/bin/hud"
+  # Why there is no border on the screen. Every link in that chain failed
+  # silently on somebody else's Mac before this existed.
+  check  "the display can say why it is not drawing" python3 "$ROOT/tests/test_hud_doctor.py"
   check  "hud-listen parses"  python3 -m py_compile "$ROOT/bin/hud-listen"
   check  "hud-speak parses"   python3 -m py_compile "$ROOT/bin/hud-speak"
   # The voice, minus the model: sentence splitting and the cache of short

@@ -892,9 +892,32 @@ if [ -n "$_installed_hud" ]; then
   log "Installed to ~/.local/bin/:$_installed_hud"
   # The commands are useless without the app that draws. Say so once, here,
   # rather than letting the first `hud draw` fail with a socket error.
+  # On 2026-09-21 Caleb had merged the presence field and could not see it.
+  # His Mac had the `hud` commands on it and no app for them to draw on,
+  # because this section linked the commands and then warned about the app in
+  # two lines, in the middle of a setup that prints hundreds, and nothing he
+  # could run afterwards would have told him. An install that ends in an
+  # instruction has not installed anything.
   if [ ! -d "/Applications/BobHUD.app" ] && [ ! -d "$HOME/Applications/BobHUD.app" ]; then
-    warn "BobHUD.app is not installed, so hud has nothing to draw on."
-    warn "Build it: cd $(dirname "$0")/hud && ./scripts/bundle.sh"
+    if command -v swift >/dev/null 2>&1 && [ -x "$SCRIPT_DIR/hud/scripts/bundle.sh" ]; then
+      log "Building the display. About a minute, once."
+      if (cd "$SCRIPT_DIR/hud" && ./scripts/bundle.sh release >/dev/null 2>&1); then
+        _dest="/Applications"
+        [ -w "$_dest" ] || { _dest="$HOME/Applications"; mkdir -p "$_dest"; }
+        if cp -r "$SCRIPT_DIR/hud/build/BobHUD.app" "$_dest/" 2>/dev/null; then
+          log "Installed BobHUD.app to $_dest/. Open it, or run: hud open"
+        else
+          warn "built the display but could not copy it into $_dest"
+        fi
+        unset _dest
+      else
+        warn "the display did not build. Run it by hand to see why:"
+        warn "  cd $SCRIPT_DIR/hud && ./scripts/bundle.sh"
+      fi
+    else
+      warn "no Swift toolchain here, so the display cannot be built."
+      warn "  xcode-select --install, then: cd $SCRIPT_DIR/hud && ./scripts/bundle.sh"
+    fi
   fi
   # The voice with nothing to install: hud-speak needs uv and espeak-ng,
   # hud-voice is one Swift binary. Built rather than shipped, like the app.
@@ -1939,7 +1962,11 @@ if command -v brew &>/dev/null; then
   else
     brew install --cask maccy &>/dev/null && log "Maccy installed" || warn "could not install Maccy"
   fi
-  if [ -x /opt/homebrew/bin/peekaboo ]; then
+  # `command -v`, like every other tool here, not a path under the Apple
+  # Silicon Homebrew prefix. On an Intel Mac brew lives in /usr/local, so this
+  # reported peekaboo missing on a machine that had it and reinstalled it on
+  # every run of setup.
+  if command -v peekaboo &>/dev/null; then
     log "peekaboo already installed"
   else
     brew install steipete/tap/peekaboo &>/dev/null && log "peekaboo installed" || warn "could not install peekaboo"

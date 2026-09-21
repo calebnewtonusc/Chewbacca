@@ -5,15 +5,57 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-CONFIG="${1:-release}"
 APP="build/BobHUD.app"
-
-echo "Building ($CONFIG)…"
-swift build -c "$CONFIG" >/dev/null
+CONFIG="release"
+# --universal builds both architectures and fuses them, so one download runs
+# on an Intel Mac and an Apple Silicon one. Off by default: a developer
+# rebuilding every few minutes should not pay for the half they cannot run.
+UNIVERSAL=0
+for arg in "$@"; do
+  case "$arg" in
+    --universal) UNIVERSAL=1 ;;
+    debug|release) CONFIG="$arg" ;;
+    *) echo "usage: bundle.sh [debug|release] [--universal]" >&2; exit 2 ;;
+  esac
+done
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp ".build/arm64-apple-macosx/$CONFIG/BobHUD" "$APP/Contents/MacOS/BobHUD"
+
+if [ "$UNIVERSAL" -eq 1 ]; then
+  # Two passes and lipo, not `swift build --arch arm64 --arch x86_64`.
+  # The multi-arch flag routes SwiftPM through xcbuild, which ships with
+  # Xcode and not with the Command Line Tools, so it fails on a machine that
+  # has only the tools with "xcbuild executable ... does not exist". Keeping
+  # a full Xcode off the build requirements is the same call the presence
+  # field's shader makes by compiling from source at launch, and two passes
+  # plus a fuse need neither.
+  #
+  # The passes are also kept apart from the plain native build above, which
+  # they used to follow. Sharing one .build between an unqualified build and
+  # an --arch one leaves SwiftPM reporting "swift-version--<hash>.txt not
+  # registered" and producing nothing.
+  echo "Building $CONFIG for arm64 and x86_64…"
+  for arch in arm64 x86_64; do
+    swift build -c "$CONFIG" --arch "$arch" >/dev/null
+  done
+  lipo -create -output "$APP/Contents/MacOS/BobHUD" \
+    "$(swift build -c "$CONFIG" --arch arm64 --show-bin-path)/BobHUD" \
+    "$(swift build -c "$CONFIG" --arch x86_64 --show-bin-path)/BobHUD"
+  echo "  $(lipo -info "$APP/Contents/MacOS/BobHUD" | sed 's/.*are: //')"
+else
+  echo "Building ($CONFIG)…"
+  swift build -c "$CONFIG" >/dev/null
+  # Ask SwiftPM where it put the binary rather than spelling the triple out.
+  # The path was hardcoded to `.build/arm64-apple-macosx/`, correct on every
+  # Mac this was ever built on and wrong on an Intel one, where SwiftPM
+  # writes `x86_64-apple-macosx` and the build died at the copy having
+  # already compiled cleanly. A machine nobody tests on is a machine this
+  # has to work on, because it is the machine somebody else owns.
+  BIN="$(swift build -c "$CONFIG" --show-bin-path)"
+  [ -x "$BIN/BobHUD" ] || { echo "no binary at $BIN/BobHUD" >&2; exit 1; }
+  cp "$BIN/BobHUD" "$APP/Contents/MacOS/BobHUD"
+fi
 
 # The commit count, so two builds of different code never share a version
 # and a bundle can be matched back to the commit it came from.
