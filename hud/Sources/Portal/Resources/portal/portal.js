@@ -462,6 +462,7 @@
   var sizeScale = 1;
   var drawing = null;
   var stroke = [];
+  var softFit = null;
   var reachScale = 1;
   var handScale = 0.45;
   var lastSeen = 0;
@@ -600,7 +601,8 @@
       const last = stroke[stroke.length - 1];
       const sm = last ? { x: last.x + (cursor.x - last.x) * 0.45, y: last.y + (cursor.y - last.y) * 0.45 } : cursor;
       stroke.push({ x: sm.x, y: sm.y, rx: sm.x, ry: sm.y });
-      if (stroke.length > 220) stroke.shift();
+      const keep = p.progress > 0.2 ? 260 : 34;
+      while (stroke.length > keep) stroke.shift();
     } else if (stroke.length) {
       stroke = [];
     }
@@ -661,6 +663,7 @@
       }
     }
     if (S.phase !== "drawing" && drawing) drawing = null;
+    if (!pinched) softFit = null;
     if (portalUp) stroke = [];
     if (!portalUp && prevPhase === "closing") {
       detector.reset();
@@ -719,8 +722,16 @@
       }
     }
     if (!portalUp && pinched && stroke.length > 2) {
-      const fitC = drawing ?? (p.center ? { cx: p.center.x, cy: p.center.y, r: p.radius } : null);
-      const conf = Math.max(0, Math.min(1, (p.progress - 0.1) / 0.23));
+      const raw = drawing ?? (p.center ? { cx: p.center.x, cy: p.center.y, r: p.radius } : null);
+      if (raw) {
+        softFit = softFit ? {
+          cx: softFit.cx + (raw.cx - softFit.cx) * 0.12,
+          cy: softFit.cy + (raw.cy - softFit.cy) * 0.12,
+          r: softFit.r + (raw.r - softFit.r) * 0.12
+        } : raw;
+      }
+      const fitC = drawing ?? softFit;
+      const conf = Math.max(0, Math.min(1, (p.progress - 0.2) / 0.25));
       const k = Math.pow(conf, 0.9);
       if (fitC) {
         const rate = 0.12 + 0.3 * conf;

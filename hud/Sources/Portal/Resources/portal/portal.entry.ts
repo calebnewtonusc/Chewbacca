@@ -101,6 +101,13 @@ let drawing: { cx: number; cy: number; r: number; a0: number } | null = null;
 // pure function of how far round the hand had got rather than of where the
 // point was a frame ago.
 let stroke: { x: number; y: number; rx: number; ry: number }[] = [];
+// The circle the line is bending toward, smoothed across frames.
+//
+// Latching alone was not enough: below the latch threshold the target was
+// the raw per-frame fit, which moves as the trail grows, so the line was
+// chasing something that would not sit still. An average settles it while
+// still following a genuine change of intent.
+let softFit: { cx: number; cy: number; r: number } | null = null;
 // How far from the centre of the screen the hand can reach.
 //
 // DEFAULT 1, which is no compression at all: the fingertip is exactly where
@@ -449,7 +456,14 @@ function frame(now: number) {
       ? { x: last.x + (cursor.x - last.x) * 0.45, y: last.y + (cursor.y - last.y) * 0.45 }
       : cursor;
     stroke.push({ x: sm.x, y: sm.y, rx: sm.x, ry: sm.y });
-    if (stroke.length > 220) stroke.shift();
+    // A LINE THAT IS NOT BECOMING A CIRCLE TRAILS OFF. "if it's just a line
+    // and not a circle, the end of the line should go after a little bit as
+    // your hand moves." Held at full length it accumulated into a scribble
+    // with no shape and nothing to read. Once a circle is being recognised
+    // the whole path is kept, because by then the tail is the part that has
+    // already snapped onto the ring and is holding it.
+    const keep = p.progress > 0.2 ? 260 : 34;
+    while (stroke.length > keep) stroke.shift();
   } else if (stroke.length) {
     stroke = [];
   }
@@ -512,6 +526,7 @@ function frame(now: number) {
     }
   }
   if (S.phase !== "drawing" && drawing) drawing = null;
+  if (!pinched) softFit = null;
   if (portalUp) stroke = [];
   if (!portalUp && prevPhase === "closing") {
     detector.reset(); comet = []; attract = null;
@@ -623,11 +638,24 @@ function frame(now: number) {
   }
 
   if (!portalUp && pinched && stroke.length > 2) {
-    const fitC = drawing ?? (p.center ? { cx: p.center.x, cy: p.center.y, r: p.radius } : null);
+    const raw = drawing ?? (p.center ? { cx: p.center.x, cy: p.center.y, r: p.radius } : null);
+    if (raw) {
+      softFit = softFit
+        ? {
+            cx: softFit.cx + (raw.cx - softFit.cx) * 0.12,
+            cy: softFit.cy + (raw.cy - softFit.cy) * 0.12,
+            r: softFit.r + (raw.r - softFit.r) * 0.12,
+          }
+        : raw;
+    }
+    const fitC = drawing ?? softFit;
     // EARLY AND FAST. The pull starts at a tenth of a turn and is at full
     // strength by a third, because the correction is most of the effect and
     // arriving late made it look like a separate thing happening afterwards.
-    const conf = Math.max(0, Math.min(1, (p.progress - 0.1) / 0.23));
+    // LATER. Starting at a tenth of a turn meant a curved flick began
+    // bending, and a line that is not going to become a circle should not
+    // start behaving like one.
+    const conf = Math.max(0, Math.min(1, (p.progress - 0.2) / 0.25));
     const k = Math.pow(conf, 0.9);
 
     // Ease every point toward the circle, a fraction of the remaining
