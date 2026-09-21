@@ -597,7 +597,7 @@
       return pinch.center;
     })();
     if (cursor) {
-      stroke.push({ x: cursor.x, y: cursor.y });
+      stroke.push({ x: cursor.x, y: cursor.y, rx: cursor.x, ry: cursor.y });
       if (stroke.length > 220) stroke.shift();
     } else if (stroke.length) {
       stroke = [];
@@ -710,21 +710,24 @@
     }
     if (!portalUp && pinched && stroke.length > 2) {
       const fitC = drawing ?? (p.center ? { cx: p.center.x, cy: p.center.y, r: p.radius } : null);
-      const bend = fitC ? Math.min(1, Math.pow(p.progress / 0.5, 1.5)) : 0;
-      const k = Math.pow(Math.min(1, p.progress / 0.5), 1.2);
+      const conf = Math.max(0, Math.min(1, (p.progress - 0.1) / 0.23));
+      const k = Math.pow(conf, 0.9);
+      if (fitC) {
+        const rate = 0.12 + 0.3 * conf;
+        for (const q of stroke) {
+          const dx = q.rx - fitC.cx;
+          const dy = q.ry - fitC.cy;
+          const d = Math.hypot(dx, dy) || 1;
+          const tx2 = fitC.cx + dx / d * fitC.r;
+          const ty2 = fitC.cy + dy / d * fitC.r;
+          q.rx += (tx2 - q.rx) * rate;
+          q.ry += (ty2 - q.ry) * rate;
+        }
+      }
       ctx.globalCompositeOperation = "lighter";
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
-      const pts = stroke.map((q, i) => {
-        if (!fitC || bend <= 0) return q;
-        const dx = q.x - fitC.cx;
-        const dy = q.y - fitC.cy;
-        const d = Math.hypot(dx, dy) || 1;
-        const onCircle = { x: fitC.cx + dx / d * fitC.r, y: fitC.cy + dy / d * fitC.r };
-        const age = 1 - i / Math.max(1, stroke.length - 1);
-        const b = Math.min(1, bend * (0.55 + 0.45 * age));
-        return { x: q.x + (onCircle.x - q.x) * b, y: q.y + (onCircle.y - q.y) * b };
-      });
+      const rBase = fitC ? fitC.r : 0.05;
       for (const [width, colour, alpha, blur] of [
         [0.055, SPARK_COLD, 0.05 + k * 0.3, 8 + 26 * k],
         [0.03, SPARK_MID, 0.08 + k * 0.5, 6 + 16 * k],
@@ -733,24 +736,40 @@
         ctx.shadowBlur = blur;
         ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
         ctx.strokeStyle = `rgba(${colour}, ${alpha})`;
-        ctx.lineWidth = Math.max(1, (fitC ? fitC.r : 0.05) * RPX * width);
+        ctx.lineWidth = Math.max(1, rBase * RPX * width);
         ctx.beginPath();
-        pts.forEach((q, i) => {
-          const qx = mx(q.x), qy = my(q.y);
+        stroke.forEach((q, i) => {
+          const qx = mx(q.rx), qy = my(q.ry);
           if (i === 0) ctx.moveTo(qx, qy);
           else ctx.lineTo(qx, qy);
         });
         ctx.stroke();
       }
       ctx.shadowBlur = 0;
-      const head = pts[pts.length - 1];
-      const prev = pts[pts.length - 2] ?? head;
-      let tx = mx(head.x) - mx(prev.x);
-      let ty = my(head.y) - my(prev.y);
+      if (fitC && conf > 0.05) {
+        for (let i = 0; i < stroke.length; i += 6) {
+          const q = stroke[i];
+          const gap = Math.hypot(mx(q.rx) - mx(q.x), my(q.ry) - my(q.y));
+          if (gap < 6) continue;
+          spawnAt(
+            mx(q.rx),
+            my(q.ry),
+            (mx(q.x) - mx(q.rx)) / gap,
+            (my(q.y) - my(q.ry)) / gap,
+            1,
+            1.2,
+            true
+          );
+        }
+      }
+      const head = stroke[stroke.length - 1];
+      const prev = stroke[stroke.length - 2] ?? head;
+      let tx = mx(head.rx) - mx(prev.rx);
+      let ty = my(head.ry) - my(prev.ry);
       const tm = Math.hypot(tx, ty) || 1;
       spawnAt(
-        mx(head.x),
-        my(head.y),
+        mx(head.rx),
+        my(head.ry),
         tx / tm,
         ty / tm,
         Math.round(1 + k * 9),
