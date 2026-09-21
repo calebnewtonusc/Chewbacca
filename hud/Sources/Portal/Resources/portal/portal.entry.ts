@@ -502,7 +502,13 @@ function frame(now: number) {
     //
     // Still nearly crisp once the portal is open, because a finished portal
     // is a hole and not a cloud.
-    const blurPx = Math.max(6, Rp * (0.04 + 0.34 * cloud));
+    // EVERY GRADIENT SCALES TO NOTHING. "make sure all gradients are gone at
+    // the end." Each softness here had a constant term, so at cloud 0 a
+    // finished portal still carried 12px of blur and four sets of blobs at
+    // alphas between 0.14 and 0.50. Only the rim veil actually reached zero.
+    // They are all proportional to cloud now, and cloud is zero once the
+    // portal is open, so a finished portal is a clean hole.
+    const blurPx = Rp * 0.38 * cloud;
     // The padding has to clear the blur or the canvas edge cuts it back into
     // the hard line it was there to remove. A canvas blur spreads about two
     // and a half times its own value before it vanishes.
@@ -566,7 +572,7 @@ function frame(now: number) {
     };
 
     // The mask, blurred for real. Source-over, so the filter is honoured.
-    m.filter = `blur(${blurPx.toFixed(1)}px)`;
+    if (blurPx > 0.5) m.filter = `blur(${blurPx.toFixed(1)}px)`;
     m.fillStyle = "#fff";
     m.beginPath();
     // Outer boundary: the rim, but only across the part already drawn.
@@ -585,41 +591,115 @@ function frame(now: number) {
     m.closePath();
     m.fill();
 
-    // WEATHER ALONG THE BOUNDARY. Lost in the rewrite to the offscreen mask,
-    // and it is half of what stops the spiral reading as a drawn shape: the
-    // other side bleeds out past its edge in places and has not arrived in
-    // others. Drifting on a slow clock so it breathes rather than flickers.
+    // WEATHER THAT REACHES BOTH WAYS.
     //
-    // These are drawn INTO the mask while the blur is still on, so they are
-    // soft for the same reason the boundary is, instead of being soft by
-    // being gradients. The ones that eat back in have to be gradients,
-    // because destination-out is where the filter gets dropped.
-    const blobAt = (u: number, out: boolean, rad: number, a: number) => {
+    // "The gradient shouldn't just be fading inward, it should push a little
+    //  bit out towards the middle deploying it's cloudyness over the
+    //  surrounding area, mix of both."
+    //
+    // A blur spreads evenly, so the boundary dissolved symmetrically and
+    // still read as an edge with fuzz on it. Cloud does not do that. It
+    // reaches: thin where it is thinning out, and further in than its own
+    // boundary in places.
+    //
+    // So three kinds, all drifting on slow clocks at different rates so they
+    // never line up into a pattern:
+    //
+    //   REACHING     centred well inside the boundary, toward the middle,
+    //                faint and wide. This is the cloud deploying over ground
+    //                it has not taken yet.
+    //   BLEEDING     sitting on the boundary, pushing it outward a little.
+    //   EATING       sitting on the boundary, taking a bite back.
+    //
+    // All of them go into the mask while the blur is on, except the biting
+    // ones, which have to be gradients because destination-out is where
+    // WebKit drops the filter.
+    if (cloud > 0.01) {
+    const atBoundary = (u: number, inward: number) => {
       const th = aOld + dir * u * drawnAng;
-      const rr = Math.max(0, Rp * (1 - depthAt(u)));
-      const bx = mx0 + Math.cos(th) * rr, by = my0 + Math.sin(th) * rr;
-      if (out) {
+      const rr = Math.max(0, Rp * (1 - depthAt(u))) * (1 - inward);
+      return { x: mx0 + Math.cos(th) * rr, y: my0 + Math.sin(th) * rr };
+    };
+    // Reaching inward, toward the middle.
+    for (let i = 0; i < 5; i++) {
+      const t = now / 3400 + i * 2.1;
+      const u = (Math.sin(t) + 1) / 2;
+      const inward = 0.10 + 0.26 * ((Math.sin(t * 0.7 + i * 1.3) + 1) / 2);
+      const q = atBoundary(u, inward);
+      const rad = Rp * (0.12 + 0.16 * ((Math.cos(t * 0.55 + i) + 1) / 2));
+      m.fillStyle = `rgba(255,255,255,${(0.16 + 0.2 * cloud) * cloud})`;
+      m.beginPath();
+      m.arc(q.x, q.y, rad, 0, Math.PI * 2);
+      m.fill();
+    }
+    // Bleeding out past the boundary, and biting back into it.
+    for (let i = 0; i < 7; i++) {
+      const t = now / 2800 + i * 1.7;
+      const u = (Math.sin(t) + 1) / 2;
+      const q = atBoundary(u, 0);
+      const rad = Rp * (0.07 + 0.1 * ((Math.cos(t * 0.9 + i) + 1) / 2));
+      const a = (0.5 + 0.35 * cloud) * cloud;
+      if (i % 2 === 0) {
         m.fillStyle = `rgba(255,255,255,${a})`;
         m.beginPath();
-        m.arc(bx, by, rad, 0, Math.PI * 2);
+        m.arc(q.x, q.y, rad, 0, Math.PI * 2);
         m.fill();
       } else {
         m.globalCompositeOperation = "destination-out";
-        const g2 = m.createRadialGradient(bx, by, 0, bx, by, rad);
+        const g2 = m.createRadialGradient(q.x, q.y, 0, q.x, q.y, rad);
         g2.addColorStop(0, `rgba(0,0,0,${a})`);
         g2.addColorStop(1, "rgba(0,0,0,0)");
         m.fillStyle = g2;
         m.beginPath();
-        m.arc(bx, by, rad, 0, Math.PI * 2);
+        m.arc(q.x, q.y, rad, 0, Math.PI * 2);
         m.fill();
         m.globalCompositeOperation = "source-over";
       }
+    }
+    // AND ON THE INSIDE. The opening has two boundaries and only the spiral
+    // had weather on it, so the rim edge stayed a clean arc and the whole
+    // thing still read as a shape with a soft outline rather than as cloud.
+    // Same three kinds, anchored on the rim instead, reaching in toward the
+    // middle from the outside.
+    const atRim = (u: number, inward: number) => {
+      const th = aOld + dir * u * drawnAng;
+      const rr = Rp * (1 - inward);
+      return { x: mx0 + Math.cos(th) * rr, y: my0 + Math.sin(th) * rr };
     };
-    for (let i = 0; i < 7; i++) {
-      const t = now / 2800 + i * 1.7;
+    for (let i = 0; i < 5; i++) {
+      const t = now / 3100 + i * 2.4;
       const u = (Math.sin(t) + 1) / 2;
-      const rad = Rp * (0.07 + 0.1 * ((Math.cos(t * 0.9 + i) + 1) / 2));
-      blobAt(u, i % 2 === 0, rad, 0.5 + 0.35 * cloud);
+      const inward = 0.04 + 0.2 * ((Math.sin(t * 0.8 + i * 1.1) + 1) / 2);
+      const q = atRim(u, inward);
+      const rad = Rp * (0.1 + 0.14 * ((Math.cos(t * 0.6 + i) + 1) / 2));
+      m.fillStyle = `rgba(255,255,255,${(0.14 + 0.18 * cloud) * cloud})`;
+      m.beginPath();
+      m.arc(q.x, q.y, rad, 0, Math.PI * 2);
+      m.fill();
+    }
+    for (let i = 0; i < 6; i++) {
+      const t = now / 2500 + i * 1.9;
+      const u = (Math.sin(t) + 1) / 2;
+      const q = atRim(u, 0);
+      const rad = Rp * (0.06 + 0.09 * ((Math.cos(t * 1.1 + i) + 1) / 2));
+      const a = (0.45 + 0.3 * cloud) * cloud;
+      if (i % 2 === 0) {
+        m.fillStyle = `rgba(255,255,255,${a})`;
+        m.beginPath();
+        m.arc(q.x, q.y, rad, 0, Math.PI * 2);
+        m.fill();
+      } else {
+        m.globalCompositeOperation = "destination-out";
+        const g3 = m.createRadialGradient(q.x, q.y, 0, q.x, q.y, rad);
+        g3.addColorStop(0, `rgba(0,0,0,${a})`);
+        g3.addColorStop(1, "rgba(0,0,0,0)");
+        m.fillStyle = g3;
+        m.beginPath();
+        m.arc(q.x, q.y, rad, 0, Math.PI * 2);
+        m.fill();
+        m.globalCompositeOperation = "source-over";
+      }
+    }
     }
     m.filter = "none";
 
