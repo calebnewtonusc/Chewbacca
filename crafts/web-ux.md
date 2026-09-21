@@ -22,6 +22,47 @@ makes a page read as Bugatti rather than as every other generated page.
 `ux-pick "austere luxury dark"` returns one with its refusals. Then load only
 that system.
 
+## Before you call any UI done: removal is free
+
+**This section is first on purpose, and it is a cue rather than advice,
+because the cue is the thing that was measured.**
+
+Adams et al., *Nature* 592 (2021): given a structure to improve, where **added
+pieces cost money and removal was free**, only **41%** of people removed
+anything. Told in eight words that *"removing pieces is free and costs
+nothing"*, **61%** did. Across every experiment the subtractive rate never
+exceeded 40%. In a field archive of **651 real improvement proposals, 11%**
+involved removing anything.
+
+**The price was already in that task and people still added. The sentence
+fixed it. Permission beats pricing.**
+
+Subtraction is not disliked. **It is not generated as a candidate at all**,
+and three conditions make that worse, all three of which describe a
+generation pass exactly:
+
+- **No cue.** "Improve this" is literally the uncued condition.
+- **One shot.** Three practice passes moved another task from 49% to 63%.
+- **Cognitive load**, which reliably suppressed subtraction.
+
+### So, explicitly
+
+**Removing an element is free. It costs nothing and it is always an allowed
+answer.** Deleting a section, a card, a stat strip, a gradient, an icon, a
+heading, a whole page of chrome: all free, all permitted, none of it needs
+justifying.
+
+**Make a second pass whose only permitted move is removal.** Not a polish
+pass. A pass where the only question is what comes out.
+
+Kowalski's motion rule is the same instinct in one domain: *"when unsure
+whether motion feels right, the strongest move is often to delete it."*
+Generalize it.
+
+**And the reason this is the first section: adding is legible as work and
+removal leaves no token of effort.** Nobody can see what you took out. That is
+why it does not happen on its own.
+
 ## Motion
 
 **Match motion to frequency. This is the best single rule found.**
