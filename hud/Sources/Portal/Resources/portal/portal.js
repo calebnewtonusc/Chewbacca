@@ -517,7 +517,7 @@
     const RSCALE = (W + H) / 2;
     const RMIN = 24;
     const RMAX = Math.min(W, H) * 0.42;
-    const clampR = (r) => Math.max(RMIN, Math.min(RMAX, r * sizeScale));
+    const clampR = (r) => Math.max(RMIN, Math.min(RMAX, r * sizeScale * reachScale));
     const px = mx;
     const py = my;
     const arcPath = (cn, r, a0, a1, segs = 96, jitterPx = 0) => {
