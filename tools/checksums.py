@@ -24,7 +24,18 @@ PATTERNS = ("*.sh", "*.ps1", "bin/*", "bin/lib/*", "tools/*.py", ".claude/hooks/
 
 
 def files():
-    tracked = set(subprocess.run(["git", "-C", str(REPO), "ls-files", "--cached", "--others", "--exclude-standard"],
+    # --cached ONLY. `--others` used to be here as well, which meant any file
+    # sitting untracked in the working tree got a checksum. In a repo where
+    # several sessions run at once that is another tab's work in flight, and
+    # on 2026-09-21 a routine run wrote a line for an untracked hook another
+    # session was still writing. Committing it would have shipped a checksum
+    # for a file not in the repo, and install verification fails on exactly
+    # that.
+    #
+    # The manifest describes what ships, and what ships is what is committed.
+    # A file this session means to include is staged first, and staging puts
+    # it in --cached.
+    tracked = set(subprocess.run(["git", "-C", str(REPO), "ls-files", "--cached"],
                                  capture_output=True, text=True).stdout.split())
     out = []
     for pat in PATTERNS:
