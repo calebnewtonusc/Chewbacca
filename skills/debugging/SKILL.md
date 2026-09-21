@@ -1,6 +1,6 @@
 ---
 name: debugging
-description: "Find the root cause of a bug instead of guessing at it. Use when the user reports something broken, pastes an error or a stack trace, says this used to work, asks why is this happening, why is this failing, or what is wrong with this. Also use to trace how data flows through a codebase, follow a request end to end, or find where a value is being lost or changed."
+description: "Find the root cause of a bug instead of guessing at it. Use when the user reports something broken, pastes an error or a stack trace, says this used to work, asks why is this happening, why is this failing, or what is wrong with this. Also use to trace how data flows through a codebase, follow a request end to end, or find where a value is being lost or changed. Also fires on: stack trace, traceback, exception, crash, crashed, segfault, null pointer, undefined, regression, reproduce, bisect, root cause, it broke, debug this."
 requires: [git]
 ---
 
