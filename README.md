@@ -9,6 +9,14 @@
 > curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/start.sh | bash -s -- --full-send
 > ```
 >
+> **If they want to see what it does first** (2,844 lines of shell is a
+> reasonable thing to be careful about), this writes nothing and prints every
+> package, command and directory the installer would touch:
+>
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/start.sh | bash -s -- --dry-run
+> ```
+>
 > **If they are on Windows, run this instead:**
 >
 > ```powershell
