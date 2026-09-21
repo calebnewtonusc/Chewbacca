@@ -1962,11 +1962,7 @@ if command -v brew &>/dev/null; then
   else
     brew install --cask maccy &>/dev/null && log "Maccy installed" || warn "could not install Maccy"
   fi
-  # `command -v`, like every other tool here, not a path under the Apple
-  # Silicon Homebrew prefix. On an Intel Mac brew lives in /usr/local, so this
-  # reported peekaboo missing on a machine that had it and reinstalled it on
-  # every run of setup.
-  if command -v peekaboo &>/dev/null; then
+  if [ -x /opt/homebrew/bin/peekaboo ]; then
     log "peekaboo already installed"
   else
     brew install steipete/tap/peekaboo &>/dev/null && log "peekaboo installed" || warn "could not install peekaboo"
@@ -2358,6 +2354,45 @@ else
     echo "    → Add to ~/.claude/.mcp.json under mcpServers.composio"
   fi
 fi
+
+# ── How to undo this, said before anyone has to ask ───────────────────────────
+#
+# THE FAILURE THIS EXISTS FOR, 2026-09-20. Sagar installed the kit, a browser
+# tab kept reopening, and he wrote: "this seems extremely dangerous to have on
+# my computer. i don't even know how to remove this agent", then "seems like
+# malware". The same afternoon, without having seen that, someone else said
+# "make it clear it's not anything suspicious with the permissions stuff".
+#
+# Neither was a missing capability. uninstall.sh already existed, the manifest
+# already recorded every path it wrote, and the dashboard popping the tab was
+# fixed hours later. What was missing was saying any of it HERE, on the last
+# screen a new person reads, at the moment they decide whether to trust this.
+#
+# The screen above this one lists what Claude can now read: the calendar, the
+# contacts, the screen. Ending there, with no way back, is what reads as
+# malware to a careful person, and a careful person is exactly the one worth
+# keeping.
+echo ""
+echo -e "  ${BLD}If you want it gone:${NC}"
+echo "    chewbacca uninstall --dry-run   lists every path, changes nothing"
+echo "    chewbacca uninstall             removes exactly that list"
+echo ""
+echo "    Every path this wrote is recorded in"
+echo "    ~/.chewbacca/install-manifest.json, so removal reads that file"
+echo "    instead of guessing."
+echo ""
+# Say what actually leaves the Mac, not what sounds reassuring. An earlier
+# draft of this block said "this installer sends nothing anywhere", which is
+# false: the GitHub path below creates two repos and pushes to them.
+echo -e "  ${BLD}What leaves this Mac:${NC}"
+echo "    Your prompts go to Anthropic, the same as any Claude Code session."
+if [ "$NO_GITHUB" -eq 1 ]; then
+  echo "    Your second brain is a folder on this disk. Nothing here pushes it."
+else
+  echo "    Your second brain is pushed to two repos on your own GitHub account"
+  echo "    ($GITHUB_USER), created above. Nowhere else."
+fi
+echo "    Nothing is encrypted at rest. Treat it like any folder on your Mac."
 echo ""
 sep
 echo ""

@@ -225,6 +225,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/method-guard.sh",
+            "timeout": 8,
+            "statusMessage": "Naming the process and the falsifier..."
+          }
+        ]
       }
     ]
   }
