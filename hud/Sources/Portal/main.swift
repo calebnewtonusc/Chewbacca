@@ -72,6 +72,7 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
     private var hand: Double?
     private var trail: Double?
     private var demoSeen: Double?
+    private var demoStamp: Int?
     private var sentCameraSize = false
 
     func applicationDidFinishLaunching(_: Notification) {
@@ -265,12 +266,24 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
     private func readDemo() {
         let text = (try? String(contentsOf: Self.demoFile, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let text, let value = Double(text), demoSeen != value, value > 0 else { return }
+        // "secs" or "secs turns radius shape name". A script drives the
+        // whole battery through this, so the shape has to come from outside.
+        guard let text, !text.isEmpty else { return }
+        let parts = text.split(separator: " ").map(String.init)
+        guard let value = Double(parts.first ?? ""), value > 0 else { return }
+        let stamp = text.hashValue
+        guard demoStamp != stamp else { return }
+        demoStamp = stamp
         demoSeen = value
         guard ready, let web else { return }
         try? "".write(to: Self.demoFile, atomically: true, encoding: .utf8)
-        web.evaluateJavaScript("window.chewbaccaDemo&&window.chewbaccaDemo(\(value))")
-        FileHandle.standardError.write(Data("portal: replaying a circle for \(value)s\n".utf8))
+        let turns = parts.count > 1 ? (Double(parts[1]) ?? 1.15) : 1.15
+        let radius = parts.count > 2 ? (Double(parts[2]) ?? 0.3) : 0.3
+        let shape = parts.count > 3 ? parts[3] : "circle"
+        let name = parts.count > 4 ? parts[4] : shape
+        web.evaluateJavaScript(
+            "window.chewbaccaDemo&&window.chewbaccaDemo(\(value),\(turns),\(radius),'\(shape)','\(name)')")
+        FileHandle.standardError.write(Data("portal: replay \(name) \(shape) r=\(radius) turns=\(turns)\n".utf8))
     }
 
     private func applyArm() {
