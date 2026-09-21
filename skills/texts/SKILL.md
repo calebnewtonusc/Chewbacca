@@ -1,6 +1,6 @@
 ---
 name: texts
-description: Read, search, and remember the user's iMessage history. Use when they ask what someone said, what they talked about, when they last spoke to someone, what they missed, or to catch up on a thread. Also use after any conversation that mentions a text, so what mattered in it gets written down before it scrolls away. Also fires on: my texts, read my texts, text messages, iMessage, imessages, texted, texting, chat history, message thread, DMs, what did they text me.
+description: "Read, search, and remember the user's iMessage history. Use when they ask what someone said, what they talked about, when they last spoke to someone, what they missed, or to catch up on a thread. Also use after any conversation that mentions a text, so what mattered in it gets written down before it scrolls away. Also fires on: my texts, read my texts, text messages, iMessage, imessages, texted, texting, chat history, message thread, DMs, what did they text me."
 license: MIT
 requires: [people, sqlite3]
 ---
