@@ -2047,8 +2047,19 @@ function frame(now: number) {
     // It takes 0.58 to latch on and has to fall to 0.44 to let go, so a
     // wobble around the old 0.55 cannot flip it at all.
     if (!pinched || p.progress < REVEAL_AT - 0.05) recognisedLatch = false;
-    else if (p.roundness >= 0.58) recognisedLatch = true;
-    else if (p.roundness < 0.44) recognisedLatch = false;
+    // THE REVEAL CANNOT BE STRICTER THAN THE COMPLETION. This latched on at
+    // 0.58 while the detector opens a portal at 0.45, so for every circle
+    // scoring between the two, which is a lot of real ones, the other side
+    // never appeared at all while drawing and the portal simply popped at
+    // the end. No feedback during the gesture reads as "you have to do a
+    // perfect circle", because the only circles that showed anything were
+    // the ones well past what was actually required.
+    //
+    // Below the completion bar now, so the reveal is always a promise made
+    // before the portal is earned. The 0.08 gap is the hysteresis that stops
+    // roundness flickering across the line from swinging the boundary.
+    else if (p.roundness >= 0.42) recognisedLatch = true;
+    else if (p.roundness < 0.34) recognisedLatch = false;
     const recognised = recognisedLatch && pinched && p.progress >= REVEAL_AT;
 
     // A CANCELLED CIRCLE UNWINDS, IT DOES NOT JUST FADE.

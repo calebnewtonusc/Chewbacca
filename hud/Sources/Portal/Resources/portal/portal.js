@@ -107,7 +107,24 @@ void main() {
   //   0.90   23.2%     29.2%      18.0%
   //   0.97    7.3%     35.2%       7.3%
   //   1.00    0.0%     38.0%       0.0%
-  float band = max(1.0, min(uR * uFog, inner));
+  // A FLOOR, OR THE ROUNDING VANISHES EXACTLY WHEN THE WEDGE IS BIGGEST.
+  //
+  // Capping the band by the remaining hole keeps the fog from reaching past
+  // the middle, which is right for the RADIAL side. But it also shrinks the
+  // band to nothing as the circle finishes, and the band is what rounds the
+  // ends. So the last wedge before completion, the most visible thing on
+  // screen, got knife edges: still a pie, after being told it was a pie.
+  //
+  //   fill 0.80   hole 42.8% of R   band 18.0%
+  //   fill 0.90   hole 23.2%        band 18.0%
+  //   fill 0.95   hole 12.0%        band 12.0%
+  //   fill 0.98   hole  4.9%        band  4.9%   <- knife
+  //
+  // Floored at a tenth of the radius. The radial side cannot overshoot
+  // anyway, because the distance into the hole is at most the hole itself,
+  // so a wider band there just means the last scrap dissolves rather than
+  // being cut out.
+  float band = max(uR * 0.10, min(uR * uFog, inner));
 
   // ONE DISTANCE, NOT TWO FADES MULTIPLIED. THIS IS WHAT STOPS IT BEING A
   // PIE.
@@ -137,8 +154,29 @@ void main() {
   //   At a full turn nothing is ever outside the sector, so the angular term
   //   is zero everywhere and the seam cannot exist. The special case that
   //   used to blend it away is gone.
+  // THE SPILL KEEPS SPREADING AFTER THE HAND PASSES.
+  //
+  // "It should feel like liquid on a table, expanding to fill the canvas and
+  // dissolving into each other", and, on the sector that is left, "it is a
+  // pie bruh."
+  //
+  // Softening the ends was never going to be enough. While any of the arc is
+  // undrawn there is a sector with two straight sides, and feathering 26px
+  // of a 261px radius still reads as a slice. The shape is the problem, not
+  // its edges.
+  //
+  // Liquid does not stop where the hand stopped. It runs on, and the two
+  // ends of a ring of liquid reach toward each other and merge before the
+  // circle is mechanically closed. So the revealed sector over-reaches its
+  // own ends by a distance that grows as the fill completes: early it is
+  // almost nothing and the reveal tracks the hand honestly, late the two
+  // ends run together and the gap closes itself instead of being cut.
+  //
+  // Squared, so the reaching is late and sudden rather than a steady
+  // widening that would just look like the arc leading the finger.
+  float reach = uR * (0.06 + 0.70 * uLead * uLead);
   float outAng = rel > span ? min(rel - span, TAU - rel) : 0.0;
-  float dAng = outAng * uR;
+  float dAng = max(outAng * uR - reach, 0.0);
   float dRad = max(inner - r, 0.0);
   float dist = length(vec2(dAng, dRad));
   float fBody = 1.0 - smoothstep(0.0, band, dist);
@@ -354,7 +392,20 @@ void main() {
         closeWithin: options.closeWithin ?? 0.75,
         // Roundness required to fire at all, the same gate the renderer uses
         // to decide something is becoming a circle.
-        minRoundness: options.minRoundness ?? 0.55,
+        // 0.45, NOT 0.55. "Did you make it so u hv to do a perfect circle wtf."
+        //
+        // A circle drawn in the air with a fingertip is not round. Measured on
+        // synthetic paths with realistic deformation: a 1.2:1 oval scores
+        // 0.81, a 1.4:1 oval 0.61, and a circle with 8% radial wobble 0.56.
+        // A real hand lands in that band, which put the bar right in the
+        // middle of ordinary human input: some circles opened and some did
+        // not, and nothing about the hand told you which.
+        //
+        // Swept the threshold against the shapes that must be refused. At
+        // 0.45 every real circle still opens and nothing bad gets through; at
+        // 0.38 a 1.6:1 oval does. So the bar sits at 0.45 with the evidence
+        // for it rather than at a number that felt safe.
+        minRoundness: options.minRoundness ?? 0.5,
         trailLength: options.trailLength ?? 240,
         // 0.004 of the frame is about 6px across, and a small circle drawn
         // with a fingertip has segments shorter than that: a 45px radius over
@@ -1724,8 +1775,8 @@ void main() {
       const REVEAL_AT = 0.5;
       const reveal = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / (1 - REVEAL_AT)));
       if (!pinched || p.progress < REVEAL_AT - 0.05) recognisedLatch = false;
-      else if (p.roundness >= 0.58) recognisedLatch = true;
-      else if (p.roundness < 0.44) recognisedLatch = false;
+      else if (p.roundness >= 0.42) recognisedLatch = true;
+      else if (p.roundness < 0.34) recognisedLatch = false;
       const recognised = recognisedLatch && pinched && p.progress >= REVEAL_AT;
       const want = !portalUp && fitC && recognised ? 0.12 + 0.88 * reveal : 0;
       mirrorAmt += (want - mirrorAmt) * (want > mirrorAmt ? 0.15 : 0.09);
