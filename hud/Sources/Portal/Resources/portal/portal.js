@@ -2012,7 +2012,9 @@ void main() {
         } : raw;
       }
       const fitC = drawing ?? softFit;
-      const turned = Math.max(0, Math.min(1, (p.progress - LATCH_AT) / 0.15));
+      const initAt = Math.max(0.35, Math.min(0.95, 1.02 - 1.9 * (fitC ? fitC.r : 0)));
+      const bendSpan = Math.max(0.05, (1 - initAt) * 0.7);
+      const turned = Math.max(0, Math.min(1, (p.progress - initAt) / bendSpan));
       const round = Math.max(0, Math.min(1, (p.roundness - 0.55) / 0.3));
       const conf = turned * round;
       const k = Math.pow(conf, 0.9);
@@ -2034,10 +2036,9 @@ void main() {
           q.ry = ny / H;
         }
       }
-      const rSeen = fitC ? fitC.r : 0;
-      const REVEAL_AT = Math.max(0.42, Math.min(0.75, 0.75 - 1.1 * rSeen));
+      const REVEAL_AT = initAt;
       const reveal = (() => {
-        const span = Math.max(0.12, 1 - REVEAL_AT);
+        const span = Math.max(0.05, (1 - REVEAL_AT) * 0.85);
         const t = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / span));
         return t * t * (3 - 2 * t);
       })();
