@@ -32,6 +32,7 @@ These load into every session, about 4,100 tokens total. They apply
 regardless of language or framework, so they are imported rather than left to
 be discovered.
 
+@~/.claude/rules/agent-neutral.md
 @~/.claude/rules/git.md
 @~/.claude/rules/security.md
 @~/.claude/rules/writing.md
@@ -573,3 +574,5 @@ rebuilt.
 floor measured from the weaker of those two, zero failures or it does not ship. Then
 answer the four questions in `STANDARD.md` that no script can check. A kit that passes
 every check and fails those is worse than one that does the reverse.
+
+@~/.claude/rules/agent-neutral.md

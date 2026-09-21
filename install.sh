@@ -55,6 +55,7 @@ echo -e "  ${GRN}✓${NC} ~/.claude/commands ($(ls "$SCRIPT_DIR/.claude/commands
 # to be at that path for the imports to resolve in any project.
 mkdir -p "$HOME/.claude/rules"
 cp "$SCRIPT_DIR/.claude/rules/"*.md "$HOME/.claude/rules/"
+cp "$SCRIPT_DIR/instructions/agent-neutral.md" "$HOME/.claude/rules/agent-neutral.md"
 echo -e "  ${GRN}✓${NC} ~/.claude/rules ($(ls "$SCRIPT_DIR/.claude/rules/" | wc -l | tr -d ' ') always-on rules)"
 
 # Skills load on demand, including the twelve stack-specific standards.

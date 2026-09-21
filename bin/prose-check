@@ -34,6 +34,55 @@ RULES = [
      "Importance puffery."),
 ]
 
+# --chat only. These are register tells, not prose tells: they fire on a reply
+# that reads like a well-edited assistant rather than like Caleb. They are
+# separated because a header or a table is correct in a document and wrong in
+# a chat reply, so running them on files would be noise.
+#
+# Added 2026-09-20 after he caught "Same brief, same stance, same model" and
+# asked why the guard let it through. It let it through because slop-check
+# scored the reply 0 and prose-check had no concept of register at all:
+# voice.md was loaded every session and enforced by nothing.
+CHAT_RULES = [
+    ("balanced-triple", r"(?i)\b(\w+) \w+, \1 \w+, \1 \w+\b",
+     "Anaphoric triple ('same X, same Y, same Z'). voice.md: balanced parallel "
+     "points are the generated tell. Lean on one and let the rest trail."),
+    ("chat-header", r"(?m)^#{1,6} \S",
+     "A markdown header in a chat reply. Right for a document, wrong here."),
+    ("chat-table", r"(?m)^\|.*\|",
+     "A table in a chat reply. Three sentences, or send it as a file."),
+    ("offer-ending", r"(?i)(want me to\b|let me know if\b|say the word\b|"
+     r"happy to\b|shall i\b|would you like me to\b)",
+     "Offering next steps as a reflex ending. Offer at a real fork, not every turn."),
+]
+
+
+def bold_scaffolding(text):
+    """Bold used as paragraph scaffolding rather than as emphasis."""
+    import re as _re
+    starts = _re.findall(r"(?m)^\*\*[^*\n]{3,60}\*\*", text)
+    if len(starts) >= 3:
+        return [("bold-scaffolding", starts[0],
+                 f"{len(starts)} paragraphs opening in bold. If every paragraph "
+                 f"starts bold, none of it is emphasis. voice.md: bold only a "
+                 f"load-bearing fact.")]
+    return []
+
+
+def formal_constructions(text):
+    """He runs heavily contracted. Assistant drafts invert this."""
+    import re as _re
+    formal = _re.findall(
+        r"(?i)\b(do not|does not|did not|cannot|can not|will not|is not|are not|"
+        r"it is|that is|there is|I am|you are|we are|they are|would not|should not)\b",
+        text)
+    if len(formal) >= 4:
+        return [("formal-register", ", ".join(sorted(set(formal))[:5]),
+                 f"{len(formal)} formal constructions. His measured ratio is "
+                 f"74 contractions to 4 formal. Use don't, can't, it's.")]
+    return []
+
+
 # Fragments under N words on their own sentence, stacked back to back.
 def dramatic_fragments(text):
     hits = []
@@ -69,25 +118,37 @@ def kickers(text):
                 out.append(last)
     return out
 
-def main(paths):
+def main(paths, chat=False):
     bad = 0
     for p in paths:
         text = pathlib.Path(p).read_text()
         # Never lint the disclosure paragraph; it is required boilerplate.
         text = text.split("## Note on AI use")[0]
-        # Skip any MLA/name header above the first markdown title.
-        m = re.search(r"^# ", text, re.M)
-        if m:
-            text = text[m.start():]
+        # Skip any MLA/name header above the first markdown title. Not in chat
+        # mode: a reply has no title, and stripping to the first "# " would
+        # both eat the reply and hide the chat-header rule from itself.
+        if not chat:
+            m = re.search(r"^# ", text, re.M)
+            if m:
+                text = text[m.start():]
         found = []
-        for label, rx, why in RULES:
+        for label, rx, why in (RULES + CHAT_RULES if chat else RULES):
             for m in re.finditer(rx, text, re.M):
                 line = text[:m.start()].count("\n") + 1
                 found.append((line, label, m.group(0).strip()[:60], why))
-        for f in dramatic_fragments(text):
-            found.append((0, "dramatic-fragment", f[:60], "Stacked short sentences for rhythm."))
-        for k in kickers(text):
-            found.append((0, "possible-kicker", k[:60], "Paragraph ends on a manufactured line. Should end on a plain fact."))
+        # dramatic-fragment and possible-kicker are ESSAY rules and they invert
+        # in chat. His median sent message is 5 words and 15% of everything he
+        # sends is a single word, so stacked short lines are his native
+        # register, not a rhythm trick. Running these on a reply would push it
+        # toward the paragraph voice this whole mode exists to stop.
+        if not chat:
+            for f in dramatic_fragments(text):
+                found.append((0, "dramatic-fragment", f[:60], "Stacked short sentences for rhythm."))
+            for k in kickers(text):
+                found.append((0, "possible-kicker", k[:60], "Paragraph ends on a manufactured line. Should end on a plain fact."))
+        if chat:
+            for label, snip, why in bold_scaffolding(text) + formal_constructions(text):
+                found.append((0, label, snip[:60], why))
         if found:
             bad = 1
             print(f"\n{p}: {len(found)} flagged")
@@ -100,6 +161,7 @@ def main(paths):
     return bad
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
+    args = [a for a in sys.argv[1:] if a != "--chat"]
+    if not args:
         sys.exit(__doc__)
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main(args, chat="--chat" in sys.argv[1:]))

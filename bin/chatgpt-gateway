@@ -1,0 +1,523 @@
+#!/usr/bin/env python3
+
+"""
+chatgpt-gateway: reverse control channel from this ChatGPT conversation
+to the local Chewbacca environment.
+
+The protocol intentionally is NOT JSON. Shell commands naturally contain
+quotes, backslashes, heredocs and JSON of their own. Making those survive
+inside another JSON string caused the original gateway's parse failures.
+
+Protocol:
+
+ACTION: shell
+REASON: inspect the repo
+CWD: /path/to/repo
+TIMEOUT: 120
+COMMAND:
+<<<CHEWBACCA_COMMAND
+git status --short
+CHEWBACCA_COMMAND
+
+or:
+
+ACTION: done
+SUMMARY:
+<<<CHEWBACCA_SUMMARY
+Finished.
+CHEWBACCA_SUMMARY
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import selectors
+import signal
+import shlex
+import os
+import pathlib
+import re
+import subprocess
+import sys
+import time
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+HOME = pathlib.Path.home()
+
+MACOS_USE = pathlib.Path(
+    os.environ.get(
+        "MACOS_USE_HOME",
+        str(HOME / "Projects/macOS-use"),
+    )
+).expanduser()
+
+CHATGPT_TAB = os.environ.get(
+    "CHATGPT_TAB_PATH",
+    str(ROOT / "bin/chatgpt-tab"),
+)
+
+MAX_OUTPUT = 24000
+
+HARD_BLOCK = [
+    r"rm\s+-rf\s+/(?:\s|$)",
+    r"rm\s+-rf\s+/\*",
+    r"rm\s+-rf\s+~(?:\s|$)",
+    r"diskutil\s+erase",
+    r"\bmkfs(?:\.|\s)",
+    r"\bdd\s+.*\bof=/dev/",
+    r":\(\)\s*\{\s*:\|:&\s*\};:",
+]
+
+CONFIRM = [
+    r"\bsudo\b",
+    r"\brm\b",
+    r"git\s+reset\s+--hard",
+    r"git\s+clean\s+-[A-Za-z]*f",
+    r"\bchmod\s+-R\b",
+    r"\bchown\s+-R\b",
+    r"\bkillall\b",
+    r"\bpkill\b",
+    r"\blaunchctl\b",
+    r"\b(?:unlink|rmdir|truncate|eval)\b",
+    r"\bfind\b[^\n]*-delete\b",
+    r"\bgit\b[^\n]*(?:reset|clean|restore|checkout|push)\b",
+    r"\b(?:python[0-9.]*|perl|ruby|node|osascript|bash|zsh|sh)\b",
+    r"(?:^|[;\n])\s*(?:source|\.)\s",
+]
+
+
+def clipped(text):
+    if len(text) <= MAX_OUTPUT:
+        return text
+
+    half = MAX_OUTPUT // 2
+
+    return (
+        text[:half]
+        + "\n\n... [OUTPUT TRUNCATED] ...\n\n"
+        + text[-half:]
+    )
+
+
+def git_state(path):
+    if not (path / ".git").exists():
+        return "(not a git repository)"
+
+    r = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(path),
+            "status",
+            "--short",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    return r.stdout.strip() or "(clean)"
+
+
+def parse_action(text):
+    """Accept one complete frame only; never salvage an executable prefix."""
+    text = text.replace("\r\n", "\n").strip("\n")
+    if "\x00" in text:
+        raise ValueError("NUL is not allowed")
+    done = re.fullmatch(
+        r"ACTION: done\nSUMMARY:\n<<<CHEWBACCA_SUMMARY\n(.+)\nCHEWBACCA_SUMMARY",
+        text, re.S,
+    )
+    if done:
+        summary = done.group(1)
+        if "CHEWBACCA_SUMMARY" in summary.splitlines():
+            raise ValueError("multiple summary frames")
+        return {"action": "done", "summary": summary}
+    shell = re.fullmatch(
+        r"ACTION: shell\nREASON: ([^\n]+)\nCWD: ([^\n]+)\n"
+        r"TIMEOUT: ([0-9]+)\nCOMMAND:\n<<<CHEWBACCA_COMMAND\n"
+        r"(.+)\nCHEWBACCA_COMMAND", text, re.S,
+    )
+    if not shell:
+        raise ValueError("expected exactly one complete shell or done block without prose/fences")
+    reason, cwd, timeout, command = shell.groups()
+    if "CHEWBACCA_COMMAND" in command.splitlines():
+        raise ValueError("multiple command frames or reserved delimiter inside command")
+    timeout = int(timeout)
+    if not 1 <= timeout <= 600:
+        raise ValueError("TIMEOUT must be between 1 and 600 seconds")
+    if not command.strip():
+        raise ValueError("empty command")
+    return dict(action="shell", reason=reason, cwd=cwd, timeout=timeout, command=command)
+
+
+def blocked(command):
+    # This is a safety floor, not a shell sandbox. Quoting and option order must
+    # not bypass obvious whole-machine deletion and device-write checks.
+    normalized = command.replace("\\\n", "")
+    for pattern in HARD_BLOCK:
+        if re.search(pattern, normalized, re.I | re.S):
+            return pattern
+    try:
+        lexer = shlex.shlex(normalized, posix=True, punctuation_chars=";&|()<>\n")
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        # Heredoc bodies may legitimately contain unmatched shell quotes.
+        # Retain conservative raw-token checks without rejecting those blocks.
+        tokens = re.findall(r"[^\s;&|()<>]+", normalized.replace("\"", "").replace("'", ""))
+    for index, token in enumerate(tokens):
+        name = pathlib.PurePosixPath(token).name
+        if name in {"diskutil", "mkfs", "newfs", "shutdown", "reboot"} or name.startswith(("mkfs.", "newfs_")):
+            return "disk formatting or machine shutdown"
+        if name == "dd" and any(t.startswith("of=/dev/") for t in tokens[index + 1:]):
+            return "raw device overwrite"
+        if name != "rm":
+            continue
+        args = []
+        for arg in tokens[index + 1:]:
+            if arg in {";", "&&", "||", "|", "&", ")"}:
+                break
+            args.append(arg)
+        recursive = any(a == "--recursive" or (a.startswith("-") and not a.startswith("--") and "r" in a.lower()) for a in args)
+        if recursive:
+            for arg in args:
+                if arg.startswith("-"):
+                    continue
+                target = os.path.expandvars(os.path.expanduser(arg))
+                if target.startswith("/") and "*" not in target:
+                    target = os.path.normpath(target)
+                target = target.rstrip("/")
+                if target in {"", "*", ".", "..", "~", "$HOME", "${HOME}", str(HOME), "/Users", "/System", "/Library", "/Applications"} or target in {"/*", str(HOME) + "/*", "$HOME/*", "${HOME}/*"}:
+                    return "recursive removal of a protected root"
+    return None
+
+
+def needs_confirmation(command):
+    return any(
+        re.search(
+            pattern,
+            command,
+            re.I | re.S,
+        )
+        for pattern in CONFIRM
+    )
+
+
+def confirm(command):
+    print()
+    print("Potentially destructive command:")
+    print()
+    print(command)
+    print()
+
+    try:
+        answer = input("Allow? [y/N] ").strip().lower()
+    except EOFError:
+        return False
+
+    return answer in {
+        "y",
+        "yes",
+    }
+
+
+def resolve_cwd(raw):
+    if not raw or any(c in raw for c in "\x00\n\r"):
+        raise ValueError("CWD must be an absolute directory path")
+    path = pathlib.Path(os.path.expanduser(raw))
+    if not path.is_absolute():
+        raise ValueError("CWD must be absolute (environment variables are not expanded)")
+    path = path.resolve(strict=True)
+    if not path.is_dir():
+        raise ValueError(f"cwd is not a directory: {path}")
+    return path
+
+
+class OutputBuffer:
+    """Drain all output but retain only a bounded beginning and end."""
+    def __init__(self):
+        self.head = b""
+        self.tail = b""
+        self.total = 0
+
+    def add(self, data):
+        self.total += len(data)
+        take = min(len(data), MAX_OUTPUT // 2 - len(self.head))
+        self.head += data[:take]
+        self.tail = (self.tail + data[take:])[-MAX_OUTPUT // 2:]
+
+    def text(self):
+        marker = b"\n... [OUTPUT TRUNCATED] ...\n" if self.total > MAX_OUTPUT else b""
+        return (self.head + marker + self.tail).decode("utf-8", errors="replace")
+
+
+def stop_process(process):
+    """Kill the process group, at most once, and never a recycled pid.
+
+    run_shell calls this from the timeout path, the except path and the finally
+    path, so it runs up to three times on the same object. The first call reaps
+    the child with wait(), and from that moment its pid belongs to the OS again
+    and can be handed to any new process. Every later call was still doing
+    killpg on that number.
+
+    It showed up as an intermittent `PermissionError: Operation not permitted`,
+    which is the lucky version: the recycled pid happened to land on a process
+    this user does not own, so the kill was refused. The unlucky version is the
+    same race landing on a pid this user does own, and SIGKILL going to a
+    process group that has nothing to do with this gateway.
+
+    returncode is None only while the child has not been reaped, so it is the
+    exact condition for "there is still something of ours to kill".
+    """
+    if process.returncode is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    process.wait()
+
+
+def run_shell(command, cwd, timeout):
+    cwd = resolve_cwd(str(cwd))
+    bad = blocked(command)
+    base = {"command": command, "cwd": str(cwd)}
+    if bad:
+        return dict(base, executed=False, error="Gateway safety floor blocked the command.", matched_rule=bad)
+    if needs_confirmation(command) and not confirm(command):
+        return dict(base, executed=False, error="Human denied the command.")
+    started = time.monotonic()
+    output = {"stdout": OutputBuffer(), "stderr": OutputBuffer()}
+    process = subprocess.Popen(
+        ["/bin/zsh", "-c", command], cwd=str(cwd),
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=True, env=os.environ.copy(),
+    )
+    timed_out = False
+    try:
+        with selectors.DefaultSelector() as selector:
+            for name, pipe in (("stdout", process.stdout), ("stderr", process.stderr)):
+                os.set_blocking(pipe.fileno(), False)
+                selector.register(pipe, selectors.EVENT_READ, name)
+            while selector.get_map():
+                if time.monotonic() - started >= timeout:
+                    timed_out = True
+                    stop_process(process)
+                    break
+                for key, _ in selector.select(0.05):
+                    chunk = os.read(key.fileobj.fileno(), 65536)
+                    if chunk:
+                        output[key.data].add(chunk)
+                    else:
+                        selector.unregister(key.fileobj)
+            if not timed_out:
+                try:
+                    process.wait(timeout=max(0.01, timeout - (time.monotonic() - started)))
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+                    stop_process(process)
+    except BaseException:
+        stop_process(process)
+        raise
+    finally:
+        # No background child from a completed shell should outlive this turn.
+        stop_process(process)
+        for name, pipe in (("stdout", process.stdout), ("stderr", process.stderr)):
+            while True:
+                chunk = pipe.read(65536)
+                if not chunk:
+                    break
+                output[name].add(chunk)
+            pipe.close()
+    return dict(base, executed=True, exit_code=process.returncode,
+                timeout=timed_out, duration_seconds=round(time.monotonic() - started, 2),
+                stdout=output["stdout"].text(), stderr=output["stderr"].text())
+
+
+def bridge(args, timeout, prompt=None):
+    try:
+        result = subprocess.run([CHATGPT_TAB, *args], input=prompt,
+                                capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"{CHATGPT_TAB!r} is not installed") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("chatgpt-tab timed out; no local command was executed") from exc
+    if result.returncode:
+        raise RuntimeError("chatgpt-tab failed: " + (result.stderr or result.stdout))
+    return result.stdout.strip()
+
+
+def pin_conversation(requested=None):
+    args = ["status", "--json"]
+    if requested:
+        args += ["--conversation", requested]
+    state = json.loads(bridge(args, 30))
+    url = state.get("conversation_url") or state.get("url")
+    if not state.get("healthy") or not url or not re.fullmatch(r"https://chatgpt\.com/(?:g/[^/]+/)?c/[A-Za-z0-9-]+", url):
+        raise RuntimeError("Open an idle saved ChatGPT conversation before starting the gateway")
+    return url
+
+
+def ask_chatgpt(prompt, timeout, conversation=None):
+    args = ["ask", "--stdin", "--timeout", str(timeout)]
+    if conversation:
+        args += ["--conversation", conversation]
+    return bridge(args, timeout + 30, prompt)
+
+
+def request_action(prompt, timeout, conversation, repair_attempts):
+    for attempt in range(repair_attempts + 1):
+        raw = ask_chatgpt(prompt, timeout, conversation)
+        try:
+            return parse_action(raw)
+        except ValueError as exc:
+            if attempt == repair_attempts:
+                raise RuntimeError(f"Invalid action after {repair_attempts} repair turns: {exc}") from exc
+            prompt = (
+                "[CHEWBACCA GATEWAY FORMAT REPAIR]\n"
+                "No local action executed. Return exactly one complete action in the "
+                "previously specified block protocol, without prose or markdown fences. "
+                "Use the complete COMMAND or SUMMARY closing delimiter on its own line.\n"
+                f"Parser error: {exc}\nInvalid response:\n{clipped(raw)}"
+            )
+
+
+def previous_text(previous):
+    if previous is None:
+        return "(first turn)"
+
+    parts = []
+
+    for key in (
+        "executed",
+        "command",
+        "cwd",
+        "exit_code",
+        "timeout",
+        "error",
+        "stdout",
+        "stderr",
+    ):
+        if key in previous:
+            parts.append(
+                f"{key.upper()}:\n"
+                f"{previous[key]}"
+            )
+
+    return "\n\n".join(parts)
+
+
+def control_prompt(
+    objective,
+    step,
+    previous,
+):
+    return f"""
+[CHEWBACCA GATEWAY CONTROL TURN]
+
+OBJECTIVE
+{objective}
+
+STEP
+{step}
+
+CHEWBACCA
+{ROOT}
+
+git status:
+{git_state(ROOT)}
+
+macOS-use
+{MACOS_USE}
+
+git status:
+{git_state(MACOS_USE)}
+
+PREVIOUS LOCAL RESULT
+{previous_text(previous)}
+
+Choose exactly ONE next action.
+
+For a shell action, respond using exactly:
+
+ACTION: shell
+REASON: brief reason
+CWD: {ROOT}
+TIMEOUT: 120
+COMMAND:
+<<<CHEWBACCA_COMMAND
+one logical shell command or command block
+CHEWBACCA_COMMAND
+
+For completion, respond using exactly:
+
+ACTION: done
+SUMMARY:
+<<<CHEWBACCA_SUMMARY
+what was accomplished and remaining caveats
+CHEWBACCA_SUMMARY
+
+Do not use JSON.
+Do not use markdown fences.
+Do not put prose before ACTION.
+
+Rules:
+- Work autonomously toward the objective.
+- Inspect before editing.
+- Preserve unrelated work.
+- Prefer Chewbacca-owned code over duplicate files in upstream repos.
+- Test changes after making them.
+- Do not commit or push.
+- Do not use sudo.
+- Do not read passwords, cookies, auth/session secrets or Keychain secrets.
+- Keep each turn to one logical local action.
+""".strip()
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="chatgpt-gateway", description="Run local actions from a pinned ChatGPT browser conversation.")
+    ap.add_argument("objective", nargs="+")
+    ap.add_argument("--max-steps", type=int, default=80)
+    ap.add_argument("--turn-timeout", type=int, default=300)
+    ap.add_argument("--repair-attempts", type=int, default=2)
+    ap.add_argument("--conversation", help="Saved chatgpt.com conversation URL (otherwise pin the current conversation)")
+    args = ap.parse_args(argv)
+    if not 1 <= args.max_steps <= 1000 or not 1 <= args.turn_timeout <= 1800 or not 0 <= args.repair_attempts <= 5:
+        ap.error("max-steps must be 1..1000, turn-timeout 1..1800, repair-attempts 0..5")
+    objective = " ".join(args.objective)
+    previous = None
+    try:
+        conversation = pin_conversation(args.conversation)
+        print(f"Chewbacca <-> ChatGPT gateway\nConversation: {conversation}\nObjective: {objective}")
+        print("Local commands have your account permissions. Pattern checks are not a sandbox. Ctrl-C stops the gateway.")
+        for step in range(1, args.max_steps + 1):
+            print(f"== Gateway step {step}/{args.max_steps} ==")
+            action = request_action(control_prompt(objective, step, previous), args.turn_timeout,
+                                    conversation, args.repair_attempts)
+            if action["action"] == "done":
+                print("Gateway finished\n" + action["summary"])
+                return 0
+            try:
+                cwd = resolve_cwd(action["cwd"])
+            except (ValueError, OSError) as exc:
+                previous = {"executed": False, "error": str(exc)}
+                continue
+            print(f"Reason: {action['reason']}\nCWD: {cwd}\n{action['command']}")
+            previous = run_shell(action["command"], cwd, action["timeout"])
+            for name in ("stdout", "stderr", "error"):
+                if previous.get(name):
+                    print(previous[name], file=sys.stderr if name != "stdout" else sys.stdout)
+        print("Gateway exhausted its step budget.", file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        print("\nGateway stopped. Any active local process group was terminated.", file=sys.stderr)
+        return 130
+    except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        print(f"Gateway failed: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

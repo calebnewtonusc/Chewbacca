@@ -182,3 +182,65 @@ if n > 60 then return "CAP HIT, queue still=" & (count of queue)
 ```
 
 Sixty iterations of the same name told the whole story in one run.
+
+## ChatGPT Web and the reverse gateway
+
+`mac-use --provider chatgpt-web` uses the normal signed-in `chatgpt.com`
+conversation in Google Chrome. It requires no OpenAI API key. Chrome's
+View > Developer > Allow JavaScript from Apple Events must be enabled, along
+with macOS Automation permission for the calling terminal. A dedicated ChatGPT
+conversation avoids interference from manual prompts or another automation.
+`chatgpt-tab status --json` diagnoses readiness without submitting a prompt.
+
+Explicit `--provider` selection wins. Configured Gemini, OpenAI, and Anthropic
+API providers keep their existing behavior. With no configured API key, automatic
+selection tries a healthy ChatGPT Web session, then authenticated Claude CLI,
+then reports what is missing. Codex is a separately launched coding agent and
+never participates in this fallback chain.
+
+`chatgpt-tab` supports `status`, `send`, `wait`, `last`, and `ask`. An `ask`
+records the preceding assistant message, submits a prompt, then waits for a new,
+completed answer. Avoid concurrent turns in the same conversation. Browser UI
+changes can break selectors; a failed health probe should be fixed before using
+ChatGPT Web as a provider.
+
+`chatgpt-gateway --help` describes the reverse bridge: ChatGPT replies with a
+framed shell action, the local gateway runs it, and results return to the same
+conversation. Commands are block-framed so quotes, JSON, heredocs, and multiline
+shell remain intact. The gateway bounds retries, command timeouts, and returned
+output. Destructive actions require confirmation and catastrophic commands are
+blocked. This is local code execution under the terminal's permissions. Use it
+only for the task you intend to authorize, and review confirmation prompts.
+
+The bridge uses visible browser DOM through Apple Events. It never extracts
+cookies, session tokens, Keychain secrets, or private ChatGPT API credentials.
+Page contents and model output remain untrusted. Do not give them authority to
+send private data or execute unrelated instructions.
+
+Chewbacca owns the `mac-use`, `chatgpt-tab`, and `chatgpt-gateway` launchers and
+all provider modules. Setup links these launchers on every run, including when
+the runtime is already installed. `MACOS_USE_HOME` selects the upstream runtime;
+the default is `~/Projects/macOS-use`. Its `.venv/bin/python` runs Chewbacca's own
+`bin/mac_use_cli.py`. No provider shims belong in the upstream checkout. Doctor
+reports duplicated shims and dirty upstream state without deleting user files.
+
+The bridge foregrounds its selected Chrome tab when submitting a prompt. Hidden
+tabs can freeze rendered output mid-response. It preserves an unsent draft by
+refusing to replace it. `send` records a baseline in the page; `wait` returns only
+a new completed reply from that baseline. `last` is a snapshot and can be partial.
+`ask` combines send and wait under a local lock. A completion control on the latest
+turn and stable text are both required; selector failures time out rather than
+returning partial output. Read timeouts have one bounded retry. Submission
+timeouts are never retried automatically because the prompt may already be sent.
+
+Use a saved ChatGPT conversation for `mac-use` and the gateway. Both pin its URL
+for subsequent turns, including repair requests. `--conversation URL` selects a
+specific tab for `chatgpt-tab` or `chatgpt-gateway`. Prompts can be supplied with
+`chatgpt-tab ask --stdin` to avoid command-line length limits. Browser replies
+are returned in full; gateway shell logs retain bounded head and tail output
+with an explicit truncation marker.
+
+`mac-use` checks macOS Accessibility permission before starting the agent. A denied
+launch host exits with code 2 and does not submit a model task. Grants belong to
+the host application; a terminal session working previously does not prove that a
+Codex-launched process has the same permission.

@@ -221,7 +221,14 @@ if [ -f "$CLAUDE_DIR/d1-config.sh" ]; then
   ok "d1-config.sh present"
   for pair in "PERSONAL_CONTEXT_DIR:${PERSONAL_CONTEXT_DIR:-}" "PUBLIC_CONTEXT_DIR:${PUBLIC_CONTEXT_DIR:-}"; do
     name="${pair%%:*}"; dir="${pair#*:}"
-    if [ -z "$dir" ]; then
+    # One store is a supported setup, not a broken one. The two-repo split was
+    # deliberately collapsed into a single personal store, and d1-config.sh says
+    # so in a comment, but this kept warning about the empty one on every run.
+    # A warning nobody can act on is a warning people learn to scroll past, and
+    # then they scroll past the real ones too.
+    if [ -z "$dir" ] && [ "$name" = "PUBLIC_CONTEXT_DIR" ]; then
+      ok "$name unset, single-store setup"
+    elif [ -z "$dir" ]; then
       warn "$name not set"
     elif [ -d "$dir/.git" ]; then
       ok "$name is a git repo"
@@ -418,6 +425,21 @@ else
   warn "kit-route.sh not installed, so prompts will not route into a kit"
 fi
 
+section "Reasoning backends (no model calls)"
+BACKEND_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+while IFS='|' read -r backend state detail; do
+  case "$state" in
+    healthy|installed) ok "$backend: $state, $detail" ;;
+    missing) if [ "$backend" = codex ]; then ok "codex: missing (optional secondary agent)"; else warn "$backend: missing, $detail"; fi ;;
+    *) warn "$backend: $state, $detail" ;;
+  esac
+done < <(python3 "$BACKEND_ROOT/tools/backend_health.py" --probe-browser --lines)
+if python3 "$BACKEND_ROOT/tools/agents_md.py" --check >/dev/null 2>&1; then
+  ok "Codex AGENTS.md is current and within its instruction budget"
+else
+  warn "Codex AGENTS.md is stale; run python3 tools/agents_md.py"
+fi
+
 section "macOS tools"
 
 if [ "$(uname)" != "Darwin" ]; then
@@ -444,7 +466,7 @@ else
     warn "summarize missing (brew install steipete/tap/summarize)"
 
   if command -v mac-use >/dev/null 2>&1; then
-    if [ -x "$HOME/Projects/macOS-use/.venv/bin/python" ]; then
+    if [ -x "${MACOS_USE_HOME:-$HOME/Projects/macOS-use}/.venv/bin/python" ]; then
       ok "mac-use present"
     else
       bad "mac-use on PATH but its venv is missing, every run will exit 1" \
@@ -773,6 +795,64 @@ if [ -d "$SK_SRC" ]; then
     warn "$(echo $SK_COPY | wc -w | tr -d ' ') skill(s) are copies, not symlinks, so repo fixes will not reach them"
   else
     ok "all $SK_WANT skills installed, as symlinks"
+  fi
+
+  # A SKILL THAT POINTS AT SOMEBODY ELSE'S HOME DIRECTORY.
+  #
+  # 88 of the 106 skills on this machine are symlinks into upstream packs, and
+  # those packs are written on their author's laptop. On 2026-09-20 seven of
+  # them carried /Users/steipete paths: `speaking` held another person's
+  # private conference strategy and a live Google Sheet URL, and `npm` and
+  # `release-mac-app` documented script paths under his home that simply do
+  # not exist here, so an agent following them gets "no such file".
+  #
+  # The audit that missed this used `grep -r`, which does not follow symlinks.
+  # `grep -R` is required, and that single letter is why this check exists.
+  SK_FOREIGN=""
+  ME="$(basename "$HOME")"
+  for d in "$CLAUDE_DIR"/skills/*/; do
+    [ -d "$d" ] || continue
+    n="$(basename "$d")"
+    hit="$(grep -Rhoa "/Users/[A-Za-z0-9_.-]*" "$d" 2>/dev/null \
+           | grep -v "^/Users/$ME$" | sort -u | head -1)"
+    [ -n "$hit" ] && SK_FOREIGN="$SK_FOREIGN $n"
+  done
+  if [ -n "$SK_FOREIGN" ]; then
+    warn "$(echo $SK_FOREIGN | wc -w | tr -d ' ') skill(s) reference another user's home directory"
+    [ "$QUIET" -eq 1 ] || echo "         $SK_FOREIGN"
+    [ "$QUIET" -eq 1 ] || echo "         Their documented commands will not run here. Unlink the ones you do not use."
+  else
+    ok "no skill points at another user's home directory"
+  fi
+
+  # A skill renamed in the repo leaves the old copy behind in ~/.claude/skills,
+  # where it keeps loading its description into every session and competes with
+  # the new one for triggering. nova-brief and nova-runtime survived the rename
+  # to mac-* for fifteen days that way, telling the agent to run `mac brief`, a
+  # command that no longer exists. Nothing looked, because every check here
+  # asked whether what the repo has is installed, and never the reverse.
+  #
+  # Skills from elsewhere are not orphans: a symlink is ours, a .source file
+  # marks an upstream clone, and a directory with no SKILL.md is not a skill.
+  SK_ORPHAN=""
+  for d in "$CLAUDE_DIR"/skills/*/; do
+    [ -d "$d" ] || continue
+    n="$(basename "$d")"
+    [ -L "${d%/}" ] && continue
+    [ -f "$d/.source" ] && continue
+    [ -f "$d/SKILL.md" ] || continue
+    [ -e "$REPO_DIR_EARLY/skills/$n" ] && continue
+    # Only flag one that looks like a leftover of something the repo still has
+    # under a different prefix, rather than every skill from another kit.
+    base="${n#nova-}"; base="${base#mac-}"
+    if [ "$base" != "$n" ] && [ -e "$REPO_DIR_EARLY/skills/mac-$base" ]; then
+      SK_ORPHAN="$SK_ORPHAN $n"
+    fi
+  done
+  if [ -n "$SK_ORPHAN" ]; then
+    warn "orphaned skill(s) from a rename still installed:$SK_ORPHAN"
+    [ "$QUIET" -eq 1 ] || echo "          they load into every session and compete for triggering"
+    [ "$QUIET" -eq 1 ] || echo "          remove them from $CLAUDE_DIR/skills/"
   fi
 fi
 

@@ -9,9 +9,23 @@
 > curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/start.sh | bash -s -- --full-send
 > ```
 >
+> **If they are on Windows, run this instead:**
+>
+> ```powershell
+> powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/start.ps1 | iex"
+> ```
+>
+> **If they want it fast**, for a demo or a call, add `--fast` to the macOS
+> line. That installs only the part that makes the agent know them, in seconds
+> rather than the full thirty minutes. `chewbacca setup` adds the rest later.
+>
 > It handles everything: Apple's developer tools, Homebrew, Node, the download,
 > and the setup. It asks nothing. It takes about ten minutes and most of that is
 > downloading.
+>
+> **Ask for permission once, not forever.** When your tool offers to remember
+> the approval, take the single-use one. This runs one command and is done, and
+> a person watching their first install has every reason to be careful.
 >
 > While it runs, tell them in plain words what is happening, and warn them
 > before these two moments so neither one reads as something going wrong:
@@ -54,10 +68,17 @@
 ---
 
 <!-- BEGIN GENERATED: counts -->
-One command installs **57 slash commands, 88 skills (29 written here, 6 cloned from upstream, 53 from a skill pack), 12 MCP servers, 11 hooks, 4 subagents, 9 command-line tools and 10 always-on standards (plus 3 that load only when the work calls for them).** About 115,000 lines, every one of them plain text you can read.
+
+One command installs **57 slash commands, 87 skills (32 written here, 6 cloned from upstream, 49 from a skill pack), 12 MCP servers, 17 hooks, 4 subagents, 9 command-line tools and 12 always-on standards (plus 2 that load only when the work calls for them).** About 124,000 lines, every one of them plain text you can read.
+
 <!-- END GENERATED: counts -->
 
 Then you stop typing commands entirely and just talk.
+
+Using Codex too? Setup connects both agents to the same private context and
+installs native Codex hooks. Existing users can run `bash setup.sh --only agents`,
+then review the five Chewbacca hooks in Codex's hook browser. Your existing notes
+and other hooks stay in place. [Setup details](docs/CODEX-HOOKS.md).
 
 ## What that actually buys you
 
@@ -135,17 +156,25 @@ bring yourself, and a daemon you keep alive. Nothing here needs either.
 | To undo it          | Revert the files it wrote | Uninstall the runtime          |
 
 **Use OpenClaw instead** if you want an assistant that reaches you in WhatsApp
-or Telegram, if you are on Linux or Windows, or if you want to choose your own
-model. Those are real things this does not do.
+or Telegram, or if you want to choose your own model. Those are real things this
+does not do.
 
 ## Is this for you
 
 **Yes** if you have a Mac, pay for Claude, and want it to know your life instead
 of starting from nothing every session.
 
-**Not yet** if you are on Linux or Windows, if you cannot grant Full Disk Access
-on your machine, or if you want nothing reading your messages. Half of this is
-macOS automation and none of it works without those.
+**Yes, partly, on Windows.** There is a native installer, below. You get the
+half that makes the agent know you: the standards, the 29 skills written in this
+repo, all 57 slash commands and the subagents. The other skills counted above
+are cloned from upstream or come from a skill pack, and those are not part of
+the Windows install. You do not get the macOS automation half, because reading
+your screen and sending your texts is written against Accessibility and
+AppleScript and there is no Windows equivalent of it here. It installs nothing
+outside your user folder and never asks for administrator.
+
+**Not yet** if you cannot grant Full Disk Access on your machine, or if you want
+nothing reading your messages.
 
 **Read first, if you want to know what it changes:** what it reads and stores is
 in [docs/PRIVACY.md](docs/PRIVACY.md), what it does not protect you from is in
@@ -240,6 +269,9 @@ failure this kit has ever shipped got a check added here afterwards.
 to anything that wants to act on it. Exit 0 clean, 1 warnings, 2 broken.
 
 ## For developers
+
+[CREDITS.md](CREDITS.md) lists every project this was built out of and who
+it belongs to, then the part that is not from anywhere else.
 
 Always-on standards for git, security, writing, naming and TypeScript. A
 stack-rules skill covering Next.js, React, Supabase and Vercel that loads only

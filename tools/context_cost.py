@@ -59,21 +59,37 @@ def imports_of(text, base):
 
 
 def conditional_rules(claude_md):
-    """Rules the standards file itself says load on demand.
+    """Rules that actually load on demand, read from the mechanism that defers them.
 
     Counting a rule that only loads for UI work as always-on made a backend
     session look like it was paying for the animation rules. It is not, and
     saying it is would send someone trimming the wrong file.
+
+    What defers a rule is `paths:` frontmatter on the rule itself. This used to
+    read a table in CLAUDE.md instead, which is a description of the deferral
+    rather than the deferral. The two agreed by luck, and a tool that measures a
+    proxy can be satisfied by editing the proxy: adding a table row would have
+    dropped 1,176 tokens off this report without changing what any session
+    actually loads. A number that can be fixed by editing prose is not a
+    measurement.
     """
-    # Only rules named inside a table row. A rule mentioned in prose ("see
-    # ~/.claude/rules/do-it-yourself.md") is still always-on, and treating a
-    # prose mention as a deferral undercounted the real cost by 677 tokens.
     names = set()
-    for line in claude_md.splitlines():
-        if not line.strip().startswith("|"):
+    for f in sorted((CLAUDE / "rules").glob("*.md")):
+        # Read enough for a whole frontmatter block, not a fixed prefix. A
+        # 400-byte window silently stopped matching the moment a rule carried a
+        # comment in its frontmatter, and the rule then counted as always-on
+        # while actually being deferred.
+        try:
+            head = f.read_text(encoding="utf-8", errors="ignore")[:8000]
+        except OSError:
             continue
-        for m in re.finditer(r"`~/\.claude/rules/([^`]+)`", line):
-            names.add(m.group(1))
+        if not head.startswith("---"):
+            continue
+        end = head.find("\n---", 3)
+        if end == -1:
+            continue
+        if re.search(r"^\s*(paths|globs)\s*:", head[3:end], re.M):
+            names.add(f.name)
     return names
 
 

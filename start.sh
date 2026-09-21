@@ -29,20 +29,63 @@ BIN_DIR="$HOME/.local/bin"
 FULL_SEND=0
 PROFILE="personal"
 DRY_RUN=0
+FAST=0
+
+# Almost nobody types this line by hand. An agent types it, from a README it
+# skimmed, and agents mistype flags: --fullsend, --full_send, -full-send all
+# showed up in testing on 2026-09-19, and each one killed the install with a
+# bare "unknown argument" and no install. An installer that refuses to run over
+# a hyphen is worse than one that guesses, so spelling is normalized here and an
+# argument that still makes no sense is a warning, not an exit.
+normalize() {
+  local a="$1"
+  a="${a#-}"; a="${a#-}"          # strip any number of leading dashes
+  a="$(printf '%s' "$a" | tr 'A-Z_' 'a-z-')"
+  case "$a" in
+    fullsend|full-send|send-it|sendit|yolo) echo "--full-send" ;;
+    fast|minimal|quick|demo)                echo "--fast" ;;
+    dryrun|dry-run)                         echo "--dry-run" ;;
+    ref|pin|pin-to)                         echo "--pin" ;;
+    version|v)                              echo "--version" ;;
+    profile)                                echo "--profile" ;;
+    h|help)                                 echo "--help" ;;
+    *)                                      echo "$1" ;;
+  esac
+}
+
 while [ $# -gt 0 ]; do
-  case "$1" in
+  case "$(normalize "$1")" in
     --full-send) FULL_SEND=1; shift ;;
+    --fast) FAST=1; TOTAL=5; shift ;;
     # Pin the install. Without this, everyone gets whatever landed on main an
     # hour ago, and "which version am I running" has no answer.
-    --version|--ref) REF="${2:-}"; shift 2 ;;
+    --pin) REF="${2:-}"; shift 2 ;;
+    # --version used to silently mean "pin to this tag", so `--version` alone
+    # ate the next argument and `--version 1.1.0` looked like it was reporting a
+    # version while actually pinning one. It now does what every other command
+    # line tool does, and still pins when handed a tag, because that spelling is
+    # in the wild and in the README.
+    --version)
+      if [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; then
+        REF="$2"; shift 2
+      else
+        echo "chewbacca start.sh, repo version $(curl -fsSL --max-time 10 \
+          "https://raw.githubusercontent.com/$REPO/$BRANCH/VERSION" 2>/dev/null || echo unknown)"
+        exit 0
+      fi ;;
     --profile)   PROFILE="${2:-personal}"; shift 2 ;;
     --dry-run)   DRY_RUN=1; shift ;;
-    -h|--help)
-      sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+    --help)
+      sed -n '2,20p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'
       exit 0 ;;
-    *) echo "unknown argument: $1"; exit 2 ;;
+    *) echo "  (ignoring unrecognized option: $1)"; shift ;;
   esac
 done
+
+case "$PROFILE" in
+  personal|student|developer|portable) ;;
+  *) echo "  (unknown profile '$PROFILE', using personal)"; PROFILE="personal" ;;
+esac
 
 # Colors, but only into a real terminal that says it can do them. Piping this
 # into a file or a terminal without color support used to print escape codes.
@@ -73,10 +116,23 @@ cat <<INTRO
     4. Set up Claude to read your calendar, send texts, and see your screen
     5. Open Claude and introduce you
 
-  About 10 minutes, most of it downloads. It will ask for your Mac password
-  once, because Homebrew installs outside your account.
+  Before any of it runs, here is exactly what it touches:
 
-  Nothing is uploaded anywhere. To remove all of it later: chewbacca uninstall
+    Everything it writes goes in your own account:
+      ~/.chewbacca        the kit itself
+      ~/.claude           what your agent reads every session
+      ~/.local/bin        the commands it installs
+
+    It will ask for your Mac password ONCE, and only for Homebrew, which
+    installs shared developer tools outside your account. Nothing else here
+    needs it.
+
+    It uploads nothing. Every file it writes stays on this machine.
+
+    To remove all of it later: chewbacca uninstall
+
+  About 10 minutes, most of it downloads. Add --fast to install only the part
+  that makes the agent know you, which takes seconds instead.
 
 INTRO
 
@@ -194,15 +250,27 @@ chmod +x "$HOME_DIR"/*.sh "$HOME_DIR"/bin/* 2>/dev/null || true
 # docs/THREAT-MODEL.md.
 if [ -f "$HOME_DIR/SHA256SUMS.txt" ] && command -v shasum >/dev/null 2>&1; then
   MISMATCH=0
+  VERIFIED=0
   while IFS= read -r line; do
     want="${line%% *}"
     file="${line##* }"
-    [ -f "$HOME_DIR/$file" ] || continue
+    # A manifest entry with no file on disk is a truncated download, or a
+    # release that shipped the manifest without the file. Skipping it quietly
+    # is how an absent file walks through the gate that exists to catch it.
+    if [ ! -f "$HOME_DIR/$file" ]; then
+      MISMATCH=$((MISMATCH+1)); echo "      missing: $file"; continue
+    fi
     got="$(shasum -a 256 "$HOME_DIR/$file" | cut -d" " -f1)"
-    [ "$want" = "$got" ] || { MISMATCH=$((MISMATCH+1)); echo "      changed: $file"; }
+    if [ "$want" = "$got" ]; then
+      VERIFIED=$((VERIFIED+1))
+    else
+      MISMATCH=$((MISMATCH+1)); echo "      changed: $file"
+    fi
   done < "$HOME_DIR/SHA256SUMS.txt"
   if [ "$MISMATCH" -eq 0 ]; then
-    ok "$(wc -l < "$HOME_DIR/SHA256SUMS.txt" | tr -d " ") files match their checksums"
+    # Count what was actually hashed, not the manifest's line count: those
+    # differ precisely when something is missing, which is when it matters.
+    ok "$VERIFIED files match their checksums"
   else
     bad "$MISMATCH file(s) do not match the committed checksums."
     echo "      Stopping. Report this: https://github.com/$REPO/issues"
@@ -252,7 +320,11 @@ ok "chewbacca command installed"
 step "Installing the tools Claude will use"
 
 if [ -x "$HOME_DIR/bin/bootstrap.sh" ]; then
-  bash "$HOME_DIR/bin/bootstrap.sh" || work "some tools were skipped, continuing"
+  # The profile decides whether GitHub is part of this install at all. Without
+  # it, bootstrap demanded a GitHub account and a git identity from someone
+  # installing the personal profile, which creates no repos and needs neither.
+  bash "$HOME_DIR/bin/bootstrap.sh" --profile "$PROFILE" ||
+    work "some tools were skipped, continuing"
 fi
 
 # Their real first name, from the Mac's own account record. One less question,
@@ -262,6 +334,7 @@ FIRST_NAME=$(id -F 2>/dev/null | awk '{print $1}')
 
 SETUP_ARGS=(--profile "$PROFILE" --name "$FIRST_NAME")
 [ "$FULL_SEND" -eq 1 ] && SETUP_ARGS+=(--full-send)
+[ "$FAST" -eq 1 ] && SETUP_ARGS+=(--fast)
 
 step "Setting up Claude"
 echo "      Installing as ${B}$FIRST_NAME${N}. Tell Claude if that is wrong."
@@ -272,32 +345,84 @@ bash "$HOME_DIR/setup.sh" "${SETUP_ARGS[@]}" || {
 }
 
 # ── 5. Hand them to Claude, with something to do ─────────────────────────────
+# A fast install deliberately left things out. Say which, and say the one
+# command that gets them, rather than letting someone discover months later
+# that their dictation and their MCP servers were never installed.
+if [ "$FAST" -eq 1 ]; then
+  FAST_TAIL="
+  This was the fast install: it knows you, but it has no Homebrew packages,
+  no plugins, no MCP servers and no dictation yet. To add all of that:
+    ${B}chewbacca setup${N}
+"
+else
+  FAST_TAIL=""
+fi
+
+# WHICH AGENT THIS PERSON ACTUALLY HAS.
+#
+# This screen used to say "Claude" three times and then exec claude, on a
+# machine that might not have it. Sagar hit exactly that on 2026-09-19: the
+# install finished, told him to type `claude`, and Claude Code asked him to buy
+# credits. His reply was "how is this model agnostic? i don't want to add
+# claude credits", and he stopped there. Karthik seconded it. That is the whole
+# product claim failing on the last screen of the install.
+#
+# The kit already runs on Codex: tools/codex_context.py and tools/codex_hooks.py
+# install its context and native lifecycle hooks, and the suite covers both. The
+# installer simply never asked what was on the machine.
+#
+# Order is by how much of this kit each one can actually drive, and the first
+# one present wins. Nothing here installs an agent or asks anyone to pay.
+AGENT_CMD=""
+AGENT_NAME=""
+for candidate in "claude:Claude Code" "codex:Codex" "gemini:Gemini CLI"; do
+  cmd="${candidate%%:*}"
+  if command -v "$cmd" >/dev/null 2>&1; then
+    AGENT_CMD="$cmd"
+    AGENT_NAME="${candidate#*:}"
+    break
+  fi
+done
+
+if [ -n "$AGENT_CMD" ]; then
+  START_LINE="  To start it any time: open Terminal and type ${B}${AGENT_CMD}${N}"
+  SUBJECT="$AGENT_NAME"
+else
+  # No agent on the machine. Saying "type claude" here is how someone ends up
+  # at a paywall they never asked for, so say what is true instead: the kit is
+  # installed and works with whichever one they already use.
+  START_LINE="  No coding agent found on this Mac yet. Chewbacca works with
+  Claude Code, Codex or Gemini CLI: install whichever you already pay for and
+  it will pick it up. Nothing here needs a second subscription."
+  SUBJECT="Your agent"
+fi
+
 cat <<DONE
 
   ${G}${B}Done.${N}
 
-  Claude can now read your calendar and contacts, send texts, see your screen,
-  summarize any video or article, and remember what matters to you.
+  ${SUBJECT} can now read your calendar and contacts, send texts, see your
+  screen, summarize any video or article, and remember what matters to you.
 
   Try asking it:
     "what's on my calendar tomorrow"
     "text <someone> that I'm running late"
     "what did this video actually say" and paste a link
 
-  To start it any time: open Terminal and type ${B}claude${N}
+${START_LINE}
   If something looks wrong:  ${B}chewbacca doctor${N}
   To remove everything:      ${B}chewbacca uninstall${N}
-
+${FAST_TAIL}
 DONE
 
 # Opening Claude for them matters more than it sounds. The install otherwise
 # ends at a shell prompt, which is the single highest-abandonment moment in the
 # whole flow: ten minutes of work and then a blinking cursor. Needs a real
 # terminal, so this is skipped when the output is piped somewhere.
-if command -v claude &>/dev/null && [ -t 0 ] && [ -t 1 ]; then
-  say "Starting Claude..."
+if [ -n "$AGENT_CMD" ] && [ -t 0 ] && [ -t 1 ]; then
+  say "Starting $AGENT_NAME..."
   sleep 1
-  exec claude "Introduce yourself to $FIRST_NAME in three sentences. You were just
+  exec "$AGENT_CMD" "Introduce yourself to $FIRST_NAME in three sentences. You were just
 installed on their Mac. Say what you can now do that you could not before,
 using their actual calendar or contacts as the example rather than describing
 it abstractly. Then ask them one question about what they want help with, and
