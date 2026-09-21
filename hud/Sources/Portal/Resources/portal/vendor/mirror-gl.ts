@@ -315,7 +315,19 @@ void main() {
   //
   // Squared, so the reaching is late and sudden rather than a steady
   // widening that would just look like the arc leading the finger.
-  float reach = uR * (0.06 + 0.70 * uLead * uLead);
+  // THE ARC'S EDGE IS THE BOUNDARY. "Make the edge of the arc the boundary,
+  // like a mask revealing the layer below."
+  //
+  // This used to run the reveal AHEAD of the line by up to 0.76 of the
+  // radius, so the other side arrived somewhere the hand had not been yet.
+  // It was put there to close the wedge at the end, and it is not needed
+  // for that any more: the reveal is scaled to the 309 degrees that
+  // actually opens a portal, so the sector is already a full turn by then
+  // and there is no wedge left to fake shut.
+  //
+  // What remains is a few pixels of softness at the head, not a lead. The
+  // mask now ends where the line is, which is the whole point of a mask.
+  float reach = uR * 0.04;
   // THE ENDS ARE CLOUDY, NOT STRAIGHT RADII. "The starting radii and ending
   // radii have super sharp edges bruh theyre legos."
   //
