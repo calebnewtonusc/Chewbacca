@@ -775,6 +775,17 @@ if [ -n "$_installed_scanners" ]; then
 fi
 unset _tool _installed_scanners
 
+# brief-audio renders text to a listenable MP3 with Kokoro-82M, locally. It is
+# deliberately not in the scanner loop above: those need node, this needs python
+# and ffmpeg, and warning about the wrong missing dependency sends people to fix
+# something unrelated. It builds its own venv at ~/.chewbacca/audio-venv on first
+# run, so nothing heavy is installed here.
+if [ -f "$SCRIPT_DIR/bin/brief-audio" ]; then
+  link_tool brief-audio
+  log "brief-audio installed to ~/.local/bin/"
+  ensure_local_bin_on_path
+fi
+
 # The display: hud draws interfaces on top of everything on screen, hud-listen
 # turns what is said to it into a drawing, hud-context reports what is in front
 # of the person. All three go in together because hud calls the other two by
