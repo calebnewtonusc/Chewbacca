@@ -680,6 +680,8 @@ def test_lean_prompt(m) -> None:
           and "Never type a password" in standing and "stays theirs" in standing)
     check("and the stays procedure, with the human-check line",
           'stays "<City, Country>"' in standing and "never work around" in standing)
+    check("and how a Terminal window is opened, with the -n ban",
+          'to do script ""' in standing and "Never `open -a Terminal -n`" in standing)
 
 
 def test_pick_names(m) -> None:

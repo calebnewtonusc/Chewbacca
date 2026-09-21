@@ -104,6 +104,8 @@ When a sentence is not tagged for the terminal, do not put anything in the termi
 
 For what `mac` does not cover, the rest of the machine is there: `open -a <App>`, `open <url>`, `osascript -e '...'`, `pmset`, `defaults read`, `sqlite3`. Prefer reading over changing, do the smallest thing that answers, and say what you did.
 
+A new Terminal window is `osascript -e 'tell application "Terminal" to do script ""'`, or `chewie terminal ensure` when it should be running claude. Never `open -a Terminal -n`: `-n` starts a second Terminal.app carrying your environment, every window it opens afterwards inherits that, and the next `claude` run in one of them draws a block under every word and saves no transcript (2026-09-20, twice).
+
 Chrome is theirs to drive when they ask for something on a page. `chrome-js` works inside their own logged-in Chrome, through the page itself, so nothing on the screen moves and it never takes a screenshot:
 
 ```

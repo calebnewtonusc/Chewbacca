@@ -330,6 +330,43 @@ ensure_local_bin_on_path() {
   return 0
 }
 
+# A Terminal.app started from inside a Claude Code session hands its
+# environment to every window it opens afterwards, and the login shell keeps
+# it. On 2026-09-20 the voice agent, itself carrying a session's variables,
+# ran `open -a Terminal -n` twice (21:34, 23:22); each started a second
+# Terminal.app instance, and the `claude` opened in one of them at 00:47 drew
+# a block under every word (FORCE_COLOR=3 is 24-bit colour Terminal.app cannot
+# parse) and saved no transcript (CLAUDE_CODE_CHILD_SESSION=1). A shell whose
+# parent is `login` was opened by a person, never by a session, so it drops
+# the variables before anything runs in it.
+TERMINAL_GUARD_MARK="# Added by Chewbacca: a window is not a Claude Code child session"
+ensure_terminal_shell_guard() {
+  local rc added=0
+  for rc in "$HOME/.zshrc" "$HOME/.bash_profile"; do
+    [ -f "$rc" ] || continue
+    grep -qF "$TERMINAL_GUARD_MARK" "$rc" 2>/dev/null && continue
+    cat >> "$rc" <<'GUARD'
+
+# Added by Chewbacca: a window is not a Claude Code child session
+# A Terminal.app launched from inside a Claude Code session passes the session's
+# environment to every window it opens. FORCE_COLOR=3 puts a block under every
+# word Claude Code prints (Terminal.app has no 24-bit colour) and
+# CLAUDE_CODE_CHILD_SESSION=1 turns its transcript off. A shell whose parent is
+# login was opened by a person.
+if [ "$(ps -o comm= -p "$PPID" 2>/dev/null)" = "login" ]; then
+  unset FORCE_COLOR COLORTERM CLICOLOR_FORCE CLAUDECODE
+  for _chewbacca_var in $(env | sed -n 's/^\(CLAUDE_CODE_[A-Za-z0-9_]*\)=.*/\1/p'); do
+    unset "$_chewbacca_var"
+  done
+  unset _chewbacca_var
+fi
+GUARD
+    added=1
+  done
+  [ "$added" -eq 1 ] && log "Added the Terminal guard to your shell rc: windows opened by a Claude session no longer inherit its colour and session variables."
+  return 0
+}
+
 link_tool() {
   local name="$1" src="$SCRIPT_DIR/bin/$1" dst="$HOME/.local/bin/$1"
   [ -f "$src" ] || return 1
@@ -834,6 +871,7 @@ if [ -n "$_installed_hud" ]; then
     warn "Build it: $(dirname "$0")/voice/build.sh, then HUD_SPEAKER=hud-voice for hud-listen."
   fi
   ensure_local_bin_on_path
+  ensure_terminal_shell_guard
 fi
 unset _tool _installed_hud
 
