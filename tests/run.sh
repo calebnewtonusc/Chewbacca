@@ -360,6 +360,12 @@ if group "installer"; then
   check  "the Stop reminder will not push you to commit another session's work" \
     bash "$ROOT/tests/stop_check_authorship.sh" "$ROOT"
 
+  # The guard that keeps a Claude session's environment out of a person's
+  # Terminal window. Its first version only fired when the parent was login,
+  # which left every already-open shell broken.
+  check  "the terminal guard installs once and fires on the right shells" \
+    bash "$ROOT/tests/terminal_guard.sh" "$ROOT"
+
   check  "committed checksums describe the committed tree" \
     python3 "$ROOT/tools/committed_checksums.py"
 

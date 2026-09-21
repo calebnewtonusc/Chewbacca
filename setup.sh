@@ -336,34 +336,66 @@ ensure_local_bin_on_path() {
 # ran `open -a Terminal -n` twice (21:34, 23:22); each started a second
 # Terminal.app instance, and the `claude` opened in one of them at 00:47 drew
 # a block under every word (FORCE_COLOR=3 is 24-bit colour Terminal.app cannot
-# parse) and saved no transcript (CLAUDE_CODE_CHILD_SESSION=1). A shell whose
-# parent is `login` was opened by a person, never by a session, so it drops
-# the variables before anything runs in it.
+# parse) and saved no transcript (CLAUDE_CODE_CHILD_SESSION=1).
+#
+# The block is rewritten rather than appended when it is already there, so a
+# machine that took an earlier version of this guard gets the current one.
 TERMINAL_GUARD_MARK="# Added by Chewbacca: a window is not a Claude Code child session"
-ensure_terminal_shell_guard() {
-  local rc added=0
-  for rc in "$HOME/.zshrc" "$HOME/.bash_profile"; do
-    [ -f "$rc" ] || continue
-    grep -qF "$TERMINAL_GUARD_MARK" "$rc" 2>/dev/null && continue
-    cat >> "$rc" <<'GUARD'
+TERMINAL_GUARD_END="# End of the Chewbacca terminal guard"
+write_terminal_guard() {
+  cat <<'GUARD'
 
 # Added by Chewbacca: a window is not a Claude Code child session
-# A Terminal.app launched from inside a Claude Code session passes the session's
-# environment to every window it opens. FORCE_COLOR=3 puts a block under every
-# word Claude Code prints (Terminal.app has no 24-bit colour) and
-# CLAUDE_CODE_CHILD_SESSION=1 turns its transcript off. A shell whose parent is
-# login was opened by a person.
+# A Terminal.app opened from inside a Claude Code session hands that session's
+# environment to every window it opens. Two halves, because the two kinds of
+# variable are wrong for different reasons.
+#
+# The session marker, for a shell a person opened. A shell whose parent is
+# login is one of those. Claude's own tool shells have claude as a parent and
+# keep theirs, because CLAUDE_CODE_MESSAGING_SOCKET is how their tools reach
+# the session they belong to.
 if [ "$(ps -o comm= -p "$PPID" 2>/dev/null)" = "login" ]; then
-  unset FORCE_COLOR COLORTERM CLICOLOR_FORCE CLAUDECODE
+  unset CLAUDECODE
   for _chewbacca_var in $(env | sed -n 's/^\(CLAUDE_CODE_[A-Za-z0-9_]*\)=.*/\1/p'); do
     unset "$_chewbacca_var"
   done
   unset _chewbacca_var
 fi
+# The colour, for every shell in Terminal.app. Terminal.app declares
+# xterm-256color and its terminfo carries no 24-bit entry, so FORCE_COLOR=3 or
+# COLORTERM=truecolor in one of its windows was inherited and is always wrong:
+# Claude Code writes 24-bit escapes the terminal cannot parse and leaves a
+# block behind every word. This half is not gated on the parent, because a
+# nested shell, a tmux pane, and a window opened before this guard existed all
+# have the same broken colour and a different parent.
+if [ "${TERM_PROGRAM:-}" = "Apple_Terminal" ]; then
+  unset FORCE_COLOR COLORTERM CLICOLOR_FORCE
+fi
+# End of the Chewbacca terminal guard
 GUARD
-    added=1
+}
+ensure_terminal_shell_guard() {
+  # Strip any previous copy, then write the current one. Rewriting rather than
+  # skipping is what upgrades a machine that took an earlier version.
+  local rc had tmp
+  for rc in "$HOME/.zshrc" "$HOME/.bash_profile"; do
+    [ -f "$rc" ] || continue
+    had=0
+    if grep -qF "$TERMINAL_GUARD_MARK" "$rc" 2>/dev/null; then
+      had=1
+      tmp="$(mktemp)" || return 0
+      awk -v s="$TERMINAL_GUARD_MARK" -v e="$TERMINAL_GUARD_END" \
+        'index($0,s){f=1; next} f{ if (index($0,e)) f=0; next } {print}' "$rc" > "$tmp"
+      cat "$tmp" > "$rc"
+      rm -f "$tmp"
+    fi
+    write_terminal_guard >> "$rc"
+    if [ "$had" -eq 1 ]; then
+      log "Refreshed the terminal guard in $(basename "$rc")."
+    else
+      log "Added the terminal guard to $(basename "$rc"): a window opened by a Claude session no longer inherits its colour and session variables."
+    fi
   done
-  [ "$added" -eq 1 ] && log "Added the Terminal guard to your shell rc: windows opened by a Claude session no longer inherit its colour and session variables."
   return 0
 }
 
