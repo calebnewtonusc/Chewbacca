@@ -1832,6 +1832,7 @@ if [ "$PLUGINS_OK" -eq 1 ]; then
     security-guidance@claude-plugins-official \
     serena@claude-plugins-official \
     session-report@claude-plugins-official \
+    swift-lsp@claude-plugins-official \
     typescript-lsp@claude-plugins-official \
     understand-anything@understand-anything \
     vercel@claude-plugins-official; do
