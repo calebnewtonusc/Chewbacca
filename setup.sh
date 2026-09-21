@@ -1108,8 +1108,12 @@ settings["alwaysThinkingEnabled"] = True
 h = settings.setdefault("hooks", {})
 
 
-def _register(event, command, timeout=None):
+def _register(event, command, timeout=None, matcher=None, status=None):
     """Register one hook for `event`, replacing any earlier copy of it.
+
+    `matcher` limits a PreToolUse/PostToolUse hook to the tools it has an
+    opinion about. Without it a gate runs on every tool call in the session and
+    pays a process spawn each time to exit 0.
 
     The events this file assigns outright (`h[event] = [...]`) reset their
     list every run. The ones it adds to did not: `setdefault(...).append(...)`
@@ -1131,7 +1135,12 @@ def _register(event, command, timeout=None):
     hook = {"type": "command", "command": command}
     if timeout is not None:
         hook["timeout"] = timeout
-    entries.append({"hooks": [hook]})
+    if status is not None:
+        hook["statusMessage"] = status
+    entry = {"hooks": [hook]}
+    if matcher is not None:
+        entry["matcher"] = matcher
+    entries.append(entry)
 
 # Session opener: off unless --session-opener names one. This used to be wired
 # unconditionally, so a stranger running the installer got every reply opening
@@ -1249,6 +1258,18 @@ h["PreToolUse"] = [{"matcher": "Write", "hooks": [{
     "command": hooks_dir + "/env-guard.sh",
     "statusMessage": "Checking file safety...",
 }]}]
+
+# Layer 6. A browser hands you an addressable model of its own contents, and
+# reading it as an image throws that away. On 2026-09-21 a form the user had
+# open in Chrome got filled by screenshots and pixel clicks, one field per round
+# trip, while `chewie web` sat unused: the routing table named no command for a
+# browser, so the agent fell back to the layer that had one. The table was fixed
+# the same day, which is exactly why this exists as well. Any use of the bridge
+# clears the gate for the session, and `visual:` in the command declares real
+# canvas work and goes through.
+_register("PreToolUse", hooks_dir + "/browser-ux-guard.sh", timeout=10,
+          matcher="Bash|mcp__peekaboo__.*",
+          status="Checking this browser work is not being done through pixels...")
 
 h["Notification"] = [{"hooks": [{
     "type": "command",
