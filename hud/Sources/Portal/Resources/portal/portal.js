@@ -596,12 +596,13 @@
   var parallaxStrength = PARALLAX_STRENGTH;
   var sizeScale = 1;
   var drawing = null;
+  var trimmedAtLatch = false;
   var stroke = [];
   var softFit = null;
   var reachScale = 1;
   var handScale = 0.45;
   var trailPx = 300;
-  var LATCH_AT = 0.65;
+  var LATCH_AT = 0.8;
   var lastSeen = 0;
   var armed = null;
   window.chewbaccaGain = (k) => {
@@ -827,7 +828,10 @@
       }
     }
     if (S.phase !== "drawing" && drawing) drawing = null;
-    if (!pinched) softFit = null;
+    if (!pinched) {
+      softFit = null;
+      trimmedAtLatch = false;
+    }
     if (portalUp) stroke = [];
     if (!portalUp && prevPhase === "closing") {
       detector.reset();
@@ -895,7 +899,7 @@
         } : raw;
       }
       const fitC = drawing ?? softFit;
-      const turned = Math.max(0, Math.min(1, (p.progress - LATCH_AT) / 0.25));
+      const turned = Math.max(0, Math.min(1, (p.progress - LATCH_AT) / 0.15));
       const round = Math.max(0, Math.min(1, (p.roundness - 0.55) / 0.3));
       const conf = turned * round;
       const k = Math.pow(conf, 0.9);
@@ -992,6 +996,9 @@
     if (S.phase === "drawing" && p.center && p.startAngle !== null && p.progress > 0.16) {
       if (!drawing || p.progress < LATCH_AT) {
         drawing = { cx: p.center.x, cy: p.center.y, r: p.radius, a0: p.startAngle };
+      } else if (!trimmedAtLatch) {
+        trimmedAtLatch = true;
+        if (stroke.length > 12) stroke.splice(0, Math.floor(stroke.length * 0.35));
       }
     }
     if (portalUp) {
