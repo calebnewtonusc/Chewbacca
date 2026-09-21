@@ -578,7 +578,7 @@
   var SPARK_HOT = "255, 196, 94";
   var SPARK_MID = "255, 141, 44";
   var SPARK_COLD = "214, 74, 16";
-  var IGNITE_MS = 820;
+  var IGNITE_MS = 1150;
   var CLOSE_MS = 380;
   var MIN_OPEN_MS = 600;
   var ease = (t) => 1 - Math.pow(1 - t, 3);
@@ -617,6 +617,17 @@
   var mirrorAmt = 0;
   var lastFill = 0;
   var holdOld = 0;
+  var settleX = 0;
+  var settleV = 0;
+  var arcX = 0;
+  var arcV = 0;
+  var lastFrameMs = 0;
+  var stepSpring = (x, v, k, dt) => {
+    const c = 2 * Math.sqrt(k);
+    const a = k * (1 - x) - c * v;
+    const nv = v + a * dt;
+    return { x: Math.min(1, x + nv * dt), v: nv };
+  };
   var stroke = [];
   var softFit = null;
   var reachScale = 1;
@@ -728,6 +739,8 @@
   window.addEventListener("resize", resize);
   function frame(now) {
     requestAnimationFrame(frame);
+    const frameDt = Math.min(0.05, Math.max(1e-3, (now - lastFrameMs) / 1e3));
+    lastFrameMs = now;
     const W = window.innerWidth;
     const H = window.innerHeight;
     ctx.globalCompositeOperation = "destination-out";
@@ -859,15 +872,15 @@
       ctx.restore();
     };
     const spawnBand = (x, y, tx, ty, heat) => {
-      const spread = (Math.random() - 0.5) * 0.3;
-      const sp = 0.45 + Math.random() * 1;
+      const spread = (Math.random() < 0.5 ? -1 : 1) * Math.pow(Math.random(), 0.55) * 1.15;
+      const sp = 0.3 + Math.pow(Math.random(), 2.4) * 3.2;
       sparks.push({
         x,
         y,
         vx: (tx + spread * -ty) * sp,
         vy: (ty + spread * tx) * sp,
         life: 1,
-        decay: 0.1 + Math.random() * 0.1,
+        decay: 0.05 + Math.pow(Math.random(), 1.6) * 0.3,
         heat: 0.4 + Math.random() * 0.6 * heat,
         width: 0.2 + Math.random() * 0.4,
         bind: false
@@ -875,15 +888,15 @@
     };
     const spawnAt = (x, y, tangentX, tangentY, count, speed, bind = false) => {
       for (let i = 0; i < count; i++) {
-        const spread = (Math.random() - 0.5) * 0.9;
-        const sp = speed * (0.4 + Math.random() * 1.1);
+        const spread = (Math.random() < 0.5 ? -1 : 1) * Math.pow(Math.random(), 0.5) * 1.5;
+        const sp = speed * (0.25 + Math.pow(Math.random(), 2) * 2.4);
         sparks.push({
           x,
           y,
           vx: (tangentX + spread * -tangentY) * sp,
           vy: (tangentY + spread * tangentX) * sp,
           life: 1,
-          decay: 0.03 + Math.random() * 0.05,
+          decay: 0.02 + Math.pow(Math.random(), 1.5) * 0.14,
           heat: Math.random(),
           width: 0.35 + Math.random() * 0.85,
           bind
@@ -1020,6 +1033,12 @@
       softFit = null;
       trimmedAtLatch = false;
       announcedAtLatch = false;
+    }
+    if (!portalUp) {
+      settleX = 0;
+      settleV = 0;
+      arcX = 0;
+      arcV = 0;
     }
     if (portalUp) stroke = [];
     if (!portalUp && prevPhase === "closing") {
@@ -1249,15 +1268,22 @@
           ctx.globalCompositeOperation = "source-over";
         } else {
           const shut2 = ease(shut);
-          const closing = ease(ignite);
-          const clearing = ignite * ignite;
+          const a1 = stepSpring(settleX, settleV, 26, frameDt);
+          settleX = a1.x;
+          settleV = a1.v;
+          const a2 = stepSpring(arcX, arcV, 12, frameDt);
+          arcX = a2.x;
+          arcV = a2.v;
+          const closing = settleX;
+          const arcClose = arcX;
+          const clearing = settleX * settleX;
           paintMirror(
             cx0,
             cy0,
             rpx,
             1 - shut2,
             openGapFrom,
-            openGap * (1 - closing),
+            openGap * (1 - arcClose),
             openCcw,
             1 - clearing,
             lastFill + (1 - lastFill) * closing,
