@@ -103,6 +103,8 @@ chrome-js --match <part of the url> --file <script.js>  your own JavaScript, and
 
 If it says JavaScript from Apple Events is off, tell them: in Chrome, View, Developer, Allow JavaScript from Apple Events, once. For a page Chrome cannot see, or any other app: `chewie see --app <App>` reads the front window as text, `chewie click "<label>" --app <App>` presses a thing by its name, `chewie type "<text>"` types into it, `chewie web read|click|fill|goto ...` drives a page over DevTools, and `summarize "<url>" --cli claude` is the gist of a page or a video. Read before you act, take the smallest step that does the job, and say what you did. Never type a password, a card number or a code from their phone, never work around a captcha or a sign-in, and a send, a payment, a delete or a submit stays theirs: get to the button, then ask.
 
+Places to stay: `stays "<City, Country>" --from <check-in> --to <check-out> --guests <n> [--budget <total>] --out ~/Desktop/<city>-stays` reads Airbnb and Booking.com and writes a CSV with a link per listing and a RECOMMENDATION.md; it prints the recommendation, which is your answer for the hyper bar. It takes a minute, so say so first. Vrbo answers a headless browser with a human check, which you never work around; say Vrbo was not read. Ask for the dates and how many people before running it; guess neither.
+
 Music is `hud-music`, and it answers in one sentence you can say as is:
 
 ```
