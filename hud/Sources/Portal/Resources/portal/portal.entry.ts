@@ -74,6 +74,13 @@ let parallaxStrength = PARALLAX_STRENGTH;
 // far wider arc than the hole anybody wants on screen. Tunable live:
 //   portal size 0.4
 let sizeScale = 0.45;
+// How far from the centre of the screen the hand can reach. 1 means the
+// full frame maps to the full display, which is what pushed everything to
+// the edges: a hand near the edge of the camera's view landed off screen.
+// Below 1 pulls every position toward the middle, so a wide arm sweep
+// covers a smaller area and nothing leaves the display. Tunable live:
+//   portal reach 0.4
+let reachScale = 0.5;
 let lastSeen = 0;
 
 // The host pushes frames in here. Declared on window so evaluateJavaScript
@@ -88,6 +95,7 @@ declare global {
     chewbaccaArm: (label: string | null) => void;
     chewbaccaGain: (k?: number) => number;
     chewbaccaSize: (k?: number) => number;
+    chewbaccaReach: (k?: number) => number;
     webkit?: { messageHandlers?: { portal?: { postMessage: (m: unknown) => void } } };
   }
 }
@@ -112,6 +120,12 @@ window.chewbaccaSize = (k) => {
     sizeScale = Math.max(0.05, Math.min(3, k));
   }
   return sizeScale;
+};
+window.chewbaccaReach = (k) => {
+  if (typeof k === "number" && isFinite(k)) {
+    reachScale = Math.max(0.05, Math.min(2, k));
+  }
+  return reachScale;
 };
 window.chewbaccaArm = (label) => {
   armed = label ? { label } : null;
@@ -158,6 +172,25 @@ function frame(now: number) {
   const RMIN = 24;
   const RMAX = Math.min(W, H) * 0.42;
   const clampR = (r: number) => Math.max(RMIN, Math.min(RMAX, r * sizeScale));
+
+  // Pull a normalized position toward the middle of the screen.
+  //
+  // The camera sees a wide field and the hand uses all of it, so at reach 1
+  // a comfortable arm sweep runs off both edges of the display. Compressing
+  // about the centre keeps the whole reachable area on screen and costs
+  // only precision, which is the right trade for something aimed by an arm.
+  // ALWAYS ON SCREEN. Caleb, after three rounds of tuning: "I cant see the
+  // knob its prob off screen." A control you cannot see is one you cannot
+  // adjust, and every knob added to fix the aim was useless while the thing
+  // being aimed was outside the display.
+  //
+  // So the position is clamped as well as compressed. The clamp is not a
+  // substitute for getting the mapping right, it is the guarantee that a
+  // wrong mapping is VISIBLE and therefore fixable instead of silent.
+  const squeeze = (p: { x: number; y: number }) => ({
+    x: Math.max(0.02, Math.min(0.98, 0.5 + (p.x - 0.5) * reachScale)),
+    y: Math.max(0.02, Math.min(0.98, 0.5 + (p.y - 0.5) * reachScale)),
+  });
   const px = mx;
   const py = my;
 
@@ -252,12 +285,14 @@ function frame(now: number) {
         screen, undefined, undefined, depths, { strength: parallaxStrength },
       );
       if (r) {
-        // Back into the normalized space mx/my expect. mx flips x, so
-        // undoing it here keeps exactly one flip in the pipeline.
-        return { x: 1 - r.x / window.innerWidth, y: r.y / window.innerHeight };
+        // NO `1 -` HERE. pointingPoint returns real screen pixels in an
+        // UNMIRRORED frame, and mx() applies the selfie mirror on the way
+        // out. Flipping here as well made two flips, which cancel: the hand
+        // on the right drew on the left. One flip, and it lives in mx.
+        return squeeze({ x: r.x / window.innerWidth, y: r.y / window.innerHeight });
       }
     }
-    return pinch.center;
+    return squeeze(pinch.center);
   })();
 
   let p: CircleProgress;
@@ -286,7 +321,17 @@ function frame(now: number) {
   const portalUp = S.phase === "igniting" || S.phase === "open" || S.phase === "closing";
 
   if (S.phase === "igniting" && prevPhase !== "igniting") {
-    if (p.center) geom = { cx: p.center.x, cy: p.center.y, r: p.radius };
+    if (p.center) {
+      // The CENTRE being on screen is not enough: a portal centred near an
+      // edge still hangs half of itself off. Inset by its own radius so the
+      // whole ring is visible.
+      const rn = clampR(p.radius * RSCALE) / RSCALE;
+      geom = {
+        cx: Math.max(rn, Math.min(1 - rn, p.center.x)),
+        cy: Math.max(rn, Math.min(1 - rn, p.center.y)),
+        r: p.radius,
+      };
+    }
     attract = { cx: geom.cx, cy: geom.cy, r: clampR(geom.r * RSCALE) };
     // Tell the host where it landed, in CSS points, so it can put the target
     // window behind the hole. Sent once per opening, not per frame.
