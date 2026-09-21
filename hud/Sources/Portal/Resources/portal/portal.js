@@ -131,7 +131,7 @@
         const v2y = c.y - b.y;
         const turn = Math.atan2(v1x * v2y - v1y * v2x, v1x * v2x + v1y * v2y);
         if (Math.abs(turn) > this.o.maxTurn) {
-          this.sweep = 0;
+          this.smooth = null;
         } else {
           this.sweep += turn;
         }
@@ -622,6 +622,7 @@
   var arcX = 0;
   var arcV = 0;
   var lastFrameMs = 0;
+  var lastMaskCheck = 0;
   var stepSpring = (x, v, k, dt) => {
     const c = 2 * Math.sqrt(k);
     const a = k * (1 - x) - c * v;
@@ -717,6 +718,10 @@
       trailPx = Math.max(40, Math.min(1200, k));
     }
     return trailPx;
+  };
+  var placedOk = false;
+  window.chewbaccaPlaced = (ok) => {
+    placedOk = !!ok;
   };
   window.chewbaccaArm = (label) => {
     armed = label ? { label } : null;
@@ -819,8 +824,9 @@
       m.beginPath();
       m.arc(mx0, my0, Rp, 0, Math.PI * 2);
       m.clip();
-      const OFF = size + 64;
-      if (blurPx > 0.5) {
+      const soft = blurPx > 0.5;
+      const OFF = soft ? size + 64 : 0;
+      if (soft) {
         m.shadowColor = "rgba(255,255,255,1)";
         m.shadowBlur = blurPx;
         m.shadowOffsetX = OFF;
@@ -864,6 +870,21 @@
       const dw = mirror.width * sc, dh = mirror.height * sc;
       m.drawImage(mirror, (W - dw) / 2 - ox, (H - dh) / 2 - oy, dw, dh);
       m.globalCompositeOperation = "source-over";
+      if (strength > 0.5 && now - lastMaskCheck > 1e3) {
+        lastMaskCheck = now;
+        try {
+          const d = m.getImageData(Math.floor(size / 2), Math.floor(size / 2), 2, 2).data;
+          let a = 0;
+          for (let i = 3; i < d.length; i += 4) a = Math.max(a, d[i]);
+          if (a === 0) {
+            window.webkit?.messageHandlers?.portal?.postMessage({
+              event: "log",
+              text: `mask EMPTY at strength ${strength.toFixed(2)}, fill ${fill.toFixed(2)}, cloud ${cloud.toFixed(2)}`
+            });
+          }
+        } catch (e) {
+        }
+      }
       ctx.save();
       ctx.globalCompositeOperation = "source-over";
       ctx.globalAlpha = strength;
@@ -1034,6 +1055,7 @@
       trimmedAtLatch = false;
       announcedAtLatch = false;
     }
+    if (!portalUp) placedOk = false;
     if (!portalUp) {
       settleX = 0;
       settleV = 0;
@@ -1260,7 +1282,7 @@
       if (S.phase === "open") attract = { cx: cn.x, cy: cn.y, r: rpx };
       if (rpx >= 2) {
         const cx0 = px(cn.x), cy0 = py(cn.y);
-        if (armed) {
+        if (armed && placedOk) {
           ctx.globalCompositeOperation = "destination-out";
           ctx.globalAlpha = 1;
           disc(cn, rn * 0.985);
