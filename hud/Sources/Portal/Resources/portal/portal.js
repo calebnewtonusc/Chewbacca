@@ -461,6 +461,7 @@
   var parallaxStrength = PARALLAX_STRENGTH;
   var sizeScale = 1;
   var drawing = null;
+  var stroke = [];
   var reachScale = 1;
   var handScale = 0.45;
   var lastSeen = 0;
@@ -595,6 +596,12 @@
       }
       return pinch.center;
     })();
+    if (cursor) {
+      stroke.push({ x: cursor.x, y: cursor.y });
+      if (stroke.length > 220) stroke.shift();
+    } else if (stroke.length) {
+      stroke = [];
+    }
     let p;
     if (cursor) {
       p = detector.push(cursor.x, cursor.y, now);
@@ -652,6 +659,7 @@
       }
     }
     if (S.phase !== "drawing" && drawing) drawing = null;
+    if (portalUp) stroke = [];
     if (!portalUp && prevPhase === "closing") {
       detector.reset();
       comet = [];
@@ -700,62 +708,62 @@
         }
       }
     }
+    if (!portalUp && pinched && stroke.length > 2) {
+      const fitC = drawing ?? (p.center ? { cx: p.center.x, cy: p.center.y, r: p.radius } : null);
+      const bend = fitC ? Math.min(1, Math.pow(p.progress / 0.5, 1.5)) : 0;
+      const k = Math.pow(Math.min(1, p.progress / 0.5), 1.2);
+      ctx.globalCompositeOperation = "lighter";
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      const pts = stroke.map((q, i) => {
+        if (!fitC || bend <= 0) return q;
+        const dx = q.x - fitC.cx;
+        const dy = q.y - fitC.cy;
+        const d = Math.hypot(dx, dy) || 1;
+        const onCircle = { x: fitC.cx + dx / d * fitC.r, y: fitC.cy + dy / d * fitC.r };
+        const age = 1 - i / Math.max(1, stroke.length - 1);
+        const b = Math.min(1, bend * (0.55 + 0.45 * age));
+        return { x: q.x + (onCircle.x - q.x) * b, y: q.y + (onCircle.y - q.y) * b };
+      });
+      for (const [width, colour, alpha, blur] of [
+        [0.055, SPARK_COLD, 0.05 + k * 0.3, 8 + 26 * k],
+        [0.03, SPARK_MID, 0.08 + k * 0.5, 6 + 16 * k],
+        [0.012, CORE, 0.07 + k * 0.6, 5 + 12 * k]
+      ]) {
+        ctx.shadowBlur = blur;
+        ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
+        ctx.strokeStyle = `rgba(${colour}, ${alpha})`;
+        ctx.lineWidth = Math.max(1, (fitC ? fitC.r : 0.05) * RPX * width);
+        ctx.beginPath();
+        pts.forEach((q, i) => {
+          const qx = mx(q.x), qy = my(q.y);
+          if (i === 0) ctx.moveTo(qx, qy);
+          else ctx.lineTo(qx, qy);
+        });
+        ctx.stroke();
+      }
+      ctx.shadowBlur = 0;
+      const head = pts[pts.length - 1];
+      const prev = pts[pts.length - 2] ?? head;
+      let tx = mx(head.x) - mx(prev.x);
+      let ty = my(head.y) - my(prev.y);
+      const tm = Math.hypot(tx, ty) || 1;
+      spawnAt(
+        mx(head.x),
+        my(head.y),
+        tx / tm,
+        ty / tm,
+        Math.round(1 + k * 9),
+        2.2 + k * 3,
+        true
+      );
+      if (fitC) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
+    }
     if (S.phase === "drawing" && p.center && p.startAngle !== null && p.progress > 0.16) {
       const LATCH_AT = 0.45;
       if (!drawing || p.progress < LATCH_AT) {
         drawing = { cx: p.center.x, cy: p.center.y, r: p.radius, a0: p.startAngle };
       }
-      const cn = { x: drawing.cx, y: drawing.cy };
-      const rn = clampRN(drawing.r);
-      const rpx = rpxOf(cn, rn);
-      const swept = Math.max(-Math.PI * 2, Math.min(Math.PI * 2, p.sweep));
-      const a0 = drawing.a0;
-      const a1 = a0 + swept;
-      const k = Math.pow(p.progress, 1.6);
-      ctx.globalCompositeOperation = "lighter";
-      ctx.lineCap = "round";
-      ctx.shadowBlur = 8 + 30 * k;
-      ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
-      ctx.strokeStyle = `rgba(${SPARK_COLD}, ${0.03 + k * 0.18})`;
-      ctx.lineWidth = Math.max(1.5, rpx * (0.02 + k * 0.06));
-      arcPath(cn, rn, a0, a1, 96, 3);
-      ctx.stroke();
-      ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.05 + k * 0.3})`;
-      ctx.lineWidth = Math.max(1.2, rpx * (0.01 + k * 0.03));
-      arcPath(cn, rn, a0, a1, 96, 1.5);
-      ctx.stroke();
-      ctx.shadowBlur = 6 + 16 * k;
-      ctx.strokeStyle = `rgba(${CORE}, ${0.04 + k * 0.36})`;
-      ctx.lineWidth = Math.max(0.8, rpx * (4e-3 + k * 0.011));
-      arcPath(cn, rn, a0, a1);
-      ctx.stroke();
-      const headSpan = Math.sign(swept) * Math.min(Math.abs(swept), 0.55);
-      ctx.shadowBlur = 14 + 50 * k;
-      ctx.strokeStyle = `rgba(${CORE}, ${0.2 + k * 0.35})`;
-      ctx.lineWidth = Math.max(1.4, rpx * (0.012 + k * 0.042));
-      arcPath(cn, rn, a1 - headSpan, a1, 24);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-      const hx = px(cn.x) + Math.cos(a1) * rpx;
-      const hy = py(cn.y) + Math.sin(a1) * rpx;
-      const dir = Math.sign(swept) || 1;
-      const tx = -Math.sin(a1) * dir;
-      const ty = Math.cos(a1) * dir;
-      const prev = comet[comet.length - 1];
-      const speedPx = prev ? Math.hypot(hx - prev.x, hy - prev.y) : 0;
-      comet.push({ x: hx, y: hy });
-      if (comet.length > 40) comet.shift();
-      spawnAt(
-        hx,
-        hy,
-        tx,
-        ty,
-        Math.round((1 + k * 9) * (1 + Math.min(0.8, speedPx * 0.03))),
-        2.2 + k * 3,
-        true
-      );
-      spawnAt(hx, hy, tx, ty, Math.round(k * 3), 3 + k * 2.8, false);
-      attract = { cx: cn.x, cy: cn.y, r: rpx };
     }
     if (portalUp) {
       spin += 0.012;

@@ -85,6 +85,12 @@ let sizeScale = 1;
 // and the arc only extends along it, which is also what the reference does
 // and what makes the gesture feel like drawing rather than negotiating.
 let drawing: { cx: number; cy: number; r: number; a0: number } | null = null;
+// The raw path the pinch has taken this stroke, in screen-normalized space.
+// It is drawn as a line from the first frame and BENDS onto the fitted
+// circle as the detector starts to recognise one, which is what he asked
+// for: "I wanna draw a line, and once it starts detecting a circle that
+// line bends into starting the circle."
+let stroke: { x: number; y: number }[] = [];
 // How far from the centre of the screen the hand can reach.
 //
 // DEFAULT 1, which is no compression at all: the fingertip is exactly where
@@ -423,6 +429,13 @@ function frame(now: number) {
   //
   // So the gesture is measured in the hand's own full range and only the
   // result is pulled toward the middle of the screen.
+  if (cursor) {
+    stroke.push({ x: cursor.x, y: cursor.y });
+    if (stroke.length > 220) stroke.shift();
+  } else if (stroke.length) {
+    stroke = [];
+  }
+
   let p: CircleProgress;
   if (cursor) {
     p = detector.push(cursor.x, cursor.y, now);
@@ -481,6 +494,7 @@ function frame(now: number) {
     }
   }
   if (S.phase !== "drawing" && drawing) drawing = null;
+  if (portalUp) stroke = [];
   if (!portalUp && prevPhase === "closing") {
     detector.reset(); comet = []; attract = null;
     window.webkit?.messageHandlers?.portal?.postMessage({ event: "closed" });
@@ -564,79 +578,83 @@ function frame(now: number) {
     }
   }
 
-  // ── The ring building along its own circumference ───────────────────────
+  // ── The line, bending into the circle ────────────────────────────────────
+  //
+  // From the first pinched frame this is the raw path of the fingertip. As
+  // the detector starts recognising a circle, every point slides toward
+  // where it would sit on the fitted one, so a scribble straightens into an
+  // arc under the hand rather than being replaced by one.
+  //
+  // `bend` is what does it: 0 draws exactly what was traced, 1 draws the
+  // perfect circle, and the ramp between them is the whole effect. The
+  // oldest points bend first, because the beginning of the stroke is the
+  // part the fit is most confident about and the part the hand has left
+  // behind.
+  if (!portalUp && pinched && stroke.length > 2) {
+    const fitC = drawing ?? (p.center ? { cx: p.center.x, cy: p.center.y, r: p.radius } : null);
+    const bend = fitC ? Math.min(1, Math.pow(p.progress / 0.5, 1.5)) : 0;
+    const k = Math.pow(Math.min(1, p.progress / 0.5), 1.2);
+
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    const pts = stroke.map((q, i) => {
+      if (!fitC || bend <= 0) return q;
+      const dx = q.x - fitC.cx;
+      const dy = q.y - fitC.cy;
+      const d = Math.hypot(dx, dy) || 1;
+      const onCircle = { x: fitC.cx + (dx / d) * fitC.r, y: fitC.cy + (dy / d) * fitC.r };
+      // Older points are further along the bend, so the line settles from
+      // the tail forward instead of snapping all at once.
+      const age = 1 - i / Math.max(1, stroke.length - 1);
+      const b = Math.min(1, bend * (0.55 + 0.45 * age));
+      return { x: q.x + (onCircle.x - q.x) * b, y: q.y + (onCircle.y - q.y) * b };
+    });
+
+    for (const [width, colour, alpha, blur] of [
+      [0.055, SPARK_COLD, 0.05 + k * 0.3, 8 + 26 * k],
+      [0.03, SPARK_MID, 0.08 + k * 0.5, 6 + 16 * k],
+      [0.012, CORE, 0.07 + k * 0.6, 5 + 12 * k],
+    ] as [number, string, number, number][]) {
+      ctx.shadowBlur = blur;
+      ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
+      ctx.strokeStyle = `rgba(${colour}, ${alpha})`;
+      ctx.lineWidth = Math.max(1, (fitC ? fitC.r : 0.05) * RPX * width);
+      ctx.beginPath();
+      pts.forEach((q, i) => {
+        const qx = mx(q.x), qy = my(q.y);
+        if (i === 0) ctx.moveTo(qx, qy); else ctx.lineTo(qx, qy);
+      });
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+
+    // Sparks off the moving end, scaled by how much has registered.
+    const head = pts[pts.length - 1];
+    const prev = pts[pts.length - 2] ?? head;
+    let tx = mx(head.x) - mx(prev.x);
+    let ty = my(head.y) - my(prev.y);
+    const tm = Math.hypot(tx, ty) || 1;
+    spawnAt(mx(head.x), my(head.y), tx / tm, ty / tm,
+      Math.round(1 + k * 9), 2.2 + k * 3.0, true);
+    if (fitC) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
+  }
+
+  // ── The latch ────────────────────────────────────────────────────────────
+  //
+  // The arc used to be drawn here, on the fitted circle. The bending line
+  // above replaces it: at full bend the two are the same curve, and drawing
+  // both put a perfect arc on top of a hand-drawn one. What survives is the
+  // decision about WHERE the circle is, which ignition needs.
   if (S.phase === "drawing" && p.center && p.startAngle !== null && p.progress > 0.16) {
-    // LATCH. The first frame past the threshold decides where the circle is;
-    // every frame after that only extends the arc along it. Re-fitting as
-    // the trail grows is mathematically better and feels worse, because the
-    // thing being aimed at keeps moving.
-    // TRACK, THEN LATCH. Latching at 16 percent froze a fit made from a
-    // sixth of an arc, whose centre is pulled toward the samples and whose
-    // radius is a guess, so the ring stopped moving and stopped matching.
-    // Below the threshold it follows the hand; past it, it holds.
+    // TRACK, THEN LATCH. Latching early froze a fit made from a sixth of an
+    // arc, whose centre is pulled toward its own samples and whose radius is
+    // close to a guess. Below the threshold it follows the hand; past it,
+    // it holds, so the target stops moving while it is being closed.
     const LATCH_AT = 0.45;
     if (!drawing || p.progress < LATCH_AT) {
       drawing = { cx: p.center.x, cy: p.center.y, r: p.radius, a0: p.startAngle };
     }
-    const cn = { x: drawing.cx, y: drawing.cy };
-    // Normalized radius is the source of truth, because arcPath maps every
-    // point. `rpx` exists only for line widths and glow radii, which are
-    // genuinely screen quantities.
-    const rn = clampRN(drawing.r);
-    const rpx = rpxOf(cn, rn);
-    // Normalized angles do not survive the mirror: phi = PI - theta, and the
-    // map negates the angle, so the sweep flips with it.
-    // NO mirrorAngle, and no negated sweep. Both existed because the
-    // detector used to work in landmark space while the ring was drawn in
-    // mirrored screen space. The detector is fed toScreen output now, so
-    // its angles ARE screen angles and flipping them again would send the
-    // arc backwards, which is the same bug from the other direction.
-    //
-    // This is what one door buys: the correction disappears rather than
-    // needing to be maintained.
-    const swept = Math.max(-Math.PI * 2, Math.min(Math.PI * 2, p.sweep));
-    const a0 = drawing.a0;
-    const a1 = a0 + swept;
-    const k = Math.pow(p.progress, 1.6);
-
-    ctx.globalCompositeOperation = "lighter";
-    ctx.lineCap = "round";
-
-    ctx.shadowBlur = 8 + 30 * k;
-    ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
-    ctx.strokeStyle = `rgba(${SPARK_COLD}, ${0.03 + k * 0.18})`;
-    ctx.lineWidth = Math.max(1.5, rpx * (0.02 + k * 0.06));
-    arcPath(cn, rn, a0, a1, 96, 3); ctx.stroke();
-
-    ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.05 + k * 0.3})`;
-    ctx.lineWidth = Math.max(1.2, rpx * (0.01 + k * 0.03));
-    arcPath(cn, rn, a0, a1, 96, 1.5); ctx.stroke();
-
-    ctx.shadowBlur = 6 + 16 * k;
-    ctx.strokeStyle = `rgba(${CORE}, ${0.04 + k * 0.36})`;
-    ctx.lineWidth = Math.max(0.8, rpx * (0.004 + k * 0.011));
-    arcPath(cn, rn, a0, a1); ctx.stroke();
-
-    const headSpan = Math.sign(swept) * Math.min(Math.abs(swept), 0.55);
-    ctx.shadowBlur = 14 + 50 * k;
-    ctx.strokeStyle = `rgba(${CORE}, ${0.2 + k * 0.35})`;
-    ctx.lineWidth = Math.max(1.4, rpx * (0.012 + k * 0.042));
-    arcPath(cn, rn, a1 - headSpan, a1, 24); ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    const hx = px(cn.x) + Math.cos(a1) * rpx;
-    const hy = py(cn.y) + Math.sin(a1) * rpx;
-    const dir = Math.sign(swept) || 1;
-    const tx = -Math.sin(a1) * dir;
-    const ty = Math.cos(a1) * dir;
-    const prev = comet[comet.length - 1];
-    const speedPx = prev ? Math.hypot(hx - prev.x, hy - prev.y) : 0;
-    comet.push({ x: hx, y: hy });
-    if (comet.length > 40) comet.shift();
-    spawnAt(hx, hy, tx, ty,
-      Math.round((1 + k * 9) * (1 + Math.min(0.8, speedPx * 0.03))), 2.2 + k * 3.0, true);
-    spawnAt(hx, hy, tx, ty, Math.round(k * 3), 3.0 + k * 2.8, false);
-    attract = { cx: cn.x, cy: cn.y, r: rpx };
   }
 
   // ── The portal ───────────────────────────────────────────────────────────
