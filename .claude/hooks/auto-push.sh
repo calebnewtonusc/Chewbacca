@@ -60,8 +60,14 @@ BRANCH="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo)"
 
 # Nothing to send. Uncommitted work is not this hook's business, so a dirty
 # tree with no commits ahead exits quietly and stop-check.sh still nags.
-if git -C "$REPO_ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
-  AHEAD="$(git -C "$REPO_ROOT" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
+# Count against origin/BRANCH, which is where this hook actually pushes, not
+# against @{u}. On a fork those are routinely different: a branch tracking
+# upstream/main reads as "ahead" whenever local is ahead of the other
+# project, so the old check passed on every turn, pushed a no-op to origin,
+# got exit 0 from "Everything up-to-date", and announced a push that never
+# happened. It fired seven times in one session before anyone read the hook.
+if git -C "$REPO_ROOT" rev-parse --verify --quiet "origin/$BRANCH" >/dev/null 2>&1; then
+  AHEAD="$(git -C "$REPO_ROOT" rev-list --count "origin/$BRANCH..HEAD" 2>/dev/null || echo 0)"
   [ "$AHEAD" -gt 0 ] || exit 0
   SET_UPSTREAM=0
 else
