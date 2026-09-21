@@ -250,15 +250,27 @@ chmod +x "$HOME_DIR"/*.sh "$HOME_DIR"/bin/* 2>/dev/null || true
 # docs/THREAT-MODEL.md.
 if [ -f "$HOME_DIR/SHA256SUMS.txt" ] && command -v shasum >/dev/null 2>&1; then
   MISMATCH=0
+  VERIFIED=0
   while IFS= read -r line; do
     want="${line%% *}"
     file="${line##* }"
-    [ -f "$HOME_DIR/$file" ] || continue
+    # A manifest entry with no file on disk is a truncated download, or a
+    # release that shipped the manifest without the file. Skipping it quietly
+    # is how an absent file walks through the gate that exists to catch it.
+    if [ ! -f "$HOME_DIR/$file" ]; then
+      MISMATCH=$((MISMATCH+1)); echo "      missing: $file"; continue
+    fi
     got="$(shasum -a 256 "$HOME_DIR/$file" | cut -d" " -f1)"
-    [ "$want" = "$got" ] || { MISMATCH=$((MISMATCH+1)); echo "      changed: $file"; }
+    if [ "$want" = "$got" ]; then
+      VERIFIED=$((VERIFIED+1))
+    else
+      MISMATCH=$((MISMATCH+1)); echo "      changed: $file"
+    fi
   done < "$HOME_DIR/SHA256SUMS.txt"
   if [ "$MISMATCH" -eq 0 ]; then
-    ok "$(wc -l < "$HOME_DIR/SHA256SUMS.txt" | tr -d " ") files match their checksums"
+    # Count what was actually hashed, not the manifest's line count: those
+    # differ precisely when something is missing, which is when it matters.
+    ok "$VERIFIED files match their checksums"
   else
     bad "$MISMATCH file(s) do not match the committed checksums."
     echo "      Stopping. Report this: https://github.com/$REPO/issues"

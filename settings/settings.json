@@ -136,6 +136,17 @@
             "statusMessage": "Checking the prose against your writing rules..."
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/ux-guard.sh",
+            "timeout": 20,
+            "statusMessage": "Checking the interface against the researched rules..."
+          }
+        ]
       }
     ],
     "Stop": [
