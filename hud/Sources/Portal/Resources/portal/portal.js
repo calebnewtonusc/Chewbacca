@@ -843,7 +843,7 @@
         } : raw;
       }
       const fitC = drawing ?? softFit;
-      const turned = Math.max(0, Math.min(1, (p.progress - 0.4) / 0.26));
+      const turned = Math.max(0, Math.min(1, (p.progress - 0.55) / 0.3));
       const round = Math.max(0, Math.min(1, (p.roundness - 0.55) / 0.3));
       const conf = turned * round;
       const k = Math.pow(conf, 0.9);
