@@ -440,7 +440,15 @@ function frame(now: number) {
   // So the gesture is measured in the hand's own full range and only the
   // result is pulled toward the middle of the screen.
   if (cursor) {
-    stroke.push({ x: cursor.x, y: cursor.y, rx: cursor.x, ry: cursor.y });
+    // SMOOTH THE INPUT. Raw landmarks jump a few pixels a frame, and a
+    // polyline through them is a jagged wireframe, which is exactly what it
+    // looked like. An exponential average on the way in costs one lerp and
+    // removes almost all of it.
+    const last = stroke[stroke.length - 1];
+    const sm = last
+      ? { x: last.x + (cursor.x - last.x) * 0.45, y: last.y + (cursor.y - last.y) * 0.45 }
+      : cursor;
+    stroke.push({ x: sm.x, y: sm.y, rx: sm.x, ry: sm.y });
     if (stroke.length > 220) stroke.shift();
   } else if (stroke.length) {
     stroke = [];
@@ -600,6 +608,20 @@ function frame(now: number) {
   // oldest points bend first, because the beginning of the stroke is the
   // part the fit is most confident about and the part the hand has left
   // behind.
+  // A PINCH ON ITS OWN IS NOT A GESTURE. While the hand is pinched and
+  // nothing circular has been recognised, there is a slow ember or two at
+  // the fingers and nothing else: no attractor, no ring, no corona. The
+  // effect has to start from almost nothing or there is nowhere for it to
+  // build to.
+  if (!portalUp && pinched && pinch?.center && p.progress < 0.1) {
+    attract = null;
+    if (Math.random() < 0.25) {
+      const a = Math.random() * Math.PI * 2;
+      const q = toScreen(pinch.center, lm ? lm[9] : undefined);
+      spawnAt(mx(q.x), my(q.y), Math.cos(a), Math.sin(a), 1, 0.7, false);
+    }
+  }
+
   if (!portalUp && pinched && stroke.length > 2) {
     const fitC = drawing ?? (p.center ? { cx: p.center.x, cy: p.center.y, r: p.radius } : null);
     // EARLY AND FAST. The pull starts at a tenth of a turn and is at full
@@ -629,26 +651,50 @@ function frame(now: number) {
     ctx.lineJoin = "round";
     const rBase = fitC ? fitC.r : 0.05;
 
-    for (const [width, colour, alpha, blur] of [
-      [0.055, SPARK_COLD, 0.05 + k * 0.3, 8 + 26 * k],
-      [0.03, SPARK_MID, 0.08 + k * 0.5, 6 + 16 * k],
-      [0.012, CORE, 0.07 + k * 0.6, 5 + 12 * k],
-    ] as [number, string, number, number][]) {
-      ctx.shadowBlur = blur;
-      ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
-      ctx.strokeStyle = `rgba(${colour}, ${alpha})`;
-      ctx.lineWidth = Math.max(1, rBase * RPX * width);
+    // CURVES, NOT SEGMENTS. Each point becomes a control point and the path
+    // runs through the midpoints between them, so corners round off instead
+    // of showing as vertices.
+    const path = () => {
       ctx.beginPath();
-      stroke.forEach((q, i) => {
-        const qx = mx(q.rx), qy = my(q.ry);
-        if (i === 0) ctx.moveTo(qx, qy); else ctx.lineTo(qx, qy);
-      });
-      ctx.stroke();
-    }
+      if (stroke.length < 3) return;
+      ctx.moveTo(mx(stroke[0].rx), my(stroke[0].ry));
+      for (let i = 1; i < stroke.length - 1; i++) {
+        const a = stroke[i], b = stroke[i + 1];
+        ctx.quadraticCurveTo(mx(a.rx), my(a.ry),
+          mx((a.rx + b.rx) / 2), my((a.ry + b.ry) / 2));
+      }
+      const e = stroke[stroke.length - 1];
+      ctx.lineTo(mx(e.rx), my(e.ry));
+    };
+
+    // TWO passes, not three. Three widths of additive stroke on a light
+    // background paint the edges twice and leave the middle thin, which
+    // reads as a hollow outline rather than a burning line.
+    ctx.shadowBlur = 10 + 22 * k;
+    ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
+    ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.18 + k * 0.45})`;
+    ctx.lineWidth = Math.max(2.5, rBase * RPX * 0.05);
+    path(); ctx.stroke();
+
+    ctx.shadowBlur = 6 + 10 * k;
+    ctx.strokeStyle = `rgba(${CORE}, ${0.3 + k * 0.6})`;
+    ctx.lineWidth = Math.max(1, rBase * RPX * 0.016);
+    path(); ctx.stroke();
     ctx.shadowBlur = 0;
 
-    // A spark wherever a point is still travelling, so the correction reads
-    // as the line being pulled rather than redrawn.
+    // BINDING IS A PROPORTION, NOT A SWITCH. A spark bound to the circle
+    // is pulled onto it; an unbound one drifts and dies where it was born.
+    // Making every spark bound the moment a curve is recognised looked like
+    // a mode change, and he wanted the opposite: "it should just naturally
+    // go into the animation", with "not all the sparks being on the line".
+    //
+    // So each spark decides at birth, with a probability that rises from
+    // nothing to most of them. Early on almost all of them drift; later,
+    // most are on the line, and a few stragglers are still loose, which is
+    // what stops it reading as a switch being thrown.
+    const boundShare = Math.min(0.85, conf * 1.1);
+    const bindMaybe = () => Math.random() < boundShare;
+
     if (fitC && conf > 0.05) {
       for (let i = 0; i < stroke.length; i += 6) {
         const q = stroke[i];
@@ -656,7 +702,7 @@ function frame(now: number) {
         if (gap < 6) continue;
         spawnAt(mx(q.rx), my(q.ry),
           (mx(q.x) - mx(q.rx)) / gap, (my(q.y) - my(q.ry)) / gap,
-          1, 1.2, true);
+          1, 1.2, bindMaybe());
       }
     }
 
@@ -665,9 +711,13 @@ function frame(now: number) {
     let tx = mx(head.rx) - mx(prev.rx);
     let ty = my(head.ry) - my(prev.ry);
     const tm = Math.hypot(tx, ty) || 1;
-    spawnAt(mx(head.rx), my(head.ry), tx / tm, ty / tm,
-      Math.round(1 + k * 9), 2.2 + k * 3.0, true);
-    if (fitC) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
+    const n = Math.round(1 + k * 9);
+    for (let i = 0; i < n; i++) {
+      spawnAt(mx(head.rx), my(head.ry), tx / tm, ty / tm, 1,
+        2.2 + k * 3.0, bindMaybe());
+    }
+    // The attractor only exists once there is something to be attracted to.
+    if (fitC && conf > 0.08) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
   }
 
   // ── The latch ────────────────────────────────────────────────────────────
