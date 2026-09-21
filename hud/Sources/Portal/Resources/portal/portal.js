@@ -894,7 +894,9 @@
           const rr = rad * (0.6 + 0.2 * ((Math.cos(t * 0.8) + 1) / 2));
           const g4 = m.createRadialGradient(jx, jy, 0, jx, jy, rr);
           g4.addColorStop(0, `rgba(0,0,0,${strength2})`);
-          g4.addColorStop(0.55, `rgba(0,0,0,${strength2 * 0.45})`);
+          g4.addColorStop(0.3, `rgba(0,0,0,${strength2 * 0.72})`);
+          g4.addColorStop(0.6, `rgba(0,0,0,${strength2 * 0.38})`);
+          g4.addColorStop(0.82, `rgba(0,0,0,${strength2 * 0.14})`);
           g4.addColorStop(1, "rgba(0,0,0,0)");
           m.fillStyle = g4;
           m.beginPath();
@@ -905,8 +907,8 @@
       };
       if (cloud > 0.01 && gapSize > 2e-3) {
         const leadThick = Rp * depthAt(1);
-        dissolve(1, Math.max(Rp * 0.14, leadThick * 0.8), 0.9, 0);
-        dissolve(0, Math.max(Rp * 0.1, Rp * depthAt(0) * 0.8), 0.7, 5);
+        dissolve(1, Math.max(Rp * 0.14, leadThick * 0.8), 0.38, 0);
+        dissolve(0, Math.max(Rp * 0.1, Rp * depthAt(0) * 0.8), 0.26, 5);
       }
       m.restore();
       const veil = (1 - f) * 0.75;
