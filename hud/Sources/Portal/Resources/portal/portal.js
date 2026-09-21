@@ -891,7 +891,7 @@
         const rad = Math.max(6, (Rp - inner) / 2);
         m.globalCompositeOperation = "destination-out";
         for (let j = 0; j < 3; j++) {
-          const t = now / 2600 + seedI * 2.3 + j * 1.9;
+          const t = drawnAng * 1.7 + seedI * 2.3 + j * 1.9;
           const jx = bx + Math.cos(t) * rad * 0.2;
           const jy = by + Math.sin(t * 1.3) * rad * 0.2;
           const rr = rad * (0.6 + 0.2 * ((Math.cos(t * 0.8) + 1) / 2));
