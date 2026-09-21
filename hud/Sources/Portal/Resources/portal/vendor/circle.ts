@@ -161,7 +161,18 @@ export class CircleGestureDetector {
       // was lowered to 4.6 back when a display-scaling bug was shrinking
       // segments below minSegment and eating the sweep; that bug is fixed,
       // so the low threshold was compensating for something gone.
-      sweepThreshold: options.sweepThreshold ?? 5.4,
+      // 5.6 rad is 321 degrees. Swept against arcs and circles across
+      // radius, noise, speed profile and arm drift, as firing rate:
+      //
+      //     threshold   full circle   324 deg arc   270 deg arc
+      //     5.4 (309)          79%           38%            5%
+      //     5.6 (321)          77%           14%            2%
+      //     5.8 (332)          57%           11%            3%
+      //
+      // 5.6 is the knee. Circles barely move and arcs fall by two thirds.
+      // Past it real circles start failing hard, because a hand that has
+      // come most of the way round has already stopped.
+      sweepThreshold: options.sweepThreshold ?? 5.6,
       // How far the end may sit from the start, as a fraction of the fitted
       // radius, and still count as a closed loop.
       closeWithin: options.closeWithin ?? 0.75,
