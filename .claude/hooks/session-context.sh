@@ -302,8 +302,14 @@ fi
 # Only the Now block, which is six rows. The rest is one `backlog all` away. A
 # session briefing that prints thirty items is one nobody reads, and this file's
 # own header already makes that argument about template scaffolding.
-if [ -x "$CHEWBACCA_ROOT/bin/backlog" ] || command -v backlog >/dev/null 2>&1; then
-  BL="$(command -v backlog || echo "$CHEWBACCA_ROOT/bin/backlog")"
+# ${VAR:-} on every reference. This file runs under `set -u`, so naming an
+# unset variable is fatal, and CHEWBACCA_ROOT is not set for anybody who has
+# not exported it. The first version of this block referenced it bare and took
+# the whole session briefing down with it on 2026-09-21, silently, for every
+# machine but the one it was written on.
+_bl_root="${CHEWBACCA_ROOT:-$HOME/Desktop/2026-Code/projects/chewbacca}"
+if [ -x "$_bl_root/bin/backlog" ] || command -v backlog >/dev/null 2>&1; then
+  BL="$(command -v backlog || echo "$_bl_root/bin/backlog")"
   OPEN="$("$BL" 2>/dev/null | grep -E "^ +[0-9]+ " | head -8)"
   if [ -n "$OPEN" ]; then
     echo ""

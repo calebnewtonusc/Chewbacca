@@ -82,6 +82,16 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key> <true/>
   <!-- Both are required before the frameworks will even prompt. Without them
        the app is killed on the first call rather than being denied. -->
+  <!-- Without this key macOS terminates the app the instant it opens a video
+       device, with no crash dialog and nothing in the app's own log, because
+       the kill happens before any of its code runs. Hand control shipped on
+       2026-09-21 as correct Swift that could not start for exactly this
+       reason. -->
+  <key>NSCameraUsageDescription</key>
+  <string>Bob HUD watches for two hand gestures, an open palm to dismiss and a
+  pointed finger to say "this one". Frames are read on this Mac by Apple's
+  Vision framework and never leave it, and the camera is off unless you turn
+  hand control on in the menu.</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>Bob HUD listens only while you hold the globe key, or on a wake word if you turn that on. Recognition runs on this Mac.</string>
   <key>NSSpeechRecognitionUsageDescription</key>

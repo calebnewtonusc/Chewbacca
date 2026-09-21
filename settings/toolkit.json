@@ -3,9 +3,12 @@
   "skills": {
     "vendored": [
       "agent-setup",
+      "asa",
       "audio-brief",
+      "call-coach",
       "coursework",
       "debugging",
+      "deep-research",
       "demo",
       "graph-engineering",
       "hud",
@@ -24,15 +27,19 @@
       "mac-runtime",
       "mac-see",
       "people",
+      "prospect-brief",
       "repo-health",
       "reviewing-changes",
       "second-brain",
       "setup",
       "shipping",
+      "skill-forge",
+      "skill-training",
       "stack-rules",
       "study-guide",
       "study-system",
       "texts",
+      "what-can-this-do",
       "your-data"
     ],
     "upstream": [
@@ -161,6 +168,7 @@
     "security-guidance@claude-plugins-official",
     "serena@claude-plugins-official",
     "session-report@claude-plugins-official",
+    "swift-lsp@claude-plugins-official",
     "typescript-lsp@claude-plugins-official",
     "understand-anything@understand-anything",
     "vercel@claude-plugins-official"
