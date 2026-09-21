@@ -795,6 +795,19 @@ fi
 
 if group "hud"; then
   check  "hud parses"         bash -n "$ROOT/bin/hud"
+  # EVERY Swift target must compile, test targets included.
+  #
+  # On 2026-09-21 the Portal target failed to compile on Swift 6.1.2 and
+  # took `swift test` for the whole package down with it: 177 unrelated
+  # tests never ran, because the build died before any test file was
+  # reached. Nothing here noticed, since this suite only checked that the
+  # shell and Python entry points parse. `--build-tests` compiles the test
+  # targets without running them, which catches both shapes of that failure
+  # (a source error and an unresolvable `import`) in seconds.
+  if command -v swift >/dev/null 2>&1 && [ -d "$ROOT/hud" ]; then
+    check "every swift target compiles, tests included" \
+      swift build --package-path "$ROOT/hud" --build-tests
+  fi
   # Why there is no border on the screen. Every link in that chain failed
   # silently on somebody else's Mac before this existed.
   check  "the display can say why it is not drawing" python3 "$ROOT/tests/test_hud_doctor.py"
