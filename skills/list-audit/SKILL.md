@@ -170,3 +170,41 @@ Dropping any term learned by three or more campaigns helped without fixing it.
 For cold outbound a wrong-thesis message costs more than a missed contact, so
 precision beats recall and curated terms win. Keep the experiment behind a flag
 so the conclusion stays checkable instead of becoming folklore.
+
+## Dedupe at every level the recipient experiences
+
+Allocation fixes one sender hitting one person five times. It does nothing about
+one sender hitting ten partners at the same fund about the same deal, which from
+inside that fund reads identically. One real run had ten people from a single
+firm on one campaign's list.
+
+Capping per firm *per campaign* is also not enough. Two from each of five
+campaigns is still six emails from one sender, and the observed maximum was seven
+before the cap became a global budget spent best-score-first across all campaigns
+at once. The person gets one, the firm gets at most two, and both ceilings belong
+to the sender rather than to a campaign.
+
+Then read the files back and count. "Capped by construction" is a claim about
+code.
+
+## Drop shared mailboxes and people who cannot decide
+
+A cold pitch to `info@`, `ir@` or `admin@` reaches a form. In one run 314 rows
+were shared mailboxes and 927 carried titles that cannot write a cheque: analyst,
+associate, coordinator, executive assistant, and 58 whose entire title was "Mr.".
+Both come off the list rather than down the ranking, because a junior contact is
+a reasonable second touch and a bad first one.
+
+## Two mechanical traps that hide in plain sight
+
+**Case-sensitive filters against scraped text.** A placeholder filter read
+`organization NOT IN ('Unknown','Person','company')` and the file held `Company`
+with a capital C 74,137 times. SQLite comparison is case-sensitive, so all of
+them passed and 843 reached the final lists. Always `LOWER(TRIM(col))`, because
+the same placeholder arrives in four spellings.
+
+**A scripted edit that matched nothing.** A summary line printed `FINAL: 0` after
+a string replacement silently failed against a format string that had changed
+underneath it. Zero reads as a crash rather than as a lie, which is why it nearly
+shipped. Assert the anchor before writing and re-read the file after, since a
+`replace()` that matches nothing still exits successfully.
