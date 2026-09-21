@@ -1,0 +1,10 @@
+{
+  "host":      {"type": "string", "example": "acconline.austincc.edu", "required": true, "note": "the school's Blackboard Ultra hostname"},
+  "school":    {"type": "string", "example": "acc", "required": true, "note": "short slug; names the state file and the output dir"},
+  "calendar":  {"type": "string", "example": "ACC Fall 2026", "default": null, "note": "Apple Calendar to write to. Omitted means read only."},
+  "courses":   {"type": "list",   "example": ["ANTH 2351", "SPAN 1412"], "default": [], "note": "empty means every enrolled course"},
+  "since":     {"type": "date",   "example": "2026-08-20", "default": null, "note": "calendar window start; defaults to 60 days back"},
+  "until":     {"type": "date",   "example": "2027-01-05", "default": null, "note": "calendar window end; defaults to 180 days ahead"},
+  "out":       {"type": "path",   "example": "~/coursework/.ingest", "default": "~/coursework/.ingest"},
+  "headed":    {"type": "bool",   "example": false, "default": false, "note": "show the browser; needed only for the first sign-in"}
+}
