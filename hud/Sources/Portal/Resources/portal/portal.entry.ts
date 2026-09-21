@@ -86,6 +86,9 @@ let sizeScale = 1;
 // and the arc only extends along it, which is also what the reference does
 // and what makes the gesture feel like drawing rather than negotiating.
 let drawing: { cx: number; cy: number; r: number; a0: number } | null = null;
+// The oldest part of the stroke is dropped once, at the latch, not every
+// frame after it, or the line would eat itself.
+let trimmedAtLatch = false;
 // The raw path the pinch has taken this stroke, in screen-normalized space.
 // It is drawn as a line from the first frame and BENDS onto the fitted
 // circle as the detector starts to recognise one, which is what he asked
@@ -149,7 +152,11 @@ let trailPx = 300;
 // fit to the whole stroke: latching at 45% is 59px off centre, at 65% 19px,
 // at 75% 26px. Worse again past 65 because the last stretch of a hand-drawn
 // circle is where the wrist gives out.
-const LATCH_AT = 0.65;
+// WAY TOO EASILY STARTING A CIRCLE. 0.65 of progress is 209 degrees of arc,
+// barely past halfway, and the ring was already on the glass. 0.80 is 257
+// degrees: most of the way round, and past the point where a curved flick
+// could still turn into something else.
+const LATCH_AT = 0.8;
 let lastSeen = 0;
 
 // The host pushes frames in here. Declared on window so evaluateJavaScript
@@ -644,7 +651,7 @@ function frame(now: number) {
     }
   }
   if (S.phase !== "drawing" && drawing) drawing = null;
-  if (!pinched) softFit = null;
+  if (!pinched) { softFit = null; trimmedAtLatch = false; }
   if (portalUp) stroke = [];
   if (!portalUp && prevPhase === "closing") {
     detector.reset(); comet = []; attract = null;
@@ -805,7 +812,9 @@ function frame(now: number) {
     // appears is the frame it stops moving, and the bend ramps to full over
     // the quarter of progress after that: 201 degrees of arc to 278, with
     // the portal opening at 309.
-    const turned = Math.max(0, Math.min(1, (p.progress - LATCH_AT) / 0.25));
+    // Full strength by 0.95, not 1.05, so the bend actually finishes
+    // before the portal opens rather than being cut off mid-way.
+    const turned = Math.max(0, Math.min(1, (p.progress - LATCH_AT) / 0.15));
     const round = Math.max(0, Math.min(1, (p.roundness - 0.55) / 0.3));
     const conf = turned * round;
     const k = Math.pow(conf, 0.9);
@@ -984,6 +993,16 @@ function frame(now: number) {
     // path stops describing what was meant.
     if (!drawing || p.progress < LATCH_AT) {
       drawing = { cx: p.center.x, cy: p.center.y, r: p.radius, a0: p.startAngle };
+    } else if (!trimmedAtLatch) {
+      // "start it not where the circle began, but further along the circle
+      // path." The ring is formed by the drawn line bending onto it, so it
+      // began wherever the hand began, and by the time a circle is confirmed
+      // that is most of a turn behind. Dropping the oldest third at the
+      // moment of confirmation starts the ring further round, where the hand
+      // actually is, instead of reaching back to the beginning of a gesture
+      // that is already over.
+      trimmedAtLatch = true;
+      if (stroke.length > 12) stroke.splice(0, Math.floor(stroke.length * 0.35));
     }
   }
 
