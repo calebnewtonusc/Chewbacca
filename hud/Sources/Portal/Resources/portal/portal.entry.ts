@@ -375,19 +375,20 @@ function frame(now: number) {
     // that far removed the only thing telling him where the tracker thought
     // his hand was, which is the difference between aiming and guessing.
     // Small and dim, but visible.
+    // POINTS, NOT DOTS. "not those dots those are ugly. Im talking the
+    // individual small point you had earlier." A filled circle wide enough
+    // to read as a shape competes with the effect; a single bright pixel
+    // reads as a position and nothing else. The brightness carries the
+    // information instead of the size.
     for (const t of FINGER_TIPS) {
-      ctx.fillStyle = `rgba(${SPARK_MID}, ${pinched ? 0.8 : 0.35})`;
-      ctx.beginPath();
-      ctx.arc(mx(lm[t].x), my(lm[t].y), pinched ? 2.6 : 1.8, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillStyle = `rgba(${SPARK_MID}, ${pinched ? 0.75 : 0.4})`;
+      ctx.fillRect(Math.round(mx(lm[t].x)), Math.round(my(lm[t].y)), 1, 1);
     }
-    // The pinch point, which is the pen. Where the tip is matters more than
-    // where the fingers are.
+    // The pinch point is the pen, so it gets one pixel brighter rather than
+    // one pixel bigger.
     if (pinch?.center) {
-      ctx.fillStyle = `rgba(${CORE}, 0.9)`;
-      ctx.beginPath();
-      ctx.arc(mx(pinch.center.x), my(pinch.center.y), 3.4, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillStyle = `rgba(${CORE}, 1)`;
+      ctx.fillRect(Math.round(mx(pinch.center.x)), Math.round(my(pinch.center.y)), 2, 2);
     }
 
     // HOW MUCH OF THE CIRCLE HAS REGISTERED. "Still really hard to draw
