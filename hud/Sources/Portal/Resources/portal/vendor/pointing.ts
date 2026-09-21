@@ -59,6 +59,35 @@ export interface ScreenModel {
 }
 
 /** Real-world sizes used as rangefinders. Millimetres. */
+/**
+ * How far in front of the face the hand must be before the ray is trusted.
+ *
+ * THE BUG THIS FIXES, 2026-09-21. Caleb: "The portal keeps randomly
+ * starting on random parts of the screen that totally have nothing to do
+ * with where my pinch is."
+ *
+ * The ray crosses the screen at t = eyeZ / (eyeZ - fingerZ), so as the hand
+ * approaches the plane of the face that denominator goes to zero and t
+ * explodes. With the eye at 600mm and the hand at 590mm, t is 60: a ten
+ * millimetre movement of the fingertip becomes six hundred millimetres on
+ * screen, twice the width of a 14 inch display. The maths is right and the
+ * answer is useless, which is the same shape as the circle fit that put a
+ * portal bigger than the screen on a small flick.
+ *
+ * Both depths are estimated from apparent size and both are noisy, so the
+ * hand's estimate wanders through that zone on its own. A guard against
+ * dividing by zero was not enough; the numbers were finite and absurd.
+ */
+export const MIN_SEPARATION_MM = 120;
+
+/**
+ * Largest extrapolation the ray is allowed. Past this the geometry is not
+ * trustworthy enough to place a portal, and the camera-relative point,
+ * which is wrong by a known parallax, beats an answer that is wrong by an
+ * unknown multiple.
+ */
+export const MAX_RAY_GAIN = 8;
+
 export interface Anthropometrics {
   /** Pupil to pupil. Adult mean is about 63mm, and the spread is small. */
   ipdMm: number;
@@ -146,12 +175,16 @@ export function rayToScreen(eye: Vec3, finger: Vec3, screen: ScreenModel): { x: 
   // nearer the screen than the eye or the ray never reaches it, which is
   // also true of a real arm.
   const dz = eye.z - finger.z;
-  if (!(dz > 1e-6)) {
-    // Degenerate: hand level with the face. Fall back to the finger's own
-    // position, which is the camera-relative answer and at least stable.
+  // Not just a guard against zero. See MIN_SEPARATION_MM: a hand a
+  // centimetre in front of the face produces a finite, enormous t, and the
+  // portal lands somewhere unrelated to the finger.
+  if (!(dz > MIN_SEPARATION_MM)) {
     return mmToPixels(finger.x, finger.y, screen);
   }
   const t = eye.z / dz;
+  if (!isFinite(t) || t > MAX_RAY_GAIN) {
+    return mmToPixels(finger.x, finger.y, screen);
+  }
   return mmToPixels(
     eye.x + (finger.x - eye.x) * t,
     eye.y + (finger.y - eye.y) * t,
