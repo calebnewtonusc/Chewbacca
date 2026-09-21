@@ -98,6 +98,21 @@ public struct OverlayView: View {
                     .zIndex(9998)
             }
 
+            // The terminal strip, directly under the pill and standing on
+            // its own when the pill is down: the tab can be running while
+            // the assistant is dormant, and that is when the strip matters.
+            if let strip = model.terminal, !model.chatOpen {
+                TerminalStripView(strip: strip, onFocus: { model.focusTerminal() })
+                    .frame(maxWidth: PillView.maxWidth)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    // The pill sits at bottomInset + pillLift (14) from the
+                    // bottom and is about 40pt tall; this 22pt strip at
+                    // bottomInset - 8 ends where the pill begins.
+                    .padding(.bottom, Self.bottomInset - 8)
+                    .transition(.opacity)
+                    .zIndex(9998)
+            }
+
             ForEach(model.surfaces) { surface in
                 SurfaceCard(
                     surface: surface,

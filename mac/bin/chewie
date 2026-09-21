@@ -50,6 +50,9 @@ chewie - control a Mac from an agent
   chewie run    <script> [--js]      AppleScript (layer 2), or JXA with --js
   chewie texts  [--days N] [--who NAME] [--unanswered] [--json]
                                      read iMessage history (layer 1, no UI)
+  chewie terminal tabs|ensure|draft|submit|clear|answer|interrupt|focus|hook
+                                     the Claude Code tab in Terminal
+                                     (submit needs CHEWIE_TERMINAL_SUBMIT=1; hook reads a Claude Code event on stdin)
   chewie web    {read|eval|click|fill|goto|tabs} ...
                                      read and drive web pages via Chrome DevTools (layer 6)
   chewie plan   {check|run} <plan.json> [--yes]
@@ -291,6 +294,14 @@ cmd_texts() {
   python3 "$py" ${JSON:+--json} "$@"
 }
 
+# ---------- terminal (layer 2) ----------
+cmd_terminal() {
+  local py="$CHEWIE_ROOT/lib/terminal.py"
+  [ -f "$py" ] || die "missing $py"
+  if [ "$DRY" = 1 ]; then echo "[dry-run] python3 $py $*"; return 0; fi
+  python3 "$py" ${JSON:+--json} "$@"
+}
+
 # ---------- run (layer 2) ----------
 cmd_run() {
   local script="${1:-}"; shift || true
@@ -313,6 +324,7 @@ case "${1:-}" in
   plan)   shift; cmd_plan "$@" ;;
   brief)  shift; cmd_brief "$@" ;;
   log)    shift; cmd_log "$@" ;;
+  terminal) shift; cmd_terminal "$@" ;;
   ""|-h|--help|help) usage ;;
   *) die "unknown command: $1 (try: chewie --help)" ;;
 esac
