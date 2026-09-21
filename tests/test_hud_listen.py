@@ -633,6 +633,8 @@ def test_lean_prompt(m) -> None:
     check("the prompt names Chrome and the screen, with the hard lines",
           "chrome-js --list" in standing and "chewie see --app" in standing and "summarize" in standing
           and "Never type a password" in standing and "stays theirs" in standing)
+    check("and the stays procedure, with the human-check line",
+          'stays "<City, Country>"' in standing and "never work around" in standing)
 
 
 def test_pick_names(m) -> None:

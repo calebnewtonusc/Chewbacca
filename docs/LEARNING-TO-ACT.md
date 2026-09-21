@@ -192,6 +192,7 @@ front of them. That is the consent model the registry runs on.
 | acting inside the logged-in browser     | `chrome-js`: text, click by label, arbitrary JS                              |
 | a headless browser                      | Playwright, already used by `hud-music`                                      |
 | a procedure that runs without the model | `hud-music`, `hud-guide`, hand-written                                       |
+| a procedure distilled from a task       | `procedures/stays-compare`, from the Valencia run of 2026-09-20; `maps/` for Airbnb, Booking and Vrbo |
 | a recorder for free-form sessions       | missing: what Claude does through peekaboo and chrome-js leaves no trace     |
 | a distiller                             | missing                                                                      |
 | retrieval before acting                 | missing: nothing checks for a procedure before exploring                     |
