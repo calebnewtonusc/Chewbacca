@@ -1471,7 +1471,10 @@
       sp.life -= 4e-3;
       if (sp.life <= 0) continue;
       alive.push(sp);
-      if (portalUp && insidePortal(sp.x, sp.y)) sparksInHole++;
+      if (portalUp && insidePortal(sp.x, sp.y)) {
+        sparksInHole++;
+        continue;
+      }
       const speed = Math.hypot(sp.vx, sp.vy) || 1;
       const len = Math.max(5, Math.min(20, speed * 2.4));
       const h = sp.heat * sp.life;
