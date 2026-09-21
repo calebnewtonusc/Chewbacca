@@ -52,3 +52,4 @@ voice/.build/
 # A2A course material and its pipeline: reference for the second brain,
 # not a project to publish.
 /asa/
+tests/.circle-under-test.mjs
