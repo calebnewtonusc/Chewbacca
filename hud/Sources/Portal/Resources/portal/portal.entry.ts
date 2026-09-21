@@ -99,6 +99,10 @@ let announcedAtLatch = false;
 // sector would pop in at the instant it opened. They are carried across so the
 // gap can close over the ignition instead.
 let openGap = 0, openGapFrom = 0, openCcw = false;
+// How much of the other side is showing, eased. A target that switches on and
+// off would pop in and vanish; this follows it, so an abandoned circle takes
+// its portal away with it instead of the other dimension blinking out.
+let mirrorAmt = 0;
 // The raw path the pinch has taken this stroke, in screen-normalized space.
 // It is drawn as a line from the first frame and BENDS onto the fitted
 // circle as the detector starts to recognise one, which is what he asked
@@ -491,49 +495,73 @@ function frame(now: number) {
     }
 
     // The part of the circle the hand has not reached yet.
+    //
+    // NOT A WEDGE. Twice now this has been two straight radii meeting at the
+    // middle: "It still looks like a pie lol."
+    //
+    // "it should be a rough curve that goes from the 2 points on the
+    //  incomplete circle, curving towards the center, with the middle part of
+    //  the curve getting closer to the 2 other points and all 3 pts coming
+    //  together when the circle completes."
+    //
+    // So the region erased is a LUNE, not a sector. Its outer edge is the
+    // undrawn arc itself. Its inner edge is a curve running between the two
+    // ends of that arc, dipping toward the middle without ever arriving
+    // there, and the dip is what shrinks as the circle closes:
+    //
+    //     undrawn   dip reaches   what it looks like
+    //       90%        0.1 R      nearly the whole disc, tip rounded off
+    //       50%        0.5 R      a broad crescent
+    //       20%        0.8 R      a sliver along the rim
+    //        0%          R        the three points meet, nothing erased
+    //
+    // A radius has one shape and it is the shape of a pie chart. A lune with
+    // a moving depth is the only version of this where the boundary is a
+    // curve at every stage, including the first.
     if (gapSize > 0.002 && cloud > 0.002) {
       const blur = Math.max(3, Rp * 0.1);
       ctx.filter = `blur(${blur.toFixed(1)}px)`;
-      const feather = Math.min(gapSize * 0.45, 0.13);
       const dir = ccw ? -1 : 1;
-      const cg = (ctx as unknown as {
-        createConicGradient?: (a: number, x: number, y: number) => CanvasGradient;
-      }).createConicGradient?.(gapFrom, cxp, cyp);
-      if (cg) {
-        const at = (f: number) => Math.max(0, Math.min(1, ccw ? 1 - f : f));
-        const stops: [number, string][] = [
-          [at(0), "rgba(0,0,0,0)"],
-          [at(feather), "rgba(0,0,0,1)"],
-          [at(gapSize - feather), "rgba(0,0,0,1)"],
-          [at(gapSize), "rgba(0,0,0,0)"],
-        ];
-        for (const [o, c] of stops.sort((a, b) => a[0] - b[0])) cg.addColorStop(o, c);
-        ctx.fillStyle = cg;
-        ctx.beginPath();
-        ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        // No conic gradient on this engine. A blurred wedge is still softer
-        // than a clipped one.
-        ctx.fillStyle = "rgba(0,0,0,1)";
-        ctx.beginPath();
-        ctx.moveTo(cxp, cyp);
-        ctx.arc(cxp, cyp, Rp, gapFrom, gapFrom + dir * gapSize * Math.PI * 2, ccw);
-        ctx.closePath();
-        ctx.fill();
+      const gapAng = gapSize * Math.PI * 2;
+      // How far in the middle of the curve reaches. Never the centre, and it
+      // climbs to the rim as the gap closes so all three points converge.
+      const dip = Rp * (1 - Math.pow(gapSize, 0.75)) + Rp * 0.06;
+      const STEPS = 40;
+      ctx.beginPath();
+      // Out along the undrawn arc.
+      for (let i = 0; i <= STEPS; i++) {
+        const th = gapFrom + dir * (i / STEPS) * gapAng;
+        const x = cxp + Math.cos(th) * Rp, y = cyp + Math.sin(th) * Rp;
+        if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
       }
+      // And back along the bowed curve. Rough, not clean: the radius carries
+      // a slow wobble so the boundary looks like weather rather than a
+      // compass arc.
+      for (let i = STEPS; i >= 0; i--) {
+        const u = i / STEPS;
+        const th = gapFrom + dir * u * gapAng;
+        const bow = Math.sin(Math.PI * u);
+        const rough = 1 + 0.05 * Math.sin(u * 7.3 + now / 900)
+                        + 0.03 * Math.sin(u * 13.1 - now / 1400);
+        const rr = (Rp - (Rp - Math.min(dip, Rp)) * bow) * rough;
+        ctx.lineTo(cxp + Math.cos(th) * rr, cyp + Math.sin(th) * rr);
+      }
+      ctx.closePath();
+      ctx.fillStyle = "rgba(0,0,0,1)";
+      ctx.fill();
 
       // Blobs along the boundary, so the edge is lumpy rather than a clean
       // sweep. Slow, tied to the clock, so it drifts instead of flickering.
-      const edge = gapFrom + dir * feather * Math.PI * 2;
       for (let i = 0; i < 5; i++) {
         const t = now / 3000 + i * 1.7;
-        const a = edge + dir * (Math.sin(t) * 0.22 + 0.06);
-        const rr = Rp * (0.3 + 0.45 * ((Math.sin(t * 1.3 + i) + 1) / 2));
-        const br = Rp * (0.18 + 0.12 * ((Math.cos(t * 0.9 + i) + 1) / 2));
-        const bx = cxp + Math.cos(a) * rr, by = cyp + Math.sin(a) * rr;
+        const u = 0.15 + 0.7 * ((Math.sin(t) + 1) / 2);
+        const th = gapFrom + dir * u * gapAng;
+        const bow = Math.sin(Math.PI * u);
+        const rr = Rp - (Rp - Math.min(dip, Rp)) * bow;
+        const br = Rp * (0.1 + 0.1 * ((Math.cos(t * 0.9 + i) + 1) / 2));
+        const bx = cxp + Math.cos(th) * rr, by = cyp + Math.sin(th) * rr;
         const g2 = ctx.createRadialGradient(bx, by, 0, bx, by, br);
-        g2.addColorStop(0, "rgba(0,0,0,0.85)");
+        g2.addColorStop(0, "rgba(0,0,0,0.8)");
         g2.addColorStop(1, "rgba(0,0,0,0)");
         ctx.fillStyle = g2;
         ctx.beginPath();
@@ -1104,23 +1132,41 @@ function frame(now: number) {
     //
     const REVEAL_AT = 0.5;
     const reveal = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / (1 - REVEAL_AT)));
-    if (fitC && !portalUp && reveal > 0.01) {
+
+    // NOT BEFORE A CIRCLE IS ACTUALLY BEING DRAWN. "portal see through
+    // shouldn't start until initiation of the circle starts!"
+    //
+    // This was gated on turning alone, and progress is turning over the
+    // threshold, so any arc past 156 degrees opened the other side whether or
+    // not anything circular was happening. A hand sweeping across the frame
+    // while pinched put a large faint disc on the glass with no circle
+    // anywhere near it, which is exactly what the screenshot showed.
+    //
+    // It needs the same two things the ring needs: enough turning AND a path
+    // that stayed round while turning. Roundness is what separates a circle
+    // being drawn from a hand that merely moved.
+    const recognised = pinched && p.roundness >= 0.55 && p.progress >= REVEAL_AT;
+
+    // "And as a circle gets cancelled it should smoothly be cancelled with
+    // it." The target is followed rather than used directly, so letting go,
+    // breaking the shape, or running out of turn takes the other side away
+    // over about a fifth of a second instead of blinking it out.
+    const want = !portalUp && fitC && recognised ? 0.12 + 0.88 * reveal : 0;
+    mirrorAmt += (want - mirrorAmt) * 0.15;
+
+    if (fitC && !portalUp && mirrorAmt > 0.006) {
       const cvx = mx(fitC.cx), cvy = my(fitC.cy);
       const Rv = Math.max(4, fitC.r * RPX);
-      const ccw = p.sweep < 0;
-      // How much of the turn is still missing, and where it starts.
-      const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
-      const gapSize = Math.max(0, 1 - doneTurns);
-      const gapFrom = p.endAngle ?? 0;
-      // "starting pretty transparent and ramping up to fully visible as the
-      // circle completes." Not from nothing: at half a turn it is already
-      // faintly there, which is what makes it read as arriving rather than
-      // switching on.
-      const strength = 0.12 + 0.88 * reveal;
-      // The clouding thins out over the last third of a turn, so by the time
-      // the circle closes there is none left and nothing has to jump.
-      openGap = gapSize; openGapFrom = gapFrom; openCcw = ccw;
-      paintMirror(cvx, cvy, Rv, strength, gapFrom, gapSize, ccw, 1);
+      // While it fades out after a cancelled circle there is no live gap to
+      // use, so the last one is held. Otherwise the boundary would snap round
+      // to nothing on the way out.
+      if (recognised) {
+        const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
+        openGap = Math.max(0, 1 - doneTurns);
+        openGapFrom = p.endAngle ?? 0;
+        openCcw = p.sweep < 0;
+      }
+      paintMirror(cvx, cvy, Rv, mirrorAmt, openGapFrom, openGap, openCcw, 1);
     }
 
     ctx.globalCompositeOperation = "lighter";
