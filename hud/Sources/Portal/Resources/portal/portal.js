@@ -719,6 +719,10 @@
     }
     return trailPx;
   };
+  var placedOk = false;
+  window.chewbaccaPlaced = (ok) => {
+    placedOk = !!ok;
+  };
   window.chewbaccaArm = (label) => {
     armed = label ? { label } : null;
   };
@@ -1051,6 +1055,7 @@
       trimmedAtLatch = false;
       announcedAtLatch = false;
     }
+    if (!portalUp) placedOk = false;
     if (!portalUp) {
       settleX = 0;
       settleV = 0;
@@ -1277,7 +1282,7 @@
       if (S.phase === "open") attract = { cx: cn.x, cy: cn.y, r: rpx };
       if (rpx >= 2) {
         const cx0 = px(cn.x), cy0 = py(cn.y);
-        if (armed) {
+        if (armed && placedOk) {
           ctx.globalCompositeOperation = "destination-out";
           ctx.globalAlpha = 1;
           disc(cn, rn * 0.985);

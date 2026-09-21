@@ -310,6 +310,14 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
             else { return }
             let placed = WindowPlacer.place(
                 appName: name, centerX: x, centerY: y, radius: r)
+            // Tell the page. An armed portal erases the glass to show the
+            // real window through it, and if no window was placed that is a
+            // hole onto nothing: on 2026-09-21 Portal had no Accessibility
+            // grant, every placement failed, and the portal came out as a
+            // bright ring around an empty middle. The page falls back to the
+            // mirror dimension when it hears this.
+            self.web?.evaluateJavaScript(
+                "window.chewbaccaPlaced&&window.chewbaccaPlaced(\(placed))")
             if !placed {
                 FileHandle.standardError.write(Data(
                     "portal: could not place \(name). Grant Accessibility to Portal.app in System Settings, Privacy and Security.\n".utf8))
