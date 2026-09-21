@@ -1,4 +1,5 @@
 import { smoothPath } from "./vendor/smooth";
+import { MirrorGL } from "./vendor/mirror-gl";
 import { CircleGestureDetector, type CircleProgress } from "./vendor/circle";
 import {
   initialPortalState,
@@ -132,6 +133,8 @@ let drawnMax = 0;
 // A CANCEL IS AN ANIMATION, NOT AN EVENT. True from the frame the fingers
 // open until the line has finished retracting back to where it started.
 let cancelling = false;
+// Which way round the circle is being drawn, decided once per gesture.
+let ccwLatch: boolean | null = null;
 // WHERE THE SPIRAL BEGINS. The angle at which the drawn line first joined
 // the circle, held for the life of the gesture.
 //
@@ -294,14 +297,68 @@ mirror.onload = () => {
         text: `filter ramp ${ramp}px, shadowBlur ramp ${ramp2}px (0 = ignored)` });
     }
   } catch (e) { /* nothing to report */ }
+  mirrorGL.setImage(mirror);
+  if (!mirrorGL.ready) {
+    // A local file loaded into an <img> taints the canvas, and WebGL refuses
+    // a tainted upload. Same origin BYTES are accepted where the element is
+    // not, so fetch it and hand the shader an ImageBitmap instead.
+    //
+    // This failing is why the shader looked like it did nothing: setImage
+    // threw inside the image's onload, which aborted the rest of that
+    // handler, so even the "mirror loaded" line never printed and the 2D
+    // fallback ran with no indication anywhere that it had.
+    fetch("mirror.jpg")
+      .then((r) => r.blob())
+      .then((b) => createImageBitmap(b))
+      .then((bmp) => {
+        mirrorGL.setImage(bmp);
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "log",
+          text: `mirror-gl bitmap upload: ${mirrorGL.ready ? "ok" : "still no"}` });
+      })
+      .catch((e) => {
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "log", text: `mirror-gl bitmap failed: ${e}` });
+      });
+  }
+  if (!mirrorGL.ready) {
+    // Same origin bytes instead of a tainted <img>. fetch gives an
+    // ImageBitmap the GL layer will accept where the element is refused.
+    fetch("mirror.jpg")
+      .then((r) => r.blob())
+      .then((b) => createImageBitmap(b))
+      .then((bmp) => {
+        mirrorGL.setImage(bmp);
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "log", text: `mirror-gl via bitmap: ${mirrorGL.ready ? "ok" : "still no"}` });
+      })
+      .catch((e) => {
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "log", text: `mirror-gl bitmap failed: ${e}` });
+      });
+  }
   window.webkit?.messageHandlers?.portal?.postMessage({
-    event: "log", text: `mirror loaded ${mirror.width}x${mirror.height}` });
+    event: "log",
+    text: `mirror loaded ${mirror.width}x${mirror.height}`
+      + ` gl=${mirrorGL.ready ? "yes" : "NO"}` });
 };
 mirror.onerror = () => {
   window.webkit?.messageHandlers?.portal?.postMessage({
     event: "log", text: "mirror FAILED to load" });
 };
-mirror.src = "mirror.jpg";
+// Same origin, so it neither taints the canvas nor needs fetching. The file
+// is still there as a fallback if the build step did not run.
+mirror.src = (window as unknown as { __mirrorDataURL?: string }).__mirrorDataURL
+  || "mirror.jpg";
+
+// THE OTHER SIDE IS A FIELD, NOT A PILE OF SHAPES. See vendor/mirror-gl.ts
+// for why. Falls back to the Canvas 2D path below if WebGL is unavailable,
+// so the portal still opens on a machine that cannot run it.
+const mirrorGL = new MirrorGL();
+if (mirrorGL.error) {
+  window.webkit?.messageHandlers?.portal?.postMessage({
+    event: "log", text: `mirror-gl unavailable, using canvas: ${mirrorGL.error}` });
+}
 
 // WHERE THE CIRCLE STOPS MOVING, and, because they are the same moment, where
 // it first appears at all.
@@ -774,6 +831,59 @@ function frame(now: number) {
   ) => {
     if (!mirrorReady || !maskCtx || strength <= 0.004 || Rp < 3) return;
 
+    // THE SHADER PATH. Everything below this block is the Canvas 2D version
+    // it replaces, kept only as a fallback for a machine without WebGL2.
+    //
+    // The whole of the 2D mask, the stamped fog ladder, the semicircular end
+    // caps, the off canvas shadow trick, the erased blobs and the veil, is
+    // four smoothsteps multiplied together in mirror-gl.ts.
+    if (mirrorGL.ready) {
+      const gpad = 2;
+      const gsize = Math.ceil(2 * Rp + gpad * 2);
+      const gox = cxp - Rp - gpad, goy = cyp - Rp - gpad;
+      const gdir = ccw ? -1 : 1;
+      const gspan = Math.min(Math.PI * 2, (1 - gapSize) * Math.PI * 2);
+      const gf = Math.max(0, Math.min(1, fill));
+      const gsc = Math.max(W / mirror.width, H / mirror.height);
+      const gdw = mirror.width * gsc, gdh = mirror.height * gsc;
+      const out = mirrorGL.render({
+        size: gsize,
+        cx: Rp + gpad,
+        cy: Rp + gpad,
+        R: Rp,
+        aStart: gapFrom - gdir * gspan,
+        aSpan: gspan,
+        dir: gdir,
+        lead: Math.pow(gf, 2.5),
+        spiral,
+        // A fraction of the hole, so it cannot touch the middle early and
+        // cannot outlive completion.
+        fog: 0.18,
+        veil: (1 - gf) * 0.75,
+        strength,
+        img: {
+          x: (W - gdw) / 2 - gox,
+          y: (H - gdh) / 2 - goy,
+          w: gdw,
+          h: gdh,
+        },
+      });
+      if (out) {
+        // A KNOWN STATE FOR THE COPY. The open-portal call site leaves
+        // "lighter" set from the rim glow, and copying the other side in
+        // under that is how the interior came back empty the moment the
+        // portal finished opening, with the shader computing a good disc.
+        const pOp = ctx.globalCompositeOperation;
+        const pA = ctx.globalAlpha;
+        ctx.globalCompositeOperation = "source-over";
+        ctx.globalAlpha = 1;
+        ctx.drawImage(out, gox, goy);
+        ctx.globalCompositeOperation = pOp;
+        ctx.globalAlpha = pA;
+        return;
+      }
+    }
+
     // MUCH WIDER. "Much larger gradient on the edges, it seems so abrupt."
     // 0.16 R at most, and on a 300px portal that is a 48px edge, which is
     // abrupt next to the thing it is supposed to be dissolving into.
@@ -1016,19 +1126,25 @@ function frame(now: number) {
     // the way in.
     const innerAt = (u: number, reach: number) =>
       Math.max(0, Rp * (1 - depthAt(u)) * (1 - reach));
-    const ribbon = (reach: number) => {
+    // `trim` pulls both ENDS of the arc back by the same idea that `reach`
+    // pushes the inner edge forward, so one stamp is smaller in both
+    // directions at once.
+    const ribbon = (reach: number, trim: number) => {
+      const u0 = trim, uSpan = Math.max(0.02, 1 - 2 * trim);
+      const uAt = (i: number) => u0 + (i / STEPS) * uSpan;
       m.beginPath();
       for (let i = 0; i <= STEPS; i++) {
-        const q = ptAt(i / STEPS, Rp);
+        const q = ptAt(uAt(i), Rp);
         if (i) m.lineTo(q.x, q.y); else m.moveTo(q.x, q.y);
       }
-      capTo(ptAt(1, Rp), ptAt(1, innerAt(1, reach)), dir);
+      const uEnd = uAt(STEPS), uBeg = uAt(0);
+      capTo(ptAt(uEnd, Rp), ptAt(uEnd, innerAt(uEnd, reach)), dir);
       for (let i = STEPS; i >= 0; i--) {
-        const u = i / STEPS;
+        const u = uAt(i);
         const q = ptAt(u, innerAt(u, reach));
         m.lineTo(q.x, q.y);
       }
-      capTo(ptAt(0, innerAt(0, reach)), ptAt(0, Rp), -dir);
+      capTo(ptAt(uBeg, innerAt(uBeg, reach)), ptAt(uBeg, Rp), -dir);
       m.closePath();
       m.fill();
     };
@@ -1088,19 +1204,56 @@ function frame(now: number) {
     // exponent front-loads the ramp so it is densest against the edge and
     // trails away, which is how fog behaves and is also what stops the
     // midpoint of the band reading as a line.
-    const FOG_STAMPS = 14;
+    // AND THE ENDS FADE ON THE SAME STACK, SO THERE IS NO SEAM WHERE THEY
+    // MEET. "The two things should go into each other seamlessly, like two
+    // gradients ran into each other."
+    //
+    // The two things are the wedge that has not been drawn yet and the hole
+    // in the middle that has not been filled yet. Both are unrevealed, they
+    // touch along the ribbon's end, and they were being softened by
+    // different mechanisms: the hole by this stack, the wedge by a small
+    // symmetric blur on the mask. Two different falloffs meeting along a
+    // line is a seam, and the corner where they met was the hardest edge in
+    // the whole portal.
+    //
+    // So each stamp pulls its ENDS back as well as its inner edge. Near the
+    // middle of the arc every stamp covers, and it is solid; toward an end,
+    // or toward the centre, fewer and fewer cover, and the alpha falls off.
+    // In the corner where the two meet the fewest cover of all, so the two
+    // falloffs are not merely matched, they are the same falloff, and there
+    // is nothing at the join to see.
+    //
+    // The end band is sized in ARC LENGTH to match the radial band in
+    // pixels, so the fade looks the same distance in both directions rather
+    // than being stretched by whatever the arc happens to be. Clamped,
+    // because on a barely started arc a proportional trim would eat it.
+    const endBand = Math.min(0.42, (0.38 * hole) / Math.max(0.2, drawnAng));
+    // AND THE LADDER IS FINE AND EVEN, OR THE STAMPS THEMSELVES SHOW.
+    //
+    // "Currently it looks like puzzle pieces clicking."
+    //
+    // 14 stamps on a 1.4 curve put the coverage at 62, 71, 81, 90, 100 near
+    // the edge. That is 10% alpha steps a few pixels apart, which is a stack
+    // of nested outlines, which is a pile of puzzle pieces. The curve was
+    // chosen to make the band denser against the edge and it did, by making
+    // the rungs coarsest exactly where they are most visible.
+    //
+    // 24 stamps on a linear ramp put every step at the same 4.2%. An even
+    // ladder that fine reads as a gradient rather than as its rungs.
+    const FOG_STAMPS = 24;
     let covered = 0;
     for (let j = FOG_STAMPS; j >= 1; j--) {
-      const target = Math.pow(1 - j / FOG_STAMPS, 1.4);
+      const t = j / FOG_STAMPS;
+      const target = 1 - t;
       const a = (target - covered) / (1 - covered);
       if (a > 0.002) {
         m.globalAlpha = Math.min(1, a);
-        ribbon((j / FOG_STAMPS) * 0.38);
+        ribbon(t * 0.38, t * endBand);
         covered = target;
       }
     }
     m.globalAlpha = 1;
-    ribbon(0);
+    ribbon(0, 0);
     m.shadowBlur = 0; m.shadowOffsetX = 0;
 
     // THE ENDS DISSOLVE, THEY ARE NOT CAPPED. "The edge of the radial cut
@@ -1625,6 +1778,7 @@ function frame(now: number) {
   // retract along, which is half of why a cancel just blinked out.
   if (!pinched) { trimmedAtLatch = false; announcedAtLatch = false; recognisedLatch = false; drawnMax = 0; }
   if (!pinched && !cancelling) arcStart = null;
+  if (!pinched && !cancelling) ccwLatch = null;
   if (!pinched && !cancelling) softFit = null;
   if (!portalUp) placedOk = false;
   if (!portalUp) { settleX = 0; settleV = 0; arcX = 0; arcV = 0; }
@@ -1943,7 +2097,22 @@ function frame(now: number) {
       // Arc already drawn does not un-draw. The extent only ever grows
       // within one pinch, and resets when the fingers open. Noise can no
       // longer take anything back, and the edge can only advance.
-      openCcw = p.sweep < 0;
+      // DECIDED ONCE, NOT EVERY FRAME. "Animating the wrong direction
+      // rotationally, it is a sudden frame jump."
+      //
+      // This read the SIGN of the sweep fresh every frame. Early in a
+      // gesture the sweep sits near zero and its sign flips with hand noise,
+      // and the direction is what places the whole ribbon: flip it and the
+      // arc is instantly rebuilt on the opposite side of the circle, in one
+      // frame, which is the jump. It also means the fill can run the wrong
+      // way round for as long as the wrong sign happens to hold.
+      //
+      // The detector already refuses to name a direction until there is
+      // half a radian of sweep to name it from. The first answer it gives is
+      // taken and kept for the rest of the gesture, so the arc is built the
+      // way the hand actually went and cannot be relocated by noise.
+      if (ccwLatch === null && p.direction) ccwLatch = p.direction === "ccw";
+      openCcw = ccwLatch ?? p.sweep < 0;
       const dirS = openCcw ? -1 : 1;
       const headAng = p.endAngle ?? 0;
 
@@ -2024,6 +2193,18 @@ function frame(now: number) {
       // retracts toward where the circle started rather than sliding round.
       const drawnNow = (1 - openGap) * Math.PI * 2;
       const leadNow = holdOld + (openCcw ? -1 : 1) * drawnNow;
+      // HANDED OVER TO THE OPEN PHASE. "That circle was drawn counter
+      // clockwise, but upon completion the animation went clockwise, super
+      // abrupt switch up."
+      //
+      // openGapFrom was declared and never assigned anywhere: it sat at 0
+      // for the life of the process. The drawing phase passes the live
+      // leading edge, so the arc tracked the hand correctly; the instant the
+      // portal opened the call switched to openGapFrom and anchored the arc
+      // at angle zero, which is a jump to a random place on the rim and a
+      // last stretch that closes whichever way zero happens to lie. Drawn
+      // counter clockwise it read as an abrupt reversal, because it was one.
+      openGapFrom = leadNow;
       paintMirror(cvx, cvy, Rv, mirrorAmt, leadNow, openGap, openCcw, 1, lastFill, 1);
     }
 
