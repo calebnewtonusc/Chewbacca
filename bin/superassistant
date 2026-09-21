@@ -239,6 +239,62 @@ def digest(brain: Path | None = None, log: Path | None = None) -> str:
     return "\n".join(out).rstrip() + "\n"
 
 
+# The files that make this Chewbacca rather than a voice assistant that happens
+# to run Claude Code.
+#
+# Caleb and Gavin, 2026-09-21: "The voice agent is retarded bc it is not
+# chewbacca based. We need it to be chewbacca based." They were right, and the
+# two fixes before this one were the wrong shape: hand-copying rules into
+# hud-agent.md builds a second, drifting copy of doctrine the kit already has.
+#
+# Measured the same question through two profiles on 2026-09-21:
+#   lean, as it was          30,170 tokens   7.7s
+#   full Claude Code        171,026 tokens  20.6s
+# Full is 5.7x the tokens and 2.7x the latency, unusable for something spoken
+# to all day, and most of it is 15 MCP servers and a session briefing a voice
+# question never needs. These four files are about 6k tokens together and are
+# the part that actually carries the kit's judgement.
+#
+# Read at build time rather than pasted, so editing methods/doctrine.md changes
+# what the voice agent believes, with no second copy to forget.
+REPO = Path(__file__).resolve().parent.parent
+DOCTRINE = (
+    REPO / "methods" / "doctrine.md",
+    REPO / "methods" / "proverbs.md",
+    REPO / ".claude" / "rules" / "do-it-yourself.md",
+    REPO / ".claude" / "rules" / "context-discipline.md",
+)
+
+DOCTRINE_HEAD = (
+    "# How this kit works",
+    "",
+    "What follows is Chewbacca's own doctrine, read from the repo rather than",
+    "restated here, so it is the same judgement a session at the terminal runs",
+    "with. It governs how you decide, not only how you speak. Spoken answers",
+    "stay short; the standards do not relax.",
+)
+
+
+def doctrine() -> str:
+    """The kit's own standards, verbatim, or nothing if none can be read.
+
+    A missing file is skipped rather than raised: a voice assistant with a
+    thinner prompt still answers, and one that will not start does not.
+    """
+    parts = []
+    for path in DOCTRINE:
+        try:
+            body = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if body:
+            parts.append(body)
+    if not parts:
+        return ""
+    sep = "\n\n---\n\n"
+    return "\n".join(DOCTRINE_HEAD) + "\n\n" + sep.join(parts)
+
+
 def agent_prompt(base: Path = AGENT_PROMPT, out: Path = PROMPT_OUT) -> Path:
     """The prompt file for the voice assistant: `base` plus the digest.
 
@@ -248,7 +304,12 @@ def agent_prompt(base: Path = AGENT_PROMPT, out: Path = PROMPT_OUT) -> Path:
     and a prompt that cannot be read at all is none.
     """
     try:
-        text = base.read_text(encoding="utf-8").rstrip() + "\n\n" + digest()
+        pieces = [base.read_text(encoding="utf-8").rstrip()]
+        rules = doctrine()
+        if rules:
+            pieces.append(rules)
+        pieces.append(digest())
+        text = "\n\n".join(pieces)
     except OSError:
         return base
     try:
