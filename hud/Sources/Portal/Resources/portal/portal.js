@@ -715,6 +715,21 @@
       ctx.beginPath();
       ctx.arc(px(cn.x), py(cn.y), rn * RPX, 0, Math.PI * 2);
     };
+    const spawnBand = (x, y, tx, ty, heat) => {
+      const spread = (Math.random() - 0.5) * 0.3;
+      const sp = 0.45 + Math.random() * 1;
+      sparks.push({
+        x,
+        y,
+        vx: (tx + spread * -ty) * sp,
+        vy: (ty + spread * tx) * sp,
+        life: 1,
+        decay: 0.1 + Math.random() * 0.1,
+        heat: 0.4 + Math.random() * 0.6 * heat,
+        width: 0.2 + Math.random() * 0.4,
+        bind: false
+      });
+    };
     const spawnAt = (x, y, tangentX, tangentY, count, speed, bind = false) => {
       for (let i = 0; i < count; i++) {
         const spread = (Math.random() - 0.5) * 0.9;
@@ -952,13 +967,15 @@
           q.ry = ny / H;
         }
       }
-      if (fitC && !portalUp && conf > 0.02) {
+      const REVEAL_AT = 0.5;
+      const reveal = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / (1 - REVEAL_AT)));
+      if (fitC && !portalUp && reveal > 0.01) {
         const cvx = mx(fitC.cx), cvy = my(fitC.cy);
         const Rv = Math.max(4, fitC.r * RPX);
         const ccw = p.sweep < 0;
         const a0 = drawing ? drawing.a0 : p.startAngle ?? 0;
         const a1 = p.endAngle ?? a0;
-        const open = Math.min(1, conf);
+        const open = reveal;
         const FEATHER = 0.22;
         const wedge = (trim) => {
           ctx.beginPath();
@@ -1023,17 +1040,8 @@
       const path = () => {
         ctx.beginPath();
         if (!SP) return;
-        const q = SP;
-        ctx.moveTo(q[0].x, q[0].y);
-        for (let i = 1; i < q.length - 1; i++) {
-          ctx.quadraticCurveTo(
-            q[i].x,
-            q[i].y,
-            (q[i].x + q[i + 1].x) / 2,
-            (q[i].y + q[i + 1].y) / 2
-          );
-        }
-        ctx.lineTo(q[q.length - 1].x, q[q.length - 1].y);
+        ctx.moveTo(SP[0].x, SP[0].y);
+        for (let i = 1; i < SP.length; i++) ctx.lineTo(SP[i].x, SP[i].y);
       };
       ctx.shadowBlur = 10 + 22 * k;
       ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
@@ -1084,6 +1092,21 @@
           2.2 + k * 3,
           bindMaybe()
         );
+      }
+      if (SP && SP.length > 4) {
+        const heat = Math.min(1, p.progress / 0.85);
+        const per = 8 + Math.round(30 * heat);
+        const halfBand = Math.max(2.5, (fitC ? fitC.r * RPX : 120) * 0.045);
+        for (let i = 0; i < per; i++) {
+          const j = 1 + Math.floor(Math.random() * (SP.length - 2));
+          const a = SP[j - 1], b = SP[j + 1];
+          let bx = b.x - a.x, by = b.y - a.y;
+          const bl = Math.hypot(bx, by) || 1;
+          bx /= bl;
+          by /= bl;
+          const off = (Math.random() - 0.5) * 2 * halfBand;
+          spawnBand(SP[j].x - by * off, SP[j].y + bx * off, bx, by, heat);
+        }
       }
       if (fitC && conf > 0.2) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
     }

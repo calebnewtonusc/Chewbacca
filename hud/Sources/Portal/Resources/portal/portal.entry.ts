@@ -395,6 +395,33 @@ function frame(now: number) {
     ctx.arc(px(cn.x), py(cn.y), rn * RPX, 0, Math.PI * 2);
   };
 
+  // A spark that belongs TO the line rather than being thrown off it.
+  //
+  // In the reference frames the band is hundreds of short fine streaks packed
+  // tight against the arc. It is not a thicker stroke and it is not the same
+  // sparks thrown further: "this doesn't mean thicker line and it doesn't
+  // mean more sparks animating further from it."
+  //
+  // So these differ from spawnAt on every axis that controls how far a spark
+  // gets: a fifth of the speed, three times the decay, half the width, and
+  // almost no angular spread. At about 1px a frame for 6 to 10 frames each
+  // one travels under 10px, so the band stays where the hand drew it and the
+  // density is what makes it read as thick.
+  const spawnBand = (x: number, y: number, tx: number, ty: number, heat: number) => {
+    const spread = (Math.random() - 0.5) * 0.3;
+    const sp = 0.45 + Math.random() * 1.0;
+    sparks.push({
+      x, y,
+      vx: (tx + spread * -ty) * sp,
+      vy: (ty + spread * tx) * sp,
+      life: 1,
+      decay: 0.10 + Math.random() * 0.10,
+      heat: 0.4 + Math.random() * 0.6 * heat,
+      width: 0.2 + Math.random() * 0.4,
+      bind: false,
+    });
+  };
+
   const spawnAt = (
     x: number, y: number, tangentX: number, tangentY: number,
     count: number, speed: number, bind = false,
@@ -936,13 +963,24 @@ function frame(now: number) {
     //
     // Everything here is behind the ring and the sparks, so the rim still
     // burns on top of it.
-    if (fitC && !portalUp && conf > 0.02) {
+    // HALF A CIRCLE, NOT THE LATCH. "The other dimension doesn't start
+    // loading in until abt 50% through the circle." It was tied to conf,
+    // which does not leave zero until 0.8 of progress, so the other side
+    // only began arriving at 257 degrees and had 52 degrees to do it in.
+    //
+    // Its own ramp now, from half a turn to the moment the circle closes, so
+    // it comes in across 155 degrees of arc. The ring still locks at 0.8 and
+    // the cloud is blurred, which is what lets this start while the fit is
+    // still settling without the movement showing.
+    const REVEAL_AT = 0.5;
+    const reveal = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / (1 - REVEAL_AT)));
+    if (fitC && !portalUp && reveal > 0.01) {
       const cvx = mx(fitC.cx), cvy = my(fitC.cy);
       const Rv = Math.max(4, fitC.r * RPX);
       const ccw = p.sweep < 0;
       const a0 = drawing ? drawing.a0 : (p.startAngle ?? 0);
       const a1 = p.endAngle ?? a0;
-      const open = Math.min(1, conf);
+      const open = reveal;
       const FEATHER = 0.22;   // radians trimmed off the leading edge
 
       const wedge = (trim: number) => {
@@ -1032,16 +1070,32 @@ function frame(now: number) {
     // CURVES, NOT SEGMENTS. Each point becomes a control point and the path
     // runs through the midpoints between them, so corners round off instead
     // of showing as vertices.
+    // STRAIGHT SEGMENTS THROUGH THE POINTS. "Curves still wayyyyy too big."
+    //
+    // The quadratic ran from midpoint to midpoint with the sample as its
+    // control point, and a quadratic BULGES away from the straight path
+    // between its ends. How far depends on how far apart the samples are,
+    // and the camera runs at 30fps, so a moving hand spaces them out:
+    //
+    //     hand speed   spacing   worst bulge
+    //       200 px/s     6.7px       1.4px
+    //       400 px/s    13.3px       2.9px
+    //       800 px/s    26.7px       5.8px
+    //      1200 px/s    40.0px       8.7px
+    //      1800 px/s    60.0px      13.0px
+    //
+    // Thirteen pixels of invented curve between every pair of samples, and
+    // the faster the hand the bigger it gets, which is why dropping a
+    // smoothing pass did nothing: the smoothing was never the source.
+    //
+    // A polyline cannot bulge. The line goes exactly where the fingers went
+    // and nowhere else, and the roundness comes from the smoothing pass, the
+    // round joins and the caps, which is where it belongs.
     const path = () => {
       ctx.beginPath();
       if (!SP) return;
-      const q = SP;
-      ctx.moveTo(q[0].x, q[0].y);
-      for (let i = 1; i < q.length - 1; i++) {
-        ctx.quadraticCurveTo(q[i].x, q[i].y,
-          (q[i].x + q[i + 1].x) / 2, (q[i].y + q[i + 1].y) / 2);
-      }
-      ctx.lineTo(q[q.length - 1].x, q[q.length - 1].y);
+      ctx.moveTo(SP[0].x, SP[0].y);
+      for (let i = 1; i < SP.length; i++) ctx.lineTo(SP[i].x, SP[i].y);
     };
 
     // TWO passes, not three. Three widths of additive stroke on a light
@@ -1108,6 +1162,30 @@ function frame(now: number) {
       spawnAt(mx(head.rx), my(head.ry), tx / tm, ty / tm, 1,
         2.2 + k * 3.0, bindMaybe());
     }
+    // THE BAND. Seeded along the line every frame, not only at the
+    // fingertips, because in the reference the whole arc behind the hand is
+    // dense and not just the leading edge.
+    //
+    // Count rises with how much of the circle is done, so a stroke that is
+    // going nowhere stays a thin trail and a circle coming together thickens
+    // into the ribbon. The perpendicular jitter is what gives the band width
+    // without widening the stroke: sparks sit either side of the path rather
+    // than the path getting fatter.
+    if (SP && SP.length > 4) {
+      const heat = Math.min(1, p.progress / 0.85);
+      const per = 8 + Math.round(30 * heat);
+      const halfBand = Math.max(2.5, (fitC ? fitC.r * RPX : 120) * 0.045);
+      for (let i = 0; i < per; i++) {
+        const j = 1 + Math.floor(Math.random() * (SP.length - 2));
+        const a = SP[j - 1], b = SP[j + 1];
+        let bx = b.x - a.x, by = b.y - a.y;
+        const bl = Math.hypot(bx, by) || 1;
+        bx /= bl; by /= bl;
+        const off = (Math.random() - 0.5) * 2 * halfBand;
+        spawnBand(SP[j].x - by * off, SP[j].y + bx * off, bx, by, heat);
+      }
+    }
+
     // The attractor only exists once there is something to be attracted to.
     if (fitC && conf > 0.2) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
   }
