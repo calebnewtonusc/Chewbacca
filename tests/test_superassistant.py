@@ -107,8 +107,14 @@ def main() -> int:
         base.write_text("You are the voice of this Mac.\n")
         out = root / "bob" / "agent-prompt.md"
         first = sa.agent_prompt(base, out)
+        # The contract is an order, not an exact string. agent_prompt appends
+        # the kit's doctrine and an index of the installed skills between the
+        # base and the digest, so asserting what follows the base couples this
+        # test to whichever section happens to come first in doctrine.md. On
+        # 2026-09-21 it did exactly that and broke when a section was added.
+        written = out.read_text()
         check("it is written next to nothing, with the base first",
-              first == out and out.read_text().startswith("You are the voice of this Mac.\n\n# Who you are talking to"))
+              first == out and written.startswith("You are the voice of this Mac.\n"))
         stamp = out.stat().st_mtime_ns
         time.sleep(0.02)
         sa.agent_prompt(base, out)
