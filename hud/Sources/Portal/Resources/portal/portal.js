@@ -610,6 +610,7 @@
   var sizeScale = 1;
   var drawing = null;
   var trimmedAtLatch = false;
+  var announcedAtLatch = false;
   var stroke = [];
   var softFit = null;
   var reachScale = 1;
@@ -860,6 +861,7 @@
     if (!pinched) {
       softFit = null;
       trimmedAtLatch = false;
+      announcedAtLatch = false;
     }
     if (portalUp) stroke = [];
     if (!portalUp && prevPhase === "closing") {
@@ -950,11 +952,74 @@
           q.ry = ny / H;
         }
       }
+      if (fitC && !portalUp && conf > 0.02) {
+        const cvx = mx(fitC.cx), cvy = my(fitC.cy);
+        const Rv = Math.max(4, fitC.r * RPX);
+        const ccw = p.sweep < 0;
+        const a0 = drawing ? drawing.a0 : p.startAngle ?? 0;
+        const a1 = p.endAngle ?? a0;
+        const open = Math.min(1, conf);
+        const FEATHER = 0.22;
+        const wedge = (trim) => {
+          ctx.beginPath();
+          ctx.moveTo(cvx, cvy);
+          ctx.arc(cvx, cvy, Rv, a0, a1 - (ccw ? -trim : trim), ccw);
+          ctx.closePath();
+        };
+        const cloud = (alpha) => {
+          const v = ctx.createRadialGradient(cvx, cvy, 0, cvx, cvy, Rv);
+          v.addColorStop(0, `rgba(255, 178, 96, ${0.34 * alpha})`);
+          v.addColorStop(0.42, `rgba(196, 98, 34, ${0.22 * alpha})`);
+          v.addColorStop(0.8, `rgba(96, 40, 13, ${0.1 * alpha})`);
+          v.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.fillStyle = v;
+          ctx.beginPath();
+          ctx.arc(cvx, cvy, Rv, 0, Math.PI * 2);
+          ctx.fill();
+        };
+        ctx.save();
+        ctx.globalCompositeOperation = "source-over";
+        ctx.filter = `blur(${Math.max(2, Rv * 0.06).toFixed(1)}px)`;
+        ctx.save();
+        wedge(FEATHER * 2);
+        ctx.clip();
+        cloud(open * 0.62);
+        ctx.restore();
+        ctx.save();
+        wedge(0);
+        ctx.clip();
+        cloud(open * 0.34);
+        ctx.restore();
+        ctx.globalCompositeOperation = "lighter";
+        ctx.lineCap = "round";
+        ctx.save();
+        wedge(FEATHER);
+        ctx.clip();
+        const turn = now / 2600;
+        for (let arm = 0; arm < 5; arm++) {
+          ctx.beginPath();
+          const base = turn + arm / 5 * Math.PI * 2;
+          for (let i = 0; i <= 24; i++) {
+            const u = i / 24;
+            const rr = Rv * (0.1 + 0.88 * u);
+            const th = base + u * 2.3 * (ccw ? -1 : 1);
+            const x = cvx + Math.cos(th) * rr, y = cvy + Math.sin(th) * rr;
+            if (i) ctx.lineTo(x, y);
+            else ctx.moveTo(x, y);
+          }
+          ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.11 * open})`;
+          ctx.lineWidth = Math.max(1.5, Rv * 0.055);
+          ctx.stroke();
+        }
+        ctx.restore();
+        ctx.filter = "none";
+        ctx.restore();
+      }
       ctx.globalCompositeOperation = "lighter";
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       const rBase = fitC ? fitC.r : 0.05;
-      const SP = stroke.length >= 3 ? smoothPath(stroke.map((q) => ({ x: mx(q.rx), y: my(q.ry) }))) : null;
+      const SP = stroke.length >= 3 ? smoothPath(stroke.map((q) => ({ x: mx(q.rx), y: my(q.ry) })), 1) : null;
       const path = () => {
         ctx.beginPath();
         if (!SP) return;
@@ -1025,6 +1090,16 @@
     if (S.phase === "drawing" && p.center && p.startAngle !== null && p.progress > 0.16) {
       if (!drawing || p.progress < LATCH_AT) {
         drawing = { cx: p.center.x, cy: p.center.y, r: p.radius, a0: p.startAngle };
+        if (armed && p.center && !announcedAtLatch && p.progress >= LATCH_AT) {
+          announcedAtLatch = true;
+          window.webkit?.messageHandlers?.portal?.postMessage({
+            event: "opening",
+            x: mx(p.center.x),
+            y: my(p.center.y),
+            r: rpxOf(clampRN(p.radius)),
+            armed: armed.label
+          });
+        }
       } else if (!trimmedAtLatch) {
         trimmedAtLatch = true;
         if (stroke.length > 12) stroke.splice(0, Math.floor(stroke.length * 0.35));
