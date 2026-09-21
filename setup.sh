@@ -2356,7 +2356,12 @@ else
   fi
 fi
 
-# ── How to undo this, said before anyone has to ask ───────────────────────────
+# How to undo this, said before anyone has to ask.
+#
+# Not a `# ── ─` section header: this is part of the closing summary and
+# runs with it. check_sections.py reads that header style as a new section
+# needing a should_run guard, and on 2026-09-21 this block was written with
+# one and failed the suite.
 #
 # THE FAILURE THIS EXISTS FOR, 2026-09-20. Sagar installed the kit, a browser
 # tab kept reopening, and he wrote: "this seems extremely dangerous to have on
