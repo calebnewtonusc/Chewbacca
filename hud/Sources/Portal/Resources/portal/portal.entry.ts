@@ -74,6 +74,14 @@ let parallaxStrength = PARALLAX_STRENGTH;
 // far wider arc than the hole anybody wants on screen. Tunable live:
 //   portal size 0.4
 let sizeScale = 0.45;
+// The circle being drawn, latched once there is enough arc to trust it.
+//
+// The fit is recomputed every frame from a growing trail, so early on the
+// centre and radius move under the hand: "The circle shouldn't rlly move
+// once it's started getting made." Past a threshold the geometry is frozen
+// and the arc only extends along it, which is also what the reference does
+// and what makes the gesture feel like drawing rather than negotiating.
+let drawing: { cx: number; cy: number; r: number; a0: number } | null = null;
 // How far from the centre of the screen the hand can reach.
 //
 // DEFAULT 1, which is no compression at all: the fingertip is exactly where
@@ -438,7 +446,9 @@ function frame(now: number) {
   const portalUp = S.phase === "igniting" || S.phase === "open" || S.phase === "closing";
 
   if (S.phase === "igniting" && prevPhase !== "igniting") {
-    if (p.center) {
+    if (drawing) {
+      geom = { cx: drawing.cx, cy: drawing.cy, r: drawing.r };
+    } else if (p.center) {
       // The CENTRE being on screen is not enough: a portal centred near an
       // edge still hangs half of itself off. Inset by its own radius so the
       // whole ring is visible.
@@ -467,6 +477,7 @@ function frame(now: number) {
         -Math.sin(a), Math.cos(a), 1, 7.0, true);
     }
   }
+  if (S.phase !== "drawing" && drawing) drawing = null;
   if (!portalUp && prevPhase === "closing") {
     detector.reset(); comet = []; attract = null;
     window.webkit?.messageHandlers?.portal?.postMessage({ event: "closed" });
@@ -552,11 +563,18 @@ function frame(now: number) {
 
   // ── The ring building along its own circumference ───────────────────────
   if (S.phase === "drawing" && p.center && p.startAngle !== null && p.progress > 0.16) {
-    const cn = p.center;
+    // LATCH. The first frame past the threshold decides where the circle is;
+    // every frame after that only extends the arc along it. Re-fitting as
+    // the trail grows is mathematically better and feels worse, because the
+    // thing being aimed at keeps moving.
+    if (!drawing) {
+      drawing = { cx: p.center.x, cy: p.center.y, r: p.radius, a0: p.startAngle };
+    }
+    const cn = { x: drawing.cx, y: drawing.cy };
     // Normalized radius is the source of truth, because arcPath maps every
     // point. `rpx` exists only for line widths and glow radii, which are
     // genuinely screen quantities.
-    const rn = clampRN(p.radius);
+    const rn = clampRN(drawing.r);
     const rpx = rpxOf(cn, rn);
     // Normalized angles do not survive the mirror: phi = PI - theta, and the
     // map negates the angle, so the sweep flips with it.
@@ -569,7 +587,7 @@ function frame(now: number) {
     // This is what one door buys: the correction disappears rather than
     // needing to be maintained.
     const swept = Math.max(-Math.PI * 2, Math.min(Math.PI * 2, p.sweep));
-    const a0 = p.startAngle;
+    const a0 = drawing.a0;
     const a1 = a0 + swept;
     const k = Math.pow(p.progress, 1.6);
 
