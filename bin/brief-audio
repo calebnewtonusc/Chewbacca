@@ -14,7 +14,11 @@
 #         am_michael, am_puck, am_adam, bf_emma, bm_george
 set -euo pipefail
 
-VENV="$HOME/.chewbacca/audio-venv"
+# NOT under ~/.chewbacca. That directory is mirrored into the second-brain git
+# repo, and this venv carries a 368MB torch dylib, which GitHub rejects outright
+# at its 100MB file limit. A rebuildable machine venv does not belong in a backup
+# of notes. Cost a rejected push on 2026-09-20.
+VENV="${BRIEF_AUDIO_VENV:-$HOME/Library/Caches/chewbacca/audio-venv}"
 VOICE="af_heart"
 OUT=""
 SPEED="1.0"
