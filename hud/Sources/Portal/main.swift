@@ -39,7 +39,14 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
     private var droppedBeforeReady = 0
 
     func applicationDidFinishLaunching(_: Notification) {
-        guard let html = Bundle.module.url(forResource: "portal", withExtension: "html", subdirectory: "portal")
+        // Bundle.main first, because that is where bundle-portal.sh puts the
+        // web layer: Contents/Resources/portal. SwiftPM's own resource bundle
+        // is the fallback for `swift run`, which is useful for a quick check
+        // but cannot get camera access, so it is the secondary path and not
+        // the primary one.
+        guard let html =
+            Bundle.main.url(forResource: "portal", withExtension: "html", subdirectory: "portal")
+            ?? Bundle.module.url(forResource: "portal", withExtension: "html", subdirectory: "portal")
             ?? Bundle.module.url(forResource: "portal", withExtension: "html")
         else {
             FileHandle.standardError.write(Data("portal: portal.html missing from the bundle\n".utf8))
