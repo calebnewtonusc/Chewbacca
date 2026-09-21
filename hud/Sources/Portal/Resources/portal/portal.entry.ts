@@ -809,7 +809,23 @@ function frame(now: number) {
     // arc, whose centre is pulled toward its own samples and whose radius is
     // close to a guess. Below the threshold it follows the hand; past it,
     // it holds, so the target stops moving while it is being closed.
-    const LATCH_AT = 0.45;
+    // MEASURED, not chosen. "if we wait longer we'll get a more accurate
+    // read on position and size of the portal", which is true and by more
+    // than it looks.
+    //
+    // On a clean circle with noise the fit is already good at 45 percent and
+    // waiting gains about a pixel, so the argument looks weak. On a REAL
+    // path it is not close. Against an oval, tilted, drifting as the arm
+    // extends, scored against the fit to the whole stroke:
+    //
+    //     latch at 45%   59px off centre, 32px off size
+    //     latch at 65%   19px off,         4px off
+    //     latch at 75%   26px,            13px
+    //
+    // Three times better at 65, and worse again past it because the last
+    // stretch of a hand-drawn circle is where the wrist gives out and the
+    // path stops describing what was meant.
+    const LATCH_AT = 0.65;
     if (!drawing || p.progress < LATCH_AT) {
       drawing = { cx: p.center.x, cy: p.center.y, r: p.radius, a0: p.startAngle };
     }

@@ -845,7 +845,7 @@
       if (fitC && conf > 0.2) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
     }
     if (S.phase === "drawing" && p.center && p.startAngle !== null && p.progress > 0.16) {
-      const LATCH_AT = 0.45;
+      const LATCH_AT = 0.65;
       if (!drawing || p.progress < LATCH_AT) {
         drawing = { cx: p.center.x, cy: p.center.y, r: p.radius, a0: p.startAngle };
       }
