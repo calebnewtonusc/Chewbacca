@@ -33,7 +33,10 @@ const SPARK_HOT = "255, 196, 94";
 const SPARK_MID = "255, 141, 44";
 const SPARK_COLD = "214, 74, 16";
 
-const IGNITE_MS = 520;
+// "now the portal spawning feels so abrupt". 520ms with an ease-OUT curve
+// was 27% open in the first 52ms, and the hole was full size from the first
+// frame besides, so the portal did not open at all: it appeared and faded in.
+const IGNITE_MS = 820;
 const CLOSE_MS = 380;
 const MIN_OPEN_MS = 600;
 
@@ -89,6 +92,17 @@ let drawing: { cx: number; cy: number; r: number; a0: number } | null = null;
 // The oldest part of the stroke is dropped once, at the latch, not every
 // frame after it, or the line would eat itself.
 let trimmedAtLatch = false;
+let announcedAtLatch = false;
+// Where the unfinished part of the circle was on the last drawn frame. The
+// gesture completes at 309 degrees, so about 51 degrees of the circle is never
+// drawn at all, and an open portal is a full circle. Without these the last
+// sector would pop in at the instant it opened. They are carried across so the
+// gap can close over the ignition instead.
+let openGap = 0, openGapFrom = 0, openCcw = false;
+// How much of the other side is showing, eased. A target that switches on and
+// off would pop in and vanish; this follows it, so an abandoned circle takes
+// its portal away with it instead of the other dimension blinking out.
+let mirrorAmt = 0;
 // The raw path the pinch has taken this stroke, in screen-normalized space.
 // It is drawn as a line from the first frame and BENDS onto the fitted
 // circle as the detector starts to recognise one, which is what he asked
@@ -136,6 +150,24 @@ let handScale = 0.45;
 // How much of the path stays on the glass before a circle is recognised, in
 // pixels of travel. Live: `portal trail 420`.
 let trailPx = 300;
+
+// THE MIRROR DIMENSION. A full-screen layer that is always there and never
+// visible, and the portal is a hole cut to it. That is the whole model: no
+// cloud standing in for another world, no spiral drawn on top of this one.
+// "make the mirror dimension invisible and overlay the whole screen... The
+// portal should open a see through circle to the mirror dimension."
+const mirror = new Image();
+let mirrorReady = false;
+mirror.onload = () => {
+  mirrorReady = true;
+  window.webkit?.messageHandlers?.portal?.postMessage({
+    event: "log", text: `mirror loaded ${mirror.width}x${mirror.height}` });
+};
+mirror.onerror = () => {
+  window.webkit?.messageHandlers?.portal?.postMessage({
+    event: "log", text: "mirror FAILED to load" });
+};
+mirror.src = "mirror.jpg";
 
 // WHERE THE CIRCLE STOPS MOVING, and, because they are the same moment, where
 // it first appears at all.
@@ -391,6 +423,173 @@ function frame(now: number) {
     ctx.arc(px(cn.x), py(cn.y), rn * RPX, 0, Math.PI * 2);
   };
 
+  // A spark that belongs TO the line rather than being thrown off it.
+  //
+  // In the reference frames the band is hundreds of short fine streaks packed
+  // tight against the arc. It is not a thicker stroke and it is not the same
+  // sparks thrown further: "this doesn't mean thicker line and it doesn't
+  // mean more sparks animating further from it."
+  //
+  // So these differ from spawnAt on every axis that controls how far a spark
+  // gets: a fifth of the speed, three times the decay, half the width, and
+  // almost no angular spread. At about 1px a frame for 6 to 10 frames each
+  // one travels under 10px, so the band stays where the hand drew it and the
+  // density is what makes it read as thick.
+  // The mirror layer, cover-fitted to the display so it fills whatever shape
+  // the screen is without stretching. Draw it inside a clip and the clip is
+  // the portal.
+  const drawMirror = (alpha: number) => {
+    if (!mirrorReady || alpha <= 0.003) return;
+    const sc = Math.max(W / mirror.width, H / mirror.height);
+    const dw = mirror.width * sc, dh = mirror.height * sc;
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(mirror, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    ctx.globalAlpha = 1;
+  };
+
+  // The mirror dimension showing through a circle.
+  //
+  // Caleb's description of the real thing, which this follows literally:
+  //   "clearer in the center, more faded by the rim, faded out to the current
+  //    dimension around the part of the circle that the circumference hasn't
+  //    been completed yet, and the whole thing faded but becoming less faded
+  //    by the time the circle completes."
+  //
+  // gapFrom / gapSize are the part NOT yet drawn, as an angle and a fraction
+  // of a turn. Once the portal is open the gap is zero and the whole circle
+  // shows.
+  //
+  // THE UNFINISHED EDGE IS A CLOUD, NOT A RADIUS. Clipping to a wedge gave
+  // two dead straight edges meeting at the middle: "it is too firmly a radius
+  // it looks like a pie lmao". It is erased with a blurred conic gradient
+  // and a few soft blobs along the boundary instead, so the mirror thins out
+  // into this dimension the way fog does.
+  const paintMirror = (
+    cxp: number, cyp: number, Rp: number,
+    strength: number, gapFrom: number, gapSize: number, ccw: boolean,
+    cloud: number,
+  ) => {
+    if (!mirrorReady || strength <= 0.004 || Rp < 3) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
+    ctx.clip();
+
+    drawMirror(strength);
+
+    // Clearer in the middle, faded by the rim, and THE RIM FADE LEAVES WITH
+    // THE CLOUD. "when the portal is fully open the whole thing is completely
+    // visible no clouds." At cloud 0 nothing is erased at all and the mirror
+    // runs crisp to the edge; the rim softness is a property of a portal
+    // still being drawn, not of a portal.
+    if (cloud > 0.002) {
+      ctx.globalCompositeOperation = "destination-out";
+      const fade = ctx.createRadialGradient(cxp, cyp, Rp * 0.22, cxp, cyp, Rp);
+      fade.addColorStop(0, "rgba(0,0,0,0)");
+      fade.addColorStop(0.72, `rgba(0,0,0,${0.4 * cloud})`);
+      fade.addColorStop(1, `rgba(0,0,0,${cloud})`);
+      ctx.fillStyle = fade;
+      ctx.beginPath();
+      ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // The part of the circle the hand has not reached yet.
+    //
+    // NOT A WEDGE. Twice now this has been two straight radii meeting at the
+    // middle: "It still looks like a pie lol."
+    //
+    // "it should be a rough curve that goes from the 2 points on the
+    //  incomplete circle, curving towards the center, with the middle part of
+    //  the curve getting closer to the 2 other points and all 3 pts coming
+    //  together when the circle completes."
+    //
+    // So the region erased is a LUNE, not a sector. Its outer edge is the
+    // undrawn arc itself. Its inner edge is a curve running between the two
+    // ends of that arc, dipping toward the middle without ever arriving
+    // there, and the dip is what shrinks as the circle closes:
+    //
+    //     undrawn   dip reaches   what it looks like
+    //       90%        0.1 R      nearly the whole disc, tip rounded off
+    //       50%        0.5 R      a broad crescent
+    //       20%        0.8 R      a sliver along the rim
+    //        0%          R        the three points meet, nothing erased
+    //
+    // A radius has one shape and it is the shape of a pie chart. A lune with
+    // a moving depth is the only version of this where the boundary is a
+    // curve at every stage, including the first.
+    if (gapSize > 0.002 && cloud > 0.002) {
+      const blur = Math.max(3, Rp * 0.1);
+      ctx.filter = `blur(${blur.toFixed(1)}px)`;
+      const dir = ccw ? -1 : 1;
+      const gapAng = gapSize * Math.PI * 2;
+      // How far in the middle of the curve reaches. Never the centre, and it
+      // climbs to the rim as the gap closes so all three points converge.
+      const dip = Rp * (1 - Math.pow(gapSize, 0.75)) + Rp * 0.06;
+      const STEPS = 40;
+      ctx.beginPath();
+      // Out along the undrawn arc.
+      for (let i = 0; i <= STEPS; i++) {
+        const th = gapFrom + dir * (i / STEPS) * gapAng;
+        const x = cxp + Math.cos(th) * Rp, y = cyp + Math.sin(th) * Rp;
+        if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+      }
+      // And back along the bowed curve. Rough, not clean: the radius carries
+      // a slow wobble so the boundary looks like weather rather than a
+      // compass arc.
+      for (let i = STEPS; i >= 0; i--) {
+        const u = i / STEPS;
+        const th = gapFrom + dir * u * gapAng;
+        const bow = Math.sin(Math.PI * u);
+        const rough = 1 + 0.05 * Math.sin(u * 7.3 + now / 900)
+                        + 0.03 * Math.sin(u * 13.1 - now / 1400);
+        const rr = (Rp - (Rp - Math.min(dip, Rp)) * bow) * rough;
+        ctx.lineTo(cxp + Math.cos(th) * rr, cyp + Math.sin(th) * rr);
+      }
+      ctx.closePath();
+      ctx.fillStyle = "rgba(0,0,0,1)";
+      ctx.fill();
+
+      // Blobs along the boundary, so the edge is lumpy rather than a clean
+      // sweep. Slow, tied to the clock, so it drifts instead of flickering.
+      for (let i = 0; i < 5; i++) {
+        const t = now / 3000 + i * 1.7;
+        const u = 0.15 + 0.7 * ((Math.sin(t) + 1) / 2);
+        const th = gapFrom + dir * u * gapAng;
+        const bow = Math.sin(Math.PI * u);
+        const rr = Rp - (Rp - Math.min(dip, Rp)) * bow;
+        const br = Rp * (0.1 + 0.1 * ((Math.cos(t * 0.9 + i) + 1) / 2));
+        const bx = cxp + Math.cos(th) * rr, by = cyp + Math.sin(th) * rr;
+        const g2 = ctx.createRadialGradient(bx, by, 0, bx, by, br);
+        g2.addColorStop(0, "rgba(0,0,0,0.8)");
+        g2.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = g2;
+        ctx.beginPath();
+        ctx.arc(bx, by, br, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.filter = "none";
+    }
+
+    ctx.globalCompositeOperation = "source-over";
+    ctx.restore();
+  };
+
+  const spawnBand = (x: number, y: number, tx: number, ty: number, heat: number) => {
+    const spread = (Math.random() - 0.5) * 0.3;
+    const sp = 0.45 + Math.random() * 1.0;
+    sparks.push({
+      x, y,
+      vx: (tx + spread * -ty) * sp,
+      vy: (ty + spread * tx) * sp,
+      life: 1,
+      decay: 0.10 + Math.random() * 0.10,
+      heat: 0.4 + Math.random() * 0.6 * heat,
+      width: 0.2 + Math.random() * 0.4,
+      bind: false,
+    });
+  };
+
   const spawnAt = (
     x: number, y: number, tangentX: number, tangentY: number,
     count: number, speed: number, bind = false,
@@ -599,7 +798,12 @@ function frame(now: number) {
     // slowly or thrown across the display. The floor stops a very fast flick
     // vanishing before it is seen, the ceiling stops a still hand keeping a
     // permanent mark.
-    const LIFE_BASE = 450, LIFE_REF = 400, LIFE_MIN = 180, LIFE_MAX = 650;
+    // The steady-state tail is LIFE_BASE * LIFE_REF / 1000 px, so 650 * 400
+    // is 260px of line on screen at any ordinary drawing speed. It was 180px
+    // and that is not enough to steer by: with the ring not appearing until
+    // 248 degrees, the line is the only thing showing where the circle is
+    // going, and two thirds of it had already faded.
+    const LIFE_BASE = 650, LIFE_REF = 400, LIFE_MIN = 180, LIFE_MAX = 800;
     if (!circling && stroke.length > 3) {
       // Speed over the last few samples, in px per second.
       const k = Math.max(0, stroke.length - 6);
@@ -693,7 +897,7 @@ function frame(now: number) {
     }
   }
   if (S.phase !== "drawing" && drawing) drawing = null;
-  if (!pinched) { softFit = null; trimmedAtLatch = false; }
+  if (!pinched) { softFit = null; trimmedAtLatch = false; announcedAtLatch = false; }
   if (portalUp) stroke = [];
   if (!portalUp && prevPhase === "closing") {
     detector.reset(); comet = []; attract = null;
@@ -907,6 +1111,64 @@ function frame(now: number) {
       }
     }
 
+    // ── The other side, appearing as the circle is drawn ──────────────────
+    //
+    // ── The other side, appearing as the circle is drawn ──────────────────
+    //
+    // HALF A CIRCLE, NOT THE LATCH. "The other dimension doesn't start
+    // loading in until abt 50% through the circle."
+    //
+    // Three fades, each a different axis:
+    //
+    //   RADIAL     clearest in the middle, gone by the rim.
+    //   ANGULAR    only inside the arc already drawn. The part of the circle
+    //              the hand has not reached yet is still this dimension.
+    //   TEMPORAL   the whole thing strengthens as the circle closes.
+    //
+    // An earlier version painted an orange cloud and five spiral arms here,
+    // standing in for another world. "Bro not a literal spiral that's so ugly
+    // and doesn't look like another dimension." It was drawing a thing on top
+    // of this dimension instead of showing a different one.
+    //
+    const REVEAL_AT = 0.5;
+    const reveal = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / (1 - REVEAL_AT)));
+
+    // NOT BEFORE A CIRCLE IS ACTUALLY BEING DRAWN. "portal see through
+    // shouldn't start until initiation of the circle starts!"
+    //
+    // This was gated on turning alone, and progress is turning over the
+    // threshold, so any arc past 156 degrees opened the other side whether or
+    // not anything circular was happening. A hand sweeping across the frame
+    // while pinched put a large faint disc on the glass with no circle
+    // anywhere near it, which is exactly what the screenshot showed.
+    //
+    // It needs the same two things the ring needs: enough turning AND a path
+    // that stayed round while turning. Roundness is what separates a circle
+    // being drawn from a hand that merely moved.
+    const recognised = pinched && p.roundness >= 0.55 && p.progress >= REVEAL_AT;
+
+    // "And as a circle gets cancelled it should smoothly be cancelled with
+    // it." The target is followed rather than used directly, so letting go,
+    // breaking the shape, or running out of turn takes the other side away
+    // over about a fifth of a second instead of blinking it out.
+    const want = !portalUp && fitC && recognised ? 0.12 + 0.88 * reveal : 0;
+    mirrorAmt += (want - mirrorAmt) * 0.15;
+
+    if (fitC && !portalUp && mirrorAmt > 0.006) {
+      const cvx = mx(fitC.cx), cvy = my(fitC.cy);
+      const Rv = Math.max(4, fitC.r * RPX);
+      // While it fades out after a cancelled circle there is no live gap to
+      // use, so the last one is held. Otherwise the boundary would snap round
+      // to nothing on the way out.
+      if (recognised) {
+        const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
+        openGap = Math.max(0, 1 - doneTurns);
+        openGapFrom = p.endAngle ?? 0;
+        openCcw = p.sweep < 0;
+      }
+      paintMirror(cvx, cvy, Rv, mirrorAmt, openGapFrom, openGap, openCcw, 1);
+    }
+
     ctx.globalCompositeOperation = "lighter";
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -919,23 +1181,54 @@ function frame(now: number) {
     // Once per frame. path() draws it twice and the head tangent reads it,
     // and smoothing the same points three times would be three times the
     // cost for the same answer.
+    // ONE pass here, not the default two. "Curves are way too big on the
+    // line": two passes plus quadratics drawn through the midpoints rounds
+    // the shape twice, and the line stopped following the hand. Measured as
+    // how far the drawn line strays from where the fingers actually were:
+    //
+    //                  1 pass   2 passes   worst kink at 1 pass
+    //     gentle arc     2.7px     3.3px          1.00px
+    //     tight circle   2.4px     3.2px          1.31px
+    //     S curve        2.3px     3.6px          1.22px
+    //     L turn         3.7px     5.5px          1.94px
+    //
+    // A third tighter to the hand, and still under two pixels of kink, which
+    // is the bar for a line reading as smooth. The detector keeps two passes,
+    // because there the rounding is the point: it is what separates a corner
+    // that survives smoothing from jitter that does not.
     const SP = stroke.length >= 3
-      ? smoothPath(stroke.map((q) => ({ x: mx(q.rx), y: my(q.ry) })))
+      ? smoothPath(stroke.map((q) => ({ x: mx(q.rx), y: my(q.ry) })), 1)
       : null;
 
     // CURVES, NOT SEGMENTS. Each point becomes a control point and the path
     // runs through the midpoints between them, so corners round off instead
     // of showing as vertices.
+    // STRAIGHT SEGMENTS THROUGH THE POINTS. "Curves still wayyyyy too big."
+    //
+    // The quadratic ran from midpoint to midpoint with the sample as its
+    // control point, and a quadratic BULGES away from the straight path
+    // between its ends. How far depends on how far apart the samples are,
+    // and the camera runs at 30fps, so a moving hand spaces them out:
+    //
+    //     hand speed   spacing   worst bulge
+    //       200 px/s     6.7px       1.4px
+    //       400 px/s    13.3px       2.9px
+    //       800 px/s    26.7px       5.8px
+    //      1200 px/s    40.0px       8.7px
+    //      1800 px/s    60.0px      13.0px
+    //
+    // Thirteen pixels of invented curve between every pair of samples, and
+    // the faster the hand the bigger it gets, which is why dropping a
+    // smoothing pass did nothing: the smoothing was never the source.
+    //
+    // A polyline cannot bulge. The line goes exactly where the fingers went
+    // and nowhere else, and the roundness comes from the smoothing pass, the
+    // round joins and the caps, which is where it belongs.
     const path = () => {
       ctx.beginPath();
       if (!SP) return;
-      const q = SP;
-      ctx.moveTo(q[0].x, q[0].y);
-      for (let i = 1; i < q.length - 1; i++) {
-        ctx.quadraticCurveTo(q[i].x, q[i].y,
-          (q[i].x + q[i + 1].x) / 2, (q[i].y + q[i + 1].y) / 2);
-      }
-      ctx.lineTo(q[q.length - 1].x, q[q.length - 1].y);
+      ctx.moveTo(SP[0].x, SP[0].y);
+      for (let i = 1; i < SP.length; i++) ctx.lineTo(SP[i].x, SP[i].y);
     };
 
     // TWO passes, not three. Three widths of additive stroke on a light
@@ -1002,6 +1295,30 @@ function frame(now: number) {
       spawnAt(mx(head.rx), my(head.ry), tx / tm, ty / tm, 1,
         2.2 + k * 3.0, bindMaybe());
     }
+    // THE BAND. Seeded along the line every frame, not only at the
+    // fingertips, because in the reference the whole arc behind the hand is
+    // dense and not just the leading edge.
+    //
+    // Count rises with how much of the circle is done, so a stroke that is
+    // going nowhere stays a thin trail and a circle coming together thickens
+    // into the ribbon. The perpendicular jitter is what gives the band width
+    // without widening the stroke: sparks sit either side of the path rather
+    // than the path getting fatter.
+    if (SP && SP.length > 4) {
+      const heat = Math.min(1, p.progress / 0.85);
+      const per = 8 + Math.round(30 * heat);
+      const halfBand = Math.max(2.5, (fitC ? fitC.r * RPX : 120) * 0.045);
+      for (let i = 0; i < per; i++) {
+        const j = 1 + Math.floor(Math.random() * (SP.length - 2));
+        const a = SP[j - 1], b = SP[j + 1];
+        let bx = b.x - a.x, by = b.y - a.y;
+        const bl = Math.hypot(bx, by) || 1;
+        bx /= bl; by /= bl;
+        const off = (Math.random() - 0.5) * 2 * halfBand;
+        spawnBand(SP[j].x - by * off, SP[j].y + bx * off, bx, by, heat);
+      }
+    }
+
     // The attractor only exists once there is something to be attracted to.
     if (fitC && conf > 0.2) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
   }
@@ -1035,6 +1352,19 @@ function frame(now: number) {
     // path stops describing what was meant.
     if (!drawing || p.progress < LATCH_AT) {
       drawing = { cx: p.center.x, cy: p.center.y, r: p.radius, a0: p.startAngle };
+      // Tell the host now, not at completion, so the window is behind the
+      // glass while the cloud is still thinning and the reveal is of a real
+      // thing. Once per gesture.
+      if (armed && p.center && !announcedAtLatch && p.progress >= LATCH_AT) {
+        announcedAtLatch = true;
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "opening",
+          x: mx(p.center.x),
+          y: my(p.center.y),
+          r: rpxOf(clampRN(p.radius)),
+          armed: armed.label,
+        });
+      }
     } else if (!trimmedAtLatch) {
       // "start it not where the circle began, but further along the circle
       // path." The ring is formed by the drawn line bending onto it, so it
@@ -1057,6 +1387,13 @@ function frame(now: number) {
     const cn = { x: geom.cx, y: geom.cy };
     const rn = clampRN(geom.r) * (1 - ease(shut));
     const rpx = rpxOf(rn);
+
+    // NO HOLE ANIMATION. There used to be a growing hole here, opening from
+    // the middle out to the rim over 820ms, because the portal appeared at
+    // full size and that read as a pop. It is gone with the disc it was
+    // opening: nothing is painted inside a portal now, so there is nothing to
+    // grow. The transition is carried by the mirror, which has been fading in
+    // since half a turn and simply finishes.
     const vis = e * (1 - shut);
     const age = (now - S.born) / 1000;
     if (S.phase === "open") attract = { cx: cn.x, cy: cn.y, r: rpx };
@@ -1067,33 +1404,56 @@ function frame(now: number) {
       // The interior is DARK: near black to 82%, warmth only at the rim.
       // Painted with source-over so it OCCLUDES the desktop behind the glass,
       // which is what makes it read as a hole rather than a decal.
+      // NO ORANGE INTERIOR AND NO FILLING ANIMATION. "The orange circle
+      // filling and animation shouldn't be there." The portal was painting a
+      // dark or orange disc over the hole and growing it open, and that disc
+      // was sitting on top of the mirror dimension, which is why the other
+      // side was visible while drawing and gone the moment it opened.
+      //
+      // An open portal is a circle with the mirror behind it and a burning
+      // rim. Nothing is painted inside it at all.
       if (armed) {
-        // A REAL HOLE. destination-out erases the glass, so the window behind
-        // this panel shows through: live, no capture, no latency. The edge is
-        // left slightly warm so the hole reads as burnt open rather than as
-        // a rectangle someone cut out.
+        // A real window behind the glass. Erase, so it shows through.
         ctx.globalCompositeOperation = "destination-out";
         ctx.globalAlpha = 1;
         disc(cn, rn * 0.985); ctx.fill();
         ctx.globalCompositeOperation = "source-over";
-        ctx.globalAlpha = vis * 0.9;
-        const lip = ctx.createRadialGradient(cx0, cy0, rpx * 0.88, cx0, cy0, rpx);
-        lip.addColorStop(0, "rgba(0,0,0,0)");
-        lip.addColorStop(1, "rgba(120, 48, 12, 0.6)");
-        ctx.fillStyle = lip;
-        disc(cn, rn); ctx.fill();
-        ctx.globalAlpha = 1;
       } else {
-        ctx.globalCompositeOperation = "source-over";
-        ctx.globalAlpha = vis;
-        const inner = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, rpx);
-        inner.addColorStop(0, "rgba(3, 2, 1, 1)");
-        inner.addColorStop(0.82, "rgba(10, 5, 2, 1)");
-        inner.addColorStop(0.95, "rgba(46, 18, 5, 1)");
-        inner.addColorStop(1, "rgba(120, 48, 12, 0.85)");
-        ctx.fillStyle = inner;
-        disc(cn, rn); ctx.fill();
-        ctx.globalAlpha = 1;
+        // Full strength immediately. `vis` ramps from zero over the ignition,
+        // and the mirror has spent the last half turn getting to full, so
+        // using it here dropped the other side back to nothing at the exact
+        // moment the circle closed. Only the collapse dims it.
+        //
+        // The last unfinished sector and the clouding close over the ignition
+        // rather than at it. The first open frame is identical to the last
+        // drawn frame, and 820ms later there is no gap and no cloud left:
+        // "when the portal is fully open the whole thing is completely
+        // visible no clouds."
+        const shut2 = ease(shut);
+        // TWO CURVES, BECAUSE THEY ARE TWO DIFFERENT EVENTS.
+        //
+        // The last unfinished sector fills in quickly: that is the circle
+        // closing, and it wants to feel like the hand finished it.
+        //
+        // The rim fade clears LATE. "Make it not suddenly jump to no rim
+        // fade, that scales down in the last jump of the portal which gives
+        // the effect of the portal 'completing'." On the ease-out both used,
+        // 68% of the fade was gone in the first 100ms and nothing visible
+        // happened after 350, which is a jump with a long tail rather than a
+        // completion. Squared, it holds and then clears at the end:
+        //
+        //     ms     ease-out   late
+        //      100     0.68      0.99
+        //      350     0.19      0.82
+        //      500     0.06      0.63
+        //      650     0.01      0.37
+        //      820     0.00      0.00
+        //
+        // So the portal sits there still hazed at its edge, and then resolves.
+        const closing = ease(ignite);
+        const clearing = ignite * ignite;
+        paintMirror(cx0, cy0, rpx, 1 - shut2,
+          openGapFrom, openGap * (1 - closing), openCcw, 1 - clearing);
       }
 
       ctx.globalCompositeOperation = "lighter";

@@ -19,7 +19,7 @@ You are about to act on someone's real machine. Their real email, their real fil
 | 3 **Accessibility** | **Any GUI element with a name. The default.** | `chewie see`, `chewie click` |
 | 4 Input | Pure keystrokes, no element | `chewie type`, `peekaboo hotkey` |
 | 5 Vision | Canvas apps, or genuinely visual questions | `chewie shot` |
-| 6 Browser | Anything in a browser tab | Playwright over CDP |
+| 6 Browser | Anything in a browser tab | `chewie web` |
 
 The mistake you will actually make is jumping to layer 5 because it feels universal.
 A screenshot costs ~1,500 tokens and a second or more. An accessibility tree read
@@ -58,7 +58,37 @@ one.
 | "Click Sign In" | 3 | `chewie see --app X` then `chewie click` |
 | "Save this" | 4 | `peekaboo hotkey cmd+s` |
 | "Does this look right?" | 5 | `chewie shot --app X` |
-| "Fill out this form" | 6 | CDP against their running Chrome |
+| "Fill out this form" | 6 | `chewie web read`, then `chewie web eval` |
+
+## Layer 6: never screenshot a web page
+
+A browser hands you a complete addressable model of its own contents. Driving it
+through pixels throws that away and is how a form that takes one call takes thirty.
+
+```bash
+chewie web profiles                       # which account each Chrome profile holds
+CHEWIE_CHROME_PROFILE="you@school.edu" chewie web goto "<url>"
+CHEWIE_CHROME_PROFILE="you@school.edu" chewie web eval "<js>"
+chewie web frames                         # every page AND iframe target
+```
+
+Fill a whole multi-step form in **one** `eval`, with an async IIFE that clicks,
+waits, and returns the final field values. One call per field means a new node
+process and a new CDP connection each time, and the user watches you crawl.
+
+Three traps, each of which has already cost a session:
+
+- **The profile.** `chewie web` runs against a copy of a real Chrome profile, and
+  the default is `Default`. If the logged-in page lives in another account, you get
+  a browser signed in as the wrong person and no error saying so. Run
+  `chewie web profiles` and pass the one that matches.
+- **The iframe.** A cross-origin iframe is its own CDP target and its text is
+  absent from the parent's `document.body.innerText`. A step that renders inside
+  one looks like a blank page. Run `chewie web frames` before concluding anything
+  rendered empty, then set `CHEWIE_WEB_FRAME=<url substring>`.
+- **React inputs.** `el.value = x` does not register. Use the native value setter
+  plus an `input` event, and dispatch the full pointer sequence on custom
+  listboxes rather than `.click()`.
 
 ## Empty tree
 

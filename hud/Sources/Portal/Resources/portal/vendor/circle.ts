@@ -174,7 +174,19 @@ export class CircleGestureDetector {
       // 5.6 is the knee. Circles barely move and arcs fall by two thirds.
       // Past it real circles start failing hard, because a hand that has
       // come most of the way round has already stopped.
-      sweepThreshold: options.sweepThreshold ?? 5.6,
+      // 5.4 rad is 309 degrees. 5.6 was over-correcting: it bought 18 points
+      // against a 324 degree arc, which is very nearly a circle anyway, and
+      // cost 23 points on a real circle that stops a little early. "Bro I
+      // can't make circles lmao" is what that trade actually felt like.
+      //
+      //     threshold   circle 342deg  360deg   arc 300deg  arc 324deg
+      //       5.40           84%        92%         12%         47%
+      //       5.50           76%        90%          9%         39%
+      //       5.60           61%        86%          7%         29%
+      //
+      // A 300 degree arc still only fires 12% of the time, which is the case
+      // "I barely drew part of a circle and the portal opened" was about.
+      sweepThreshold: options.sweepThreshold ?? 5.4,
       // How far the end may sit from the start, as a fraction of the fitted
       // radius, and still count as a closed loop.
       closeWithin: options.closeWithin ?? 0.75,

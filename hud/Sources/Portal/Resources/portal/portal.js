@@ -55,7 +55,19 @@
         // 5.6 is the knee. Circles barely move and arcs fall by two thirds.
         // Past it real circles start failing hard, because a hand that has
         // come most of the way round has already stopped.
-        sweepThreshold: options.sweepThreshold ?? 5.6,
+        // 5.4 rad is 309 degrees. 5.6 was over-correcting: it bought 18 points
+        // against a 324 degree arc, which is very nearly a circle anyway, and
+        // cost 23 points on a real circle that stops a little early. "Bro I
+        // can't make circles lmao" is what that trade actually felt like.
+        //
+        //     threshold   circle 342deg  360deg   arc 300deg  arc 324deg
+        //       5.40           84%        92%         12%         47%
+        //       5.50           76%        90%          9%         39%
+        //       5.60           61%        86%          7%         29%
+        //
+        // A 300 degree arc still only fires 12% of the time, which is the case
+        // "I barely drew part of a circle and the portal opened" was about.
+        sweepThreshold: options.sweepThreshold ?? 5.4,
         // How far the end may sit from the start, as a fraction of the fitted
         // radius, and still count as a closed loop.
         closeWithin: options.closeWithin ?? 0.75,
@@ -566,7 +578,7 @@
   var SPARK_HOT = "255, 196, 94";
   var SPARK_MID = "255, 141, 44";
   var SPARK_COLD = "214, 74, 16";
-  var IGNITE_MS = 520;
+  var IGNITE_MS = 820;
   var CLOSE_MS = 380;
   var MIN_OPEN_MS = 600;
   var ease = (t) => 1 - Math.pow(1 - t, 3);
@@ -598,11 +610,32 @@
   var sizeScale = 1;
   var drawing = null;
   var trimmedAtLatch = false;
+  var announcedAtLatch = false;
+  var openGap = 0;
+  var openGapFrom = 0;
+  var openCcw = false;
+  var mirrorAmt = 0;
   var stroke = [];
   var softFit = null;
   var reachScale = 1;
   var handScale = 0.45;
   var trailPx = 300;
+  var mirror = new Image();
+  var mirrorReady = false;
+  mirror.onload = () => {
+    mirrorReady = true;
+    window.webkit?.messageHandlers?.portal?.postMessage({
+      event: "log",
+      text: `mirror loaded ${mirror.width}x${mirror.height}`
+    });
+  };
+  mirror.onerror = () => {
+    window.webkit?.messageHandlers?.portal?.postMessage({
+      event: "log",
+      text: "mirror FAILED to load"
+    });
+  };
+  mirror.src = "mirror.jpg";
   var LATCH_AT = 0.8;
   var lastSeen = 0;
   var armed = null;
@@ -702,6 +735,93 @@
       ctx.beginPath();
       ctx.arc(px(cn.x), py(cn.y), rn * RPX, 0, Math.PI * 2);
     };
+    const drawMirror = (alpha) => {
+      if (!mirrorReady || alpha <= 3e-3) return;
+      const sc = Math.max(W / mirror.width, H / mirror.height);
+      const dw = mirror.width * sc, dh = mirror.height * sc;
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(mirror, (W - dw) / 2, (H - dh) / 2, dw, dh);
+      ctx.globalAlpha = 1;
+    };
+    const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw, cloud) => {
+      if (!mirrorReady || strength <= 4e-3 || Rp < 3) return;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
+      ctx.clip();
+      drawMirror(strength);
+      if (cloud > 2e-3) {
+        ctx.globalCompositeOperation = "destination-out";
+        const fade = ctx.createRadialGradient(cxp, cyp, Rp * 0.22, cxp, cyp, Rp);
+        fade.addColorStop(0, "rgba(0,0,0,0)");
+        fade.addColorStop(0.72, `rgba(0,0,0,${0.4 * cloud})`);
+        fade.addColorStop(1, `rgba(0,0,0,${cloud})`);
+        ctx.fillStyle = fade;
+        ctx.beginPath();
+        ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (gapSize > 2e-3 && cloud > 2e-3) {
+        const blur = Math.max(3, Rp * 0.1);
+        ctx.filter = `blur(${blur.toFixed(1)}px)`;
+        const dir = ccw ? -1 : 1;
+        const gapAng = gapSize * Math.PI * 2;
+        const dip = Rp * (1 - Math.pow(gapSize, 0.75)) + Rp * 0.06;
+        const STEPS = 40;
+        ctx.beginPath();
+        for (let i = 0; i <= STEPS; i++) {
+          const th = gapFrom + dir * (i / STEPS) * gapAng;
+          const x = cxp + Math.cos(th) * Rp, y = cyp + Math.sin(th) * Rp;
+          if (i) ctx.lineTo(x, y);
+          else ctx.moveTo(x, y);
+        }
+        for (let i = STEPS; i >= 0; i--) {
+          const u = i / STEPS;
+          const th = gapFrom + dir * u * gapAng;
+          const bow = Math.sin(Math.PI * u);
+          const rough = 1 + 0.05 * Math.sin(u * 7.3 + now / 900) + 0.03 * Math.sin(u * 13.1 - now / 1400);
+          const rr = (Rp - (Rp - Math.min(dip, Rp)) * bow) * rough;
+          ctx.lineTo(cxp + Math.cos(th) * rr, cyp + Math.sin(th) * rr);
+        }
+        ctx.closePath();
+        ctx.fillStyle = "rgba(0,0,0,1)";
+        ctx.fill();
+        for (let i = 0; i < 5; i++) {
+          const t = now / 3e3 + i * 1.7;
+          const u = 0.15 + 0.7 * ((Math.sin(t) + 1) / 2);
+          const th = gapFrom + dir * u * gapAng;
+          const bow = Math.sin(Math.PI * u);
+          const rr = Rp - (Rp - Math.min(dip, Rp)) * bow;
+          const br = Rp * (0.1 + 0.1 * ((Math.cos(t * 0.9 + i) + 1) / 2));
+          const bx = cxp + Math.cos(th) * rr, by = cyp + Math.sin(th) * rr;
+          const g2 = ctx.createRadialGradient(bx, by, 0, bx, by, br);
+          g2.addColorStop(0, "rgba(0,0,0,0.8)");
+          g2.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.fillStyle = g2;
+          ctx.beginPath();
+          ctx.arc(bx, by, br, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.filter = "none";
+      }
+      ctx.globalCompositeOperation = "source-over";
+      ctx.restore();
+    };
+    const spawnBand = (x, y, tx, ty, heat) => {
+      const spread = (Math.random() - 0.5) * 0.3;
+      const sp = 0.45 + Math.random() * 1;
+      sparks.push({
+        x,
+        y,
+        vx: (tx + spread * -ty) * sp,
+        vy: (ty + spread * tx) * sp,
+        life: 1,
+        decay: 0.1 + Math.random() * 0.1,
+        heat: 0.4 + Math.random() * 0.6 * heat,
+        width: 0.2 + Math.random() * 0.4,
+        bind: false
+      });
+    };
     const spawnAt = (x, y, tangentX, tangentY, count, speed, bind = false) => {
       for (let i = 0; i < count; i++) {
         const spread = (Math.random() - 0.5) * 0.9;
@@ -762,7 +882,7 @@
     }
     if (stroke.length) {
       const circling = p.progress > 0.4 && p.roundness > 0.55;
-      const LIFE_BASE = 450, LIFE_REF = 400, LIFE_MIN = 180, LIFE_MAX = 650;
+      const LIFE_BASE = 650, LIFE_REF = 400, LIFE_MIN = 180, LIFE_MAX = 800;
       if (!circling && stroke.length > 3) {
         const k = Math.max(0, stroke.length - 6);
         const a = stroke[k], b = stroke[stroke.length - 1];
@@ -848,6 +968,7 @@
     if (!pinched) {
       softFit = null;
       trimmedAtLatch = false;
+      announcedAtLatch = false;
     }
     if (portalUp) stroke = [];
     if (!portalUp && prevPhase === "closing") {
@@ -938,25 +1059,32 @@
           q.ry = ny / H;
         }
       }
+      const REVEAL_AT = 0.5;
+      const reveal = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / (1 - REVEAL_AT)));
+      const recognised = pinched && p.roundness >= 0.55 && p.progress >= REVEAL_AT;
+      const want = !portalUp && fitC && recognised ? 0.12 + 0.88 * reveal : 0;
+      mirrorAmt += (want - mirrorAmt) * 0.15;
+      if (fitC && !portalUp && mirrorAmt > 6e-3) {
+        const cvx = mx(fitC.cx), cvy = my(fitC.cy);
+        const Rv = Math.max(4, fitC.r * RPX);
+        if (recognised) {
+          const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
+          openGap = Math.max(0, 1 - doneTurns);
+          openGapFrom = p.endAngle ?? 0;
+          openCcw = p.sweep < 0;
+        }
+        paintMirror(cvx, cvy, Rv, mirrorAmt, openGapFrom, openGap, openCcw, 1);
+      }
       ctx.globalCompositeOperation = "lighter";
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       const rBase = fitC ? fitC.r : 0.05;
-      const SP = stroke.length >= 3 ? smoothPath(stroke.map((q) => ({ x: mx(q.rx), y: my(q.ry) }))) : null;
+      const SP = stroke.length >= 3 ? smoothPath(stroke.map((q) => ({ x: mx(q.rx), y: my(q.ry) })), 1) : null;
       const path = () => {
         ctx.beginPath();
         if (!SP) return;
-        const q = SP;
-        ctx.moveTo(q[0].x, q[0].y);
-        for (let i = 1; i < q.length - 1; i++) {
-          ctx.quadraticCurveTo(
-            q[i].x,
-            q[i].y,
-            (q[i].x + q[i + 1].x) / 2,
-            (q[i].y + q[i + 1].y) / 2
-          );
-        }
-        ctx.lineTo(q[q.length - 1].x, q[q.length - 1].y);
+        ctx.moveTo(SP[0].x, SP[0].y);
+        for (let i = 1; i < SP.length; i++) ctx.lineTo(SP[i].x, SP[i].y);
       };
       ctx.shadowBlur = 10 + 22 * k;
       ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
@@ -1008,11 +1136,36 @@
           bindMaybe()
         );
       }
+      if (SP && SP.length > 4) {
+        const heat = Math.min(1, p.progress / 0.85);
+        const per = 8 + Math.round(30 * heat);
+        const halfBand = Math.max(2.5, (fitC ? fitC.r * RPX : 120) * 0.045);
+        for (let i = 0; i < per; i++) {
+          const j = 1 + Math.floor(Math.random() * (SP.length - 2));
+          const a = SP[j - 1], b = SP[j + 1];
+          let bx = b.x - a.x, by = b.y - a.y;
+          const bl = Math.hypot(bx, by) || 1;
+          bx /= bl;
+          by /= bl;
+          const off = (Math.random() - 0.5) * 2 * halfBand;
+          spawnBand(SP[j].x - by * off, SP[j].y + bx * off, bx, by, heat);
+        }
+      }
       if (fitC && conf > 0.2) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
     }
     if (S.phase === "drawing" && p.center && p.startAngle !== null && p.progress > 0.16) {
       if (!drawing || p.progress < LATCH_AT) {
         drawing = { cx: p.center.x, cy: p.center.y, r: p.radius, a0: p.startAngle };
+        if (armed && p.center && !announcedAtLatch && p.progress >= LATCH_AT) {
+          announcedAtLatch = true;
+          window.webkit?.messageHandlers?.portal?.postMessage({
+            event: "opening",
+            x: mx(p.center.x),
+            y: my(p.center.y),
+            r: rpxOf(clampRN(p.radius)),
+            armed: armed.label
+          });
+        }
       } else if (!trimmedAtLatch) {
         trimmedAtLatch = true;
         if (stroke.length > 12) stroke.splice(0, Math.floor(stroke.length * 0.35));
@@ -1037,26 +1190,20 @@
           disc(cn, rn * 0.985);
           ctx.fill();
           ctx.globalCompositeOperation = "source-over";
-          ctx.globalAlpha = vis * 0.9;
-          const lip = ctx.createRadialGradient(cx0, cy0, rpx * 0.88, cx0, cy0, rpx);
-          lip.addColorStop(0, "rgba(0,0,0,0)");
-          lip.addColorStop(1, "rgba(120, 48, 12, 0.6)");
-          ctx.fillStyle = lip;
-          disc(cn, rn);
-          ctx.fill();
-          ctx.globalAlpha = 1;
         } else {
-          ctx.globalCompositeOperation = "source-over";
-          ctx.globalAlpha = vis;
-          const inner = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, rpx);
-          inner.addColorStop(0, "rgba(3, 2, 1, 1)");
-          inner.addColorStop(0.82, "rgba(10, 5, 2, 1)");
-          inner.addColorStop(0.95, "rgba(46, 18, 5, 1)");
-          inner.addColorStop(1, "rgba(120, 48, 12, 0.85)");
-          ctx.fillStyle = inner;
-          disc(cn, rn);
-          ctx.fill();
-          ctx.globalAlpha = 1;
+          const shut2 = ease(shut);
+          const closing = ease(ignite);
+          const clearing = ignite * ignite;
+          paintMirror(
+            cx0,
+            cy0,
+            rpx,
+            1 - shut2,
+            openGapFrom,
+            openGap * (1 - closing),
+            openCcw,
+            1 - clearing
+          );
         }
         ctx.globalCompositeOperation = "lighter";
         const bloom = ctx.createRadialGradient(cx0, cy0, rpx * 0.9, cx0, cy0, rpx * 1.22);
