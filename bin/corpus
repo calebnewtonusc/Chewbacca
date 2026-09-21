@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+"""The environment: every turn this kit has ever taken, and every correction.
+
+WHY THIS IS THE CENTRE OF THE LEARNING WORK. A reward signal needs a place
+to be measured, and the kit has had one all along without reading it:
+~/.claude/projects holds 209 sessions, 35,611 assistant turns and 18,154
+user turns. Every failure and every correction is already recorded.
+
+That corpus makes a real reward function possible, and cheap. A proposed
+policy change, a gate, a rule, a pattern, is scored against fixed historical
+data: how often did the kit actually do this, does the new check catch those
+cases, and does it fire on correct work. Deterministic, no model calls, and
+not Goodhartable by writing more tests, because the data is behaviour that
+already happened and cannot be edited to pass.
+
+  frequency in the corpus  =  expected value of fixing it
+
+That is the number this file exists to produce, and it is the number that
+says which gate to build next rather than guessing.
+
+STREAMING, ALWAYS. 731MB across 209 files. Nothing here loads a whole
+session, let alone the corpus. Every function yields.
+
+`asks.jsonl`, which the kit has been capturing since last night, holds 87
+entries. This is the same signal at 200 times the size, and it goes back to
+the beginning.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+from collections import Counter
+from pathlib import Path
+
+PROJECTS = Path.home() / ".claude" / "projects"
+
+# Words that mark a correction rather than a request. Measured from his own
+# sent messages, not guessed: see second-brain core/voice.md.
+# NOT "bro", "bruh" or "dawg". core/voice.md measures `bro` at 3,330 sent
+# messages: it is how he addresses anyone, including when he is delighted.
+# Counting it as frustration inflated the first run of this file from a real
+# number to 538, and made "J give me the list bruh" a correction.
+FRUSTRATION = re.compile(
+    r"\b(wtf|retard\w*|stupid|dumb|broken|ai slop|slop (?:writing|tendencies)|"
+    r"doesn'?t seem authentic|not what i|didn'?t (?:ask|say|want|tell)|"
+    r"stop (?:doing|asking)|never (?:do|ask|say|make|said)|"
+    r"why (?:did|are) (?:you|u)|ur being|you'?re being|fix chewbacca|"
+    r"shouldn'?t hv to|shouldn'?t have to|what is wrong with you)\b", re.I)
+
+
+def sessions(root=PROJECTS):
+    if not root.is_dir():
+        return
+    for f in sorted(root.rglob("*.jsonl")):
+        yield f
+
+
+def turns(path):
+    """Yield (role, text, timestamp) without loading the file."""
+    try:
+        with path.open(encoding="utf-8", errors="ignore") as fh:
+            for line in fh:
+                try:
+                    e = json.loads(line)
+                except Exception:
+                    continue
+                m = e.get("message") or {}
+                role = m.get("role")
+                if role not in ("user", "assistant"):
+                    continue
+                content = m.get("content")
+                if isinstance(content, str):
+                    text = content
+                elif isinstance(content, list):
+                    text = " ".join(
+                        c.get("text", "") for c in content
+                        if isinstance(c, dict) and c.get("type") == "text")
+                else:
+                    continue
+                if text.strip():
+                    yield role, text, e.get("timestamp", "")
+    except OSError:
+        return
+
+
+def corrections(root=PROJECTS, limit=None):
+    """User turns that read as a correction, with what preceded them.
+
+    The preceding assistant turn is the behaviour being corrected, which is
+    what makes these labelled examples rather than complaints.
+    """
+    n = 0
+    for f in sessions(root):
+        prev = None
+        for role, text, ts in turns(f):
+            if role == "assistant":
+                prev = text
+                continue
+            # System-injected blocks are not him talking.
+            if text.lstrip().startswith(("<", "Caveat:", "[Request interrupted")):
+                continue
+            if FRUSTRATION.search(text) and len(text) < 2000:
+                yield {"session": f.stem, "at": ts, "said": text.strip(),
+                       "after": (prev or "")[:600]}
+                n += 1
+                if limit and n >= limit:
+                    return
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--corrections", action="store_true")
+    ap.add_argument("--themes", action="store_true",
+                    help="rank what he corrects, by how often")
+    ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args()
+
+    if a.themes or a.corrections:
+        rows = list(corrections(limit=a.limit or None))
+        if a.json:
+            print(json.dumps(rows[: a.limit or len(rows)], indent=2))
+            return 0
+        if a.corrections:
+            for r in rows[-40:]:
+                print(f"  {' '.join(r['said'].split())[:110]}")
+            print(f"\n{len(rows)} corrections across the corpus")
+            return 0
+        # Themes: which words recur in what he corrects.
+        words = Counter()
+        for r in rows:
+            for w in re.findall(r"[a-z][a-z-]{3,}", r["said"].lower()):
+                words[w] += 1
+        skip = {"that", "this", "with", "from", "have", "what", "when", "your",
+                "just", "make", "need", "want", "like", "they", "them", "should",
+                "would", "could", "there", "where", "which", "about", "into",
+                "bruh", "bro", "dont", "doesnt", "isnt", "youre", "chewbacca",
+                "claude", "thing", "things", "gonna", "wanna", "still", "again",
+                "there", "here", "then", "than", "even", "also", "only", "same"}
+        print(f"{len(rows)} corrections in the corpus. What they are about:\n")
+        for w, n in [(w, n) for w, n in words.most_common(120) if w not in skip][:30]:
+            print(f"  {n:5}  {w}")
+        return 0
+
+    n_s = n_a = n_u = 0
+    for f in sessions():
+        n_s += 1
+        for role, _t, _ts in turns(f):
+            if role == "assistant":
+                n_a += 1
+            else:
+                n_u += 1
+    print(f"sessions   {n_s}")
+    print(f"assistant  {n_a}")
+    print(f"user       {n_u}")
+    print("\nThis is the environment. A gate scored against it is scored "
+          "against\nbehaviour that already happened, which is the one thing "
+          "that cannot be\nedited to make a number look better.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
