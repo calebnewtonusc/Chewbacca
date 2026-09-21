@@ -1948,8 +1948,26 @@ function frame(now: number) {
   ctx.globalCompositeOperation = "lighter";
   // Inside the hole, in screen pixels. Slightly inside the rim, so the ring
   // itself and the sparks that make it are untouched: they live ON the edge.
-  const holeCx = px(geom.cx), holeCy = py(geom.cy);
-  const holeR = rpxOf(clampRN(geom.r)) * 0.94;
+  // WHEREVER THE OTHER SIDE IS SHOWING, not only once a portal has opened.
+  //
+  // This was gated on portalUp and used the open portal's geometry, and the
+  // diagnostic had already proved portalUp is FALSE for everything being
+  // reported: the mirror is visible from half a turn, which is long before
+  // anything opens. So the cull never ran in a single frame of the problem.
+  //
+  // The stroke was fixed by exactly this change one commit earlier, from
+  // portalUp to "the mirror is visible", and then the same mistake was made
+  // again here in the same session. The condition is not "is a portal open".
+  // It is "is the other side on the glass".
+  // `fitC` is local to the drawing block, so the same two module-level
+  // values it is built from are read here: the latched circle if there is
+  // one, otherwise the easing fit.
+  const drawnFit = drawing ?? softFit;
+  const holeUp = portalUp || (!!drawnFit && mirrorAmt > 0.01);
+  const holeCx = portalUp ? px(geom.cx) : (drawnFit ? mx(drawnFit.cx) : 0);
+  const holeCy = portalUp ? py(geom.cy) : (drawnFit ? my(drawnFit.cy) : 0);
+  const holeR =
+    (portalUp ? rpxOf(clampRN(geom.r)) : (drawnFit ? drawnFit.r * RPX : 0)) * 0.97;
   const insidePortal = (x: number, y: number) =>
     (x - holeCx) ** 2 + (y - holeCy) ** 2 < holeR * holeR;
   let sparksInHole = 0;
@@ -2018,7 +2036,7 @@ function frame(now: number) {
     // because the count says otherwise. Gating emitters one at a time missed
     // three times; asking what is being drawn where the other side is has
     // one answer and no list to keep up to date.
-    if (portalUp && insidePortal(sp.x, sp.y)) { sparksInHole++; continue; }
+    if (holeUp && insidePortal(sp.x, sp.y)) { sparksInHole++; continue; }
 
     const speed = Math.hypot(sp.vx, sp.vy) || 1;
     // A ROUND CAP ON A SHORT STROKE IS A DOT. lineCap "round" adds a
