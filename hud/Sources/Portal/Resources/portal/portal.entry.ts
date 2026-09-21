@@ -107,6 +107,7 @@ let openGap = 0, openGapFrom = 0, openCcw = false;
 // off would pop in and vanish; this follows it, so an abandoned circle takes
 // its portal away with it instead of the other dimension blinking out.
 let mirrorAmt = 0;
+let recognisedLatch = false;
 // How deep the mirror had eaten on the last recognised frame, held so the
 // fade-out and the opening both continue from it rather than jumping.
 let lastFill = 0;
@@ -1270,7 +1271,7 @@ function frame(now: number) {
     }
   }
   if (S.phase !== "drawing" && drawing) drawing = null;
-  if (!pinched) { softFit = null; trimmedAtLatch = false; announcedAtLatch = false; }
+  if (!pinched) { softFit = null; trimmedAtLatch = false; announcedAtLatch = false; recognisedLatch = false; }
   if (!portalUp) placedOk = false;
   if (!portalUp) { settleX = 0; settleV = 0; arcX = 0; arcV = 0; }
   if (portalUp) stroke = [];
@@ -1520,7 +1521,21 @@ function frame(now: number) {
     // It needs the same two things the ring needs: enough turning AND a path
     // that stayed round while turning. Roundness is what separates a circle
     // being drawn from a hand that merely moved.
-    const recognised = pinched && p.roundness >= 0.55 && p.progress >= REVEAL_AT;
+    // HYSTERESIS, OR THE BOUNDARY SWINGS. "It keeps oscillating, the white
+    // gap appears to be moving back and forth???"
+    //
+    // This was a bare threshold, and roundness on a real hand sits right on
+    // top of it and crosses several times a second. Every frame it was true
+    // the gap was read fresh from the live angle; every frame it was false
+    // the last one was held. So the unfilled sector alternated between two
+    // positions as fast as the gate flickered.
+    //
+    // It takes 0.58 to latch on and has to fall to 0.44 to let go, so a
+    // wobble around the old 0.55 cannot flip it at all.
+    if (!pinched || p.progress < REVEAL_AT - 0.05) recognisedLatch = false;
+    else if (p.roundness >= 0.58) recognisedLatch = true;
+    else if (p.roundness < 0.44) recognisedLatch = false;
+    const recognised = recognisedLatch && pinched && p.progress >= REVEAL_AT;
 
     // A CANCELLED CIRCLE UNWINDS, IT DOES NOT JUST FADE.
     //
@@ -1546,10 +1561,20 @@ function frame(now: number) {
 
     if (recognised) {
       const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
-      openGap = Math.max(0, 1 - doneTurns);
+      // Followed, not assigned. The fit moves a little every frame and the
+      // boundary is a big shape, so even a correct change reads as a jerk
+      // when it lands in one step.
+      const gapTarget = Math.max(0, 1 - doneTurns);
+      openGap += (gapTarget - openGap) * 0.3;
       openCcw = p.sweep < 0;
-      lastFill = doneTurns;
-      holdOld = (p.endAngle ?? 0) - (openCcw ? -1 : 1) * doneTurns * Math.PI * 2;
+      lastFill += (doneTurns - lastFill) * 0.3;
+      // Angles take the short way round, or the boundary sweeps the long way
+      // whenever the fit crosses PI.
+      const oldTarget = (p.endAngle ?? 0) - (openCcw ? -1 : 1) * doneTurns * Math.PI * 2;
+      let d = oldTarget - holdOld;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      holdOld += d * 0.3;
     } else if (mirrorAmt > 0.006) {
       // Unwinding. Depth back to the rim and arc back to the start point.
       lastFill += (0 - lastFill) * 0.10;
