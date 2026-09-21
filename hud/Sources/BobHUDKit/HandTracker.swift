@@ -96,8 +96,33 @@ public final class HandTracker {
 
         let output = AVCaptureVideoDataOutput()
         output.alwaysDiscardsLateVideoFrames = true
+
+        // Vision runs on the delegate queue, where the buffer already lives.
+        // Only the classified result crosses to the main actor, as a plain
+        // enum, so no CMSampleBuffer is ever sent.
+        //
+        // `nonisolated(unsafe)`: the request is created once and reused, and
+        // VNImageRequestHandler.perform is documented as safe to call from any
+        // thread. Swift 6 flags the capture because the class is @MainActor.
+        nonisolated(unsafe) let visionRequest = self.request
         let handler = SessionHandler { [weak self] buffer in
-            Task { @MainActor in self?.process(buffer) }
+            guard let pixelBuffer = CMSampleBufferGetImageBuffer(buffer) else { return }
+            let imageHandler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+            do {
+                try imageHandler.perform([visionRequest])
+            } catch {
+                return
+            }
+            guard let obs = visionRequest.results?.first else {
+                Task { @MainActor in
+                    self?.candidate = .none
+                    self?.palmFired = false
+                }
+                return
+            }
+            // Classify on this queue, where the observation is.
+            let gesture = Self.classify(obs)
+            Task { @MainActor in self?.gate(gesture) }
         }
         output.setSampleBufferDelegate(handler, queue: delegateQueue)
         guard session.canAddOutput(output) else {
@@ -112,7 +137,7 @@ public final class HandTracker {
 
         // Start on a background thread so it does not block the main actor.
         // AVCaptureSession.startRunning is synchronous and can take 200ms+.
-        Task.detached { session.startRunning() }
+        delegateQueue.async { session.startRunning() }
         isRunning = true
         Self.log.notice("hand.start")
     }
@@ -126,31 +151,8 @@ public final class HandTracker {
         session = nil
         output = nil
         handler = nil
-        Task.detached { s?.stopRunning() }
+        delegateQueue.async { s?.stopRunning() }
         Self.log.notice("hand.stop")
-    }
-
-    // MARK: Per-frame processing
-
-    private func process(_ sampleBuffer: CMSampleBuffer) {
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
-        do {
-            try handler.perform([request])
-        } catch {
-            return
-        }
-
-        guard let observation = request.results?.first else {
-            // No hand in frame: reset the gate and allow palm to fire again
-            // next time a hand appears.
-            candidate = .none
-            palmFired = false
-            return
-        }
-
-        let gesture = classify(observation)
-        gate(gesture)
     }
 
     // MARK: Gesture classification
@@ -165,18 +167,19 @@ public final class HandTracker {
     /// MCP joints).
     /// Finger identity, keyed by a plain string so the dictionaries do not
     /// fight with Vision's nested type names.
-    private struct Finger {
+    private struct Finger: Sendable {
         let tip: VNHumanHandPoseObservation.JointName
         let mcp: VNHumanHandPoseObservation.JointName
     }
-    private static let fingers: [(String, Finger)] = [
+    nonisolated private static let fingers: [(String, Finger)] = [
         ("index",  Finger(tip: .indexTip,  mcp: .indexMCP)),
         ("middle", Finger(tip: .middleTip, mcp: .middleMCP)),
         ("ring",   Finger(tip: .ringTip,   mcp: .ringMCP)),
         ("little", Finger(tip: .littleTip, mcp: .littleMCP)),
     ]
 
-    private func classify(_ obs: VNHumanHandPoseObservation) -> ClassifiedGesture? {
+    /// Classify on any thread: reads only the observation, touches no mutable state.
+    private nonisolated static func classify(_ obs: VNHumanHandPoseObservation) -> ClassifiedGesture? {
         guard let wrist = try? obs.recognizedPoint(.wrist),
               wrist.confidence > 0.3
         else { return nil }
@@ -296,20 +299,14 @@ public final class HandTracker {
 
     // MARK: Joint helpers
 
-    private func distance(_ a: VNRecognizedPoint, _ b: VNRecognizedPoint) -> CGFloat {
+    private nonisolated static func distance(_ a: VNRecognizedPoint, _ b: VNRecognizedPoint) -> CGFloat {
         let dx = CGFloat(a.x - b.x)
         let dy = CGFloat(a.y - b.y)
         return (dx * dx + dy * dy).squareRoot()
     }
 
-    /// The skeleton points for the demo overlay. All 21 joints, in Vision
-    /// coordinates (bottom-left origin, 0-1). Nil when no hand is detected.
-    /// Read by the demo target only; the production gestures go through
-    /// `onGesture`.
-    public private(set) var skeleton: [CGPoint]?
-
     /// All 21 joint names in the order Vision reports them.
-    private static let allJoints: [VNHumanHandPoseObservation.JointName] = [
+    public static let allJoints: [VNHumanHandPoseObservation.JointName] = [
         .wrist,
         .thumbCMC, .thumbMP, .thumbIP, .thumbTip,
         .indexMCP, .indexPIP, .indexDIP, .indexTip,
@@ -318,7 +315,8 @@ public final class HandTracker {
         .littleMCP, .littlePIP, .littleDIP, .littleTip,
     ]
 
-    /// Bone connections for drawing the skeleton.
+    /// Bone connections for drawing the skeleton. Each pair is an index into
+    /// `allJoints`.
     public static let bones: [(Int, Int)] = [
         // Thumb
         (0, 1), (1, 2), (2, 3), (3, 4),
@@ -333,29 +331,6 @@ public final class HandTracker {
         // Palm
         (5, 9), (9, 13), (13, 17),
     ]
-
-    /// Extract the full skeleton after classification, for the demo overlay.
-    public func updateSkeleton(from sampleBuffer: CMSampleBuffer) {
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-            skeleton = nil
-            return
-        }
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
-        try? handler.perform([request])
-        guard let obs = request.results?.first else {
-            skeleton = nil
-            return
-        }
-        var points: [CGPoint] = []
-        for joint in Self.allJoints {
-            if let p = try? obs.recognizedPoint(joint), p.confidence > 0.1 {
-                points.append(CGPoint(x: Double(p.x), y: Double(p.y)))
-            } else {
-                points.append(CGPoint(x: -1, y: -1))  // sentinel for missing
-            }
-        }
-        skeleton = points
-    }
 }
 
 // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
