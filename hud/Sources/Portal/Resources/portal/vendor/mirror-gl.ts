@@ -139,9 +139,28 @@ void main() {
   //
   // Each half of the wedge belongs to the end it is nearer, so the depth
   // carries on continuously round both sides instead of stepping.
-  float toEnd = rel - span;
-  float toStart = TAU - rel;
-  float uSafe = rel <= span ? u : (toEnd < toStart ? 1.0 : 0.0);
+  // THE TWO ENDS RUN INTO EACH OTHER ACROSS THE GAP.
+  //
+  // "The second radii has a hard firm radii too. What happened to making it
+  // like 2 cloudy liquid ends that combine into each other? Not just lego
+  // pieces that stack."
+  //
+  // Killing the earlier ledge, each half of the undrawn gap was given the
+  // depth of whichever end it was nearer. That removed the step at the
+  // start of the arc and put a new one exactly halfway round the gap, where
+  // the depth flipped from the leading end's to the start's in one pixel.
+  // It did not show while the gap was empty. It shows now, because the
+  // spill reaches into the gap, and a discontinuity inside something
+  // visible is a hard radial line: two ends stacked rather than merged.
+  //
+  // Interpolated across the gap instead. The depth leaves the leading edge
+  // at its deepest, eases round through the empty part, and arrives at the
+  // start's shallow depth, so the two ends are one continuous surface
+  // meeting itself. Smoothstepped, so there is no corner where the blend
+  // starts or finishes either.
+  float gapAng = max(TAU - span, 1e-4);
+  float across = clamp((rel - span) / gapAng, 0.0, 1.0);
+  float uSafe = rel <= span ? u : mix(1.0, 0.0, smoothstep(0.0, 1.0, across));
   float depth = depthAt(uSafe);
   float inner = uR * (1.0 - depth);
 
@@ -161,7 +180,9 @@ void main() {
   float lobes = sin(a2 * 3.0 + 1.7) * 0.55
               + sin(a2 * 5.0 - 0.9) * 0.30
               + sin(a2 * 8.0 + 2.3) * 0.15;
-  inner *= 1.0 + 0.09 * lobes * (1.0 - uLead);
+  // Heavier, so the front reads as something spreading rather than a curve
+  // being swept. Still faded out by the fill, so it is gone by the end.
+  inner *= 1.0 + 0.16 * lobes * (1.0 - uLead);
   inner = max(inner, 0.0);
 
   // THE BAND IS A FRACTION OF THE HOLE, NOT OF THE REVEALED RIBBON.
@@ -262,8 +283,39 @@ void main() {
   // Squared, so the reaching is late and sudden rather than a steady
   // widening that would just look like the arc leading the finger.
   float reach = uR * (0.06 + 0.70 * uLead * uLead);
+  // THE ENDS ARE CLOUDY, NOT STRAIGHT RADII. "The starting radii and ending
+  // radii have super sharp edges bruh theyre legos."
+  //
+  // Softening them was never going to fix it, because the problem was the
+  // shape and not the gradient. Computed across the leading end at three
+  // different radii, the old alpha profile was:
+  //
+  //   r=55% of R   1.00  1.00  0.94  0.30  0.00
+  //   r=75% of R   1.00  1.00  0.94  0.30  0.00
+  //   r=92% of R   1.00  1.00  0.94  0.30  0.00
+  //
+  // Identical at every radius, which is the definition of a straight line.
+  // A perfectly straight edge reads as a cut however soft it is, and two of
+  // them meeting a curve is a lego brick. The lobes above only ever
+  // perturbed the INNER boundary; the ends had nothing.
+  //
+  // So the end wanders along its own length. The waves are in r, so how far
+  // the spill has reached changes as you travel out from the centre, and
+  // the front is ragged rather than radial:
+  //
+  //   r=55% of R   1.00  1.00  0.89  0.54  0.17  0.00
+  //   r=75% of R   1.00  1.00  0.97  0.68  0.29  0.02
+  //   r=92% of R   1.00  1.00  1.00  0.83  0.45  0.10
+  //
+  // Faded out by the fill like everything else, so a finished portal has
+  // no ends to be ragged. The 0.55 widens the angular falloff against the
+  // same band, taking the fade from about 10 degrees to about 20.
+  float endWave = sin(r * 0.055 + 2.1) * 0.55
+                + sin(r * 0.033 - 0.9) * 0.30
+                + sin(r * 0.019 + 1.7) * 0.15;
+  float reachHere = reach + uR * 0.13 * endWave * (1.0 - uLead);
   float outAng = rel > span ? min(rel - span, TAU - rel) : 0.0;
-  float dAng = max(outAng * uR - reach, 0.0);
+  float dAng = max(outAng * uR - reachHere, 0.0) * 0.55;
   float dRad = max(inner - r, 0.0);
   float dist = length(vec2(dAng, dRad));
   float fBody = 1.0 - smoothstep(0.0, band, dist);
