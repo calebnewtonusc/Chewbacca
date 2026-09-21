@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Text in, listenable MP3 out. Runs locally, no API key, no network after the
+# first run caches the model.
+#
+# Built 2026-09-20 after reaching for a paid TTS API first and getting asked
+# "isn't there an open source model that doesn't need a key". There is.
+# Kokoro-82M, Apache 2.0, 82M params, faster than real time on Apple Silicon.
+#
+#   brief-audio script.txt                  # -> script.mp3
+#   brief-audio -v am_michael notes.txt     # a different voice
+#   echo "some text" | brief-audio -o out.mp3
+#
+# Voices: af_heart (default, best grade), af_bella, af_nicole, af_sarah,
+#         am_michael, am_puck, am_adam, bf_emma, bm_george
+set -euo pipefail
+
+VENV="$HOME/.chewbacca/audio-venv"
+VOICE="af_heart"
+OUT=""
+SPEED="1.0"
+SRC=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -v|--voice) VOICE="$2"; shift 2 ;;
+    -o|--out)   OUT="$2";   shift 2 ;;
+    -s|--speed) SPEED="$2"; shift 2 ;;
+    -h|--help)  sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *)          SRC="$1";   shift ;;
+  esac
+done
+
+# --- dependencies, installed once ---------------------------------------------
+if ! command -v espeak-ng >/dev/null 2>&1; then
+  echo "installing espeak-ng (phonemizer backend) ..." >&2
+  brew install espeak-ng >/dev/null 2>&1 || { echo "brew install espeak-ng failed" >&2; exit 1; }
+fi
+if ! command -v ffmpeg >/dev/null 2>&1; then
+  echo "installing ffmpeg ..." >&2
+  brew install ffmpeg >/dev/null 2>&1 || { echo "brew install ffmpeg failed" >&2; exit 1; }
+fi
+if [ ! -x "$VENV/bin/python" ]; then
+  echo "first run: building the Kokoro venv, this takes a minute ..." >&2
+  mkdir -p "$(dirname "$VENV")"
+  # 3.12 on purpose. torch has no wheels for 3.13/3.14.
+  uv venv --python 3.12 "$VENV" >&2 || { echo "uv venv failed" >&2; exit 1; }
+  # Pass the venv DIRECTORY, not $VENV/bin/python. That path is a symlink to the
+  # uv-managed interpreter, and uv resolves it to the real binary and then reports
+  # "No virtual environment found". Cost an hour on 2026-09-20.
+  uv pip install --python "$VENV" -q kokoro soundfile >&2 || { echo "kokoro install failed" >&2; exit 1; }
+  # kokoro shells out to `uv pip install en-core-web-sm` on first use. Pre-install it
+  # so that never happens at render time from an arbitrary working directory.
+  uv pip install --python "$VENV" -q \
+    "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" \
+    >&2 || echo "warning: could not pre-install en_core_web_sm" >&2
+fi
+
+# --- input --------------------------------------------------------------------
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+if [ -n "$SRC" ]; then
+  [ -f "$SRC" ] || { echo "no such file: $SRC" >&2; exit 1; }
+  cp "$SRC" "$TMP/in.txt"
+  [ -n "$OUT" ] || OUT="${SRC%.*}.mp3"
+else
+  cat > "$TMP/in.txt"
+  [ -n "$OUT" ] || OUT="brief.mp3"
+fi
+[ -s "$TMP/in.txt" ] || { echo "empty input" >&2; exit 1; }
+
+# --- render -------------------------------------------------------------------
+# kokoro's internal `uv pip install` reads VIRTUAL_ENV. Without it, rendering from a
+# directory that has no .venv dies with "No virtual environment found".
+export VIRTUAL_ENV="$VENV"
+"$VENV/bin/python" - "$TMP/in.txt" "$TMP/raw.wav" "$VOICE" "$SPEED" <<'PY'
+import sys, warnings
+warnings.filterwarnings("ignore")
+import numpy as np, soundfile as sf
+from kokoro import KPipeline
+
+src, dst, voice, speed = sys.argv[1], sys.argv[2], sys.argv[3], float(sys.argv[4])
+text = open(src).read()
+pipeline = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M")
+parts = []
+for graphemes, phonemes, audio in pipeline(text, voice=voice, speed=speed):
+    parts.append(audio)
+    parts.append(np.zeros(int(24000 * 0.35), dtype=np.float32))  # breath between paragraphs
+if not parts:
+    sys.exit("kokoro produced no audio")
+full = np.concatenate(parts)
+sf.write(dst, full, 24000)
+print(f"  {len(full)/24000/60:.1f} min rendered, voice={voice}", file=sys.stderr)
+PY
+
+# loudnorm is not optional. Raw output sits near -26 dB mean, which vanishes
+# under a washing machine or road noise. -16 LUFS is the podcast standard.
+ffmpeg -loglevel error -y -i "$TMP/raw.wav" \
+  -af "loudnorm=I=-16:TP=-1.5:LRA=11" -ar 24000 \
+  -codec:a libmp3lame -b:a 128k "$OUT"
+
+echo "wrote $OUT ($(du -h "$OUT" | cut -f1), $(ffprobe -v error -show_entries format=duration -of csv=p=0 "$OUT" | cut -d. -f1)s)"
