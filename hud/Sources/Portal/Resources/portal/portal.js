@@ -1202,17 +1202,19 @@
         ctx.moveTo(SP[0].x, SP[0].y);
         for (let i = 1; i < SP.length; i++) ctx.lineTo(SP[i].x, SP[i].y);
       };
-      ctx.shadowBlur = 10 + 22 * k;
-      ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
-      ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.18 + k * 0.45})`;
-      ctx.lineWidth = Math.max(2.5, rBase * RPX * 0.05);
-      path();
-      ctx.stroke();
-      ctx.shadowBlur = 6 + 10 * k;
-      ctx.strokeStyle = `rgba(${CORE}, ${0.3 + k * 0.6})`;
-      ctx.lineWidth = Math.max(1, rBase * RPX * 0.016);
-      path();
-      ctx.stroke();
+      if (!portalUp) {
+        ctx.shadowBlur = 10 + 22 * k;
+        ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
+        ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.18 + k * 0.45})`;
+        ctx.lineWidth = Math.max(2.5, rBase * RPX * 0.05);
+        path();
+        ctx.stroke();
+        ctx.shadowBlur = 6 + 10 * k;
+        ctx.strokeStyle = `rgba(${CORE}, ${0.3 + k * 0.6})`;
+        ctx.lineWidth = Math.max(1, rBase * RPX * 0.016);
+        path();
+        ctx.stroke();
+      }
       ctx.shadowBlur = 0;
       const boundShare = Math.min(0.4, conf * conf * 0.45);
       const bindMaybe = () => Math.random() < boundShare;
@@ -1252,7 +1254,7 @@
           bindMaybe()
         );
       }
-      if (SP && SP.length > 4) {
+      if (SP && SP.length > 4 && !portalUp) {
         const heat = Math.min(1, p.progress / 0.85);
         const per = 8 + Math.round(30 * heat);
         const halfBand = Math.max(2.5, (fitC ? fitC.r * RPX : 120) * 0.045);

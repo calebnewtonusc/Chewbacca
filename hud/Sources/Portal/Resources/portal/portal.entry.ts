@@ -1498,16 +1498,26 @@ function frame(now: number) {
     // TWO passes, not three. Three widths of additive stroke on a light
     // background paint the edges twice and leave the middle thin, which
     // reads as a hollow outline rather than a burning line.
-    ctx.shadowBlur = 10 + 22 * k;
-    ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
-    ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.18 + k * 0.45})`;
-    ctx.lineWidth = Math.max(2.5, rBase * RPX * 0.05);
-    path(); ctx.stroke();
+    // NOT WHILE A PORTAL IS UP. After the circle completes the hand is still
+    // pinched, so the trail keeps collecting and the line kept being drawn
+    // straight across the open portal: a thick orange arc over the city.
+    //
+    // It was drawing something that cannot happen, too. A completion is
+    // refused while a portal is open, so the line was promising a second
+    // portal the reducer would never grant. The stroke belongs to drawing a
+    // circle, and with one already open there is no circle to draw.
+    if (!portalUp) {
+      ctx.shadowBlur = 10 + 22 * k;
+      ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
+      ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.18 + k * 0.45})`;
+      ctx.lineWidth = Math.max(2.5, rBase * RPX * 0.05);
+      path(); ctx.stroke();
 
-    ctx.shadowBlur = 6 + 10 * k;
-    ctx.strokeStyle = `rgba(${CORE}, ${0.3 + k * 0.6})`;
-    ctx.lineWidth = Math.max(1, rBase * RPX * 0.016);
-    path(); ctx.stroke();
+      ctx.shadowBlur = 6 + 10 * k;
+      ctx.strokeStyle = `rgba(${CORE}, ${0.3 + k * 0.6})`;
+      ctx.lineWidth = Math.max(1, rBase * RPX * 0.016);
+      path(); ctx.stroke();
+    }
     ctx.shadowBlur = 0;
 
     // BINDING IS A PROPORTION, NOT A SWITCH. A spark bound to the circle
@@ -1568,7 +1578,7 @@ function frame(now: number) {
     // into the ribbon. The perpendicular jitter is what gives the band width
     // without widening the stroke: sparks sit either side of the path rather
     // than the path getting fatter.
-    if (SP && SP.length > 4) {
+    if (SP && SP.length > 4 && !portalUp) {
       const heat = Math.min(1, p.progress / 0.85);
       const per = 8 + Math.round(30 * heat);
       const halfBand = Math.max(2.5, (fitC ? fitC.r * RPX : 120) * 0.045);
