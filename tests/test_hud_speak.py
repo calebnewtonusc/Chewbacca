@@ -36,6 +36,32 @@ def load():
     return module
 
 
+try:
+    import pytest
+except ImportError:  # script mode, run as `python3 tests/test_hud_speak.py`
+    pytest = None
+
+
+if pytest is not None:
+
+    @pytest.fixture
+    def m():
+        """Load the hud-speak script as a module for unit tests."""
+        return load()
+
+    @pytest.fixture
+    def tmp(tmp_path: Path) -> Path:
+        return tmp_path
+
+    @pytest.fixture(autouse=True)
+    def no_failures():
+        """`check` records rather than raises so script mode prints every
+        result; under pytest the recorded failures become one assertion."""
+        before = len(failures)
+        yield
+        assert failures[before:] == [], failures[before:]
+
+
 def test_sentences(m) -> None:
     parts = m.sentences("Checking your calendar. You have three things tomorrow! Two are all day. Ok.")
     check("split at sentence ends",

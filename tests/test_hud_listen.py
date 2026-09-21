@@ -85,6 +85,13 @@ def load():
     module = importlib.util.module_from_spec(spec)
     sys.modules["hud_listen"] = module
     spec.loader.exec_module(module)
+    # No unit test may reach the real player. On 2026-09-20 the music
+    # fast-path test's fake was dropped by the reloader, whose stamp it
+    # had not set, and the real hud-music played a track on the
+    # person's Spotify. With no file here, music() returns None unless
+    # a test installs a fake by rebinding `music` itself.
+    module.MUSIC = Path('/nonexistent/hud-music')
+    module._music, module._music_stamp = None, 0.0
     return module
 
 
@@ -819,8 +826,8 @@ def test_music_fast_path(m) -> None:
 
     fake = types.SimpleNamespace(parse=parse, perform=perform, Command=Command, Outcome=Outcome,
                                  active_player=lambda: state["player"])
-    kept = m._music
-    m._music = fake
+    kept = m.music
+    m.music = lambda: fake
     try:
         listener = m.Listener("claude -p", False, False)
         sent: list[str] = []
@@ -884,7 +891,7 @@ def test_music_fast_path(m) -> None:
         check("the prompt carries the hint", "could not settle" in prompt and "Play freddie again." in prompt, prompt[:200])
         listener.current = None
     finally:
-        m._music = kept
+        m.music = kept
 
 
 def test_remember(m) -> None:
