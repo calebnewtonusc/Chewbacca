@@ -38,6 +38,16 @@ public final class HandTracker {
 
     public var onGesture: ((Gesture) -> Void)?
 
+    /// Every frame's 21 landmarks, in MediaPipe order and convention, or nil
+    /// when no confident hand is in view.
+    ///
+    /// Separate from `onGesture` because they answer different questions.
+    /// A gesture is a decision, debounced and fired once. Landmarks are a
+    /// measurement, delivered every frame including the frames where nothing
+    /// is happening, because a renderer needs to know the hand left as much
+    /// as it needs to know it arrived.
+    public var onLandmarks: (([LandmarkBridge.Point]?) -> Void)?
+
     /// Whether the tracker is running. The camera and the session handler are
     /// only alive while this is true.
     public private(set) var isRunning = false
@@ -117,12 +127,19 @@ public final class HandTracker {
                 Task { @MainActor in
                     self?.candidate = .none
                     self?.palmFired = false
+                    self?.onLandmarks?(nil)
                 }
                 return
             }
-            // Classify on this queue, where the observation is.
+            // Classify AND extract on this queue, where the observation is.
+            // Only plain values cross to the main actor; the observation and
+            // the pixel buffer never do.
             let gesture = Self.classify(obs)
-            Task { @MainActor in self?.gate(gesture) }
+            let points = LandmarkBridge.landmarks(from: obs)
+            Task { @MainActor in
+                self?.gate(gesture)
+                self?.onLandmarks?(points)
+            }
         }
         output.setSampleBufferDelegate(handler, queue: delegateQueue)
         guard session.canAddOutput(output) else {
@@ -305,8 +322,13 @@ public final class HandTracker {
         return (dx * dx + dy * dy).squareRoot()
     }
 
-    /// All 21 joint names in the order Vision reports them.
-    public static let allJoints: [VNHumanHandPoseObservation.JointName] = [
+    /// All 21 joint names in the order Vision reports them, which is also
+    /// MediaPipe's 0-20 order. See `LandmarkBridge`.
+    ///
+    /// `nonisolated` because landmarks are extracted on the capture queue,
+    /// where the observation already lives, and hopping to the main actor per
+    /// frame to read an immutable array would be absurd.
+    nonisolated public static let allJoints: [VNHumanHandPoseObservation.JointName] = [
         .wrist,
         .thumbCMC, .thumbMP, .thumbIP, .thumbTip,
         .indexMCP, .indexPIP, .indexDIP, .indexTip,
@@ -316,8 +338,8 @@ public final class HandTracker {
     ]
 
     /// Bone connections for drawing the skeleton. Each pair is an index into
-    /// `allJoints`.
-    public static let bones: [(Int, Int)] = [
+    /// `allJoints`. Matches OpenVision's `HAND_CONNECTIONS`.
+    nonisolated public static let bones: [(Int, Int)] = [
         // Thumb
         (0, 1), (1, 2), (2, 3), (3, 4),
         // Index

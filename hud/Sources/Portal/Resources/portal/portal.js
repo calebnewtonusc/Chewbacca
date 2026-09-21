@@ -1,0 +1,655 @@
+(() => {
+  var __defProp = Object.defineProperty;
+  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+
+  // vendor/circle.ts
+  var EMPTY = {
+    progress: 0,
+    sweep: 0,
+    center: null,
+    radius: 0,
+    completed: false,
+    direction: null,
+    startAngle: null,
+    endAngle: null
+  };
+  var CircleGestureDetector = class {
+    constructor(options = {}) {
+      __publicField(this, "trail", []);
+      __publicField(this, "smooth", null);
+      __publicField(this, "sweep", 0);
+      __publicField(this, "lastT", 0);
+      __publicField(this, "o");
+      this.o = {
+        sweepThreshold: options.sweepThreshold ?? 5.35,
+        trailLength: options.trailLength ?? 240,
+        minSegment: options.minSegment ?? 6e-3,
+        maxTurn: options.maxTurn ?? Math.PI / 3,
+        staleMs: options.staleMs ?? 400,
+        smoothing: options.smoothing ?? 0.45
+      };
+    }
+    /** Feed one frame. Pass null when the hand is gone. */
+    update(lm, now = Date.now()) {
+      if (!lm || lm.length < 21) {
+        this.reset();
+        return EMPTY;
+      }
+      return this.push(lm[8].x, lm[8].y, now);
+    }
+    /** Feed a raw point, for tests and for non-MediaPipe sources. */
+    push(x, y, now = Date.now()) {
+      if (this.lastT && now - this.lastT > this.o.staleMs) this.reset();
+      this.lastT = now;
+      if (!this.smooth) {
+        this.smooth = { x, y };
+      } else {
+        const a = this.o.smoothing;
+        this.smooth = {
+          x: this.smooth.x + (x - this.smooth.x) * a,
+          y: this.smooth.y + (y - this.smooth.y) * a
+        };
+      }
+      x = this.smooth.x;
+      y = this.smooth.y;
+      const prev = this.trail[this.trail.length - 1];
+      if (prev) {
+        if (Math.hypot(x - prev.x, y - prev.y) < this.o.minSegment) {
+          return this.report();
+        }
+      }
+      this.trail.push({ x, y, t: now });
+      if (this.trail.length > this.o.trailLength) this.trail.shift();
+      const n = this.trail.length;
+      if (n >= 3) {
+        const a = this.trail[n - 3];
+        const b = this.trail[n - 2];
+        const c = this.trail[n - 1];
+        const v1x = b.x - a.x;
+        const v1y = b.y - a.y;
+        const v2x = c.x - b.x;
+        const v2y = c.y - b.y;
+        const turn = Math.atan2(v1x * v2y - v1y * v2x, v1x * v2x + v1y * v2y);
+        if (Math.abs(turn) > this.o.maxTurn) {
+          this.sweep = 0;
+        } else {
+          this.sweep += turn;
+        }
+      }
+      const done = Math.abs(this.sweep) >= this.o.sweepThreshold;
+      const out = this.report(done);
+      if (done) {
+        this.sweep = 0;
+        this.trail = [];
+      }
+      return out;
+    }
+    report(completed = false) {
+      if (this.trail.length < 3) {
+        return { ...EMPTY, completed: false };
+      }
+      const { center, radius } = this.fit();
+      const first = this.trail[0];
+      const last = this.trail[this.trail.length - 1];
+      return {
+        startAngle: Math.atan2(first.y - center.y, first.x - center.x),
+        endAngle: Math.atan2(last.y - center.y, last.x - center.x),
+        progress: Math.min(1, Math.abs(this.sweep) / this.o.sweepThreshold),
+        sweep: this.sweep,
+        center,
+        radius,
+        completed,
+        direction: Math.abs(this.sweep) > 0.5 ? this.sweep > 0 ? "cw" : "ccw" : null
+      };
+    }
+    reset() {
+      this.trail = [];
+      this.smooth = null;
+      this.sweep = 0;
+      this.lastT = 0;
+    }
+    /**
+     * Algebraic least-squares circle fit (Kasa). Returns the centre of the
+     * circle the path lies on, which is NOT the centroid of the path.
+     *
+     * WHY NOT THE CENTROID. The centroid of an arc sits inside the arc, pulled
+     * toward wherever the samples are densest, and only coincides with the
+     * centre when the loop is complete and evenly sampled. A hand always stops
+     * a little short and always slows on one side, so the portal landed
+     * consistently off from the circle the person actually drew.
+     *
+     * Fits x^2 + y^2 = a*x + b*y + c, which is linear in (a, b, c), so it is a
+     * 3x3 solve with no iteration. Centre is (a/2, b/2). Coordinates are
+     * shifted to the centroid first, because the raw normalized values are all
+     * near 0.5 and squaring them costs precision in the normal equations.
+     *
+     * Falls back to the centroid when the points are nearly collinear, where
+     * the fit is singular and would throw the portal off screen.
+     */
+    fit() {
+      const m = this.centroid();
+      const n = this.trail.length;
+      let Sxx = 0, Sxy = 0, Syy = 0, Sxz = 0, Syz = 0, Sz = 0, Sx = 0, Sy = 0;
+      for (const q of this.trail) {
+        const x = q.x - m.x;
+        const y = q.y - m.y;
+        const z = x * x + y * y;
+        Sxx += x * x;
+        Sxy += x * y;
+        Syy += y * y;
+        Sxz += x * z;
+        Syz += y * z;
+        Sz += z;
+        Sx += x;
+        Sy += y;
+      }
+      const det = Sxx * Syy - Sxy * Sxy;
+      const meanR = Math.sqrt(Sz / n);
+      if (!isFinite(det) || Math.abs(det) < 1e-12) {
+        return { center: m, radius: meanR };
+      }
+      const a = (Sxz * Syy - Syz * Sxy) / det;
+      const b = (Syz * Sxx - Sxz * Sxy) / det;
+      const cx = a / 2;
+      const cy = b / 2;
+      const c = Sz / n - (cx * Sx * 2 + cy * Sy * 2) / n;
+      const r2 = cx * cx + cy * cy + c;
+      const radius = r2 > 0 ? Math.sqrt(r2) : meanR;
+      const center = { x: m.x + cx, y: m.y + cy };
+      const drift = Math.hypot(cx, cy);
+      if (!isFinite(radius) || radius > meanR * 2.5 || drift > meanR * 2.5 || radius > 0.75) {
+        return { center: m, radius: Math.min(meanR, 0.75) };
+      }
+      return { center, radius };
+    }
+    centroid() {
+      let x = 0;
+      let y = 0;
+      for (const p of this.trail) {
+        x += p.x;
+        y += p.y;
+      }
+      return { x: x / this.trail.length, y: y / this.trail.length };
+    }
+  };
+  function mirrorAngle(theta) {
+    return Math.PI - theta;
+  }
+
+  // vendor/portal-state.ts
+  function initialPortalState() {
+    return { phase: "idle", armed: true, born: 0, closeAt: 0, x: 0, y: 0, r: 0 };
+  }
+  function stepPortal(s, i, t = {}) {
+    const igniteMs = t.igniteMs ?? 520;
+    const closeMs = t.closeMs ?? 380;
+    const minOpenMs = t.minOpenMs ?? 600;
+    const n = { ...s };
+    if (n.phase === "igniting" && i.now - n.born >= igniteMs) n.phase = "open";
+    if (n.phase === "closing" && i.now - n.closeAt >= closeMs) n.phase = "idle";
+    if (!i.pinched) n.armed = true;
+    if (i.completed && i.center) {
+      n.phase = "igniting";
+      n.born = i.now;
+      n.closeAt = 0;
+      n.x = i.center.x;
+      n.y = i.center.y;
+      n.r = i.radius ?? 0;
+      n.armed = false;
+      return n;
+    }
+    if ((n.phase === "open" || n.phase === "igniting") && i.pinched && n.armed && i.now - n.born > minOpenMs) {
+      n.phase = "closing";
+      n.closeAt = i.now;
+      n.armed = false;
+      return n;
+    }
+    const portalUp = n.phase === "igniting" || n.phase === "open" || n.phase === "closing";
+    if (!portalUp) {
+      n.phase = i.pinched && i.progress > 0.02 ? "drawing" : "idle";
+    }
+    return n;
+  }
+  function ignitionAmount(s, now, igniteMs = 520) {
+    if (s.phase !== "igniting") return 1;
+    return Math.min(1, (now - s.born) / igniteMs);
+  }
+  function collapseAmount(s, now, closeMs = 380) {
+    if (s.phase !== "closing") return 0;
+    return Math.min(1, (now - s.closeAt) / closeMs);
+  }
+
+  // vendor/pinch.ts
+  function dist2D(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+  function midpoint(a, b) {
+    return {
+      x: (a.x + b.x) / 2,
+      y: (a.y + b.y) / 2,
+      z: ((a.z ?? 0) + (b.z ?? 0)) / 2
+    };
+  }
+  var PinchDetector = class {
+    constructor(opts = {}) {
+      __publicField(this, "enterRatio");
+      __publicField(this, "exitRatio");
+      __publicField(this, "holdMs");
+      __publicField(this, "dragDeadzone");
+      __publicField(this, "alpha");
+      __publicField(this, "state", "idle");
+      __publicField(this, "startedAt", 0);
+      __publicField(this, "center", null);
+      __publicField(this, "startCenter", null);
+      __publicField(this, "lastCenter", null);
+      __publicField(this, "smoothedCenter", null);
+      this.enterRatio = opts.enterRatio ?? 0.38;
+      this.exitRatio = opts.exitRatio ?? 0.52;
+      this.holdMs = opts.holdMs ?? 220;
+      this.dragDeadzone = opts.dragDeadzone ?? 0.012;
+      this.alpha = 0.4;
+    }
+    handScale(lm) {
+      const palmH = dist2D(lm[0], lm[9]);
+      const palmW = dist2D(lm[5], lm[17]);
+      return Math.max((palmH + palmW) * 0.5, 1e-4);
+    }
+    update(landmarks, now = performance.now()) {
+      if (!landmarks || landmarks.length < 21) {
+        const prev = this.state;
+        this.state = "idle";
+        this.smoothedCenter = null;
+        return {
+          state: "idle",
+          changed: prev !== "idle",
+          lost: true,
+          center: null,
+          delta: { x: 0, y: 0, z: 0 },
+          ratio: 1,
+          isPinched: false,
+          heldMs: 0,
+          scale: 1
+        };
+      }
+      const thumb = landmarks[4];
+      const index = landmarks[8];
+      const rawDist = dist2D(thumb, index);
+      const scale = this.handScale(landmarks);
+      const ratio = rawDist / scale;
+      const rawCenter = midpoint(thumb, index);
+      if (!this.smoothedCenter) this.smoothedCenter = rawCenter;
+      this.smoothedCenter = {
+        x: this.smoothedCenter.x + this.alpha * (rawCenter.x - this.smoothedCenter.x),
+        y: this.smoothedCenter.y + this.alpha * (rawCenter.y - this.smoothedCenter.y),
+        z: (this.smoothedCenter.z ?? 0) + this.alpha * ((rawCenter.z ?? 0) - (this.smoothedCenter.z ?? 0))
+      };
+      this.center = this.smoothedCenter;
+      const wasPinched = ["pinching", "holding", "dragging"].includes(this.state);
+      const isPinched = wasPinched ? ratio < this.exitRatio : ratio < this.enterRatio;
+      let changed = false;
+      if (!wasPinched && isPinched) {
+        this.state = "pinching";
+        this.startedAt = now;
+        this.startCenter = { ...this.center };
+        changed = true;
+      } else if (wasPinched && !isPinched) {
+        this.state = "released";
+        changed = true;
+      } else if (wasPinched && isPinched) {
+        const heldMs = now - this.startedAt;
+        const move = this.startCenter ? dist2D(this.center, this.startCenter) : 0;
+        this.state = move > this.dragDeadzone ? "dragging" : heldMs >= this.holdMs ? "holding" : "pinching";
+      } else if (this.state === "released") {
+        this.state = "idle";
+        changed = true;
+      }
+      const delta = this.lastCenter && this.center ? {
+        x: this.center.x - this.lastCenter.x,
+        y: this.center.y - this.lastCenter.y,
+        z: (this.center.z ?? 0) - (this.lastCenter.z ?? 0)
+      } : { x: 0, y: 0, z: 0 };
+      this.lastCenter = this.center ? { ...this.center } : null;
+      return {
+        state: this.state,
+        changed,
+        center: this.center,
+        delta,
+        ratio,
+        isPinched,
+        heldMs: wasPinched ? now - this.startedAt : 0,
+        scale
+      };
+    }
+  };
+
+  // vendor/skeleton.ts
+  var FINGER_TIPS = [4, 8, 12, 16, 20];
+
+  // portal.entry.ts
+  var CORE = "255, 236, 189";
+  var SPARK_HOT = "255, 196, 94";
+  var SPARK_MID = "255, 141, 44";
+  var SPARK_COLD = "214, 74, 16";
+  var IGNITE_MS = 520;
+  var CLOSE_MS = 380;
+  var MIN_OPEN_MS = 600;
+  var ease = (t) => 1 - Math.pow(1 - t, 3);
+  var IDLE_PROGRESS = {
+    progress: 0,
+    sweep: 0,
+    center: null,
+    radius: 0,
+    completed: false,
+    direction: null,
+    startAngle: null,
+    endAngle: null
+  };
+  var canvas = document.getElementById("c");
+  var ctx = canvas.getContext("2d");
+  var detector = new CircleGestureDetector();
+  var pinchL = new PinchDetector();
+  var state = initialPortalState();
+  var sparks = [];
+  var comet = [];
+  var geom = { cx: 0.5, cy: 0.5, r: 0.1 };
+  var attract = null;
+  var spin = 0;
+  var latest = null;
+  var lastSeen = 0;
+  window.chewbaccaHands = (pts) => {
+    latest = pts && pts.length === 21 ? pts : null;
+    if (latest) lastSeen = performance.now();
+  };
+  window.chewbaccaPortalState = () => state.phase;
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
+    canvas.style.width = `${window.innerWidth}px`;
+    canvas.style.height = `${window.innerHeight}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  resize();
+  window.addEventListener("resize", resize);
+  function frame(now) {
+    requestAnimationFrame(frame);
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.fillStyle = "rgba(0, 0, 0, 0.20)";
+    ctx.fillRect(0, 0, W, H);
+    const lm = now - lastSeen < 300 ? latest : null;
+    const mx = (nx) => (1 - nx) * W;
+    const my = (ny) => ny * H;
+    const RSCALE = (W + H) / 2;
+    const RMIN = 40;
+    const RMAX = Math.min(W, H) * 0.42;
+    const clampR = (r) => Math.max(RMIN, Math.min(RMAX, r));
+    const px = mx;
+    const py = my;
+    const arcPath = (cn, r, a0, a1, segs = 96, jitterPx = 0) => {
+      const cx0 = px(cn.x), cy0 = py(cn.y);
+      ctx.beginPath();
+      for (let i = 0; i <= segs; i++) {
+        const a = a0 + (a1 - a0) * i / segs;
+        const rr = jitterPx ? r + (Math.random() - 0.5) * jitterPx : r;
+        const qx = cx0 + Math.cos(a) * rr;
+        const qy = cy0 + Math.sin(a) * rr;
+        if (i === 0) ctx.moveTo(qx, qy);
+        else ctx.lineTo(qx, qy);
+      }
+    };
+    const disc = (cn, r) => {
+      ctx.beginPath();
+      ctx.arc(px(cn.x), py(cn.y), r, 0, Math.PI * 2);
+    };
+    const spawnAt = (x, y, tangentX, tangentY, count, speed, bind = false) => {
+      for (let i = 0; i < count; i++) {
+        const spread = (Math.random() - 0.5) * 0.9;
+        const sp = speed * (0.4 + Math.random() * 1.1);
+        sparks.push({
+          x,
+          y,
+          vx: (tangentX + spread * -tangentY) * sp,
+          vy: (tangentY + spread * tangentX) * sp,
+          life: 1,
+          decay: 9e-3 + Math.random() * 0.024,
+          heat: Math.random(),
+          width: 0.6 + Math.random() * 1.6,
+          bind
+        });
+      }
+    };
+    const pinch = lm ? pinchL.update(lm, now) : (pinchL.update(null, now), null);
+    const pinched = !!(pinch && pinch.isPinched && pinch.center);
+    let p;
+    if (pinched && pinch.center) {
+      p = detector.push(pinch.center.x, pinch.center.y, now);
+    } else {
+      detector.reset();
+      p = IDLE_PROGRESS;
+    }
+    const prevPhase = state.phase;
+    state = stepPortal(
+      state,
+      {
+        now,
+        pinched,
+        completed: p.completed && !!p.center,
+        progress: p.progress,
+        center: p.center ? { x: mx(p.center.x), y: my(p.center.y) } : null,
+        radius: clampR(p.radius * RSCALE)
+      },
+      { igniteMs: IGNITE_MS, closeMs: CLOSE_MS, minOpenMs: MIN_OPEN_MS }
+    );
+    const S = state;
+    const portalUp = S.phase === "igniting" || S.phase === "open" || S.phase === "closing";
+    if (S.phase === "igniting" && prevPhase !== "igniting") {
+      if (p.center) geom = { cx: p.center.x, cy: p.center.y, r: p.radius };
+      attract = { cx: geom.cx, cy: geom.cy, r: clampR(geom.r * RSCALE) };
+      comet = [];
+      const gr = clampR(geom.r * RSCALE);
+      for (let i = 0; i < 700; i++) {
+        const a = Math.random() * Math.PI * 2;
+        spawnAt(
+          px(geom.cx) + Math.cos(a) * gr,
+          py(geom.cy) + Math.sin(a) * gr,
+          -Math.sin(a),
+          Math.cos(a),
+          1,
+          7,
+          true
+        );
+      }
+    }
+    if (!portalUp && prevPhase === "closing") {
+      detector.reset();
+      comet = [];
+      attract = null;
+    }
+    if (lm && !portalUp) {
+      ctx.globalCompositeOperation = "lighter";
+      for (const t of FINGER_TIPS) {
+        ctx.fillStyle = `rgba(${SPARK_MID}, ${pinched ? 0.5 : 0.16})`;
+        ctx.beginPath();
+        ctx.arc(mx(lm[t].x), my(lm[t].y), pinched ? 4 : 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    if (S.phase === "drawing" && p.center && p.startAngle !== null && p.progress > 0.16) {
+      const cn = p.center;
+      const rpx = clampR(p.radius * RSCALE);
+      const swept = -Math.max(-Math.PI * 2, Math.min(Math.PI * 2, p.sweep));
+      const a0 = mirrorAngle(p.startAngle);
+      const a1 = a0 + swept;
+      const k = Math.pow(p.progress, 1.6);
+      ctx.globalCompositeOperation = "lighter";
+      ctx.lineCap = "round";
+      ctx.shadowBlur = 8 + 30 * k;
+      ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
+      ctx.strokeStyle = `rgba(${SPARK_COLD}, ${0.04 + k * 0.34})`;
+      ctx.lineWidth = Math.max(1.5, rpx * (0.02 + k * 0.06));
+      arcPath(cn, rpx, a0, a1, 96, 3);
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.07 + k * 0.6})`;
+      ctx.lineWidth = Math.max(1.2, rpx * (0.01 + k * 0.03));
+      arcPath(cn, rpx, a0, a1, 96, 1.5);
+      ctx.stroke();
+      ctx.shadowBlur = 6 + 16 * k;
+      ctx.strokeStyle = `rgba(${CORE}, ${0.06 + k * 0.72})`;
+      ctx.lineWidth = Math.max(0.8, rpx * (4e-3 + k * 0.011));
+      arcPath(cn, rpx, a0, a1);
+      ctx.stroke();
+      const headSpan = Math.sign(swept) * Math.min(Math.abs(swept), 0.55);
+      ctx.shadowBlur = 14 + 50 * k;
+      ctx.strokeStyle = `rgba(${CORE}, ${0.35 + k * 0.6})`;
+      ctx.lineWidth = Math.max(1.4, rpx * (0.012 + k * 0.042));
+      arcPath(cn, rpx, a1 - headSpan, a1, 24);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      const hx = px(cn.x) + Math.cos(a1) * rpx;
+      const hy = py(cn.y) + Math.sin(a1) * rpx;
+      const dir = Math.sign(swept) || 1;
+      const tx = -Math.sin(a1) * dir;
+      const ty = Math.cos(a1) * dir;
+      const prev = comet[comet.length - 1];
+      const speedPx = prev ? Math.hypot(hx - prev.x, hy - prev.y) : 0;
+      comet.push({ x: hx, y: hy });
+      if (comet.length > 40) comet.shift();
+      spawnAt(
+        hx,
+        hy,
+        tx,
+        ty,
+        Math.round((2 + k * 34) * (1 + Math.min(1.2, speedPx * 0.05))),
+        2.2 + k * 3,
+        true
+      );
+      spawnAt(hx, hy, tx, ty, Math.round(k * 6), 3 + k * 2.8, false);
+      attract = { cx: cn.x, cy: cn.y, r: rpx };
+    }
+    if (portalUp) {
+      spin += 0.012;
+      const ignite = ignitionAmount(S, now, IGNITE_MS);
+      const shut = collapseAmount(S, now, CLOSE_MS);
+      const e = ease(ignite);
+      const cn = { x: geom.cx, y: geom.cy };
+      const rpx = clampR(geom.r * RSCALE) * (1 - ease(shut));
+      const vis = e * (1 - shut);
+      const age = (now - S.born) / 1e3;
+      if (S.phase === "open") attract = { cx: cn.x, cy: cn.y, r: rpx };
+      if (rpx >= 2) {
+        const cx0 = px(cn.x), cy0 = py(cn.y);
+        ctx.globalCompositeOperation = "source-over";
+        ctx.globalAlpha = vis;
+        const inner = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, rpx);
+        inner.addColorStop(0, "rgba(3, 2, 1, 1)");
+        inner.addColorStop(0.82, "rgba(10, 5, 2, 1)");
+        inner.addColorStop(0.95, "rgba(46, 18, 5, 1)");
+        inner.addColorStop(1, "rgba(120, 48, 12, 0.85)");
+        ctx.fillStyle = inner;
+        disc(cn, rpx);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = "lighter";
+        const bloom = ctx.createRadialGradient(cx0, cy0, rpx * 0.9, cx0, cy0, rpx * 1.22);
+        bloom.addColorStop(0, `rgba(${SPARK_MID}, ${0.16 * vis})`);
+        bloom.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = bloom;
+        disc(cn, rpx * 1.22);
+        ctx.fill();
+        if (ignite < 1) {
+          ctx.strokeStyle = `rgba(${CORE}, ${(1 - e) * 0.5})`;
+          ctx.lineWidth = (1 - e) * 9 + 1;
+          arcPath(cn, rpx * (1 + e * 0.85), 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        const flicker = 0.82 + Math.sin(now / 55) * 0.1 + Math.random() * 0.08;
+        const heat = 1 + (1 - e) * 1.6 + ease(shut) * 2.6;
+        ctx.lineCap = "round";
+        ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
+        ctx.shadowBlur = 30 * heat;
+        ctx.strokeStyle = `rgba(${SPARK_COLD}, ${0.3 * vis})`;
+        ctx.lineWidth = Math.max(4, rpx * 0.1) * heat;
+        arcPath(cn, rpx, 0, Math.PI * 2, 120, 4);
+        ctx.stroke();
+        ctx.shadowBlur = 24 * heat;
+        ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.5 * vis})`;
+        ctx.lineWidth = Math.max(2.5, rpx * 0.045) * heat;
+        arcPath(cn, rpx, 0, Math.PI * 2, 120, 2.5);
+        ctx.stroke();
+        ctx.shadowBlur = 18 * heat;
+        ctx.strokeStyle = `rgba(${SPARK_HOT}, ${0.7 * vis})`;
+        ctx.lineWidth = Math.max(1.6, rpx * 0.018) * heat;
+        arcPath(cn, rpx, 0, Math.PI * 2, 120, 1.2);
+        ctx.stroke();
+        ctx.shadowBlur = 10;
+        ctx.strokeStyle = `rgba(${CORE}, ${Math.min(1, flicker * vis * 0.8)})`;
+        ctx.lineWidth = Math.max(1, rpx * 7e-3);
+        arcPath(cn, rpx, 0, Math.PI * 2, 120);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        const emit = S.phase === "igniting" ? 90 : S.phase === "closing" ? 55 : age < 0.6 ? 46 : 26;
+        const inward = S.phase === "closing" ? -1 : 1;
+        for (let i = 0; i < emit; i++) {
+          const a = Math.random() * Math.PI * 2 + spin;
+          spawnAt(
+            cx0 + Math.cos(a) * rpx,
+            cy0 + Math.sin(a) * rpx,
+            -Math.sin(a) * inward,
+            Math.cos(a) * inward,
+            1,
+            S.phase === "igniting" ? 6.5 : 4.2,
+            true
+          );
+        }
+      }
+    }
+    ctx.globalCompositeOperation = "lighter";
+    const alive = [];
+    for (const sp of sparks) {
+      const c = Math.cos(0.035), sn = Math.sin(0.035);
+      const nvx = sp.vx * c - sp.vy * sn;
+      const nvy = sp.vx * sn + sp.vy * c;
+      sp.vx = nvx * 0.975;
+      sp.vy = nvy * 0.975 + 0.055;
+      if (sp.bind && attract) {
+        const Cx = mx(attract.cx), Cy = my(attract.cy), R = attract.r || 1;
+        const dx = sp.x - Cx, dy = sp.y - Cy;
+        const dl = Math.hypot(dx, dy) || 1;
+        const nx = dx / dl, ny = dy / dl;
+        if (dl < R) {
+          sp.vx += nx * (R - dl) * 0.06;
+          sp.vy += ny * (R - dl) * 0.06;
+        } else {
+          sp.vx += nx * 0.22 * sp.life;
+          sp.vy += ny * 0.22 * sp.life;
+        }
+        const tang = 1.9 * sp.life;
+        sp.vx += -ny * tang;
+        sp.vy += nx * tang;
+        sp.vx *= 0.992;
+        sp.vy *= 0.992;
+      }
+      sp.x += sp.vx;
+      sp.y += sp.vy;
+      sp.life -= sp.decay;
+      if (sp.life <= 0) continue;
+      alive.push(sp);
+      const speed = Math.hypot(sp.vx, sp.vy) || 1;
+      const len = Math.min(44, 2 + speed * 3.6);
+      const h = sp.heat * sp.life;
+      const col = h > 0.62 ? CORE : h > 0.3 ? SPARK_HOT : h > 0.14 ? SPARK_MID : SPARK_COLD;
+      ctx.strokeStyle = `rgba(${col}, ${Math.min(1, sp.life * 1.5)})`;
+      ctx.lineWidth = sp.width * (0.4 + sp.life);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(sp.x, sp.y);
+      ctx.lineTo(sp.x - sp.vx / speed * len, sp.y - sp.vy / speed * len);
+      ctx.stroke();
+    }
+    sparks = alive.length > 11e3 ? alive.slice(-11e3) : alive;
+  }
+  requestAnimationFrame(frame);
+})();
