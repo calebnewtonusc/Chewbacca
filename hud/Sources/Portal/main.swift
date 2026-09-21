@@ -280,6 +280,15 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         guard let body = message.body as? [String: Any],
               let event = body["event"] as? String
         else { return }
+        // The web layer has no console anybody reads, so anything it needs to
+        // report about itself comes up here. The mirror image failing to load
+        // looked identical to the mirror being painted over, and there was no
+        // way to tell them apart from the outside.
+        if event == "log" {
+            let text = (body["text"] as? String) ?? ""
+            FileHandle.standardError.write(Data("portal: \(text)\n".utf8))
+            return
+        }
         Task { @MainActor in
             // "opening" is sent at the latch, when the ring locks and the
             // other side starts showing through. "opened" is sent at

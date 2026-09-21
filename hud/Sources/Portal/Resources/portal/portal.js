@@ -620,6 +620,16 @@
   var mirrorReady = false;
   mirror.onload = () => {
     mirrorReady = true;
+    window.webkit?.messageHandlers?.portal?.postMessage({
+      event: "log",
+      text: `mirror loaded ${mirror.width}x${mirror.height}`
+    });
+  };
+  mirror.onerror = () => {
+    window.webkit?.messageHandlers?.portal?.postMessage({
+      event: "log",
+      text: "mirror FAILED to load"
+    });
   };
   mirror.src = "mirror.jpg";
   var LATCH_AT = 0.8;
@@ -728,6 +738,69 @@
       ctx.globalAlpha = alpha;
       ctx.drawImage(mirror, (W - dw) / 2, (H - dh) / 2, dw, dh);
       ctx.globalAlpha = 1;
+    };
+    const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw) => {
+      if (!mirrorReady || strength <= 4e-3 || Rp < 3) return;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
+      ctx.clip();
+      drawMirror(strength);
+      ctx.globalCompositeOperation = "destination-out";
+      const fade = ctx.createRadialGradient(cxp, cyp, Rp * 0.22, cxp, cyp, Rp);
+      fade.addColorStop(0, "rgba(0,0,0,0)");
+      fade.addColorStop(0.72, "rgba(0,0,0,0.4)");
+      fade.addColorStop(1, "rgba(0,0,0,1)");
+      ctx.fillStyle = fade;
+      ctx.beginPath();
+      ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
+      ctx.fill();
+      if (gapSize > 2e-3) {
+        const blur = Math.max(3, Rp * 0.1);
+        ctx.filter = `blur(${blur.toFixed(1)}px)`;
+        const feather = Math.min(gapSize * 0.45, 0.13);
+        const dir = ccw ? -1 : 1;
+        const cg = ctx.createConicGradient?.(gapFrom, cxp, cyp);
+        if (cg) {
+          const at = (f) => Math.max(0, Math.min(1, ccw ? 1 - f : f));
+          const stops = [
+            [at(0), "rgba(0,0,0,0)"],
+            [at(feather), "rgba(0,0,0,1)"],
+            [at(gapSize - feather), "rgba(0,0,0,1)"],
+            [at(gapSize), "rgba(0,0,0,0)"]
+          ];
+          for (const [o, c] of stops.sort((a, b) => a[0] - b[0])) cg.addColorStop(o, c);
+          ctx.fillStyle = cg;
+          ctx.beginPath();
+          ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillStyle = "rgba(0,0,0,1)";
+          ctx.beginPath();
+          ctx.moveTo(cxp, cyp);
+          ctx.arc(cxp, cyp, Rp, gapFrom, gapFrom + dir * gapSize * Math.PI * 2, ccw);
+          ctx.closePath();
+          ctx.fill();
+        }
+        const edge = gapFrom + dir * feather * Math.PI * 2;
+        for (let i = 0; i < 5; i++) {
+          const t = now / 3e3 + i * 1.7;
+          const a = edge + dir * (Math.sin(t) * 0.22 + 0.06);
+          const rr = Rp * (0.3 + 0.45 * ((Math.sin(t * 1.3 + i) + 1) / 2));
+          const br = Rp * (0.18 + 0.12 * ((Math.cos(t * 0.9 + i) + 1) / 2));
+          const bx = cxp + Math.cos(a) * rr, by = cyp + Math.sin(a) * rr;
+          const g2 = ctx.createRadialGradient(bx, by, 0, bx, by, br);
+          g2.addColorStop(0, "rgba(0,0,0,0.85)");
+          g2.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.fillStyle = g2;
+          ctx.beginPath();
+          ctx.arc(bx, by, br, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.filter = "none";
+      }
+      ctx.globalCompositeOperation = "source-over";
+      ctx.restore();
     };
     const spawnBand = (x, y, tx, ty, heat) => {
       const spread = (Math.random() - 0.5) * 0.3;
@@ -987,27 +1060,10 @@
         const cvx = mx(fitC.cx), cvy = my(fitC.cy);
         const Rv = Math.max(4, fitC.r * RPX);
         const ccw = p.sweep < 0;
-        const a0 = drawing ? drawing.a0 : p.startAngle ?? 0;
-        const a1 = p.endAngle ?? a0;
-        const FEATHER = 0.22;
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(cvx, cvy);
-        ctx.arc(cvx, cvy, Rv, a0, a1 - (ccw ? -FEATHER : FEATHER), ccw);
-        ctx.closePath();
-        ctx.clip();
-        drawMirror(reveal);
-        ctx.globalCompositeOperation = "destination-out";
-        const fade = ctx.createRadialGradient(cvx, cvy, Rv * 0.25, cvx, cvy, Rv);
-        fade.addColorStop(0, "rgba(0,0,0,0)");
-        fade.addColorStop(0.7, "rgba(0,0,0,0.45)");
-        fade.addColorStop(1, "rgba(0,0,0,1)");
-        ctx.fillStyle = fade;
-        ctx.beginPath();
-        ctx.arc(cvx, cvy, Rv, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalCompositeOperation = "source-over";
-        ctx.restore();
+        const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
+        const gapSize = Math.max(0, 1 - doneTurns);
+        const gapFrom = p.endAngle ?? 0;
+        paintMirror(cvx, cvy, Rv, reveal, gapFrom, gapSize, ccw);
       }
       ctx.globalCompositeOperation = "lighter";
       ctx.lineCap = "round";
@@ -1113,9 +1169,6 @@
       const cn = { x: geom.cx, y: geom.cy };
       const rn = clampRN(geom.r) * (1 - ease(shut));
       const rpx = rpxOf(rn);
-      const grow = ignite * ignite * (3 - 2 * ignite);
-      const rnHole = rn * grow;
-      const rpxHole = rpx * grow;
       const vis = e * (1 - shut);
       const age = (now - S.born) / 1e3;
       if (S.phase === "open") attract = { cx: cn.x, cy: cn.y, r: rpx };
@@ -1124,45 +1177,11 @@
         if (armed) {
           ctx.globalCompositeOperation = "destination-out";
           ctx.globalAlpha = 1;
-          disc(cn, rnHole * 0.985);
+          disc(cn, rn * 0.985);
           ctx.fill();
           ctx.globalCompositeOperation = "source-over";
-          ctx.globalAlpha = vis * 0.9;
-          const lip = ctx.createRadialGradient(
-            cx0,
-            cy0,
-            Math.max(1, rpxHole * 0.88),
-            cx0,
-            cy0,
-            Math.max(2, rpxHole)
-          );
-          lip.addColorStop(0, "rgba(0,0,0,0)");
-          lip.addColorStop(1, "rgba(120, 48, 12, 0.6)");
-          ctx.fillStyle = lip;
-          disc(cn, rnHole);
-          ctx.fill();
-          ctx.globalAlpha = 1;
         } else {
-          ctx.globalCompositeOperation = "source-over";
-          ctx.save();
-          disc(cn, rnHole);
-          ctx.clip();
-          drawMirror(vis);
-          const lipDark = ctx.createRadialGradient(
-            cx0,
-            cy0,
-            Math.max(1, rpxHole * 0.82),
-            cx0,
-            cy0,
-            Math.max(2, rpxHole)
-          );
-          lipDark.addColorStop(0, "rgba(0,0,0,0)");
-          lipDark.addColorStop(1, `rgba(24, 10, 3, ${0.75 * vis})`);
-          ctx.fillStyle = lipDark;
-          disc(cn, rnHole);
-          ctx.fill();
-          ctx.restore();
-          ctx.globalAlpha = 1;
+          paintMirror(cx0, cy0, rpx, vis, 0, 0, false);
         }
         ctx.globalCompositeOperation = "lighter";
         const bloom = ctx.createRadialGradient(cx0, cy0, rpx * 0.9, cx0, cy0, rpx * 1.22);
