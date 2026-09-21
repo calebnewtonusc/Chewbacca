@@ -22,10 +22,10 @@
       __publicField(this, "lastT", 0);
       __publicField(this, "o");
       this.o = {
-        sweepThreshold: options.sweepThreshold ?? 5.35,
+        sweepThreshold: options.sweepThreshold ?? 4.6,
         trailLength: options.trailLength ?? 240,
-        minSegment: options.minSegment ?? 6e-3,
-        maxTurn: options.maxTurn ?? Math.PI / 3,
+        minSegment: options.minSegment ?? 4e-3,
+        maxTurn: options.maxTurn ?? Math.PI / 2.2,
         staleMs: options.staleMs ?? 400,
         smoothing: options.smoothing ?? 0.45
       };
@@ -640,8 +640,34 @@
     if (lm && !portalUp) {
       ctx.globalCompositeOperation = "lighter";
       for (const t of FINGER_TIPS) {
-        ctx.fillStyle = `rgba(${SPARK_MID}, 0.1)`;
-        ctx.fillRect(mx(lm[t].x) - 0.5, my(lm[t].y) - 0.5, 1, 1);
+        ctx.fillStyle = `rgba(${SPARK_MID}, ${pinched ? 0.8 : 0.35})`;
+        ctx.beginPath();
+        ctx.arc(mx(lm[t].x), my(lm[t].y), pinched ? 2.6 : 1.8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (pinch?.center) {
+        ctx.fillStyle = `rgba(${CORE}, 0.9)`;
+        ctx.beginPath();
+        ctx.arc(mx(pinch.center.x), my(pinch.center.y), 3.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (pinched && pinch?.center) {
+        const cx0 = mx(pinch.center.x);
+        const cy0 = my(pinch.center.y);
+        const k = Math.max(0, Math.min(1, p.progress));
+        ctx.strokeStyle = `rgba(${SPARK_MID}, 0.25)`;
+        ctx.lineWidth = 2;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.arc(cx0, cy0, 16, 0, Math.PI * 2);
+        ctx.stroke();
+        if (k > 0.01) {
+          ctx.strokeStyle = `rgba(${CORE}, 0.95)`;
+          ctx.lineWidth = 2.8;
+          ctx.beginPath();
+          ctx.arc(cx0, cy0, 16, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2);
+          ctx.stroke();
+        }
       }
     }
     if (S.phase === "drawing" && p.center && p.startAngle !== null && p.progress > 0.16) {

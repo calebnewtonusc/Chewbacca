@@ -367,12 +367,51 @@ function frame(now: number) {
   // ── Fingertips, faint, so the hand is visible before anything is drawn ──
   if (lm && !portalUp) {
     ctx.globalCompositeOperation = "lighter";
-    // THE FINGERTIPS ARE NOT DOTS. Five filled circles tracking the hand
-    // read as a debug overlay, which is exactly what they were. A single
-    // dim pixel says "seen" without claiming to be part of the effect.
+    // THE FINGERTIP POINTS, brought back by name: "bring back the small end
+    // of finger points those helped a lot".
+    //
+    // They were five fat filled circles, cut to a single pixel when that
+    // read as a debug overlay sitting on top of the effect. Cutting them
+    // that far removed the only thing telling him where the tracker thought
+    // his hand was, which is the difference between aiming and guessing.
+    // Small and dim, but visible.
     for (const t of FINGER_TIPS) {
-      ctx.fillStyle = `rgba(${SPARK_MID}, 0.1)`;
-      ctx.fillRect(mx(lm[t].x) - 0.5, my(lm[t].y) - 0.5, 1, 1);
+      ctx.fillStyle = `rgba(${SPARK_MID}, ${pinched ? 0.8 : 0.35})`;
+      ctx.beginPath();
+      ctx.arc(mx(lm[t].x), my(lm[t].y), pinched ? 2.6 : 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // The pinch point, which is the pen. Where the tip is matters more than
+    // where the fingers are.
+    if (pinch?.center) {
+      ctx.fillStyle = `rgba(${CORE}, 0.9)`;
+      ctx.beginPath();
+      ctx.arc(mx(pinch.center.x), my(pinch.center.y), 3.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // HOW MUCH OF THE CIRCLE HAS REGISTERED. "Still really hard to draw
+    // circles." Without this the only feedback is the portal appearing or
+    // not, so a sweep that registered 40% and one that registered nothing
+    // look identical and there is nothing to correct toward. A ring that
+    // fills as the turning accumulates makes the gesture learnable.
+    if (pinched && pinch?.center) {
+      const cx0 = mx(pinch.center.x);
+      const cy0 = my(pinch.center.y);
+      const k = Math.max(0, Math.min(1, p.progress));
+      ctx.strokeStyle = `rgba(${SPARK_MID}, 0.25)`;
+      ctx.lineWidth = 2;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.arc(cx0, cy0, 16, 0, Math.PI * 2);
+      ctx.stroke();
+      if (k > 0.01) {
+        ctx.strokeStyle = `rgba(${CORE}, 0.95)`;
+        ctx.lineWidth = 2.8;
+        ctx.beginPath();
+        ctx.arc(cx0, cy0, 16, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2);
+        ctx.stroke();
+      }
     }
   }
 

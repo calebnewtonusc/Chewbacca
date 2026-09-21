@@ -125,10 +125,10 @@ export class CircleGestureDetector {
 
   constructor(options: CircleGestureOptions = {}) {
     this.o = {
-      sweepThreshold: options.sweepThreshold ?? 5.35,
+      sweepThreshold: options.sweepThreshold ?? 4.6,
       trailLength: options.trailLength ?? 240,
-      minSegment: options.minSegment ?? 0.006,
-      maxTurn: options.maxTurn ?? Math.PI / 3,
+      minSegment: options.minSegment ?? 0.004,
+      maxTurn: options.maxTurn ?? Math.PI / 2.2,
       staleMs: options.staleMs ?? 400,
       smoothing: options.smoothing ?? 0.45,
     };
