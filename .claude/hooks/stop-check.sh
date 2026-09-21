@@ -76,6 +76,17 @@ fi
 # the previous behaviour when the log is missing, empty, unreadable, or when
 # jq is absent, because a guard that suppresses a real warning on a bad day is
 # worse than one that occasionally repeats itself.
+# Attribute exactly the set DIRTY_COUNT counted, not a narrower one. An
+# untracked file another session created is staged by `git add -A` like any
+# other, so leaving it out reported a mixed tree as clean-handed. When the
+# untracked entries were dropped as environment noise above, drop them here too,
+# which also bounds this loop to tracked + UNTRACKED_NOISE_FLOOR greps.
+if [ "$UNTRACKED_COUNT" -gt "$UNTRACKED_NOISE_FLOOR" ]; then
+  _ATTR_PATHS="$(git status --porcelain 2>/dev/null | grep -v '^??' | sed 's/^...//' | sed 's/.* -> //')"
+else
+  _ATTR_PATHS="$(git status --porcelain 2>/dev/null | sed 's/^...//' | sed 's/.* -> //')"
+fi
+
 MINE_COUNT=0
 OTHERS_COUNT=0
 _SID=""
@@ -94,7 +105,7 @@ if [ -n "$_SID" ] && [ -s "$_WLOG" ]; then
     else
       OTHERS_COUNT=$((OTHERS_COUNT + 1))
     fi
-  done <<< "$(git status --porcelain 2>/dev/null | grep -v '^??' | sed 's/^...//' | sed 's/.* -> //')"
+  done <<< "$_ATTR_PATHS"
 fi
 
 # Repeating a warning the user has already seen and declined to act on is the
