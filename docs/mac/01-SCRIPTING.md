@@ -126,11 +126,18 @@ a `defaults read` right after a GUI change can return the old value.
 ```bash
 open -a "Safari" "https://example.com"
 open -R ~/file.txt                       # reveal in Finder
-open -na "Chrome" --args --new-window    # force a new instance
+open -na "Chrome" --args --new-window    # force a new instance (see the warning below)
 launchctl list | grep -i com.apple.Spotlight
 pmset displaysleepnow                     # sleep the display
 osascript -e 'display notification "done" with title "Chewbacca"'
 ```
+
+`-n` starts a second copy of the app, and that copy keeps the environment of
+whatever started it for as long as it runs. An agent that runs `open -na Terminal`
+leaves behind a Terminal.app holding its own session variables; every window opened
+in it afterwards inherits them, and a Claude Code started in one of those windows
+draws a block under every word and saves no transcript. Use `-n` on an app you are
+only reading from, never on a terminal.
 
 `open -a` is the cheapest way to make an app frontmost, and it is much more reliable
 than clicking the Dock.
