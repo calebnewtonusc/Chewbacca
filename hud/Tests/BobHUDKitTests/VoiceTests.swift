@@ -25,9 +25,28 @@ import Testing
 }
 
 @Suite struct PushKeyTests {
-    @Test func globeReadsTheFlagAlone() {
+    @Test func globeReadsItsOwnKeyCodeOnly() {
         #expect(PushKey.globe.state(keyCode: 63, flags: [.function]) == true)
-        #expect(PushKey.globe.state(keyCode: 56, flags: [.shift]) == false)
+        #expect(PushKey.globe.state(keyCode: 63, flags: []) == false, "the globe key came up")
+        // Was `== false`, which is what broke it. Reporting "the talk key is
+        // up" for somebody pressing Shift put 200 releases against 66 presses
+        // into three hours of log on 2026-09-21, and the stateful double-tap
+        // detector in front of `beginPush` read hold, stray release, stray
+        // press as the exit gesture: 18 times, each shutting the microphone
+        // 100ms after it opened. The turn then ended code=1110 with zero
+        // partials and the pill said "Did not catch that".
+        #expect(PushKey.globe.state(keyCode: 56, flags: [.shift]) == nil, "left Shift is not the talk key")
+        #expect(PushKey.globe.state(keyCode: 58, flags: [.option, .function]) == nil,
+                "a foreign key carrying the function flag is still not the talk key")
+    }
+
+    @Test func flagsAloneCanOnlyCloseATurn() {
+        // The failsafe the old behaviour was reaching for, kept as its own
+        // question so it cannot open a turn or reach the tap detector.
+        #expect(PushKey.globe.heldByFlags([.function]))
+        #expect(!PushKey.globe.heldByFlags([.shift]))
+        #expect(PushKey.rightOption.heldByFlags([.option]))
+        #expect(!PushKey.rightOption.heldByFlags([]))
     }
 
     @Test func rightModifiersReadTheirOwnKeyCodeOnly() {

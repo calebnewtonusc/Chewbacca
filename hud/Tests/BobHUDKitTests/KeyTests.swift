@@ -65,6 +65,29 @@ struct KeyTests {
         #expect(model.pill.phase == .hearing)
     }
 
+    @Test("a stray release between a hold and the next press is not a double")
+    func strayReleaseIsNotADouble() {
+        // The 2026-09-21 failure, as a table. The globe goes down, the person
+        // talks, the globe comes up. Anything that made `press()` fire again
+        // inside the interval turned that one hold into the exit gesture.
+        var taps = DoubleTap(interval: 0.5)
+        let start = Date()
+        let hold = taps.press(at: start)
+        taps.release()
+        #expect(!hold, "the hold itself")
+        // A real second press this soon IS the exit gesture, and stays so.
+        var real = DoubleTap(interval: 0.5)
+        _ = real.press(at: start)
+        real.release()
+        let genuine = real.press(at: start.addingTimeInterval(0.15))
+        #expect(genuine, "a genuine double still fires")
+        // But a foreign event can no longer reach `press` at all: `state`
+        // returns nil for it, so there is nothing to assert here beyond the
+        // key test above. This case exists so a future change that feeds
+        // foreign events back in fails here too.
+        #expect(PushKey.globe.state(keyCode: 56, flags: [.shift]) == nil)
+    }
+
     @Test("another modifier changing under the held key is not a press")
     func modifierUnderHold() {
         var taps = DoubleTap(interval: 0.5)
