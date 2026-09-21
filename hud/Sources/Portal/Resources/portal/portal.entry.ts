@@ -492,7 +492,21 @@ function frame(now: number) {
   ) => {
     if (!mirrorReady || !maskCtx || strength <= 0.004 || Rp < 3) return;
 
-    const pad = Math.max(12, Rp * 0.4);
+    // MUCH WIDER. "Much larger gradient on the edges, it seems so abrupt."
+    // 0.16 R at most, and on a 300px portal that is a 48px edge, which is
+    // abrupt next to the thing it is supposed to be dissolving into.
+    //
+    //     portal radius   was    now, mid-draw   now, open
+    //           150px     24px       57px           6px
+    //           300px     48px      114px          12px
+    //
+    // Still nearly crisp once the portal is open, because a finished portal
+    // is a hole and not a cloud.
+    const blurPx = Math.max(6, Rp * (0.04 + 0.34 * cloud));
+    // The padding has to clear the blur or the canvas edge cuts it back into
+    // the hard line it was there to remove. A canvas blur spreads about two
+    // and a half times its own value before it vanishes.
+    const pad = Math.max(16, blurPx * 2.5);
     const size = Math.ceil(2 * Rp + pad * 2);
     if (maskCv.width !== size || maskCv.height !== size) {
       maskCv.width = size; maskCv.height = size;
@@ -527,7 +541,7 @@ function frame(now: number) {
     };
 
     // The mask, blurred for real. Source-over, so the filter is honoured.
-    m.filter = `blur(${Math.max(5, Rp * (0.06 + 0.1 * cloud)).toFixed(1)}px)`;
+    m.filter = `blur(${blurPx.toFixed(1)}px)`;
     m.fillStyle = "#fff";
     m.beginPath();
     // Outer boundary: the rim, but only across the part already drawn.
