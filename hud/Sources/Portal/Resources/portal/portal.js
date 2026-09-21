@@ -131,7 +131,7 @@
         const v2y = c.y - b.y;
         const turn = Math.atan2(v1x * v2y - v1y * v2x, v1x * v2x + v1y * v2y);
         if (Math.abs(turn) > this.o.maxTurn) {
-          this.sweep = 0;
+          this.smooth = null;
         } else {
           this.sweep += turn;
         }
