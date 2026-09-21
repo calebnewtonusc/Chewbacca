@@ -14,6 +14,7 @@ exists, and that the skill's own description plausibly covers the prompt.
 That last check is a proxy for trigger accuracy and is labeled as one.
 """
 
+import hashlib
 import json
 import re
 import shutil
@@ -96,7 +97,20 @@ def check():
     return 0
 
 
-def run(only=None):
+def case_id(skill, prompt):
+    """A stable name for one eval case.
+
+    Hashed from the skill and the prompt rather than taken from the case's
+    position in the file, so reordering or inserting a case does not silently
+    rename every id after it. An id that moves is worse than no id: the whole
+    point is comparing the same case across runs, and a renamed case looks
+    like one failure disappearing and another appearing.
+    """
+    h = hashlib.sha256(f"{skill}\u0000{prompt}".encode("utf-8")).hexdigest()
+    return f"{skill}:{h[:8]}"
+
+
+def run(only=None, results_path=None):
     if not shutil.which("claude"):
         print("claude CLI not found, so behavioral evals cannot run here.", file=sys.stderr)
         print("The structure pass still works: chewbacca evals", file=sys.stderr)
@@ -108,6 +122,16 @@ def run(only=None):
             print(f"no evals for '{only}'", file=sys.stderr)
             return 2
     passed = failed = 0
+    # WHICH cases failed, not how many.
+    #
+    # This function always knew: it prints the skill, the prompt, the missing
+    # expectations and the rejects, and then throws all of it away and
+    # returns two integers. `fitness` then regexed those integers out of
+    # stdout, so ten runs of the benchmark recorded "25 failed" and nothing
+    # about which 25. Credit assignment is the entire problem in a learning
+    # loop, and a scalar count makes it impossible: there is nothing to
+    # attribute a regression to and nothing to fix.
+    results = []
     for f in files:
         data = json.loads(f.read_text(encoding="utf-8"))
         skill = data["skill"]
@@ -124,6 +148,9 @@ def run(only=None):
             except subprocess.TimeoutExpired:
                 print(f"  TIMEOUT  {prompt[:60]}")
                 failed += 1
+                results.append({"id": case_id(skill, prompt), "skill": skill,
+                                "prompt": prompt, "pass": False,
+                                "reason": "timeout", "missing": [], "rejected": []})
                 continue
             hits = [w for w in want if w.lower() in out]
             rejects = [r for r in c.get("reject", []) if r.lower() in out]
@@ -135,14 +162,34 @@ def run(only=None):
                     print(f"        missing: {', '.join(miss)}")
                 if rejects:
                     print(f"        did the rejected thing: {', '.join(rejects)}")
+            results.append({
+                "id": case_id(skill, prompt),
+                "skill": skill,
+                "prompt": prompt,
+                "pass": bool(good),
+                "reason": "" if good else ("rejected" if rejects else "missing"),
+                "missing": [w for w in want if w.lower() not in out],
+                "rejected": rejects,
+            })
             passed += good
             failed += not good
     print(f"\n{passed} passed, {failed} failed")
+    if results_path:
+        Path(results_path).write_text(
+            "".join(json.dumps(r, sort_keys=True) + "\n" for r in results),
+            encoding="utf-8")
+        print(f"wrote {len(results)} case results to {results_path}")
     return 1 if failed else 0
 
 
 if __name__ == "__main__":
     args = sys.argv[1:]
     if args and args[0] == "--run":
-        sys.exit(run(args[1] if len(args) > 1 else None))
+        rest = args[1:]
+        results_path = None
+        if "--json" in rest:
+            i = rest.index("--json")
+            results_path = rest[i + 1] if i + 1 < len(rest) else None
+            del rest[i:i + 2]
+        sys.exit(run(rest[0] if rest else None, results_path))
     sys.exit(check())
