@@ -747,113 +747,77 @@
       ctx.beginPath();
       ctx.arc(px(cn.x), py(cn.y), rn * RPX, 0, Math.PI * 2);
     };
-    const drawMirror = (alpha) => {
-      if (!mirrorReady || alpha <= 3e-3) return;
+    const maskCv = document.createElement("canvas");
+    const maskCtx = maskCv.getContext("2d");
+    const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw, cloud, fill, spiral) => {
+      if (!mirrorReady || !maskCtx || strength <= 4e-3 || Rp < 3) return;
+      const pad = Math.max(12, Rp * 0.4);
+      const size = Math.ceil(2 * Rp + pad * 2);
+      if (maskCv.width !== size || maskCv.height !== size) {
+        maskCv.width = size;
+        maskCv.height = size;
+      }
+      const ox = cxp - Rp - pad, oy = cyp - Rp - pad;
+      const mx0 = Rp + pad, my0 = Rp + pad;
+      const m = maskCtx;
+      m.setTransform(1, 0, 0, 1, 0, 0);
+      m.clearRect(0, 0, size, size);
+      const dir = ccw ? -1 : 1;
+      const drawnAng = Math.min(Math.PI * 2, (1 - gapSize) * Math.PI * 2);
+      const gapAng = Math.PI * 2 - drawnAng;
+      const aNew = gapFrom;
+      const aOld = aNew - dir * drawnAng;
+      const f = Math.max(0, Math.min(1, fill));
+      const STEPS = 72;
+      const depthAt = (u) => {
+        const wound = Math.pow(u, 2.4) * spiral + (1 - spiral);
+        const g = wound * (1 - f) + f;
+        const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950) + 0.028 * Math.sin(u * 15.7 - now / 1500);
+        return Math.max(0, Math.min(1, f * g)) * rough;
+      };
+      m.filter = `blur(${Math.max(5, Rp * (0.06 + 0.1 * cloud)).toFixed(1)}px)`;
+      m.fillStyle = "#fff";
+      m.beginPath();
+      for (let i = 0; i <= STEPS; i++) {
+        const th = aOld + dir * (i / STEPS) * drawnAng;
+        const x = mx0 + Math.cos(th) * Rp, y = my0 + Math.sin(th) * Rp;
+        if (i) m.lineTo(x, y);
+        else m.moveTo(x, y);
+      }
+      for (let i = STEPS; i >= 0; i--) {
+        const u = i / STEPS;
+        const th = aOld + dir * u * drawnAng;
+        const rr = Math.max(0, Rp * (1 - depthAt(u)));
+        m.lineTo(mx0 + Math.cos(th) * rr, my0 + Math.sin(th) * rr);
+      }
+      m.closePath();
+      m.fill();
+      m.filter = "none";
+      const veil = (1 - f) * 0.75;
+      if (veil > 4e-3) {
+        m.globalCompositeOperation = "destination-out";
+        const vg = m.createRadialGradient(mx0, my0, 0, mx0, my0, Rp);
+        vg.addColorStop(0, `rgba(0,0,0,${veil * 0.3})`);
+        vg.addColorStop(0.65, `rgba(0,0,0,${veil * 0.55})`);
+        vg.addColorStop(1, `rgba(0,0,0,${veil})`);
+        m.fillStyle = vg;
+        m.beginPath();
+        m.arc(mx0, my0, Rp, 0, Math.PI * 2);
+        m.fill();
+      }
+      m.globalCompositeOperation = "source-in";
+      m.fillStyle = "rgb(7, 10, 16)";
+      m.fillRect(0, 0, size, size);
+      m.globalCompositeOperation = "source-atop";
       const sc = Math.max(W / mirror.width, H / mirror.height);
       const dw = mirror.width * sc, dh = mirror.height * sc;
-      ctx.globalAlpha = alpha;
-      ctx.drawImage(mirror, (W - dw) / 2, (H - dh) / 2, dw, dh);
-      ctx.globalAlpha = 1;
-    };
-    const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw, cloud, fill, spiral) => {
-      if (!mirrorReady || strength <= 4e-3 || Rp < 3) return;
+      m.drawImage(mirror, (W - dw) / 2 - ox, (H - dh) / 2 - oy, dw, dh);
+      m.globalCompositeOperation = "source-over";
       ctx.save();
-      ctx.beginPath();
-      ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
-      ctx.clip();
-      ctx.globalAlpha = strength;
-      ctx.fillStyle = "rgb(9, 12, 18)";
-      ctx.beginPath();
-      ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      drawMirror(strength);
-      const veil = (1 - Math.max(0, Math.min(1, fill))) * 0.8;
-      if (veil > 4e-3) {
-        ctx.globalCompositeOperation = "destination-out";
-        const vg = ctx.createRadialGradient(cxp, cyp, 0, cxp, cyp, Rp);
-        vg.addColorStop(0, `rgba(0,0,0,${veil * 0.35})`);
-        vg.addColorStop(0.65, `rgba(0,0,0,${veil * 0.6})`);
-        vg.addColorStop(1, `rgba(0,0,0,${veil})`);
-        ctx.fillStyle = vg;
-        ctx.beginPath();
-        ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalCompositeOperation = "source-over";
-      }
-      if (cloud > 2e-3) {
-        const dir = ccw ? -1 : 1;
-        const drawnAng = Math.min(Math.PI * 2, (1 - gapSize) * Math.PI * 2);
-        const gapAng = Math.PI * 2 - drawnAng;
-        const aNew = gapFrom;
-        const aOld = aNew - dir * drawnAng;
-        const f = Math.max(0, Math.min(1, fill));
-        const STEPS = 64;
-        const depthAt = (u) => {
-          const wound = Math.pow(u, 2.4) * spiral + (1 - spiral);
-          const g = wound * (1 - f) + f;
-          const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950) + 0.028 * Math.sin(u * 15.7 - now / 1500);
-          return Math.max(0, Math.min(1, f * g)) * rough;
-        };
-        ctx.globalCompositeOperation = "destination-out";
-        ctx.filter = `blur(${Math.max(7, Rp * 0.17).toFixed(1)}px)`;
-        const ringAt = (off) => {
-          const out = [];
-          for (let i = 0; i <= STEPS; i++) {
-            const u = i / STEPS;
-            const th = aOld + dir * u * drawnAng;
-            const rr = Math.max(0, Rp * (1 - depthAt(u)) - off);
-            out.push({ x: cxp + Math.cos(th) * rr, y: cyp + Math.sin(th) * rr });
-          }
-          if (gapAng > 1e-3) {
-            const gr = Math.max(0, Rp - off);
-            for (let i = 0; i <= STEPS; i++) {
-              const th = aNew + dir * (i / STEPS) * gapAng;
-              out.push({ x: cxp + Math.cos(th) * gr, y: cyp + Math.sin(th) * gr });
-            }
-          }
-          let r = out;
-          for (let pass = 0; pass < 6; pass++) {
-            const o = r.slice(), n = r.length;
-            for (let i = 0; i < n; i++) {
-              const a = r[(i - 1 + n) % n], c = r[i], b = r[(i + 1) % n];
-              o[i] = { x: (a.x + c.x * 2 + b.x) / 4, y: (a.y + c.y * 2 + b.y) / 4 };
-            }
-            r = o;
-          }
-          return r;
-        };
-        const LAYERS = 9;
-        const band = Math.max(8, Rp * 0.22);
-        for (let j = 0; j < LAYERS; j++) {
-          const r = ringAt(j / (LAYERS - 1) * band);
-          ctx.globalAlpha = 0.3;
-          ctx.fillStyle = "rgb(0,0,0)";
-          ctx.beginPath();
-          ctx.moveTo(r[0].x, r[0].y);
-          for (let i = 1; i < r.length; i++) ctx.lineTo(r[i].x, r[i].y);
-          ctx.closePath();
-          ctx.fill();
-        }
-        ctx.globalAlpha = 1;
-        for (let i = 0; i < 6; i++) {
-          const t = now / 3e3 + i * 1.7;
-          const u = (Math.sin(t) + 1) / 2;
-          const th = aOld + dir * u * drawnAng;
-          const rr = Rp * (1 - depthAt(u));
-          const br = Rp * (0.07 + 0.09 * ((Math.cos(t * 0.9 + i) + 1) / 2));
-          const bx = cxp + Math.cos(th) * rr, by = cyp + Math.sin(th) * rr;
-          const g2 = ctx.createRadialGradient(bx, by, 0, bx, by, br);
-          g2.addColorStop(0, "rgba(0,0,0,0.75)");
-          g2.addColorStop(1, "rgba(0,0,0,0)");
-          ctx.fillStyle = g2;
-          ctx.beginPath();
-          ctx.arc(bx, by, br, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        ctx.filter = "none";
-      }
       ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = strength;
+      ctx.drawImage(maskCv, ox, oy);
+      ctx.globalAlpha = 1;
       ctx.restore();
     };
     const spawnBand = (x, y, tx, ty, heat) => {
