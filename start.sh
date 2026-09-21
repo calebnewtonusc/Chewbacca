@@ -152,7 +152,13 @@ if [ "$DRY_RUN" -eq 1 ]; then
   _base="https://raw.githubusercontent.com/$REPO/${REF:-$BRANCH}"
   # A local checkout is authoritative when there is one: it is the code
   # about to run, and it works with no network at all.
-  _here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
+  # BASH_SOURCE is UNSET when this script arrives through a pipe, which is
+  # the documented way to run it, and `set -u` turns that into a hard exit
+  # before the fallback is ever reached. The whole point of this branch is
+  # the person who has not cloned anything. Default it.
+  _self="${BASH_SOURCE[0]:-}"
+  _here=""
+  [ -n "$_self" ] && _here="$(cd "$(dirname "$_self")" 2>/dev/null && pwd || true)"
   if [ -n "$_here" ] && [ -x "$_here/bin/preflight" ] && [ -f "$_here/setup.sh" ]; then
     python3 "$_here/bin/preflight" || true
   elif curl -fsSL --max-time 30 "$_base/setup.sh" -o "$_dry/setup.sh" \
