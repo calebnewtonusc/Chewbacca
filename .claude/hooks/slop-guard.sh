@@ -56,15 +56,19 @@ if [ -x "$PROSE" ]; then
     rm -f "$TMPMD"
     : > "$GUARD"
     PROSE_DETAIL=$(printf '%s' "$PROSE_REPORT" | tail -n +2 | head -20)
-    jq -n --arg d "$PROSE_DETAIL" '{
-      hookSpecificOutput: {
-        hookEventName: "Stop",
-        continueLoop: true,
-        systemMessage: ("prose-check flagged your reply against Caleb'"'"'s own rules:\n" + $d +
-          "\n\nRewrite the reply plainly. Do not explain the rewrite, do not " +
-          "apologize, do not mention this check.")
-      }
-    }' 2>/dev/null && exit 0
+    # Exit 2, for the same reason as the slop-check path below: a JSON
+    # advisory carrying `continueLoop` is not part of the Stop hook contract,
+    # so the harness ignored it and the reply shipped. This was the FIRST of
+    # the two exits and it is the one that was actually being taken, which is
+    # why fixing the second one alone changed nothing.
+    {
+      echo "prose-check flagged your reply against Caleb's own rules:"
+      printf '%s\n' "$PROSE_DETAIL"
+      echo
+      echo "Rewrite the reply plainly. Do not explain the rewrite, do not"
+      echo "apologise, and do not mention this check."
+    } >&2
+    exit 2
   fi
   rm -f "$TMPMD"
 fi
@@ -78,18 +82,28 @@ SCORE=$(printf '%s' "$REPORT" | awk 'NR==1{print $1}')
 : > "$GUARD"
 
 DETAIL=$(printf '%s' "$REPORT" | tail -n +2 | head -20)
-# Every value goes through --arg. Interpolating $MAX into the filter, or
-# passing it after the program as MAXV=10, makes jq read it as a file argument.
-jq -n --arg d "$DETAIL" --arg s "$SCORE" --arg m "$MAX" '{
-  hookSpecificOutput: {
-    hookEventName: "Stop",
-    continueLoop: true,
-    systemMessage: ("Your reply scored " + $s + " on slop-check (limit " + $m + ").\n" +
-      $d + "\n\nRewrite the reply itself, plainly. Do not explain the rewrite, " +
-      "do not apologize for it, and do not mention this check. Say the same " +
-      "things with the drama removed.")
-  }
-}' 2>/dev/null || {
-  echo "Reply scored $SCORE on slop-check. Rewrite it plainly." >&2
-  exit 2
-}
+
+# EXIT 2, NOT A JSON ADVISORY. This used to print
+# hookSpecificOutput.continueLoop and exit 0, and exit 2 was only the
+# fallback for when jq itself failed. `continueLoop` is not part of the Stop
+# hook contract, so the harness ignored the whole object and the reply went
+# out unchanged. The guard fired on every one of them and changed nothing.
+#
+# Measured 2026-09-21 on twelve consecutive replies in one session: they
+# scored 40, 100, 40, 40, 40, 40, 40, 40, 100, 40, 100, 0 against a limit of
+# 10, and one of them opened with an em dash, which is banned outright.
+# Caleb: "why'd chewbacca stop talking like me the ai slop is back bruh".
+#
+# Exit 2 is what stops a turn and hands the text back. It is the same
+# mechanism handoff-guard uses. The once-per-prompt guard file above means
+# this can refuse at most one rewrite, so it cannot loop.
+{
+  echo "Your reply scored $SCORE on slop-check, and the limit is $MAX."
+  printf '%s\n' "$DETAIL"
+  echo
+  echo "Rewrite the reply itself, plainly. Say the same things with the drama"
+  echo "removed: no em dashes, no bolded fragments used as headers, no colon"
+  echo "reveals, no recap ending. Do not explain the rewrite, do not apologise"
+  echo "for it, and do not mention this check."
+} >&2
+exit 2

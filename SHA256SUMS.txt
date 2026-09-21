@@ -14,7 +14,7 @@ c7594c3df7370c62ba76e046daf1e17843dbf24972438206496b28098c4128ee  .claude/hooks/
 baff09b097b67758927ae5ea8ed991dc855687ccd34face005381a4fb432ab42  .claude/hooks/prose-guard.sh
 51838ae3e493ae3f15ec3c49d31f3fd0098df592dbaef8ebc94322dfae1bb2d2  .claude/hooks/session-context.sh
 97bccc8323be8e2cdc423c848c8b929c50c4bb4f43ac714b60b26415069a34d8  .claude/hooks/skill-route.sh
-1ba82310f6557d4a28d77cd35b2c68f0405b4bacd4c5027d1a8e3aac298ff33a  .claude/hooks/slop-guard.sh
+44f089849a94f36c31cdb79c9b9285eff991b21efd6df510c1a4d3aca76fb781  .claude/hooks/slop-guard.sh
 991de99509214748f9352ebe1d62e423cf9d78a2b195b099c914315330bf86ea  .claude/hooks/statusline.sh
 db7eed7d9305d87ac474675a4b600d51059dd378a789cff4e5e13d66d2cd9014  .claude/hooks/stop-check.sh
 3f3cfad70e0d0cb86db7824b7cbee449f5dac7e57c0afc1aeb184814005db0e9  .claude/hooks/submit-guard.sh
