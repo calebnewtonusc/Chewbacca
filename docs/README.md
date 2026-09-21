@@ -43,3 +43,5 @@ driving apps, [mac/](mac/) the layer model.
 **Honest about itself**
 [1000.md](1000.md) every known gap, [ROADMAP.md](ROADMAP.md) which of them are
 next, [../CHANGELOG.md](../CHANGELOG.md) what has already changed.
+[SELF-LEARNING.md](SELF-LEARNING.md) how the kit would grow from its own
+log instead of being taught, and what in it is actually hard to copy.

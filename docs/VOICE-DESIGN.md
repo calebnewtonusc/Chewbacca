@@ -129,6 +129,10 @@ Gavin on 2026-09-20: "when the user asks questions with large summaries that
 require a lot of speaking for the assistant, it just says something along the
 lines of 'all info on x topic is ready for you in the hyper bar'".
 
+What the voice could learn from its own log, corrections said out loud
+included, and why the kit has to do that itself, is
+[SELF-LEARNING.md](SELF-LEARNING.md).
+
 ## Showing them where
 
 Asked for on 2026-09-20, for somebody who is not the builder: "if a grandma
