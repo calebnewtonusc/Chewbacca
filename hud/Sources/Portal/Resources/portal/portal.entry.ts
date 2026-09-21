@@ -148,7 +148,15 @@ let trailPx = 300;
 // portal should open a see through circle to the mirror dimension."
 const mirror = new Image();
 let mirrorReady = false;
-mirror.onload = () => { mirrorReady = true; };
+mirror.onload = () => {
+  mirrorReady = true;
+  window.webkit?.messageHandlers?.portal?.postMessage({
+    event: "log", text: `mirror loaded ${mirror.width}x${mirror.height}` });
+};
+mirror.onerror = () => {
+  window.webkit?.messageHandlers?.portal?.postMessage({
+    event: "log", text: "mirror FAILED to load" });
+};
 mirror.src = "mirror.jpg";
 
 // WHERE THE CIRCLE STOPS MOVING, and, because they are the same moment, where
@@ -427,6 +435,103 @@ function frame(now: number) {
     ctx.globalAlpha = alpha;
     ctx.drawImage(mirror, (W - dw) / 2, (H - dh) / 2, dw, dh);
     ctx.globalAlpha = 1;
+  };
+
+  // The mirror dimension showing through a circle.
+  //
+  // Caleb's description of the real thing, which this follows literally:
+  //   "clearer in the center, more faded by the rim, faded out to the current
+  //    dimension around the part of the circle that the circumference hasn't
+  //    been completed yet, and the whole thing faded but becoming less faded
+  //    by the time the circle completes."
+  //
+  // gapFrom / gapSize are the part NOT yet drawn, as an angle and a fraction
+  // of a turn. Once the portal is open the gap is zero and the whole circle
+  // shows.
+  //
+  // THE UNFINISHED EDGE IS A CLOUD, NOT A RADIUS. Clipping to a wedge gave
+  // two dead straight edges meeting at the middle: "it is too firmly a radius
+  // it looks like a pie lmao". It is erased with a blurred conic gradient
+  // and a few soft blobs along the boundary instead, so the mirror thins out
+  // into this dimension the way fog does.
+  const paintMirror = (
+    cxp: number, cyp: number, Rp: number,
+    strength: number, gapFrom: number, gapSize: number, ccw: boolean,
+  ) => {
+    if (!mirrorReady || strength <= 0.004 || Rp < 3) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
+    ctx.clip();
+
+    drawMirror(strength);
+
+    // Clearer in the middle, gone by the rim.
+    ctx.globalCompositeOperation = "destination-out";
+    const fade = ctx.createRadialGradient(cxp, cyp, Rp * 0.22, cxp, cyp, Rp);
+    fade.addColorStop(0, "rgba(0,0,0,0)");
+    fade.addColorStop(0.72, "rgba(0,0,0,0.4)");
+    fade.addColorStop(1, "rgba(0,0,0,1)");
+    ctx.fillStyle = fade;
+    ctx.beginPath();
+    ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
+    ctx.fill();
+
+    // The part of the circle the hand has not reached yet.
+    if (gapSize > 0.002) {
+      const blur = Math.max(3, Rp * 0.1);
+      ctx.filter = `blur(${blur.toFixed(1)}px)`;
+      const feather = Math.min(gapSize * 0.45, 0.13);
+      const dir = ccw ? -1 : 1;
+      const cg = (ctx as unknown as {
+        createConicGradient?: (a: number, x: number, y: number) => CanvasGradient;
+      }).createConicGradient?.(gapFrom, cxp, cyp);
+      if (cg) {
+        const at = (f: number) => Math.max(0, Math.min(1, ccw ? 1 - f : f));
+        const stops: [number, string][] = [
+          [at(0), "rgba(0,0,0,0)"],
+          [at(feather), "rgba(0,0,0,1)"],
+          [at(gapSize - feather), "rgba(0,0,0,1)"],
+          [at(gapSize), "rgba(0,0,0,0)"],
+        ];
+        for (const [o, c] of stops.sort((a, b) => a[0] - b[0])) cg.addColorStop(o, c);
+        ctx.fillStyle = cg;
+        ctx.beginPath();
+        ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // No conic gradient on this engine. A blurred wedge is still softer
+        // than a clipped one.
+        ctx.fillStyle = "rgba(0,0,0,1)";
+        ctx.beginPath();
+        ctx.moveTo(cxp, cyp);
+        ctx.arc(cxp, cyp, Rp, gapFrom, gapFrom + dir * gapSize * Math.PI * 2, ccw);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Blobs along the boundary, so the edge is lumpy rather than a clean
+      // sweep. Slow, tied to the clock, so it drifts instead of flickering.
+      const edge = gapFrom + dir * feather * Math.PI * 2;
+      for (let i = 0; i < 5; i++) {
+        const t = now / 3000 + i * 1.7;
+        const a = edge + dir * (Math.sin(t) * 0.22 + 0.06);
+        const rr = Rp * (0.3 + 0.45 * ((Math.sin(t * 1.3 + i) + 1) / 2));
+        const br = Rp * (0.18 + 0.12 * ((Math.cos(t * 0.9 + i) + 1) / 2));
+        const bx = cxp + Math.cos(a) * rr, by = cyp + Math.sin(a) * rr;
+        const g2 = ctx.createRadialGradient(bx, by, 0, bx, by, br);
+        g2.addColorStop(0, "rgba(0,0,0,0.85)");
+        g2.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = g2;
+        ctx.beginPath();
+        ctx.arc(bx, by, br, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.filter = "none";
+    }
+
+    ctx.globalCompositeOperation = "source-over";
+    ctx.restore();
   };
 
   const spawnBand = (x: number, y: number, tx: number, ty: number, heat: number) => {
@@ -990,36 +1095,11 @@ function frame(now: number) {
       const cvx = mx(fitC.cx), cvy = my(fitC.cy);
       const Rv = Math.max(4, fitC.r * RPX);
       const ccw = p.sweep < 0;
-      const a0 = drawing ? drawing.a0 : (p.startAngle ?? 0);
-      const a1 = p.endAngle ?? a0;
-      const FEATHER = 0.22;   // radians trimmed off the leading edge
-
-      ctx.save();
-      // Only the part of the circle the hand has already drawn. The rest is
-      // still this dimension.
-      ctx.beginPath();
-      ctx.moveTo(cvx, cvy);
-      ctx.arc(cvx, cvy, Rv, a0, a1 - (ccw ? -FEATHER : FEATHER), ccw);
-      ctx.closePath();
-      ctx.clip();
-
-      // The other side, at the strength this much of a circle has earned.
-      drawMirror(reveal);
-
-      // Clearer in the middle, gone by the rim. Erasing a radial gradient out
-      // of what was just drawn is what makes the edge soft: the mirror fades
-      // into this dimension instead of ending at a line.
-      ctx.globalCompositeOperation = "destination-out";
-      const fade = ctx.createRadialGradient(cvx, cvy, Rv * 0.25, cvx, cvy, Rv);
-      fade.addColorStop(0, "rgba(0,0,0,0)");
-      fade.addColorStop(0.7, "rgba(0,0,0,0.45)");
-      fade.addColorStop(1, "rgba(0,0,0,1)");
-      ctx.fillStyle = fade;
-      ctx.beginPath();
-      ctx.arc(cvx, cvy, Rv, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalCompositeOperation = "source-over";
-      ctx.restore();
+      // How much of the turn is still missing, and where it starts.
+      const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
+      const gapSize = Math.max(0, 1 - doneTurns);
+      const gapFrom = p.endAngle ?? 0;
+      paintMirror(cvx, cvy, Rv, reveal, gapFrom, gapSize, ccw);
     }
 
     ctx.globalCompositeOperation = "lighter";
@@ -1241,20 +1321,12 @@ function frame(now: number) {
     const rn = clampRN(geom.r) * (1 - ease(shut));
     const rpx = rpxOf(rn);
 
-    // THE HOLE OPENS INSIDE THE RING, it does not arrive already open.
-    //
-    // The rim sits where the circle was drawn from the first frame, because
-    // that is where the hand put it. The hole grows out from the middle to
-    // meet it. Before this the interior was painted at full radius
-    // immediately and only its opacity ramped, so the portal did not open,
-    // it appeared.
-    //
-    // Smoothstep rather than the ease-out used for everything else: it
-    // starts slow, which is the whole difference between opening and
-    // popping. The ease-out was 27% of the way there in the first 52ms.
-    const grow = ignite * ignite * (3 - 2 * ignite);
-    const rnHole = rn * grow;
-    const rpxHole = rpx * grow;
+    // NO HOLE ANIMATION. There used to be a growing hole here, opening from
+    // the middle out to the rim over 820ms, because the portal appeared at
+    // full size and that read as a pop. It is gone with the disc it was
+    // opening: nothing is painted inside a portal now, so there is nothing to
+    // grow. The transition is carried by the mirror, which has been fading in
+    // since half a turn and simply finishes.
     const vis = e * (1 - shut);
     const age = (now - S.born) / 1000;
     if (S.phase === "open") attract = { cx: cn.x, cy: cn.y, r: rpx };
@@ -1265,42 +1337,22 @@ function frame(now: number) {
       // The interior is DARK: near black to 82%, warmth only at the rim.
       // Painted with source-over so it OCCLUDES the desktop behind the glass,
       // which is what makes it read as a hole rather than a decal.
+      // NO ORANGE INTERIOR AND NO FILLING ANIMATION. "The orange circle
+      // filling and animation shouldn't be there." The portal was painting a
+      // dark or orange disc over the hole and growing it open, and that disc
+      // was sitting on top of the mirror dimension, which is why the other
+      // side was visible while drawing and gone the moment it opened.
+      //
+      // An open portal is a circle with the mirror behind it and a burning
+      // rim. Nothing is painted inside it at all.
       if (armed) {
-        // A REAL HOLE. destination-out erases the glass, so the window behind
-        // this panel shows through: live, no capture, no latency. The edge is
-        // left slightly warm so the hole reads as burnt open rather than as
-        // a rectangle someone cut out.
+        // A real window behind the glass. Erase, so it shows through.
         ctx.globalCompositeOperation = "destination-out";
         ctx.globalAlpha = 1;
-        disc(cn, rnHole * 0.985); ctx.fill();
+        disc(cn, rn * 0.985); ctx.fill();
         ctx.globalCompositeOperation = "source-over";
-        ctx.globalAlpha = vis * 0.9;
-        const lip = ctx.createRadialGradient(
-          cx0, cy0, Math.max(1, rpxHole * 0.88), cx0, cy0, Math.max(2, rpxHole));
-        lip.addColorStop(0, "rgba(0,0,0,0)");
-        lip.addColorStop(1, "rgba(120, 48, 12, 0.6)");
-        ctx.fillStyle = lip;
-        disc(cn, rnHole); ctx.fill();
-        ctx.globalAlpha = 1;
       } else {
-        // A WINDOW, NOT A DISC. With no app armed this used to paint a dark
-        // gradient, which reads as a hole in the glass and not as somewhere
-        // else. It shows the mirror dimension now: the same full-screen layer
-        // that has been there invisibly the whole time, clipped to the hole.
-        ctx.globalCompositeOperation = "source-over";
-        ctx.save();
-        disc(cn, rnHole); ctx.clip();
-        drawMirror(vis);
-        // A little darkness at the very rim, so the edge still reads as burnt
-        // open rather than as a photograph pasted on.
-        const lipDark = ctx.createRadialGradient(
-          cx0, cy0, Math.max(1, rpxHole * 0.82), cx0, cy0, Math.max(2, rpxHole));
-        lipDark.addColorStop(0, "rgba(0,0,0,0)");
-        lipDark.addColorStop(1, `rgba(24, 10, 3, ${0.75 * vis})`);
-        ctx.fillStyle = lipDark;
-        disc(cn, rnHole); ctx.fill();
-        ctx.restore();
-        ctx.globalAlpha = 1;
+        paintMirror(cx0, cy0, rpx, vis, 0, 0, false);
       }
 
       ctx.globalCompositeOperation = "lighter";
