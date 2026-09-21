@@ -326,6 +326,67 @@
   // vendor/skeleton.ts
   var FINGER_TIPS = [4, 8, 12, 16, 20];
 
+  // vendor/pointing.ts
+  var DEFAULT_ANTHRO = { ipdMm: 63, palmMm: 97 };
+  var MACBOOK_14 = {
+    widthMm: 302.4,
+    heightMm: 196.4,
+    widthPx: 1512,
+    heightPx: 982,
+    cameraXMm: 151.2,
+    cameraYMm: -6
+  };
+  var MAC_CAMERA = { hfovDeg: 54, aspect: 16 / 9 };
+  function focalNormalized(cam) {
+    return 0.5 / Math.tan(cam.hfovDeg * Math.PI / 180 / 2);
+  }
+  function depthFromApparentSize(realMm, apparent, cam) {
+    if (!(apparent > 1e-6)) return Infinity;
+    return realMm * focalNormalized(cam) / apparent;
+  }
+  function cameraSpace(u, v, depthMm, cam) {
+    const f = focalNormalized(cam);
+    return {
+      x: (u - 0.5) / f * depthMm,
+      y: -(v - 0.5) / cam.aspect / f * depthMm,
+      z: depthMm
+    };
+  }
+  function rayToScreen(eye, finger, screen) {
+    const dz = eye.z - finger.z;
+    if (!(dz > 1e-6)) {
+      return mmToPixels(finger.x, finger.y, screen);
+    }
+    const t = eye.z / dz;
+    return mmToPixels(
+      eye.x + (finger.x - eye.x) * t,
+      eye.y + (finger.y - eye.y) * t,
+      screen
+    );
+  }
+  function mmToPixels(xMm, yMm, screen) {
+    return {
+      x: (xMm + screen.cameraXMm) / screen.widthMm * screen.widthPx,
+      y: (-yMm - screen.cameraYMm) / screen.heightMm * screen.heightPx
+    };
+  }
+  function pointingPoint(input, screen = MACBOOK_14, cam = MAC_CAMERA, anthro = DEFAULT_ANTHRO) {
+    const { leftEye, rightEye, hand } = input;
+    if (!hand || hand.length < 21) return null;
+    const ipdApparent = Math.hypot(rightEye.x - leftEye.x, (rightEye.y - leftEye.y) / cam.aspect);
+    const eyeDepth = depthFromApparentSize(anthro.ipdMm, ipdApparent, cam);
+    if (!isFinite(eyeDepth)) return null;
+    const palmApparent = Math.hypot(hand[9].x - hand[0].x, (hand[9].y - hand[0].y) / cam.aspect);
+    const fingerDepth = depthFromApparentSize(anthro.palmMm, palmApparent, cam);
+    if (!isFinite(fingerDepth)) return null;
+    const eyeMid = { x: (leftEye.x + rightEye.x) / 2, y: (leftEye.y + rightEye.y) / 2 };
+    const eye = cameraSpace(eyeMid.x, eyeMid.y, eyeDepth, cam);
+    const t = hand[input.tip ?? 8];
+    const finger = cameraSpace(t.x, t.y, fingerDepth, cam);
+    const p = rayToScreen(eye, finger, screen);
+    return { x: p.x, y: p.y, eyeMm: eyeDepth, fingerMm: fingerDepth };
+  }
+
   // portal.entry.ts
   var CORE = "255, 236, 189";
   var SPARK_HOT = "255, 196, 94";
@@ -356,13 +417,15 @@
   var attract = null;
   var spin = 0;
   var latest = null;
+  var latestEyes = null;
   var lastSeen = 0;
   var armed = null;
   window.chewbaccaArm = (label) => {
     armed = label ? { label } : null;
   };
-  window.chewbaccaHands = (pts) => {
+  window.chewbaccaHands = (pts, eyes) => {
     latest = pts && pts.length === 21 ? pts : null;
+    latestEyes = eyes ?? null;
     if (latest) lastSeen = performance.now();
   };
   window.chewbaccaPortalState = () => state.phase;
@@ -427,9 +490,27 @@
     };
     const pinch = lm ? pinchL.update(lm, now) : (pinchL.update(null, now), null);
     const pinched = !!(pinch && pinch.isPinched && pinch.center);
+    const cursor = (() => {
+      if (!pinched || !pinch?.center) return null;
+      if (latestEyes && lm) {
+        const screen = {
+          ...MACBOOK_14,
+          widthPx: window.innerWidth,
+          heightPx: window.innerHeight
+        };
+        const r = pointingPoint(
+          { leftEye: latestEyes.left, rightEye: latestEyes.right, hand: lm },
+          screen
+        );
+        if (r) {
+          return { x: 1 - r.x / window.innerWidth, y: r.y / window.innerHeight };
+        }
+      }
+      return pinch.center;
+    })();
     let p;
-    if (pinched && pinch.center) {
-      p = detector.push(pinch.center.x, pinch.center.y, now);
+    if (cursor) {
+      p = detector.push(cursor.x, cursor.y, now);
     } else {
       detector.reset();
       p = IDLE_PROGRESS;

@@ -40,6 +40,11 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
     /// What the portal opens onto, or nil for a plain void. Written by
     /// `bin/portal` and polled, rather than passed as a launch argument,
     /// because the voice agent arms a portal that is usually already running.
+    /// The most recent pupils, held so they can ride out with the next
+    /// landmark frame rather than crossing separately. Both come from the
+    /// same camera frame, so splitting them into two messages would let the
+    /// web layer pair a hand with the previous frame's eyes.
+    private var lastEyes: LandmarkBridge.Eyes?
     private var armed: String?
     private var armTimer: Timer?
     private static let armFile = FileManager.default.homeDirectoryForCurrentUser
@@ -104,6 +109,9 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
 
         tracker.onLandmarks = { [weak self] points in
             self?.push(points)
+        }
+        tracker.onEyes = { [weak self] eyes in
+            self?.lastEyes = eyes
         }
         tracker.start()
 
@@ -191,9 +199,17 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
             return
         }
         let arg = points.map { LandmarkBridge.json($0) } ?? "null"
+        let eyesArg: String
+        if let e = lastEyes {
+            eyesArg = "{\"left\":{\"x\":\(round(e.left.x * 1e6) / 1e6),\"y\":\(round(e.left.y * 1e6) / 1e6)},"
+                + "\"right\":{\"x\":\(round(e.right.x * 1e6) / 1e6),\"y\":\(round(e.right.y * 1e6) / 1e6)}}"
+        } else {
+            eyesArg = "null"
+        }
         // No completion handler: at 30fps the callback allocation is the
         // expensive part and there is nothing to do with the result.
-        web.evaluateJavaScript("window.chewbaccaHands&&window.chewbaccaHands(\(arg))")
+        web.evaluateJavaScript(
+            "window.chewbaccaHands&&window.chewbaccaHands(\(arg),\(eyesArg))")
     }
 
     func applicationWillTerminate(_: Notification) {

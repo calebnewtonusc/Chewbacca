@@ -80,6 +80,63 @@ public enum LandmarkBridge {
         return out.count == 21 ? out : nil
     }
 
+    /// Both pupils, in MediaPipe convention.
+    ///
+    /// A struct rather than a named tuple, because a tuple of Sendable
+    /// values is not itself inferred Sendable and Swift 6 refuses to send it
+    /// across an actor boundary.
+    public struct Eyes: Sendable, Equatable {
+        public let left: Point
+        public let right: Point
+        public init(left: Point, right: Point) {
+            self.left = left
+            self.right = right
+        }
+    }
+
+    /// Both pupils, in MediaPipe convention, from a face observation.
+    ///
+    /// Needed because a fingertip's camera position is not where the PERSON
+    /// sees their fingertip. The camera looks from the top bezel and they
+    /// look from a foot and a half back, so a cursor placed at the camera's
+    /// answer sits near the finger but never on it. Anchoring the ray at the
+    /// eye is what closes that gap, and this is the anchor.
+    ///
+    /// Not gaze. Where the eyes are LOOKING is irrelevant here; only where
+    /// they ARE matters, which is why this needs no calibration and does not
+    /// drift.
+    public static func eyes(from face: VNFaceObservation) -> Eyes? {
+        guard let lm = face.landmarks,
+              let l = lm.leftEye, let r = lm.rightEye,
+              l.pointCount > 0, r.pointCount > 0
+        else { return nil }
+
+        // Landmark regions are normalized to the face's bounding box, so they
+        // have to be lifted back into image space before they mean anything.
+        func centre(_ region: VNFaceLandmarkRegion2D) -> Point {
+            var sx = 0.0, sy = 0.0
+            for i in 0..<region.pointCount {
+                let p = region.normalizedPoints[i]
+                sx += Double(p.x)
+                sy += Double(p.y)
+            }
+            let n = Double(region.pointCount)
+            let bx = Double(face.boundingBox.origin.x)
+            let by = Double(face.boundingBox.origin.y)
+            let bw = Double(face.boundingBox.width)
+            let bh = Double(face.boundingBox.height)
+            return toMediaPipe(x: bx + (sx / n) * bw, y: by + (sy / n) * bh)
+        }
+        // Vision's "left eye" is the subject's left, which appears on the
+        // RIGHT of a non-mirrored image. The names here follow the image, so
+        // that downstream arithmetic on x is not quietly reversed.
+        let subjectLeft = centre(l)
+        let subjectRight = centre(r)
+        return subjectLeft.x <= subjectRight.x
+            ? Eyes(left: subjectLeft, right: subjectRight)
+            : Eyes(left: subjectRight, right: subjectLeft)
+    }
+
     /// The landmarks as the JSON array the web layer is fed.
     ///
     /// Hand-rolled rather than JSONEncoder: this runs up to 30 times a second
