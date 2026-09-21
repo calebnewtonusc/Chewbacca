@@ -299,6 +299,19 @@ extension AppDelegate {
     private func beginDictation(_ id: String) async {
         guard dictating == nil else { return }
         guard let target = bubbleTargets[id] else { return }
+        // Dictation rides on push-to-talk's own path, so it needs that mode.
+        // `beginPush` returns silently in any other, which left the bubble
+        // sitting in `live` with the microphone shut and nothing to close it:
+        // the one failure a listening indicator must never have.
+        guard voice.mode == .pushToTalk else {
+            let why = voice.mode == .off
+                ? "listening is off, turn it on in the menu"
+                : "dictation needs push to talk, not the wake word"
+            model.setBubble(id, state: .idle, note: why)
+            model.onEvent?(
+                .bubble(id: id, state: .idle, app: target.appName, note: why))
+            return
+        }
         // The bubble took the click, so the field underneath never got one and
         // may have no caret. This is where the words are about to go, so it is
         // worth putting the caret there before the microphone opens rather than
@@ -321,11 +334,34 @@ extension AppDelegate {
         if insert {
             model.setBubble(id, state: .thinking)
             voice.endPush()
+            armStall(id)
         } else {
             dictating = nil
             voice.cancelPush()
             let state: BubbleState = bubbleTargets[id] == nil ? .orphaned : .idle
             model.setBubble(id, state: state)
+        }
+    }
+
+    /// A turn that closed and produced nothing at all.
+    ///
+    /// `endPush` declines when the microphone was never open, which happens
+    /// when the two permission hops had not finished by the time the person
+    /// clicked. Nothing is emitted in that case, so without this the bubble
+    /// spins in `thinking` for ever and the only way out is taking it down.
+    /// Three seconds: `VoiceListener.finalFloor` is three, so anything the
+    /// recogniser was going to say has been said by then.
+    private func armStall(_ id: String) {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard let self,
+                  self.model.bubbles.first(where: { $0.id == id })?.state == .thinking,
+                  self.pendingInsert[id] == nil
+            else { return }
+            Self.bubbleLog.notice("bubble.turn stalled id=\(id, privacy: .public)")
+            self.model.setBubble(
+                id, state: self.bubbleTargets[id] == nil ? .orphaned : .idle,
+                note: "nothing was heard")
         }
     }
 

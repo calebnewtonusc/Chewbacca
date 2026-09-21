@@ -74,6 +74,15 @@ struct BubbleWireTests {
         }
     }
 
+    @Test("the verb is announced, or nobody knows it is there")
+    func announced() {
+        // A client asks for the version to find out what it may send. `w` was
+        // added to the parser and left out of this string for a week, so
+        // anything reading the list believed the display could not take a
+        // written answer.
+        #expect(SocketServer.version.contains(",b,"))
+    }
+
     @Test("what goes back up the socket")
     func outbound() {
         #expect(

@@ -839,6 +839,91 @@ def test_guide_hit(m) -> None:
           prompt[:120])
 
 
+def test_bubble_fast_path(m) -> None:
+    """"Create a bubble" never reaches the model, and never reaches the router.
+
+    That is the whole feature. The bubble exists because the router cannot tell
+    a request from a sentence somebody wants typed, and on 2026-09-21 "create a
+    bubble" with Terminal in front came back as an offer to draft a terminal
+    prompt. Routing the request that creates the escape hatch through the thing
+    it escapes is the one bug this cannot have, so it is pinned here.
+
+    A refusal from the display is spoken, because the bubble then looks broken
+    and the fix is a switch in System Settings that nothing else needs.
+    """
+    import types
+    done: list[str] = []
+
+    def parse(said: str):
+        words = said.lower().rstrip(".!")
+        if "bubble" in words and words.split()[0] in ("create", "spawn", "make", "new"):
+            return "new"
+        if words in ("bubbles off", "take the bubble down"):
+            return "clear"
+        return None
+
+    def perform(verb, ident=""):
+        done.append(verb)
+        if verb == "new":
+            return "bubble up. Drag it onto the box you want and click it."
+        return "bubbles down."
+
+    class BubbleError(Exception):
+        pass
+
+    fake = types.SimpleNamespace(parse=parse, perform=perform, BubbleError=BubbleError)
+    kept = m.bubble
+    m.bubble = lambda: fake
+    try:
+        listener = m.Listener("claude -p", False, False)
+        sent: list[str] = []
+        listener.send = sent.append
+        spoken: list[str] = []
+        listener.speak = spoken.append
+        listener.remember = lambda req, answer, ok, outcome: None
+        listener.settle = lambda state, hold: None
+        drained: list[str] = []
+        listener._drain = lambda: drained.append("drain")
+        routed: list[str] = []
+        listener.to_model = lambda req: routed.append(req.said)
+
+        listener.ask("Create a bubble.")
+        check("the display was told, not the model", done == ["new"] and drained == [] and routed == [],
+              f"{done} {drained} {routed}")
+        check("and it said so out loud", spoken and "Drag it" in spoken[-1], str(spoken))
+
+        listener.ask("Take the bubble down.")
+        check("and takes them down again", done == ["new", "clear"], str(done))
+
+        listener.current = None
+        listener.ask("What is a bubble?")
+        check("a question about one is the model's", done == ["new", "clear"] and drained == ["drain"],
+              f"{done} {drained}")
+
+        # The display reporting back. Only refusals are spoken: narrating a
+        # working bubble would be the voice talking over somebody mid-sentence
+        # in another app.
+        spoken.clear()
+        listener.handle('b b1 idle app="Messages"')
+        check("a bubble that bound is not narrated", spoken == [], str(spoken))
+        listener.handle('b b1 said "on my way"')
+        check("nor is a sentence it typed", spoken == [], str(spoken))
+        listener.handle('b b1 unbound note="accessibility not granted"')
+        check("a permission refusal names the switch and where it is",
+              len(spoken) == 1 and "Accessibility" in spoken[0] and "System Settings" in spoken[0],
+              str(spoken))
+        spoken.clear()
+        listener.handle('b b1 unbound note="no text field there"')
+        check("and a miss is said plainly", spoken == ["no text field there"], str(spoken))
+        spoken.clear()
+        listener.handle("b b1 clean \"on my way comma be there soon\"")
+        check("a clean request is not spoken back at them", spoken == [], str(spoken))
+        listener.handle("b")
+        check("a malformed bubble line is survived", True)
+    finally:
+        m.bubble = kept
+
+
 def test_music_fast_path(m) -> None:
     """"Play X" never reaches the model: the bridge reads the words, drives the
     player, and says how it went. A bare stop word pauses the music when it is
@@ -1926,6 +2011,8 @@ def main() -> int:
     test_read_aloud_skips_the_pointer(module)
     print("a click on a guide")
     test_guide_hit(module)
+    print("the bubble without the model or the router")
+    test_bubble_fast_path(module)
     print("music without the model")
     test_music_fast_path(module)
     print("the superassistant log")
