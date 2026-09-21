@@ -1430,7 +1430,19 @@ def test_one_model_process() -> None:
     launches = os.path.join(tempfile.mkdtemp(), "launches")
     received, _ = run_against(
         FAKE_CLAUDE.replace("LAUNCHES", launches),
-        [(0.0, 'h "first"'), (3.0, 'h "second"')],
+        # 12s, not 3s. The first answer has to reach the voice server and be
+        # reported back as `saying` before the second utterance supersedes it,
+        # and on this machine that takes longer than three seconds. At 3.0 the
+        # check for `s "Here is first"` failed while `w "Here is first"
+        # done=true` passed: the answer WAS produced, it just never got spoken
+        # before the next request arrived.
+        #
+        # Measured 2026-09-20, the cheapest test that separated the two
+        # theories: at 3.0s it fails, at 12.0s it passes, same code. So the
+        # superseding is correct behaviour and the test was racing it. Left
+        # asserting both are SPOKEN, because that is what this test is for;
+        # the written-answer guarantee is the separate check below.
+        [(0.0, 'h "first"'), (12.0, 'h "second"')],
         lambda lines: 's "Here is second"' in lines and "p dormant" in lines,
         name="claude",
     )
