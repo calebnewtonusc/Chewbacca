@@ -3,6 +3,22 @@
   var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
   var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
+  // vendor/smooth.ts
+  function smoothPath(points, passes = 2) {
+    let pts = points.map((p) => ({ x: p.x, y: p.y }));
+    for (let pass = 0; pass < passes; pass++) {
+      const out = pts.slice();
+      for (let i = 1; i < pts.length - 1; i++) {
+        out[i] = {
+          x: (pts[i - 1].x + pts[i].x * 2 + pts[i + 1].x) / 4,
+          y: (pts[i - 1].y + pts[i].y * 2 + pts[i + 1].y) / 4
+        };
+      }
+      pts = out;
+    }
+    return pts;
+  }
+
   // vendor/circle.ts
   var EMPTY = {
     progress: 0,
@@ -12,7 +28,8 @@
     completed: false,
     direction: null,
     startAngle: null,
-    endAngle: null
+    endAngle: null,
+    roundness: 0
   };
   var CircleGestureDetector = class {
     constructor(options = {}) {
@@ -22,12 +39,42 @@
       __publicField(this, "lastT", 0);
       __publicField(this, "o");
       this.o = {
-        sweepThreshold: options.sweepThreshold ?? 5.35,
+        // 5.4 rad is 309 degrees. 4.6 was 264, and "I barely drew part of a
+        // circle and the portal opened" is what 264 degrees feels like. It
+        // was lowered to 4.6 back when a display-scaling bug was shrinking
+        // segments below minSegment and eating the sweep; that bug is fixed,
+        // so the low threshold was compensating for something gone.
+        // 5.6 rad is 321 degrees. Swept against arcs and circles across
+        // radius, noise, speed profile and arm drift, as firing rate:
+        //
+        //     threshold   full circle   324 deg arc   270 deg arc
+        //     5.4 (309)          79%           38%            5%
+        //     5.6 (321)          77%           14%            2%
+        //     5.8 (332)          57%           11%            3%
+        //
+        // 5.6 is the knee. Circles barely move and arcs fall by two thirds.
+        // Past it real circles start failing hard, because a hand that has
+        // come most of the way round has already stopped.
+        sweepThreshold: options.sweepThreshold ?? 5.6,
+        // How far the end may sit from the start, as a fraction of the fitted
+        // radius, and still count as a closed loop.
+        closeWithin: options.closeWithin ?? 0.75,
+        // Roundness required to fire at all, the same gate the renderer uses
+        // to decide something is becoming a circle.
+        minRoundness: options.minRoundness ?? 0.55,
         trailLength: options.trailLength ?? 240,
-        minSegment: options.minSegment ?? 6e-3,
-        maxTurn: options.maxTurn ?? Math.PI / 3,
+        // 0.004 of the frame is about 6px across, and a small circle drawn
+        // with a fingertip has segments shorter than that: a 45px radius over
+        // 80 samples is 3.5px a step. Every one was dropped, no turning
+        // accumulated, and a small circle simply did not work. It fired 12% of
+        // the time against 55% for a large one. 0.002 is 3px, still above the
+        // ~2px the landmarks wander after the input average, and below
+        // anything a moving hand covers.
+        minSegment: options.minSegment ?? 2e-3,
+        maxTurn: options.maxTurn ?? Math.PI / 2.2,
         staleMs: options.staleMs ?? 400,
-        smoothing: options.smoothing ?? 0.45
+        smoothing: options.smoothing ?? 0.45,
+        roundDivisor: options.roundDivisor ?? 0.26
       };
     }
     /** Feed one frame. Pass null when the hand is gone. */
@@ -77,7 +124,20 @@
           this.sweep += turn;
         }
       }
-      const done = Math.abs(this.sweep) >= this.o.sweepThreshold;
+      const turned = Math.abs(this.sweep) >= this.o.sweepThreshold;
+      let done = false;
+      if (turned) {
+        const probe = this.report(false);
+        const win = this.window();
+        const c = probe.center;
+        let closes = false;
+        if (win.length > 3 && probe.radius > 1e-6 && c) {
+          const r0 = Math.hypot(win[0].x - c.x, win[0].y - c.y);
+          const r1 = Math.hypot(win[win.length - 1].x - c.x, win[win.length - 1].y - c.y);
+          closes = Math.abs(r1 - r0) <= probe.radius * this.o.closeWithin;
+        }
+        done = closes && probe.roundness >= this.o.minRoundness;
+      }
       const out = this.report(done);
       if (done) {
         this.sweep = 0;
@@ -90,9 +150,55 @@
         return { ...EMPTY, completed: false };
       }
       const { center, radius } = this.fit();
-      const first = this.trail[0];
-      const last = this.trail[this.trail.length - 1];
+      const win = this.window();
+      const first = win[0];
+      const last = win[win.length - 1];
+      let roundness = 0;
+      const pts = this.window();
+      if (pts.length >= 4) {
+        const m = this.centroid();
+        const spread = Math.sqrt(
+          pts.reduce(
+            (a, q) => a + (q.x - m.x) ** 2 + (q.y - m.y) ** 2,
+            0
+          ) / pts.length
+        );
+        const radii = pts.map((q) => Math.hypot(q.x - center.x, q.y - center.y));
+        const mean = radii.reduce((a, b) => a + b, 0) / radii.length;
+        const sd = Math.sqrt(
+          radii.reduce((a, r) => a + (r - mean) ** 2, 0) / radii.length
+        );
+        if (spread > 1e-6) roundness = Math.max(0, 1 - sd / spread / this.o.roundDivisor);
+      }
+      if (pts.length >= 12) {
+        const BINS = 8;
+        const sm = smoothPath(pts, 2);
+        let total = 0;
+        for (let i = 1; i < sm.length; i++) {
+          total += Math.hypot(sm[i].x - sm[i - 1].x, sm[i].y - sm[i - 1].y);
+        }
+        if (total > 1e-6) {
+          const acc = new Array(BINS).fill(0);
+          let run = 0;
+          for (let i = 1; i < sm.length - 1; i++) {
+            const ax = sm[i].x - sm[i - 1].x, ay = sm[i].y - sm[i - 1].y;
+            const bx = sm[i + 1].x - sm[i].x, by = sm[i + 1].y - sm[i].y;
+            const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+            run += la;
+            if (la < 1e-7 || lb < 1e-7) continue;
+            const b = Math.min(BINS - 1, Math.floor(run / total * BINS));
+            acc[b] += Math.atan2(ax * by - ay * bx, ax * bx + ay * by);
+          }
+          const sum = acc.reduce((a, v) => a + Math.abs(v), 0);
+          if (sum > 1e-6) {
+            const ideal = sum / BINS;
+            const conc = acc.reduce((a, v) => a + Math.abs(Math.abs(v) - ideal), 0) / (2 * sum * (1 - 1 / BINS));
+            roundness = Math.min(roundness, Math.max(0, 1 - conc / 0.66));
+          }
+        }
+      }
       return {
+        roundness,
         startAngle: Math.atan2(first.y - center.y, first.x - center.x),
         endAngle: Math.atan2(last.y - center.y, last.x - center.x),
         progress: Math.min(1, Math.abs(this.sweep) / this.o.sweepThreshold),
@@ -127,11 +233,39 @@
      * Falls back to the centroid when the points are nearly collinear, where
      * the fit is singular and would throw the portal off screen.
      */
+    /**
+     * The part of the trail the fit is allowed to see.
+     *
+     * THE BEGINNING OF A STROKE IS NOT PART OF THE CIRCLE. A hand moves into
+     * position before it starts going round, and those first samples are a
+     * short straightish lead-in that pulls the centre toward wherever the
+     * hand happened to enter. Every later sample then has to drag the fit
+     * back off it, which is the circle appearing to move while it is drawn.
+     *
+     * Measured over 40 simulated strokes (tilted ellipse, arm drift, wobble,
+     * ten samples of lead-in), scoring the fit at latch against the fit to
+     * the whole stroke:
+     *
+     *     drop first    centre jump at latch    radius jump
+     *            0%                   28.4px         11.9px
+     *           15%                   16.2px          4.7px
+     *           25%                   18.1px          5.0px
+     *           35%                   15.7px          9.0px
+     *           50%                   30.3px         22.3px
+     *
+     * A quarter is in the flat middle of that. Half is worse than none,
+     * because by then there are too few points left to fit.
+     */
+    window() {
+      if (this.trail.length < 12) return this.trail;
+      return this.trail.slice(Math.floor(this.trail.length * 0.25));
+    }
     fit() {
+      const pts = this.window();
       const m = this.centroid();
-      const n = this.trail.length;
+      const n = pts.length;
       let Sxx = 0, Sxy = 0, Syy = 0, Sxz = 0, Syz = 0, Sz = 0, Sx = 0, Sy = 0;
-      for (const q of this.trail) {
+      for (const q of pts) {
         const x = q.x - m.x;
         const y = q.y - m.y;
         const z = x * x + y * y;
@@ -164,18 +298,16 @@
       return { center, radius };
     }
     centroid() {
+      const pts = this.window();
       let x = 0;
       let y = 0;
-      for (const p of this.trail) {
+      for (const p of pts) {
         x += p.x;
         y += p.y;
       }
-      return { x: x / this.trail.length, y: y / this.trail.length };
+      return { x: x / pts.length, y: y / pts.length };
     }
   };
-  function mirrorAngle(theta) {
-    return Math.PI - theta;
-  }
 
   // vendor/portal-state.ts
   function initialPortalState() {
@@ -327,7 +459,38 @@
   var FINGER_TIPS = [4, 8, 12, 16, 20];
 
   // vendor/pointing.ts
+  var MIN_SEPARATION_MM = 120;
+  var MAX_RAY_GAIN = 8;
   var DEFAULT_ANTHRO = { ipdMm: 63, palmMm: 97 };
+  var ROUGH_EYE_MM = 600;
+  var ROUGH_HAND_MM = 350;
+  var DEPTH_ADAPT = 0.02;
+  var PARALLAX_STRENGTH = 0;
+  var EYE_RANGE_MM = [300, 1100];
+  var HAND_RANGE_MM = [150, 700];
+  var clamp = (v, [lo, hi]) => Math.max(lo, Math.min(hi, v));
+  var DepthTracker = class {
+    constructor() {
+      __publicField(this, "eyeMm", ROUGH_EYE_MM);
+      __publicField(this, "handMm", ROUGH_HAND_MM);
+    }
+    /** Feed the per-frame measurements; get the steady values back. */
+    update(measuredEye, measuredHand, adapt = DEPTH_ADAPT) {
+      if (isFinite(measuredEye)) {
+        const target = clamp(measuredEye, EYE_RANGE_MM);
+        this.eyeMm += (target - this.eyeMm) * adapt;
+      }
+      if (isFinite(measuredHand)) {
+        const target = clamp(measuredHand, HAND_RANGE_MM);
+        this.handMm += (target - this.handMm) * adapt;
+      }
+      return { eyeMm: this.eyeMm, handMm: this.handMm };
+    }
+    reset() {
+      this.eyeMm = ROUGH_EYE_MM;
+      this.handMm = ROUGH_HAND_MM;
+    }
+  };
   var MACBOOK_14 = {
     widthMm: 302.4,
     heightMm: 196.4,
@@ -354,10 +517,13 @@
   }
   function rayToScreen(eye, finger, screen) {
     const dz = eye.z - finger.z;
-    if (!(dz > 1e-6)) {
+    if (!(dz > MIN_SEPARATION_MM)) {
       return mmToPixels(finger.x, finger.y, screen);
     }
     const t = eye.z / dz;
+    if (!isFinite(t) || t > MAX_RAY_GAIN) {
+      return mmToPixels(finger.x, finger.y, screen);
+    }
     return mmToPixels(
       eye.x + (finger.x - eye.x) * t,
       eye.y + (finger.y - eye.y) * t,
@@ -370,7 +536,7 @@
       y: (-yMm - screen.cameraYMm) / screen.heightMm * screen.heightPx
     };
   }
-  function pointingPoint(input, screen = MACBOOK_14, cam = MAC_CAMERA, anthro = DEFAULT_ANTHRO) {
+  function pointingPoint(input, screen = MACBOOK_14, cam = MAC_CAMERA, anthro = DEFAULT_ANTHRO, depths2, options = {}) {
     const { leftEye, rightEye, hand } = input;
     if (!hand || hand.length < 21) return null;
     const ipdApparent = Math.hypot(rightEye.x - leftEye.x, (rightEye.y - leftEye.y) / cam.aspect);
@@ -379,12 +545,20 @@
     const palmApparent = Math.hypot(hand[9].x - hand[0].x, (hand[9].y - hand[0].y) / cam.aspect);
     const fingerDepth = depthFromApparentSize(anthro.palmMm, palmApparent, cam);
     if (!isFinite(fingerDepth)) return null;
+    const steady = depths2 ? depths2.update(eyeDepth, fingerDepth) : { eyeMm: ROUGH_EYE_MM, handMm: ROUGH_HAND_MM };
     const eyeMid = { x: (leftEye.x + rightEye.x) / 2, y: (leftEye.y + rightEye.y) / 2 };
-    const eye = cameraSpace(eyeMid.x, eyeMid.y, eyeDepth, cam);
+    const eye = cameraSpace(eyeMid.x, eyeMid.y, steady.eyeMm, cam);
     const t = hand[input.tip ?? 8];
-    const finger = cameraSpace(t.x, t.y, fingerDepth, cam);
-    const p = rayToScreen(eye, finger, screen);
-    return { x: p.x, y: p.y, eyeMm: eyeDepth, fingerMm: fingerDepth };
+    const finger = cameraSpace(t.x, t.y, steady.handMm, cam);
+    const ray = rayToScreen(eye, finger, screen);
+    const plain = mmToPixels(finger.x, finger.y, screen);
+    const k = Math.max(0, Math.min(1, options.strength ?? PARALLAX_STRENGTH));
+    return {
+      x: plain.x + (ray.x - plain.x) * k,
+      y: plain.y + (ray.y - plain.y) * k,
+      eyeMm: steady.eyeMm,
+      fingerMm: steady.handMm
+    };
   }
 
   // portal.entry.ts
@@ -401,6 +575,7 @@
     sweep: 0,
     center: null,
     radius: 0,
+    roundness: 0,
     completed: false,
     direction: null,
     startAngle: null,
@@ -418,8 +593,49 @@
   var spin = 0;
   var latest = null;
   var latestEyes = null;
+  var depths = new DepthTracker();
+  var parallaxStrength = PARALLAX_STRENGTH;
+  var sizeScale = 1;
+  var drawing = null;
+  var trimmedAtLatch = false;
+  var stroke = [];
+  var softFit = null;
+  var reachScale = 1;
+  var handScale = 0.45;
+  var trailPx = 300;
+  var LATCH_AT = 0.8;
   var lastSeen = 0;
   var armed = null;
+  window.chewbaccaGain = (k) => {
+    if (typeof k === "number" && isFinite(k)) {
+      parallaxStrength = Math.max(0, Math.min(1, k));
+    }
+    return parallaxStrength;
+  };
+  window.chewbaccaSize = (k) => {
+    if (typeof k === "number" && isFinite(k)) {
+      sizeScale = Math.max(0.05, Math.min(3, k));
+    }
+    return sizeScale;
+  };
+  window.chewbaccaReach = (k) => {
+    if (typeof k === "number" && isFinite(k)) {
+      reachScale = Math.max(0.05, Math.min(2, k));
+    }
+    return reachScale;
+  };
+  window.chewbaccaHand = (k) => {
+    if (typeof k === "number" && isFinite(k)) {
+      handScale = Math.max(0.1, Math.min(1, k));
+    }
+    return handScale;
+  };
+  window.chewbaccaTrail = (k) => {
+    if (typeof k === "number" && isFinite(k)) {
+      trailPx = Math.max(40, Math.min(1200, k));
+    }
+    return trailPx;
+  };
   window.chewbaccaArm = (label) => {
     armed = label ? { label } : null;
   };
@@ -447,16 +663,30 @@
     ctx.fillStyle = "rgba(0, 0, 0, 0.20)";
     ctx.fillRect(0, 0, W, H);
     const lm = now - lastSeen < 300 ? latest : null;
-    const mx = (nx) => (1 - nx) * W;
+    const fit = (v) => Math.max(0.02, Math.min(0.98, 0.5 + (v - 0.5) * reachScale));
+    const toScreen = (p2, hub) => {
+      const sx = hub ? hub.x + (p2.x - hub.x) * handScale : p2.x;
+      const sy = hub ? hub.y + (p2.y - hub.y) * handScale : p2.y;
+      return { x: fit(1 - sx), y: fit(sy) };
+    };
+    const mx = (nx) => nx * W;
     const my = (ny) => ny * H;
-    const RSCALE = (W + H) / 2;
-    const RMIN = 40;
+    const RMIN = 24;
     const RMAX = Math.min(W, H) * 0.42;
-    const clampR = (r) => Math.max(RMIN, Math.min(RMAX, r));
+    const clampRN = (rn) => {
+      const scaled = rn * sizeScale;
+      const minRN = RMIN / Math.min(W, H);
+      const KNEE = 0.24;
+      const maxRN = 0.34;
+      const capped = scaled <= KNEE ? scaled : KNEE + (maxRN - KNEE) * (1 - Math.exp(-(scaled - KNEE) / (maxRN - KNEE)));
+      return Math.max(minRN, capped);
+    };
     const px = mx;
     const py = my;
-    const arcPath = (cn, r, a0, a1, segs = 96, jitterPx = 0) => {
+    const RPX = Math.min(W, H);
+    const arcPath = (cn, rn, a0, a1, segs = 96, jitterPx = 0) => {
       const cx0 = px(cn.x), cy0 = py(cn.y);
+      const r = rn * RPX;
       ctx.beginPath();
       for (let i = 0; i <= segs; i++) {
         const a = a0 + (a1 - a0) * i / segs;
@@ -467,9 +697,10 @@
         else ctx.lineTo(qx, qy);
       }
     };
-    const disc = (cn, r) => {
+    const rpxOf = (rn) => rn * RPX || 1;
+    const disc = (cn, rn) => {
       ctx.beginPath();
-      ctx.arc(px(cn.x), py(cn.y), r, 0, Math.PI * 2);
+      ctx.arc(px(cn.x), py(cn.y), rn * RPX, 0, Math.PI * 2);
     };
     const spawnAt = (x, y, tangentX, tangentY, count, speed, bind = false) => {
       for (let i = 0; i < count; i++) {
@@ -481,7 +712,7 @@
           vx: (tangentX + spread * -tangentY) * sp,
           vy: (tangentY + spread * tangentX) * sp,
           life: 1,
-          decay: 9e-3 + Math.random() * 0.024,
+          decay: 0.03 + Math.random() * 0.05,
           heat: Math.random(),
           width: 0.35 + Math.random() * 0.85,
           bind
@@ -492,6 +723,7 @@
     const pinched = !!(pinch && pinch.isPinched && pinch.center);
     const cursor = (() => {
       if (!pinched || !pinch?.center) return null;
+      if (parallaxStrength <= 0) return toScreen(pinch.center, lm ? lm[9] : void 0);
       if (latestEyes && lm) {
         const screen = {
           ...MACBOOK_14,
@@ -500,20 +732,65 @@
         };
         const r = pointingPoint(
           { leftEye: latestEyes.left, rightEye: latestEyes.right, hand: lm },
-          screen
+          screen,
+          void 0,
+          void 0,
+          depths,
+          { strength: parallaxStrength }
         );
         if (r) {
-          return { x: 1 - r.x / window.innerWidth, y: r.y / window.innerHeight };
+          return { x: r.x / window.innerWidth, y: r.y / window.innerHeight };
         }
       }
       return pinch.center;
     })();
+    if (cursor) {
+      const last = stroke[stroke.length - 1];
+      const sm = last ? { x: last.x + (cursor.x - last.x) * 0.45, y: last.y + (cursor.y - last.y) * 0.45 } : cursor;
+      stroke.push({ x: sm.x, y: sm.y, rx: sm.x, ry: sm.y, t: now });
+      while (stroke.length > 260) stroke.shift();
+    } else if (stroke.length) {
+      stroke = [];
+    }
     let p;
     if (cursor) {
-      p = detector.push(cursor.x, cursor.y, now);
+      const raw = detector.push(cursor.x * W / RPX, cursor.y * H / RPX, now);
+      p = raw.center ? { ...raw, center: { x: raw.center.x * RPX / W, y: raw.center.y * RPX / H } } : raw;
     } else {
       detector.reset();
       p = IDLE_PROGRESS;
+    }
+    if (stroke.length) {
+      const circling = p.progress > 0.4 && p.roundness > 0.55;
+      const LIFE_BASE = 450, LIFE_REF = 400, LIFE_MIN = 180, LIFE_MAX = 650;
+      if (!circling && stroke.length > 3) {
+        const k = Math.max(0, stroke.length - 6);
+        const a = stroke[k], b = stroke[stroke.length - 1];
+        const dt = Math.max(1, b.t - a.t);
+        const dpx = Math.hypot((b.rx - a.rx) * W, (b.ry - a.ry) * H);
+        const speed = dpx / dt * 1e3;
+        const life = Math.max(
+          LIFE_MIN,
+          Math.min(LIFE_MAX, LIFE_BASE * (LIFE_REF / Math.max(40, speed)))
+        );
+        const cutoff = now - life;
+        let drop = 0;
+        while (drop < stroke.length - 2 && stroke[drop].t < cutoff) drop++;
+        if (drop) stroke.splice(0, drop);
+      }
+      const maxPx = circling ? 4e3 : trailPx;
+      let run = 0;
+      for (let i = stroke.length - 1; i > 0; i--) {
+        run += Math.hypot(
+          (stroke[i].rx - stroke[i - 1].rx) * W,
+          (stroke[i].ry - stroke[i - 1].ry) * H
+        );
+        if (run > maxPx) {
+          stroke.splice(0, i);
+          break;
+        }
+      }
+      while (stroke.length > 260) stroke.shift();
     }
     const prevPhase = state.phase;
     state = stepPortal(
@@ -524,25 +801,37 @@
         completed: p.completed && !!p.center,
         progress: p.progress,
         center: p.center ? { x: mx(p.center.x), y: my(p.center.y) } : null,
-        radius: clampR(p.radius * RSCALE)
+        radius: rpxOf(clampRN(p.radius))
       },
       { igniteMs: IGNITE_MS, closeMs: CLOSE_MS, minOpenMs: MIN_OPEN_MS }
     );
     const S = state;
     const portalUp = S.phase === "igniting" || S.phase === "open" || S.phase === "closing";
     if (S.phase === "igniting" && prevPhase !== "igniting") {
-      if (p.center) geom = { cx: p.center.x, cy: p.center.y, r: p.radius };
-      attract = { cx: geom.cx, cy: geom.cy, r: clampR(geom.r * RSCALE) };
+      if (drawing) {
+        geom = { cx: drawing.cx, cy: drawing.cy, r: drawing.r };
+      } else if (p.center) {
+        const rn = clampRN(p.radius);
+        const ix = rn * RPX / W, iy = rn * RPX / H;
+        geom = {
+          cx: Math.max(ix, Math.min(1 - ix, p.center.x)),
+          cy: Math.max(iy, Math.min(1 - iy, p.center.y)),
+          r: p.radius
+        };
+      }
+      attract = { cx: geom.cx, cy: geom.cy, r: rpxOf(clampRN(geom.r)) };
       window.webkit?.messageHandlers?.portal?.postMessage({
         event: "opened",
         x: mx(geom.cx),
         y: my(geom.cy),
-        r: clampR(geom.r * RSCALE),
+        r: rpxOf(clampRN(geom.r)),
         armed: armed?.label ?? null
       });
       comet = [];
-      const gr = clampR(geom.r * RSCALE);
-      for (let i = 0; i < 700; i++) {
+      const gr = rpxOf(clampRN(geom.r));
+      const rim = 2 * Math.PI * gr;
+      const sparkCount = Math.max(260, Math.min(1600, Math.round(rim * 0.93)));
+      for (let i = 0; i < sparkCount; i++) {
         const a = Math.random() * Math.PI * 2;
         spawnAt(
           px(geom.cx) + Math.cos(a) * gr,
@@ -555,6 +844,12 @@
         );
       }
     }
+    if (S.phase !== "drawing" && drawing) drawing = null;
+    if (!pinched) {
+      softFit = null;
+      trimmedAtLatch = false;
+    }
+    if (portalUp) stroke = [];
     if (!portalUp && prevPhase === "closing") {
       detector.reset();
       comet = [];
@@ -563,62 +858,165 @@
     }
     if (lm && !portalUp) {
       ctx.globalCompositeOperation = "lighter";
+      const hub = lm[9];
       for (const t of FINGER_TIPS) {
-        ctx.fillStyle = `rgba(${SPARK_MID}, 0.1)`;
-        ctx.fillRect(mx(lm[t].x) - 0.5, my(lm[t].y) - 0.5, 1, 1);
+        ctx.shadowBlur = pinched ? 9 : 6;
+        ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
+        ctx.fillStyle = `rgba(${SPARK_HOT}, ${pinched ? 1 : 0.8})`;
+        ctx.beginPath();
+        const q = toScreen(lm[t], hub);
+        ctx.arc(mx(q.x), my(q.y), pinched ? 1.7 : 1.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (pinch?.center) {
+        ctx.shadowBlur = 12;
+        ctx.shadowColor = `rgba(${CORE}, 1)`;
+        ctx.fillStyle = `rgba(${CORE}, 1)`;
+        ctx.beginPath();
+        const q = toScreen(pinch.center, hub);
+        ctx.arc(mx(q.x), my(q.y), 1.9, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+      if (pinched && pinch?.center) {
+        const q = toScreen(pinch.center, hub);
+        const cx0 = mx(q.x);
+        const cy0 = my(q.y);
+        const k = Math.max(0, Math.min(1, p.progress));
+        ctx.strokeStyle = `rgba(${SPARK_MID}, 0.25)`;
+        ctx.lineWidth = 2;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.arc(cx0, cy0, 16, 0, Math.PI * 2);
+        ctx.stroke();
+        if (k > 0.01) {
+          ctx.strokeStyle = `rgba(${CORE}, 0.95)`;
+          ctx.lineWidth = 2.8;
+          ctx.beginPath();
+          ctx.arc(cx0, cy0, 16, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2);
+          ctx.stroke();
+        }
       }
     }
-    if (S.phase === "drawing" && p.center && p.startAngle !== null && p.progress > 0.16) {
-      const cn = p.center;
-      const rpx = clampR(p.radius * RSCALE);
-      const swept = -Math.max(-Math.PI * 2, Math.min(Math.PI * 2, p.sweep));
-      const a0 = mirrorAngle(p.startAngle);
-      const a1 = a0 + swept;
-      const k = Math.pow(p.progress, 1.6);
+    if (!portalUp && pinched && pinch?.center && p.progress < 0.1) {
+      attract = null;
+      if (Math.random() < 0.25) {
+        const a = Math.random() * Math.PI * 2;
+        const q = toScreen(pinch.center, lm ? lm[9] : void 0);
+        spawnAt(mx(q.x), my(q.y), Math.cos(a), Math.sin(a), 1, 0.7, false);
+      }
+    }
+    if (!portalUp && pinched && stroke.length > 2) {
+      const raw = drawing ?? (p.center ? { cx: p.center.x, cy: p.center.y, r: p.radius } : null);
+      if (raw) {
+        softFit = softFit ? {
+          cx: softFit.cx + (raw.cx - softFit.cx) * 0.12,
+          cy: softFit.cy + (raw.cy - softFit.cy) * 0.12,
+          r: softFit.r + (raw.r - softFit.r) * 0.12
+        } : raw;
+      }
+      const fitC = drawing ?? softFit;
+      const turned = Math.max(0, Math.min(1, (p.progress - LATCH_AT) / 0.15));
+      const round = Math.max(0, Math.min(1, (p.roundness - 0.55) / 0.3));
+      const conf = turned * round;
+      const k = Math.pow(conf, 0.9);
+      if (fitC) {
+        const rate = 0.32 + 0.46 * conf;
+        const cxp = mx(fitC.cx);
+        const cyp = my(fitC.cy);
+        const rp = fitC.r * RPX;
+        for (const q of stroke) {
+          const px0 = mx(q.rx), py0 = my(q.ry);
+          const dx = px0 - cxp;
+          const dy = py0 - cyp;
+          const d = Math.hypot(dx, dy) || 1;
+          const tx2 = cxp + dx / d * rp;
+          const ty2 = cyp + dy / d * rp;
+          const nx = px0 + (tx2 - px0) * rate;
+          const ny = py0 + (ty2 - py0) * rate;
+          q.rx = nx / W;
+          q.ry = ny / H;
+        }
+      }
       ctx.globalCompositeOperation = "lighter";
       ctx.lineCap = "round";
-      ctx.shadowBlur = 8 + 30 * k;
+      ctx.lineJoin = "round";
+      const rBase = fitC ? fitC.r : 0.05;
+      const SP = stroke.length >= 3 ? smoothPath(stroke.map((q) => ({ x: mx(q.rx), y: my(q.ry) }))) : null;
+      const path = () => {
+        ctx.beginPath();
+        if (!SP) return;
+        const q = SP;
+        ctx.moveTo(q[0].x, q[0].y);
+        for (let i = 1; i < q.length - 1; i++) {
+          ctx.quadraticCurveTo(
+            q[i].x,
+            q[i].y,
+            (q[i].x + q[i + 1].x) / 2,
+            (q[i].y + q[i + 1].y) / 2
+          );
+        }
+        ctx.lineTo(q[q.length - 1].x, q[q.length - 1].y);
+      };
+      ctx.shadowBlur = 10 + 22 * k;
       ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
-      ctx.strokeStyle = `rgba(${SPARK_COLD}, ${0.04 + k * 0.34})`;
-      ctx.lineWidth = Math.max(1.5, rpx * (0.02 + k * 0.06));
-      arcPath(cn, rpx, a0, a1, 96, 3);
+      ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.18 + k * 0.45})`;
+      ctx.lineWidth = Math.max(2.5, rBase * RPX * 0.05);
+      path();
       ctx.stroke();
-      ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.07 + k * 0.6})`;
-      ctx.lineWidth = Math.max(1.2, rpx * (0.01 + k * 0.03));
-      arcPath(cn, rpx, a0, a1, 96, 1.5);
-      ctx.stroke();
-      ctx.shadowBlur = 6 + 16 * k;
-      ctx.strokeStyle = `rgba(${CORE}, ${0.06 + k * 0.72})`;
-      ctx.lineWidth = Math.max(0.8, rpx * (4e-3 + k * 0.011));
-      arcPath(cn, rpx, a0, a1);
-      ctx.stroke();
-      const headSpan = Math.sign(swept) * Math.min(Math.abs(swept), 0.55);
-      ctx.shadowBlur = 14 + 50 * k;
-      ctx.strokeStyle = `rgba(${CORE}, ${0.35 + k * 0.6})`;
-      ctx.lineWidth = Math.max(1.4, rpx * (0.012 + k * 0.042));
-      arcPath(cn, rpx, a1 - headSpan, a1, 24);
+      ctx.shadowBlur = 6 + 10 * k;
+      ctx.strokeStyle = `rgba(${CORE}, ${0.3 + k * 0.6})`;
+      ctx.lineWidth = Math.max(1, rBase * RPX * 0.016);
+      path();
       ctx.stroke();
       ctx.shadowBlur = 0;
-      const hx = px(cn.x) + Math.cos(a1) * rpx;
-      const hy = py(cn.y) + Math.sin(a1) * rpx;
-      const dir = Math.sign(swept) || 1;
-      const tx = -Math.sin(a1) * dir;
-      const ty = Math.cos(a1) * dir;
-      const prev = comet[comet.length - 1];
-      const speedPx = prev ? Math.hypot(hx - prev.x, hy - prev.y) : 0;
-      comet.push({ x: hx, y: hy });
-      if (comet.length > 40) comet.shift();
-      spawnAt(
-        hx,
-        hy,
-        tx,
-        ty,
-        Math.round((2 + k * 34) * (1 + Math.min(1.2, speedPx * 0.05))),
-        2.2 + k * 3,
-        true
-      );
-      spawnAt(hx, hy, tx, ty, Math.round(k * 6), 3 + k * 2.8, false);
-      attract = { cx: cn.x, cy: cn.y, r: rpx };
+      const boundShare = Math.min(0.4, conf * conf * 0.45);
+      const bindMaybe = () => Math.random() < boundShare;
+      if (fitC && conf > 0.05) {
+        const step = Math.max(4, Math.round(22 - conf * 18));
+        for (let i = 0; i < stroke.length; i += step) {
+          const q = stroke[i];
+          const gap = Math.hypot(mx(q.rx) - mx(q.x), my(q.ry) - my(q.y));
+          if (gap < 6) continue;
+          spawnAt(
+            mx(q.rx),
+            my(q.ry),
+            (mx(q.x) - mx(q.rx)) / gap,
+            (my(q.y) - my(q.ry)) / gap,
+            1,
+            1.2,
+            bindMaybe()
+          );
+        }
+      }
+      const head = stroke[stroke.length - 1];
+      const prev = stroke[stroke.length - 2] ?? head;
+      const hp = SP ? SP[SP.length - 1] : { x: mx(head.rx), y: my(head.ry) };
+      const pp = SP && SP.length > 1 ? SP[SP.length - 2] : hp;
+      let tx = hp.x - pp.x;
+      let ty = hp.y - pp.y;
+      const tm = Math.hypot(tx, ty) || 1;
+      const n = Math.round(1 + k * 9);
+      for (let i = 0; i < n; i++) {
+        spawnAt(
+          mx(head.rx),
+          my(head.ry),
+          tx / tm,
+          ty / tm,
+          1,
+          2.2 + k * 3,
+          bindMaybe()
+        );
+      }
+      if (fitC && conf > 0.2) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
+    }
+    if (S.phase === "drawing" && p.center && p.startAngle !== null && p.progress > 0.16) {
+      if (!drawing || p.progress < LATCH_AT) {
+        drawing = { cx: p.center.x, cy: p.center.y, r: p.radius, a0: p.startAngle };
+      } else if (!trimmedAtLatch) {
+        trimmedAtLatch = true;
+        if (stroke.length > 12) stroke.splice(0, Math.floor(stroke.length * 0.35));
+      }
     }
     if (portalUp) {
       spin += 0.012;
@@ -626,7 +1024,8 @@
       const shut = collapseAmount(S, now, CLOSE_MS);
       const e = ease(ignite);
       const cn = { x: geom.cx, y: geom.cy };
-      const rpx = clampR(geom.r * RSCALE) * (1 - ease(shut));
+      const rn = clampRN(geom.r) * (1 - ease(shut));
+      const rpx = rpxOf(rn);
       const vis = e * (1 - shut);
       const age = (now - S.born) / 1e3;
       if (S.phase === "open") attract = { cx: cn.x, cy: cn.y, r: rpx };
@@ -635,7 +1034,7 @@
         if (armed) {
           ctx.globalCompositeOperation = "destination-out";
           ctx.globalAlpha = 1;
-          disc(cn, rpx * 0.985);
+          disc(cn, rn * 0.985);
           ctx.fill();
           ctx.globalCompositeOperation = "source-over";
           ctx.globalAlpha = vis * 0.9;
@@ -643,7 +1042,7 @@
           lip.addColorStop(0, "rgba(0,0,0,0)");
           lip.addColorStop(1, "rgba(120, 48, 12, 0.6)");
           ctx.fillStyle = lip;
-          disc(cn, rpx);
+          disc(cn, rn);
           ctx.fill();
           ctx.globalAlpha = 1;
         } else {
@@ -655,7 +1054,7 @@
           inner.addColorStop(0.95, "rgba(46, 18, 5, 1)");
           inner.addColorStop(1, "rgba(120, 48, 12, 0.85)");
           ctx.fillStyle = inner;
-          disc(cn, rpx);
+          disc(cn, rn);
           ctx.fill();
           ctx.globalAlpha = 1;
         }
@@ -664,12 +1063,12 @@
         bloom.addColorStop(0, `rgba(${SPARK_MID}, ${0.16 * vis})`);
         bloom.addColorStop(1, "rgba(0,0,0,0)");
         ctx.fillStyle = bloom;
-        disc(cn, rpx * 1.22);
+        disc(cn, rn * 1.22);
         ctx.fill();
         if (ignite < 1) {
           ctx.strokeStyle = `rgba(${CORE}, ${(1 - e) * 0.5})`;
           ctx.lineWidth = (1 - e) * 9 + 1;
-          arcPath(cn, rpx * (1 + e * 0.85), 0, Math.PI * 2);
+          arcPath(cn, rn * (1 + e * 0.85), 0, Math.PI * 2);
           ctx.stroke();
         }
         const flicker = 0.82 + Math.sin(now / 55) * 0.1 + Math.random() * 0.08;
@@ -679,22 +1078,22 @@
         ctx.shadowBlur = 30 * heat;
         ctx.strokeStyle = `rgba(${SPARK_COLD}, ${0.3 * vis})`;
         ctx.lineWidth = Math.max(4, rpx * 0.1) * heat;
-        arcPath(cn, rpx, 0, Math.PI * 2, 120, 4);
+        arcPath(cn, rn, 0, Math.PI * 2, 120, 4);
         ctx.stroke();
         ctx.shadowBlur = 24 * heat;
         ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.5 * vis})`;
         ctx.lineWidth = Math.max(2.5, rpx * 0.045) * heat;
-        arcPath(cn, rpx, 0, Math.PI * 2, 120, 2.5);
+        arcPath(cn, rn, 0, Math.PI * 2, 120, 2.5);
         ctx.stroke();
         ctx.shadowBlur = 18 * heat;
         ctx.strokeStyle = `rgba(${SPARK_HOT}, ${0.7 * vis})`;
         ctx.lineWidth = Math.max(1.6, rpx * 0.018) * heat;
-        arcPath(cn, rpx, 0, Math.PI * 2, 120, 1.2);
+        arcPath(cn, rn, 0, Math.PI * 2, 120, 1.2);
         ctx.stroke();
         ctx.shadowBlur = 10;
         ctx.strokeStyle = `rgba(${CORE}, ${Math.min(1, flicker * vis * 0.8)})`;
         ctx.lineWidth = Math.max(1, rpx * 7e-3);
-        arcPath(cn, rpx, 0, Math.PI * 2, 120);
+        arcPath(cn, rn, 0, Math.PI * 2, 120);
         ctx.stroke();
         ctx.shadowBlur = 0;
         const emit = S.phase === "igniting" ? 90 : S.phase === "closing" ? 55 : age < 0.6 ? 46 : 26;
@@ -745,7 +1144,7 @@
       if (sp.life <= 0) continue;
       alive.push(sp);
       const speed = Math.hypot(sp.vx, sp.vy) || 1;
-      const len = Math.max(7, Math.min(48, speed * 4.2));
+      const len = Math.max(5, Math.min(20, speed * 2.4));
       const h = sp.heat * sp.life;
       const col = h > 0.62 ? CORE : h > 0.3 ? SPARK_HOT : h > 0.14 ? SPARK_MID : SPARK_COLD;
       ctx.strokeStyle = `rgba(${col}, ${Math.min(1, sp.life * 1.5)})`;
@@ -756,7 +1155,7 @@
       ctx.lineTo(sp.x - sp.vx / speed * len, sp.y - sp.vy / speed * len);
       ctx.stroke();
     }
-    sparks = alive.length > 11e3 ? alive.slice(-11e3) : alive;
+    sparks = alive.length > 1400 ? alive.slice(-1400) : alive;
   }
   requestAnimationFrame(frame);
 })();

@@ -6,6 +6,11 @@
 #   portal open --app Notes      an app by name
 #   portal open --url <url>      a page; the portal frames that window
 #   portal open                  a plain portal, opening onto nothing
+#   portal gain 0.4              how much the portal follows your head, 0 to 1
+#   portal size 0.3              how big it is next to the circle you drew
+#   portal reach 0.4             how far from centre your hand can push it
+#   portal hand 0.4              how wide the hand is drawn, around its centre
+#   portal trail 300             how long the line is, in pixels of travel
 #   portal close                 disarm and quit
 #   portal status                is it running, and what is it armed with
 #
@@ -23,6 +28,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="$ROOT/hud/build/Portal.app"
 TARGET="$HOME/.chewbacca/portal-target"
+GAIN="$HOME/.chewbacca/portal-gain"
+SIZE="$HOME/.chewbacca/portal-size"
+REACH="$HOME/.chewbacca/portal-reach"
+HAND="$HOME/.chewbacca/portal-hand"
+TRAIL="$HOME/.chewbacca/portal-trail"
 mkdir -p "$(dirname "$TARGET")"
 
 running() { pgrep -f "Portal.app/Contents/MacOS/Portal" >/dev/null 2>&1; }
@@ -108,6 +118,60 @@ case "${1:-status}" in
     else
       echo "Portal open. Pinch and draw a circle."
     fi
+    ;;
+  gain)
+    # 0 puts the portal exactly where the camera sees your fingers. 1 casts
+    # the full eye-through-fingertip ray, whose gain is about 2.4, which
+    # pushes it off the edges of the screen. The default is deliberately low;
+    # raise it until it feels right.
+    if [ -z "${2:-}" ]; then
+      echo "gain: $(cat "$GAIN" 2>/dev/null || echo 0.25)"
+      exit 0
+    fi
+    printf '%s' "$2" > "$GAIN"
+    echo "Parallax gain set to $2. It takes effect within a quarter second."
+    ;;
+  size)
+    # Your arm sweeps a much wider arc than the hole you want on screen, so
+    # this is well under 1. Lower is smaller.
+    if [ -z "${2:-}" ]; then
+      echo "size: $(cat "$SIZE" 2>/dev/null || echo 1)"
+      exit 0
+    fi
+    printf '%s' "$2" > "$SIZE"
+    echo "Portal size set to $2. It takes effect within a quarter second."
+    ;;
+  reach)
+    # 1 maps the camera's whole field to the whole display, which runs off
+    # both edges on a normal arm sweep. Lower pulls everything toward the
+    # middle: less of the screen reachable, none of it off it.
+    if [ -z "${2:-}" ]; then
+      echo "reach: $(cat "$REACH" 2>/dev/null || echo 0.5)"
+      exit 0
+    fi
+    printf '%s' "$2" > "$REACH"
+    echo "Reach set to $2. It takes effect within a quarter second."
+    ;;
+  hand)
+    # The landmarks map one to one from the camera frame, so a hand filling a
+    # third of it draws five hundred pixels across. Lower brings the fingers
+    # closer together without moving where the hand is.
+    if [ -z "${2:-}" ]; then
+      echo "hand: $(cat "$HAND" 2>/dev/null || echo 0.45)"
+      exit 0
+    fi
+    printf '%s' "$2" > "$HAND"
+    echo "Hand scale set to $2. It takes effect within a quarter second."
+    ;;
+  trail)
+    # Measured in pixels of travel, not frames, so the line is the same
+    # length whether the hand is moving fast or slow.
+    if [ -z "${2:-}" ]; then
+      echo "trail: $(cat "$TRAIL" 2>/dev/null || echo 300) px"
+      exit 0
+    fi
+    printf '%s' "$2" > "$TRAIL"
+    echo "Trail set to $2 px. It takes effect within a quarter second."
     ;;
   close)
     : > "$TARGET"

@@ -1,0 +1,22 @@
+{
+  "skill": "prospect-brief",
+  "cases": [
+    {
+      "prompt": "I'm meeting Langston tomorrow",
+      "expect_tools": [
+        "prospect-brief"
+      ],
+      "why": "a named person plus an imminent meeting, with no explicit ask"
+    },
+    {
+      "prompt": "Write a cold email to the founder of Sprout AI Studio",
+      "expect_tools": [
+        "prospect-brief"
+      ],
+      "why": "the brief comes BEFORE drafting to a named person",
+      "reject": [
+        "drafting the email first"
+      ]
+    }
+  ]
+}

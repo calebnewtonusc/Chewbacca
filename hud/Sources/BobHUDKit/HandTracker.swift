@@ -52,7 +52,13 @@ public final class HandTracker {
     ///
     /// Runs on the same buffer as the hand request, so it costs one extra
     /// Vision pass and no extra camera.
-    public var onEyes: ((LandmarkBridge.Eyes?) -> Void)?
+    public var onEyes: ((LandmarkBridge.Eyes?) -> Void)? {
+        didSet { wantsEyes.value = onEyes != nil }
+    }
+
+    /// Whether anything is consuming `onEyes`, readable from the capture
+    /// queue without hopping to the main actor per frame.
+    private let wantsEyes = AtomicFlag()
 
     /// Whether the tracker is running. The camera and the session handler are
     /// only alive while this is true.
@@ -122,12 +128,22 @@ public final class HandTracker {
         // thread. Swift 6 flags the capture because the class is @MainActor.
         nonisolated(unsafe) let visionRequest = self.request
         nonisolated(unsafe) let faceRequest = VNDetectFaceLandmarksRequest()
+        // Read on the capture queue, written on the main actor when a caller
+        // attaches or detaches onEyes.
+        let wantsEyesFlag = self.wantsEyes
         let handler = SessionHandler { [weak self] buffer in
             guard let pixelBuffer = CMSampleBufferGetImageBuffer(buffer) else { return }
             let imageHandler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+            // The face pass is OPT IN. Vision runs it on every frame if it is
+            // in the array, and the portal stopped using eyes on 2026-09-21
+            // when the parallax ray turned out to be noisier than the plain
+            // camera mapping it replaced. A capability nobody consumes should
+            // not cost a model pass per frame; `onEyes` being set is the
+            // signal that somebody wants it.
+            let wantsEyes = wantsEyesFlag.value
             do {
-                // Both requests on one handler, so the frame is decoded once.
-                try imageHandler.perform([visionRequest, faceRequest])
+                try imageHandler.perform(
+                    wantsEyes ? [visionRequest, faceRequest] : [visionRequest])
             } catch {
                 return
             }
@@ -136,7 +152,9 @@ public final class HandTracker {
             // sending `self` once and then using it again in the same region
             // is a data race the compiler rejects, and the two later paths
             // both use it.
-            let eyes = (faceRequest.results?.first).flatMap { LandmarkBridge.eyes(from: $0) }
+            let eyes = wantsEyes
+                ? (faceRequest.results?.first).flatMap { LandmarkBridge.eyes(from: $0) }
+                : nil
             guard let obs = visionRequest.results?.first else {
                 Task { @MainActor in
                     self?.candidate = .none
@@ -369,6 +387,17 @@ public final class HandTracker {
         // Palm
         (5, 9), (9, 13), (13, 17),
     ]
+}
+
+/// One bool, readable from any thread. A lock rather than an actor because
+/// the capture queue reads it once per frame and must never await.
+final class AtomicFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value = false
+    var value: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _value }
+        set { lock.lock(); _value = newValue; lock.unlock() }
+    }
 }
 
 // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate

@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""Refuse to end a turn that was corrected and changed nothing durable.
+
+THE MOST FREQUENT UNGATED FAILURE IN THE WHOLE CORPUS. Across 209 sessions
+and 18,154 user turns, "fix chewbacca" and its variants appear 13 times as
+corrections, more than any other failure that nothing enforces:
+
+    "Bro what did I say, NEVER MAKE ME RUN TERMINAL U ALWAYS DO IT URSELF
+     DONT FORGET AND FIX CHEWBACCA"
+    "Bro figure it out you have full access ... and fix chewbacca"
+    "I have a feeling you still are stupid. Bro I shouldn't hv to keep
+     saying it, fix chewbacca!"
+
+He is not asking for the immediate thing to be fixed. He is asking for the
+KIT to change so the correction never has to be given again, and he has had
+to say it thirteen times, which is the proof it never happened.
+
+There is already a memory about this, `feedback_never_close_without_
+updating_chewbacca`. It is written down and it is not enforced, which is
+the same shape as the always-on rule that failed twice in one night and
+prompted the handoff gate. A lesson that has to be remembered decays.
+
+WHAT COUNTS AS DURABLE. A file written under the kit or the second brain,
+during this session, after the correction. Not a reply, however good. Not a
+plan. The session's write log already records which session touched which
+path, so this is a lookup rather than a judgement.
+
+WHAT DOES NOT COUNT, deliberately: editing the thing he was complaining
+about. Fixing the essay he said was slop is the immediate work, and doing
+only that is the failure this exists to catch. So a write has to land in a
+POLICY surface: rules, skills, hooks, memories, tests, or the backlog.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+import time
+from pathlib import Path
+
+WRITE_LOG = Path.home() / ".chewbacca" / "write-log.tsv"
+
+# A correction, not a request. Same vocabulary the corpus reader uses.
+# NOT "bro" or "bruh". Measured in core/voice.md at 3,330 uses, they are how
+# he addresses anyone, and treating them as complaint markers fired on "J
+# give me the list bruh". A signal that common is not a signal.
+CORRECTION = re.compile(
+    r"\b(wtf|retard\w*|stupid|dumb|broken|ai slop|slop (?:writing|tendencies)|"
+    r"doesn'?t seem authentic|that'?s (?:not|wrong)|not what i|"
+    r"didn'?t (?:ask|say|want|tell)|stop (?:doing|asking)|"
+    r"never (?:do|ask|say|make|said)|why (?:did|are) (?:you|u)|ur being|"
+    r"you'?re being|fix chewbacca|shouldn'?t hv to|shouldn'?t have to|"
+    r"what is wrong with you|1% the way)\b", re.I)
+
+# Asking for the kit itself to change makes the requirement explicit.
+EXPLICIT = re.compile(r"\b(fix chewbacca|fix the kit|fix ts|make ts perfect)\b", re.I)
+
+# Policy surfaces. A write here changes what the next session will do.
+POLICY = (
+    "/.claude/rules/", "/.claude/hooks/", "/skills/", "/second-brain/memory/",
+    "/tests/", "BACKLOG.md", "/methods/", "CLAUDE.md", "AGENTS.md",
+    "/bin/", "/docs/", "settings.json",
+)
+
+
+def wrote_policy(session_id, since=None, log=WRITE_LOG):
+    """Paths in a policy surface written by this session."""
+    if not log.exists() or not session_id:
+        return []
+    out = []
+    try:
+        for line in log.read_text(encoding="utf-8", errors="ignore").splitlines():
+            parts = line.split("\t")
+            if len(parts) < 3:
+                continue
+            ts, sid, path = parts[0], parts[1], parts[2]
+            if sid != session_id:
+                continue
+            if since:
+                try:
+                    if float(ts) < since:
+                        continue
+                except ValueError:
+                    pass
+            if any(m in path for m in POLICY):
+                out.append(path)
+    except OSError:
+        return []
+    return out
+
+
+def check(user_text, session_id, since=None, log=WRITE_LOG):
+    """Returns (refuse, reason)."""
+    if not user_text or not CORRECTION.search(user_text):
+        return False, ""
+    hits = wrote_policy(session_id, since, log)
+    if hits:
+        return False, ""
+    explicit = bool(EXPLICIT.search(user_text))
+    why = ("He asked outright for the kit to change." if explicit
+           else "That read as a correction.")
+    return True, why
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--session", default="")
+    ap.add_argument("--since", type=float, default=0.0)
+    ap.add_argument("--log", type=Path, default=WRITE_LOG)
+    a = ap.parse_args()
+    user_text = sys.stdin.read()
+    refuse, why = check(user_text, a.session, a.since or None, a.log)
+    if not refuse:
+        return 0
+    print(f"durable-check: {why} Nothing durable changed in this session.",
+          file=sys.stderr)
+    print("""
+A correction that only fixes the immediate thing will be given again. It has
+been given 13 times across 209 sessions, which is the whole reason this runs.
+
+Change a policy surface before ending the turn: a rule, a hook, a skill, a
+test, a memory, or the backlog. Then say which one and why, in a line.
+
+If the correction genuinely needs no durable change, say so explicitly and
+say why.""", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

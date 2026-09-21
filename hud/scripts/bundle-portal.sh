@@ -33,9 +33,32 @@ cp "$BIN/Portal" "$APP/Contents/MacOS/Portal"
 # codesign refuses the whole app with "bundle format unrecognized" and the
 # signature is skipped, which quietly takes the pinned designated requirement
 # with it and puts the camera grant back to evaporating on every rebuild.
+# COMPILE IT HERE. This used to check that portal.js existed and then copy
+# it, which meant an edit to portal.entry.ts or vendor/circle.ts built
+# cleanly, launched, and ran the previous bundle. On 2026-09-21 the app was
+# relaunched twice and reported live while running a detector three commits
+# old, and the only reason it was caught was grepping the bundle for a symbol
+# only the new code had.
+#
+# A build step that trusts a file someone else was supposed to regenerate is
+# not a build step.
+#
+# esbuild STRIPS types, it does not check them, so a type error compiles to a
+# clean bundle and fails at runtime with nothing on the way in to say so.
+# tsc runs first for that reason.
+( cd Sources/Portal/Resources/portal \
+  && npx --yes tsc --noEmit --strict --target es2020 \
+       --moduleResolution bundler --module esnext portal.entry.ts ) \
+  || { echo "error: portal sources do not typecheck" >&2; exit 1; }
+
+( cd Sources/Portal/Resources/portal \
+  && npx --yes esbuild portal.entry.ts --bundle --format=iife \
+       --target=es2020 --outfile=portal.js --log-level=warning ) \
+  || { echo "error: portal bundle failed to compile" >&2; exit 1; }
+
 cp -R Sources/Portal/Resources/portal "$APP/Contents/Resources/portal"
-[ -f "$APP/Contents/Resources/portal/portal.js" ] \
-  || { echo "error: portal.js missing. Run: cd Sources/Portal/Resources/portal && npx esbuild portal.entry.ts --bundle --format=iife --target=es2020 --outfile=portal.js" >&2; exit 1; }
+[ -s "$APP/Contents/Resources/portal/portal.js" ] \
+  || { echo "error: portal.js is empty after compiling" >&2; exit 1; }
 
 BUILD="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 

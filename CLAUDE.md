@@ -61,6 +61,7 @@ the whole point: a shell script session should not carry the animation rules.
 | `~/.claude/rules/design-system.md`      | a UI file is open (`.tsx`, `.jsx`, `.css`, `.html`, `.vue`) |
 | `~/.claude/rules/ai-features.md`        | the work involves an LLM, an agent, or an eval harness      |
 | `~/.claude/rules/deploy-gate.md`        | shipping to production, or `/ship`                          |
+| `~/.claude/rules/spatial-one-mapping.md` | hand tracking, gaze, a HUD overlay, anything where a physical position becomes a pixel |
 
 Do not restate them here. They load on their own.
 

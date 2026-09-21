@@ -40,15 +40,33 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
     /// What the portal opens onto, or nil for a plain void. Written by
     /// `bin/portal` and polled, rather than passed as a launch argument,
     /// because the voice agent arms a portal that is usually already running.
-    /// The most recent pupils, held so they can ride out with the next
-    /// landmark frame rather than crossing separately. Both come from the
-    /// same camera frame, so splitting them into two messages would let the
-    /// web layer pair a hand with the previous frame's eyes.
+    /// The most recent pupils, held so they ride out with the next landmark
+    /// frame. Both come from the same camera frame, and splitting them into
+    /// two messages would let the web layer pair a hand with stale eyes.
     private var lastEyes: LandmarkBridge.Eyes?
     private var armed: String?
     private var armTimer: Timer?
     private static let armFile = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".chewbacca/portal-target")
+    /// How much parallax correction to apply, 0 to 1. A file rather than a
+    /// launch argument for the same reason the target is: the portal is
+    /// usually already running when somebody wants to change it, and finding
+    /// the right value means moving a hand and watching, not restarting.
+    private static let gainFile = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".chewbacca/portal-gain")
+    private static let sizeFile = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".chewbacca/portal-size")
+    private static let reachFile = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".chewbacca/portal-reach")
+    private static let handFile = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".chewbacca/portal-hand")
+    private static let trailFile = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".chewbacca/portal-trail")
+    private var gain: Double?
+    private var size: Double?
+    private var reach: Double?
+    private var hand: Double?
+    private var trail: Double?
 
     func applicationDidFinishLaunching(_: Notification) {
         // Bundle.main first, because that is where bundle-portal.sh puts the
@@ -110,6 +128,8 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         tracker.onLandmarks = { [weak self] points in
             self?.push(points)
         }
+        // Setting this is what turns the face pass on; it is opt in, so a
+        // consumer that does not want eyes does not pay for them.
         tracker.onEyes = { [weak self] eyes in
             self?.lastEyes = eyes
         }
@@ -119,8 +139,19 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         // second is imperceptible next to drawing a circle, and an FSEvents
         // stream for one path is more machinery than the problem deserves.
         readArm()
+        readGain()
+        readSize()
+        readReach()
+        readHand()
         armTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
-            Task { @MainActor in self.readArm() }
+            Task { @MainActor in
+                self.readArm()
+                self.readGain()
+                self.readSize()
+                self.readReach()
+                self.readHand()
+            self.readTrail()
+            }
         }
 
         // Esc quits. The panel never takes focus, so this is a global monitor
@@ -137,6 +168,21 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
     func webView(_: WKWebView, didFinish _: WKNavigation!) {
         ready = true
         applyArm()
+        if let g = gain {
+            web?.evaluateJavaScript("window.chewbaccaGain&&window.chewbaccaGain(\(g))")
+        }
+        if let sz = size {
+            web?.evaluateJavaScript("window.chewbaccaSize&&window.chewbaccaSize(\(sz))")
+        }
+        if let rh = reach {
+            web?.evaluateJavaScript("window.chewbaccaReach&&window.chewbaccaReach(\(rh))")
+        }
+        if let hd = hand {
+            web?.evaluateJavaScript("window.chewbaccaHand&&window.chewbaccaHand(\(hd))")
+        }
+        if let tr = trail {
+            web?.evaluateJavaScript("window.chewbaccaTrail&&window.chewbaccaTrail(\(tr))")
+        }
     }
 
     /// `bin/portal open --app Notes` writes the name here; `portal close`
@@ -163,6 +209,52 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         }
     }
 
+    private func readGain() {
+        let text = (try? String(contentsOf: Self.gainFile, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let text, let value = Double(text) else { return }
+        guard gain != value else { return }
+        gain = value
+        guard ready, let web else { return }
+        web.evaluateJavaScript("window.chewbaccaGain&&window.chewbaccaGain(\(value))")
+    }
+
+    private func readSize() {
+        let text = (try? String(contentsOf: Self.sizeFile, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let text, let value = Double(text), size != value else { return }
+        size = value
+        guard ready, let web else { return }
+        web.evaluateJavaScript("window.chewbaccaSize&&window.chewbaccaSize(\(value))")
+    }
+
+    private func readReach() {
+        let text = (try? String(contentsOf: Self.reachFile, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let text, let value = Double(text), reach != value else { return }
+        reach = value
+        guard ready, let web else { return }
+        web.evaluateJavaScript("window.chewbaccaReach&&window.chewbaccaReach(\(value))")
+    }
+
+    private func readHand() {
+        let text = (try? String(contentsOf: Self.handFile, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let text, let value = Double(text), hand != value else { return }
+        hand = value
+        guard ready, let web else { return }
+        web.evaluateJavaScript("window.chewbaccaHand&&window.chewbaccaHand(\(value))")
+    }
+
+    private func readTrail() {
+        let text = (try? String(contentsOf: Self.trailFile, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let text, let value = Double(text), trail != value else { return }
+        trail = value
+        guard ready, let web else { return }
+        web.evaluateJavaScript("window.chewbaccaTrail&&window.chewbaccaTrail(\(value))")
+    }
+
     private func applyArm() {
         guard ready, let web else { return }
         let arg = armed.map { "\"\($0.replacingOccurrences(of: "\"", with: ""))\"" } ?? "null"
@@ -181,6 +273,12 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         // down with it. `assumeIsolated` states the guarantee WebKit already
         // makes rather than hopping, which would reorder the message against
         // the `Task` below.
+        //
+        // `readArm` above says NOT to use `assumeIsolated`, and that is the
+        // same rule, not a contradiction: it traps unless the caller really is
+        // on the main actor, which a global queue never is and which WebKit
+        // always is. Before copying either line, check which of those the
+        // caller is.
         MainActor.assumeIsolated { handle(message) }
     }
 
@@ -210,6 +308,8 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
             return
         }
         let arg = points.map { LandmarkBridge.json($0) } ?? "null"
+        // No completion handler: at 30fps the callback allocation is the
+        // expensive part and there is nothing to do with the result.
         let eyesArg: String
         if let e = lastEyes {
             eyesArg = "{\"left\":{\"x\":\(round(e.left.x * 1e6) / 1e6),\"y\":\(round(e.left.y * 1e6) / 1e6)},"
@@ -217,8 +317,6 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         } else {
             eyesArg = "null"
         }
-        // No completion handler: at 30fps the callback allocation is the
-        // expensive part and there is nothing to do with the result.
         web.evaluateJavaScript(
             "window.chewbaccaHands&&window.chewbaccaHands(\(arg),\(eyesArg))")
     }

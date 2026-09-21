@@ -858,7 +858,7 @@ fi
 # list-audit is pure stdlib python, no venv and no network, so it installs with
 # no dependency check at all. list-gate ships with it: audit reads a bought file,
 # gate refuses to ship a generated one, and the Stop hook calls the gate by name.
-for _tool in list-audit list-gate kit-debt; do
+for _tool in list-audit list-gate kit-debt handoff-check learn durable-check corpus preflight; do
   if [ -f "$SCRIPT_DIR/bin/$_tool" ]; then
     link_tool "$_tool"
     log "$_tool installed to ~/.local/bin/"
@@ -873,7 +873,7 @@ unset _tool
 # hud calls the others by path, so installing one alone gives a command that
 # fails halfway.
 _installed_hud=""
-for _tool in hud hud-listen hud-context hud-watch hud-speak hud-guide hud-music hud-bubble superassistant chewbacca-mcp; do
+for _tool in hud hud-listen hud-context hud-watch hud-speak hud-guide hud-music hud-bubble superassistant chewbacca-mcp portal; do
   if [ -f "$SCRIPT_DIR/bin/$_tool" ]; then
     link_tool "$_tool"
     _installed_hud="$_installed_hud $_tool"

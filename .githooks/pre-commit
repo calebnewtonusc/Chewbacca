@@ -53,8 +53,29 @@ STAGED=$(git diff --cached --name-only --diff-filter=ACM)
 #
 # Detection is deliberately crude and errs toward refusing. A false refusal
 # costs one retyped command. A false pass costs somebody's work.
+#
+# DETECTING A PATHSPEC COMMIT, 2026-09-21. The version below refused one,
+# and then told the author to do the thing they had just done.
+#
+# `git commit -- a b` builds a TEMPORARY index holding only those paths and
+# runs the hook against it, so from in here a two-file pathspec commit and a
+# bare commit of a two-file index are byte for byte identical. The gate fired
+# on both. A one-file pathspec commit slipped through only because of the
+# `-gt 1` clause, which is why the bug hid: every single-file commit worked
+# and the advice looked sound.
+#
+# Git does distinguish them, in GIT_INDEX_FILE. A bare commit runs against
+# `.git/index`; a pathspec commit runs against `.git/next-index-<pid>.lock`.
+# A pathspec commit is already the safe form this hook exists to encourage,
+# so it is let straight through.
+case "$(basename "${GIT_INDEX_FILE:-index}")" in
+  next-index*) PATHSPEC_COMMIT=1 ;;
+  *)           PATHSPEC_COMMIT=0 ;;
+esac
+
 SESSIONS=$(pgrep -f "claude" 2>/dev/null | wc -l | tr -d ' ')
-if [ "${SESSIONS:-0}" -gt 1 ] && [ -z "${CHEWBACCA_PATHSPEC_COMMIT:-}" ]; then
+if [ "${SESSIONS:-0}" -gt 1 ] && [ "$PATHSPEC_COMMIT" -eq 0 ] \
+   && [ -z "${CHEWBACCA_PATHSPEC_COMMIT:-}" ]; then
   STAGED_N=$(printf '%s\n' "$STAGED" | wc -l | tr -d ' ')
   TRACKED_DIRTY=$(git diff --name-only HEAD | wc -l | tr -d ' ')
   # If the index holds everything that is dirty, this was almost certainly a
@@ -63,14 +84,16 @@ if [ "${SESSIONS:-0}" -gt 1 ] && [ -z "${CHEWBACCA_PATHSPEC_COMMIT:-}" ]; then
     cat >&2 <<'MSG'
 
 pre-commit: refusing. More than one agent session is live in this checkout and
-this looks like a bare commit taking the whole index.
+this is a bare commit, which takes the WHOLE index including anything another
+session staged.
 
-That is how three commits today swallowed another session's work. Name your
-paths:
+That is how three commits on 2026-09-20 swallowed another session's work.
+Name your paths instead, which commits only those and is now detected
+properly rather than being refused as well:
 
   git commit -- path/one path/two
 
-If you really mean the whole index:
+If you really do mean the whole index:
 
   CHEWBACCA_PATHSPEC_COMMIT=1 git commit ...
 

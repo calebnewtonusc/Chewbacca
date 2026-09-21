@@ -216,6 +216,10 @@ if group "tools"; then
   check  "counts --json is valid" bash -c "python3 '$ROOT/tools/counts.py' --json | python3 -m json.tool"
   check  "evals structure pass" python3 "$ROOT/tools/evals.py"
   check  "eval results carry which case failed, not a count" python3 "$ROOT/tests/test_eval_results.py"
+  check  "the evolve merge gate refuses a regression" python3 "$ROOT/tests/test_evolve_gate.py"
+  check  "a reply that hands over a command is refused" python3 "$ROOT/tests/test_handoff_check.py"
+  check  "a correction must change the kit, not just the reply" python3 "$ROOT/tests/test_durable_check.py"
+  check  "preflight describes setup.sh accurately" python3 "$ROOT/tests/test_preflight.py"
   check  "context cost --json is valid" bash -c "python3 '$ROOT/tools/context_cost.py' --json | python3 -m json.tool"
   # Not --check: every commit made after the last regeneration invalidates it,
   # so a --check here would fail on the commit that adds a test.
@@ -795,10 +799,24 @@ fi
 
 if group "hud"; then
   check  "hud parses"         bash -n "$ROOT/bin/hud"
+  # EVERY Swift target must compile, test targets included.
+  #
+  # On 2026-09-21 the Portal target failed to compile on Swift 6.1.2 and
+  # took `swift test` for the whole package down with it: 177 unrelated
+  # tests never ran, because the build died before any test file was
+  # reached. Nothing here noticed, since this suite only checked that the
+  # shell and Python entry points parse. `--build-tests` compiles the test
+  # targets without running them, which catches both shapes of that failure
+  # (a source error and an unresolvable `import`) in seconds.
+  if command -v swift >/dev/null 2>&1 && [ -d "$ROOT/hud" ]; then
+    check "every swift target compiles, tests included" \
+      swift build --package-path "$ROOT/hud" --build-tests
+  fi
   # Why there is no border on the screen. Every link in that chain failed
   # silently on somebody else's Mac before this existed.
   check  "the display can say why it is not drawing" python3 "$ROOT/tests/test_hud_doctor.py"
   check  "hud-listen parses"  python3 -m py_compile "$ROOT/bin/hud-listen"
+  check  "a greeting costs no model turn" python3 "$ROOT/tests/test_pleasantry.py"
   check  "hud-speak parses"   python3 -m py_compile "$ROOT/bin/hud-speak"
   # The voice, minus the model: sentence splitting and the cache of short
   # lines, which is what "Done." costs after the first time.
@@ -926,6 +944,8 @@ fi
 
 # Browser/backend tests replace transports with fixtures; no model quota is used.
 if group "reasoning backends"; then
+  check "circle detector accepts circles, not triangles" bash "$ROOT/tests/circle_shapes.sh"
+  check "no drawn line is ever jagged" bash "$ROOT/tests/path_smoothness.sh"
   check "shared agent instructions are current" python3 "$ROOT/tools/agents_md.py" --check
   check "ChatGPT turn boundaries" python3 "$ROOT/tests/test_chatgpt_tab.py"
   check "gateway protocol and execution" python3 "$ROOT/tests/test_chatgpt_gateway.py"
