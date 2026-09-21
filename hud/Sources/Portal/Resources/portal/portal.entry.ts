@@ -76,7 +76,20 @@ const IDLE_PROGRESS: CircleProgress = {
 const canvas = document.getElementById("c") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
 
-const detector = new CircleGestureDetector();
+// THE DETECTOR RECOGNISES, IT DOES NOT DECIDE. "At initiation, it is
+// another 360 degrees until the portal opens."
+//
+// A gesture is two phases now. The lead-in, where the hand is drawing and
+// nothing shows, ends at the initiation point, whose size scaled threshold
+// lives in the frame loop. From there a FULL TURN is needed before the
+// portal opens, and that turn is the one with the arc and the reveal on it.
+//
+// The detector's own completion cannot express that, and worse, firing it
+// RESETS the sweep, which would collapse the reveal mid gesture. So its
+// threshold is put out of reach and the opening is decided here, from the
+// angle travelled since initiation. Recognition still reads its sweep; see
+// SWEEP_TO_RECOGNISE.
+const detector = new CircleGestureDetector({ sweepThreshold: 1e6 });
 const pinchL = new PinchDetector();
 let state = initialPortalState();
 let sparks: Spark[] = [];
@@ -395,7 +408,11 @@ const LATCH_AT = 0.8;
 // Radians of sweep that open a portal. Must match circle.ts sweepThreshold:
 // the reveal is scaled to this so that completing the circle changes nothing
 // about the other side, it only lights the ring.
-const SWEEP_TO_OPEN = 5.4;
+// Radians of sweep that count as "this is a circle, we can place it". Not
+// the opening condition any more: see the detector above. A full turn from
+// the initiation point is what opens a portal.
+const SWEEP_TO_RECOGNISE = 5.4;
+const SWEEP_TO_OPEN = Math.PI * 2;
 // How long a gesture survives the pinch reading false. See the pinch gate.
 const PINCH_GRACE_MS = 200;
 let lastSeen = 0;
@@ -1717,9 +1734,11 @@ function frame(now: number) {
     // .claude/rules/spatial-one-mapping.md: this file had the rule and broke
     // it anyway, because the detector's own space was never named.
     const raw = detector.push(cursor.x * W / RPX, cursor.y * H / RPX, now);
+    const prog = Math.min(1, Math.abs(raw.sweep) / SWEEP_TO_RECOGNISE);
     p = raw.center
-      ? { ...raw, center: { x: raw.center.x * RPX / W, y: raw.center.y * RPX / H } }
-      : raw;
+      ? { ...raw, progress: prog,
+          center: { x: raw.center.x * RPX / W, y: raw.center.y * RPX / H } }
+      : { ...raw, progress: prog };
   } else {
     detector.reset();
     p = IDLE_PROGRESS;
@@ -1842,7 +1861,13 @@ function frame(now: number) {
     {
       now,
       pinched,
-      completed: p.completed && !!p.center,
+      // A FULL TURN SINCE INITIATION, not the detector's own threshold.
+      // arcSpan is measured from the angle recorded when the circle was
+      // recognised, so this is exactly "another 360 degrees from there".
+      // Roundness is still required at the moment of opening, so a circle
+      // that degenerates after a good start does not get through.
+      completed: arcStart !== null && arcSpan >= SWEEP_TO_OPEN
+        && p.roundness >= 0.5 && !!p.center,
       progress: p.progress,
       center: p.center ? { x: mx(p.center.x), y: my(p.center.y) } : null,
       radius: rpxOf(clampRN(p.radius)),
@@ -1908,7 +1933,11 @@ function frame(now: number) {
   if (!portalUp) { settleX = 0; settleV = 0; arcX = 0; arcV = 0; }
   if (portalUp) stroke = [];
   if (!portalUp && prevPhase === "closing") {
+    // The detector no longer resets itself on completion, so a closed
+    // portal has to clear the recorded origin too or the next circle would
+    // measure its turn from the last one's start.
     detector.reset(); comet = []; attract = null;
+    arcStart = null; arcSpan = 0; drawnMax = 0; ccwLatch = null;
     window.webkit?.messageHandlers?.portal?.postMessage({ event: "closed" });
   }
 

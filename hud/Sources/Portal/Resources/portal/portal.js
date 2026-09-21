@@ -1149,7 +1149,7 @@ void main() {
   };
   var canvas = document.getElementById("c");
   var ctx = canvas.getContext("2d");
-  var detector = new CircleGestureDetector();
+  var detector = new CircleGestureDetector({ sweepThreshold: 1e6 });
   var pinchL = new PinchDetector();
   var state = initialPortalState();
   var sparks = [];
@@ -1295,7 +1295,8 @@ void main() {
     });
   }
   var LATCH_AT = 0.8;
-  var SWEEP_TO_OPEN = 5.4;
+  var SWEEP_TO_RECOGNISE = 5.4;
+  var SWEEP_TO_OPEN = Math.PI * 2;
   var PINCH_GRACE_MS = 200;
   var lastSeen = 0;
   var armed = null;
@@ -1833,7 +1834,12 @@ void main() {
     let p;
     if (cursor) {
       const raw = detector.push(cursor.x * W / RPX, cursor.y * H / RPX, now);
-      p = raw.center ? { ...raw, center: { x: raw.center.x * RPX / W, y: raw.center.y * RPX / H } } : raw;
+      const prog = Math.min(1, Math.abs(raw.sweep) / SWEEP_TO_RECOGNISE);
+      p = raw.center ? {
+        ...raw,
+        progress: prog,
+        center: { x: raw.center.x * RPX / W, y: raw.center.y * RPX / H }
+      } : { ...raw, progress: prog };
     } else {
       detector.reset();
       p = IDLE_PROGRESS;
@@ -1878,7 +1884,12 @@ void main() {
       {
         now,
         pinched,
-        completed: p.completed && !!p.center,
+        // A FULL TURN SINCE INITIATION, not the detector's own threshold.
+        // arcSpan is measured from the angle recorded when the circle was
+        // recognised, so this is exactly "another 360 degrees from there".
+        // Roundness is still required at the moment of opening, so a circle
+        // that degenerates after a good start does not get through.
+        completed: arcStart !== null && arcSpan >= SWEEP_TO_OPEN && p.roundness >= 0.5 && !!p.center,
         progress: p.progress,
         center: p.center ? { x: mx(p.center.x), y: my(p.center.y) } : null,
         radius: rpxOf(clampRN(p.radius))
@@ -1950,6 +1961,10 @@ void main() {
       detector.reset();
       comet = [];
       attract = null;
+      arcStart = null;
+      arcSpan = 0;
+      drawnMax = 0;
+      ccwLatch = null;
       window.webkit?.messageHandlers?.portal?.postMessage({ event: "closed" });
     }
     if (lm && !portalUp) {
