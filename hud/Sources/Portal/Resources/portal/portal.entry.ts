@@ -575,29 +575,46 @@ function frame(now: number) {
     // display it is still a comet rather than a stripe.
     const circling = p.progress > 0.4 && p.roundness > 0.55;
 
-    // BOTH A LENGTH AND AN AGE, WHICHEVER BITES FIRST.
+    // HOW LONG A POINT LIVES DEPENDS ON HOW FAST THE HAND IS GOING.
     //
-    // "the line still should disappear time based, small lines take forever
-    // to go away." Trimming by distance alone was the fix for a fast hand
-    // leaving a stripe across the display, and it opened this hole: a hand
-    // that barely moves never travels the 300px that would trim anything, so
-    // its line sits there indefinitely.
+    // "Time based and speed based." A fixed age is wrong on its own: a fast
+    // hand covers a stripe of screen inside it. A fixed length is wrong on
+    // its own: a slow hand never travels far enough to trim anything and the
+    // line sits there indefinitely. Those were the last two versions, and
+    // each fixed the other's failure while reintroducing its own.
     //
-    // 550ms is where the two rules cross at about 550px a second, which is
-    // an ordinary drawing speed. Slower than that and the age decides, so a
-    // nearly still hand keeps a short fading tail instead of a permanent
-    // one. Faster and the length decides, which is the case that produced
-    // the stripe.
+    // One rule instead. The lifetime is inversely proportional to speed,
+    // bounded at both ends, so the tail stays a readable length whatever the
+    // hand is doing:
     //
-    // Not while circling. Once the path is becoming a ring the whole of it
-    // is the ring, and ageing it out would eat the thing being drawn.
-    const TRAIL_MS = 550;
-    if (!circling) {
-      const cutoff = now - TRAIL_MS;
+    //     hand speed     lifetime    tail on screen
+    //       80 px/s        650ms          52px
+    //      200 px/s        650ms         130px
+    //      400 px/s        450ms         180px
+    //      800 px/s        225ms         180px
+    //     1600 px/s        180ms         288px
+    //
+    // Between the floor and the ceiling the tail holds at about 180px, which
+    // is the point: the line looks the same length whether it is being drawn
+    // slowly or thrown across the display. The floor stops a very fast flick
+    // vanishing before it is seen, the ceiling stops a still hand keeping a
+    // permanent mark.
+    const LIFE_BASE = 450, LIFE_REF = 400, LIFE_MIN = 180, LIFE_MAX = 650;
+    if (!circling && stroke.length > 3) {
+      // Speed over the last few samples, in px per second.
+      const k = Math.max(0, stroke.length - 6);
+      const a = stroke[k], b = stroke[stroke.length - 1];
+      const dt = Math.max(1, b.t - a.t);
+      const dpx = Math.hypot((b.rx - a.rx) * W, (b.ry - a.ry) * H);
+      const speed = (dpx / dt) * 1000;
+      const life = Math.max(LIFE_MIN,
+        Math.min(LIFE_MAX, LIFE_BASE * (LIFE_REF / Math.max(40, speed))));
+      const cutoff = now - life;
       let drop = 0;
       while (drop < stroke.length - 2 && stroke[drop].t < cutoff) drop++;
       if (drop) stroke.splice(0, drop);
     }
+
 
     const maxPx = circling ? 4000 : trailPx;
     let run = 0;

@@ -762,9 +762,18 @@
     }
     if (stroke.length) {
       const circling = p.progress > 0.4 && p.roundness > 0.55;
-      const TRAIL_MS = 550;
-      if (!circling) {
-        const cutoff = now - TRAIL_MS;
+      const LIFE_BASE = 450, LIFE_REF = 400, LIFE_MIN = 180, LIFE_MAX = 650;
+      if (!circling && stroke.length > 3) {
+        const k = Math.max(0, stroke.length - 6);
+        const a = stroke[k], b = stroke[stroke.length - 1];
+        const dt = Math.max(1, b.t - a.t);
+        const dpx = Math.hypot((b.rx - a.rx) * W, (b.ry - a.ry) * H);
+        const speed = dpx / dt * 1e3;
+        const life = Math.max(
+          LIFE_MIN,
+          Math.min(LIFE_MAX, LIFE_BASE * (LIFE_REF / Math.max(40, speed)))
+        );
+        const cutoff = now - life;
         let drop = 0;
         while (drop < stroke.length - 2 && stroke[drop].t < cutoff) drop++;
         if (drop) stroke.splice(0, drop);
