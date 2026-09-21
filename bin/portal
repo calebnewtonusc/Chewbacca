@@ -9,6 +9,7 @@
 #   portal gain 0.4              how much the portal follows your head, 0 to 1
 #   portal size 0.3              how big it is next to the circle you drew
 #   portal reach 0.4             how far from centre your hand can push it
+#   portal hand 0.4              how wide the hand is drawn, around its centre
 #   portal close                 disarm and quit
 #   portal status                is it running, and what is it armed with
 #
@@ -29,6 +30,7 @@ TARGET="$HOME/.chewbacca/portal-target"
 GAIN="$HOME/.chewbacca/portal-gain"
 SIZE="$HOME/.chewbacca/portal-size"
 REACH="$HOME/.chewbacca/portal-reach"
+HAND="$HOME/.chewbacca/portal-hand"
 mkdir -p "$(dirname "$TARGET")"
 
 running() { pgrep -f "Portal.app/Contents/MacOS/Portal" >/dev/null 2>&1; }
@@ -147,6 +149,17 @@ case "${1:-status}" in
     fi
     printf '%s' "$2" > "$REACH"
     echo "Reach set to $2. It takes effect within a quarter second."
+    ;;
+  hand)
+    # The landmarks map one to one from the camera frame, so a hand filling a
+    # third of it draws five hundred pixels across. Lower brings the fingers
+    # closer together without moving where the hand is.
+    if [ -z "${2:-}" ]; then
+      echo "hand: $(cat "$HAND" 2>/dev/null || echo 0.45)"
+      exit 0
+    fi
+    printf '%s' "$2" > "$HAND"
+    echo "Hand scale set to $2. It takes effect within a quarter second."
     ;;
   close)
     : > "$TARGET"

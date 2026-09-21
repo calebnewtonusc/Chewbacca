@@ -464,6 +464,7 @@
   var parallaxStrength = PARALLAX_STRENGTH;
   var sizeScale = 0.45;
   var reachScale = 1;
+  var handScale = 0.45;
   var lastSeen = 0;
   var armed = null;
   window.chewbaccaGain = (k) => {
@@ -483,6 +484,12 @@
       reachScale = Math.max(0.05, Math.min(2, k));
     }
     return reachScale;
+  };
+  window.chewbaccaHand = (k) => {
+    if (typeof k === "number" && isFinite(k)) {
+      handScale = Math.max(0.1, Math.min(1, k));
+    }
+    return handScale;
   };
   window.chewbaccaArm = (label) => {
     armed = label ? { label } : null;
@@ -647,12 +654,15 @@
     }
     if (lm && !portalUp) {
       ctx.globalCompositeOperation = "lighter";
+      const hub = lm[9];
+      const shrinkX = (v) => hub.x + (v - hub.x) * handScale;
+      const shrinkY = (v) => hub.y + (v - hub.y) * handScale;
       for (const t of FINGER_TIPS) {
         ctx.shadowBlur = pinched ? 9 : 6;
         ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
         ctx.fillStyle = `rgba(${SPARK_HOT}, ${pinched ? 1 : 0.8})`;
         ctx.beginPath();
-        ctx.arc(mx(lm[t].x), my(lm[t].y), pinched ? 1.7 : 1.4, 0, Math.PI * 2);
+        ctx.arc(mx(shrinkX(lm[t].x)), my(shrinkY(lm[t].y)), pinched ? 1.7 : 1.4, 0, Math.PI * 2);
         ctx.fill();
       }
       if (pinch?.center) {
@@ -660,13 +670,13 @@
         ctx.shadowColor = `rgba(${CORE}, 1)`;
         ctx.fillStyle = `rgba(${CORE}, 1)`;
         ctx.beginPath();
-        ctx.arc(mx(pinch.center.x), my(pinch.center.y), 1.9, 0, Math.PI * 2);
+        ctx.arc(mx(shrinkX(pinch.center.x)), my(shrinkY(pinch.center.y)), 1.9, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.shadowBlur = 0;
       if (pinched && pinch?.center) {
-        const cx0 = mx(pinch.center.x);
-        const cy0 = my(pinch.center.y);
+        const cx0 = mx(shrinkX(pinch.center.x));
+        const cy0 = my(shrinkY(pinch.center.y));
         const k = Math.max(0, Math.min(1, p.progress));
         ctx.strokeStyle = `rgba(${SPARK_MID}, 0.25)`;
         ctx.lineWidth = 2;

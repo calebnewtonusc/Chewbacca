@@ -87,6 +87,14 @@ let sizeScale = 0.45;
 // off by default because being predictable beats covering less screen.
 //   portal reach 0.6
 let reachScale = 1;
+// How wide the hand is drawn, around its own centre.
+//
+// The landmarks map one to one from the camera frame to the display, so a
+// hand filling a third of the frame draws five hundred pixels across and
+// the fingers look flung apart. Shrinking toward the hand's own middle
+// keeps the hand WHERE it is and only changes how large it reads.
+//   portal hand 0.5
+let handScale = 0.45;
 let lastSeen = 0;
 
 // The host pushes frames in here. Declared on window so evaluateJavaScript
@@ -102,6 +110,7 @@ declare global {
     chewbaccaGain: (k?: number) => number;
     chewbaccaSize: (k?: number) => number;
     chewbaccaReach: (k?: number) => number;
+    chewbaccaHand: (k?: number) => number;
     webkit?: { messageHandlers?: { portal?: { postMessage: (m: unknown) => void } } };
   }
 }
@@ -132,6 +141,12 @@ window.chewbaccaReach = (k) => {
     reachScale = Math.max(0.05, Math.min(2, k));
   }
   return reachScale;
+};
+window.chewbaccaHand = (k) => {
+  if (typeof k === "number" && isFinite(k)) {
+    handScale = Math.max(0.1, Math.min(1, k));
+  }
+  return handScale;
 };
 window.chewbaccaArm = (label) => {
   armed = label ? { label } : null;
@@ -442,12 +457,18 @@ function frame(now: number) {
     // full alpha with a shadow around it reads as a spark on any background
     // and still does not compete with the ring, which is what made the fat
     // circles ugly.
+    // Landmark 9, the middle knuckle, is the hand's anchor: it barely moves
+    // as the fingers open and close, so shrinking around it does not make
+    // the hand appear to drift.
+    const hub = lm[9];
+    const shrinkX = (v: number) => hub.x + (v - hub.x) * handScale;
+    const shrinkY = (v: number) => hub.y + (v - hub.y) * handScale;
     for (const t of FINGER_TIPS) {
       ctx.shadowBlur = pinched ? 9 : 6;
       ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
       ctx.fillStyle = `rgba(${SPARK_HOT}, ${pinched ? 1 : 0.8})`;
       ctx.beginPath();
-      ctx.arc(mx(lm[t].x), my(lm[t].y), pinched ? 1.7 : 1.4, 0, Math.PI * 2);
+      ctx.arc(mx(shrinkX(lm[t].x)), my(shrinkY(lm[t].y)), pinched ? 1.7 : 1.4, 0, Math.PI * 2);
       ctx.fill();
     }
     // The pinch point is the pen, so it is the brightest thing on the hand.
@@ -456,7 +477,7 @@ function frame(now: number) {
       ctx.shadowColor = `rgba(${CORE}, 1)`;
       ctx.fillStyle = `rgba(${CORE}, 1)`;
       ctx.beginPath();
-      ctx.arc(mx(pinch.center.x), my(pinch.center.y), 1.9, 0, Math.PI * 2);
+      ctx.arc(mx(shrinkX(pinch.center.x)), my(shrinkY(pinch.center.y)), 1.9, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.shadowBlur = 0;
@@ -467,8 +488,8 @@ function frame(now: number) {
     // look identical and there is nothing to correct toward. A ring that
     // fills as the turning accumulates makes the gesture learnable.
     if (pinched && pinch?.center) {
-      const cx0 = mx(pinch.center.x);
-      const cy0 = my(pinch.center.y);
+      const cx0 = mx(shrinkX(pinch.center.x));
+      const cy0 = my(shrinkY(pinch.center.y));
       const k = Math.max(0, Math.min(1, p.progress));
       ctx.strokeStyle = `rgba(${SPARK_MID}, 0.25)`;
       ctx.lineWidth = 2;
