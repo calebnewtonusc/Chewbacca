@@ -823,8 +823,22 @@ function frame(now: number) {
         const jy = by + Math.sin(t * 1.3) * rad * 0.2;
         const rr = rad * (0.6 + 0.2 * ((Math.cos(t * 0.8) + 1) / 2));
         const g4 = m.createRadialGradient(jx, jy, 0, jx, jy, rr);
+        // A RAMP, NOT A HOLE. "the same problem is happening but with empty
+        // white space, it's supposed to be a gradient, not blank."
+        //
+        // The mirror is opaque, so anything erased shows the desktop
+        // straight through at full brightness. At 0.9 alpha in the middle
+        // these punched near-complete holes, which against a bright window
+        // read as blank white patches rather than as the other side thinning
+        // out. Three of them overlapping compounded it: 1 - 0.1^3 is 99.9%
+        // gone where they met.
+        //
+        // Weaker, and spread over more stops so the falloff is gradual the
+        // whole way rather than steep in the middle and flat at the edge.
         g4.addColorStop(0, `rgba(0,0,0,${strength})`);
-        g4.addColorStop(0.55, `rgba(0,0,0,${strength * 0.45})`);
+        g4.addColorStop(0.3, `rgba(0,0,0,${strength * 0.72})`);
+        g4.addColorStop(0.6, `rgba(0,0,0,${strength * 0.38})`);
+        g4.addColorStop(0.82, `rgba(0,0,0,${strength * 0.14})`);
         g4.addColorStop(1, "rgba(0,0,0,0)");
         m.fillStyle = g4;
         m.beginPath();
@@ -835,8 +849,12 @@ function frame(now: number) {
     };
     if (cloud > 0.01 && gapSize > 0.002) {
       const leadThick = Rp * depthAt(1);
-      dissolve(1, Math.max(Rp * 0.14, leadThick * 0.8), 0.9, 0);
-      dissolve(0, Math.max(Rp * 0.10, Rp * depthAt(0) * 0.8), 0.7, 5);
+      // 0.9 and 0.7 were punching holes. At 0.38 and 0.26, three overlapping
+      // blobs still only reach about 76% erased where all three land, so the
+      // deepest point of the thinning keeps a quarter of the other side and
+      // never becomes a blank patch.
+      dissolve(1, Math.max(Rp * 0.14, leadThick * 0.8), 0.38, 0);
+      dissolve(0, Math.max(Rp * 0.10, Rp * depthAt(0) * 0.8), 0.26, 5);
     }
     m.restore();
 
