@@ -751,7 +751,8 @@
     const maskCtx = maskCv.getContext("2d");
     const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw, cloud, fill, spiral) => {
       if (!mirrorReady || !maskCtx || strength <= 4e-3 || Rp < 3) return;
-      const pad = Math.max(12, Rp * 0.4);
+      const blurPx = Math.max(6, Rp * (0.04 + 0.34 * cloud));
+      const pad = Math.max(16, blurPx * 2.5);
       const size = Math.ceil(2 * Rp + pad * 2);
       if (maskCv.width !== size || maskCv.height !== size) {
         maskCv.width = size;
@@ -775,7 +776,7 @@
         const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950) + 0.028 * Math.sin(u * 15.7 - now / 1500);
         return Math.max(0, Math.min(1, f * g)) * rough;
       };
-      m.filter = `blur(${Math.max(5, Rp * (0.06 + 0.1 * cloud)).toFixed(1)}px)`;
+      m.filter = `blur(${blurPx.toFixed(1)}px)`;
       m.fillStyle = "#fff";
       m.beginPath();
       for (let i = 0; i <= STEPS; i++) {
