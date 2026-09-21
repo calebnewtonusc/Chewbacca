@@ -482,17 +482,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // press had been seen globally also left the microphone open.
         flagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) {
             [weak self] event in
-            guard let down = PushKey.chosen.state(keyCode: event.keyCode, flags: event.modifierFlags)
-            else { return }
-            Task { @MainActor in self?.globe(down: down) }
+            if let down = PushKey.chosen.state(keyCode: event.keyCode, flags: event.modifierFlags) {
+                Task { @MainActor in self?.globe(down: down) }
+            } else if !PushKey.chosen.heldByFlags(event.modifierFlags) {
+                Task { @MainActor in self?.talkKeyGoneByFlags() }
+            }
         }
         localFlagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) {
             [weak self] event in
             if let down = PushKey.chosen.state(keyCode: event.keyCode, flags: event.modifierFlags) {
                 Task { @MainActor in self?.globe(down: down) }
+            } else if !PushKey.chosen.heldByFlags(event.modifierFlags) {
+                Task { @MainActor in self?.talkKeyGoneByFlags() }
             }
             return event
         }
+    }
+
+    /// A modifier event that was not the talk key, whose flags say the talk
+    /// key is not held either.
+    ///
+    /// All that is left of reading the flag alone, kept for the one case that
+    /// reading was protecting: a release for the talk key that never arrives,
+    /// which would leave the microphone open with nothing to close it. It can
+    /// only ever close a turn. It never opens one, and it never reaches
+    /// `taps`, because a gesture is made of the talk key's own edges and
+    /// everything else is at most evidence the key is no longer down. Feeding
+    /// these events to `taps` is what made one hold read as the exit gesture
+    /// 18 times in three hours on 2026-09-21.
+    private func talkKeyGoneByFlags() {
+        guard voice.mode == .pushToTalk, model.pill.phase == .hearing else { return }
+        Self.keys.notice("voice.key failsafe close")
+        taps.release()
+        model.onEvent?(.talkKey(down: false))
+        voice.endPush()
     }
 
     /// The talk key's state, from either monitor. Every flags change is

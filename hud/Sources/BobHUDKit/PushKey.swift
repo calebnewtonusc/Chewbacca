@@ -45,18 +45,47 @@ public enum PushKey: String, CaseIterable, Sendable {
     /// This key's state after a modifier change: down, up, or nil when the
     /// change was some other key's.
     ///
-    /// The globe reads the flag alone, with no key code, as it always has:
-    /// every flags change is forwarded and the listener treats a repeat as
-    /// nothing, which is what keeps a missed event from leaving the
-    /// microphone open. The others are one key code each (Apple's virtual
-    /// key codes for the right-hand modifiers), because Option, Command and
-    /// Control also have a left key that must not open the microphone.
+    /// One key code each, Apple's virtual codes, including the globe at 63.
+    /// Option, Command and Control have a left key that must not open the
+    /// microphone, and the globe needs the same treatment for a different
+    /// reason: `.function` rides along on events that have nothing to do with
+    /// the talk key, so reading the flag alone reports a state change for
+    /// somebody pressing Shift.
+    ///
+    /// The globe read the flag alone until 2026-09-21, defended by the fact
+    /// that `beginPush` and `endPush` are idempotent, so a repeat was
+    /// harmless. That held until `DoubleTap` landed on 2026-09-20 and put a
+    /// *stateful* edge detector in front of them. Three hours of log then
+    /// carried 200 releases against 66 presses and 18 `voice.key double`
+    /// fires, each one `leave()` shutting the microphone about 100ms after it
+    /// opened. Every turn ended `code=1110 partial_chars=0`, which the pill
+    /// words as "Did not catch that", so the person was told they had
+    /// mumbled at a microphone that had been torn down.
+    ///
+    /// The missed-release protection the old reading bought lives in
+    /// `heldByFlags` now, where it can only close a turn.
     public func state(keyCode: UInt16, flags: NSEvent.ModifierFlags) -> Bool? {
         switch self {
-        case .globe: return flags.contains(.function)
+        case .globe: return keyCode == 63 ? flags.contains(.function) : nil
         case .rightOption: return keyCode == 61 ? flags.contains(.option) : nil
         case .rightCommand: return keyCode == 54 ? flags.contains(.command) : nil
         case .rightControl: return keyCode == 62 ? flags.contains(.control) : nil
+        }
+    }
+
+    /// Whether the flags alone still say this key is held.
+    ///
+    /// Only ever asked when `state` returned nil, and only ever used to close
+    /// a turn whose release never arrived. It must not open one and must not
+    /// reach the double-tap detector: a gesture is made of this key's own
+    /// edges, and everything else is at most evidence that the key is no
+    /// longer down.
+    public func heldByFlags(_ flags: NSEvent.ModifierFlags) -> Bool {
+        switch self {
+        case .globe: return flags.contains(.function)
+        case .rightOption: return flags.contains(.option)
+        case .rightCommand: return flags.contains(.command)
+        case .rightControl: return flags.contains(.control)
         }
     }
 }

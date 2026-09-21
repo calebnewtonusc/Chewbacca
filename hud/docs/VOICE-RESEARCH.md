@@ -74,12 +74,47 @@ does not, and `silenceTimer` there is the timer this section is about. The
 `commitGrace` band of 300 to 500 ms is sized off the same research as everyone
 else's silence timer and has the same ceiling.
 
-## The recogniser's final never arrives, so the HUD commits a raw partial
+## The recogniser's final does arrive. The turns were being torn down
 
-Recorded in `Voice.swift` and confirmed again on 2026-09-20: every push to talk
-release comes back from `SFSpeechRecognizer` as error 1101 or 1110 within 7 to
-78 ms of the microphone closing, never as a final. The error path commits the
-last partial, so `commitGrace` has never fired in practice.
+**Corrected 2026-09-21. The section below was true as an observation and wrong
+as a conclusion, and the difference cost a day.**
+
+What was recorded on 2026-09-20: every push to talk release came back from
+`SFSpeechRecognizer` as error 1101 or 1110 within 7 to 78 ms of the microphone
+closing, never as a final, so `commitGrace` had never fired.
+
+What was actually happening: `PushKey.globe` read `flags.contains(.function)`
+without checking the key code, so every modifier event on the machine reported a
+talk-key state change. On 2026-09-20 `DoubleTap` was added in front of
+`beginPush`, a stateful edge detector fed by that noisy signal, and a single
+hold plus one stray release plus one stray press inside the double-click
+interval read as the exit gesture. Three hours of log on 2026-09-21 carried 200
+releases against 66 presses and 18 `voice.key double` fires, each one shutting
+the microphone about 100 ms after it opened. The recogniser was not failing to
+send a final. It was being killed before it could.
+
+With the key code checked, the same machine and the same recogniser:
+
+| | before | after |
+| --- | --- | --- |
+| `down=true` / `down=false` | 66 / 200 | 6 / 6 |
+| false doubles | 18 | 0 |
+| every turn | `source=error code=1110 partial_chars=0` | `source=final code=0 partial_chars=16 to 57` |
+| final lag after release | never seen | 36 to 133 ms |
+
+So the finals arrive, in 36 to 133 ms, and `commitGrace` at 0.4 s is a backstop
+that rarely fires rather than one that never can. The Parakeet argument below
+still stands on its own merits (an explicit end-of-utterance class beats an
+error code as a commit signal), but it is no longer urgent, and it was never
+the fix for this.
+
+**The lesson worth more than the fix: a signal that is safe for idempotent
+consumers is not safe for a stateful one.** `beginPush` and `endPush` could take
+any amount of repeated noise, and the comment in `PushKey` said so as a defence.
+The moment something with memory was attached to the same signal, the noise
+became a gesture. Anything reading that key now goes through `state`, which
+returns nil for events that are not the key, and the missed-release protection
+the old reading bought lives in `heldByFlags`, which can only close a turn.
 
 This is worse than a missing optimisation. The final is where the on-device
 recogniser applies its revisions, proper nouns most of all, which is exactly what
