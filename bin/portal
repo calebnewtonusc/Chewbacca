@@ -133,7 +133,7 @@ case "${1:-status}" in
     # Your arm sweeps a much wider arc than the hole you want on screen, so
     # this is well under 1. Lower is smaller.
     if [ -z "${2:-}" ]; then
-      echo "size: $(cat "$SIZE" 2>/dev/null || echo 0.45)"
+      echo "size: $(cat "$SIZE" 2>/dev/null || echo 1)"
       exit 0
     fi
     printf '%s' "$2" > "$SIZE"

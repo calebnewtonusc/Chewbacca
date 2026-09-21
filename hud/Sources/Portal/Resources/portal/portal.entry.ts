@@ -73,7 +73,10 @@ let parallaxStrength = PARALLAX_STRENGTH;
 // purpose: the fitted circle is the path the HAND took, and an arm sweeps a
 // far wider arc than the hole anybody wants on screen. Tunable live:
 //   portal size 0.4
-let sizeScale = 0.45;
+// 1 means the ring is the size of the circle drawn. It was 0.45 while it
+// was compensating for a reach compression that has since been removed, and
+// a compensation left behind after its cause is just a wrong number.
+let sizeScale = 1;
 // The circle being drawn, latched once there is enough arc to trust it.
 //
 // The fit is recomputed every frame from a growing trail, so early on the
@@ -567,7 +570,12 @@ function frame(now: number) {
     // every frame after that only extends the arc along it. Re-fitting as
     // the trail grows is mathematically better and feels worse, because the
     // thing being aimed at keeps moving.
-    if (!drawing) {
+    // TRACK, THEN LATCH. Latching at 16 percent froze a fit made from a
+    // sixth of an arc, whose centre is pulled toward the samples and whose
+    // radius is a guess, so the ring stopped moving and stopped matching.
+    // Below the threshold it follows the hand; past it, it holds.
+    const LATCH_AT = 0.45;
+    if (!drawing || p.progress < LATCH_AT) {
       drawing = { cx: p.center.x, cy: p.center.y, r: p.radius, a0: p.startAngle };
     }
     const cn = { x: drawing.cx, y: drawing.cy };

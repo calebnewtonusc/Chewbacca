@@ -459,7 +459,7 @@
   var latestEyes = null;
   var depths = new DepthTracker();
   var parallaxStrength = PARALLAX_STRENGTH;
-  var sizeScale = 0.45;
+  var sizeScale = 1;
   var drawing = null;
   var reachScale = 1;
   var handScale = 0.45;
@@ -701,7 +701,8 @@
       }
     }
     if (S.phase === "drawing" && p.center && p.startAngle !== null && p.progress > 0.16) {
-      if (!drawing) {
+      const LATCH_AT = 0.45;
+      if (!drawing || p.progress < LATCH_AT) {
         drawing = { cx: p.center.x, cy: p.center.y, r: p.radius, a0: p.startAngle };
       }
       const cn = { x: drawing.cx, y: drawing.cy };
