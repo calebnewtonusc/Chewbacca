@@ -526,18 +526,43 @@ function frame(now: number) {
     const STEPS = 72;
 
     // How deep the other side has eaten, u of the way from where the circle
-    // began to the leading edge. Not linear: a linear wind steps the radius
-    // by the same amount every sample, which reads as engineered. u^2.4 grows
-    // each step two to three times the last, which is what a real spiral
-    // does, so it hugs the rim where it began and dives toward the fingers.
-    // The wind is blended by (1 - fill) so both ends meet when the circle
-    // closes, and `spiral` unwinds it to a uniform depth as the portal opens.
+    // began to the leading edge.
+    //
+    // TWO SEPARATE SHAPES, and they were fighting each other before.
+    //
+    // ALONG THE CIRCLE: "the distance to middle should seem to exponentially
+    // ramp down by the end of the circle." The leading edge used to close on
+    // the middle in even steps. It plunges now:
+    //
+    //     drawn    was    now
+    //      25%    0.75   0.63
+    //      50%    0.50   0.33
+    //      70%    0.30   0.15
+    //      85%    0.15   0.05
+    //      95%    0.05   0.01
+    //
+    // ALONG THE ARC: "the difference in spiral is not much anymore." The two
+    // ends had drifted close together, so it read as an off-centre ring
+    // rather than a spiral. The start is a larger power of the leading edge's
+    // depth, and a larger power of a number below one is smaller, so it sits
+    // further out:
+    //
+    //     drawn    was    now     (gap between the two ends, in R)
+    //      25%    0.19   0.29
+    //      50%    0.25   0.32
+    //      70%    0.21   0.19
+    //
+    // It still narrows at the very end, because both ends have to arrive at
+    // the middle together when the circle closes.
+    //
+    // The wind is (1-u)^1.6 rather than linear, so the radius changes by a
+    // growing factor along the arc instead of a fixed step.
+    const lead = 1 - Math.pow(1 - f, 1.6);
     const depthAt = (u: number) => {
-      const wound = Math.pow(u, 2.4) * spiral + (1 - spiral);
-      const g = wound * (1 - f) + f;
+      const wind = 1 + 1.6 * Math.pow(1 - u, 1.6) * spiral;
       const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950)
                       + 0.028 * Math.sin(u * 15.7 - now / 1500);
-      return Math.max(0, Math.min(1, f * g)) * rough;
+      return Math.max(0, Math.min(1, Math.pow(lead, wind))) * rough;
     };
 
     // The mask, blurred for real. Source-over, so the filter is honoured.
