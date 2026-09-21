@@ -275,6 +275,7 @@ declare global {
     ) => void;
     chewbaccaPortalState: () => string;
     chewbaccaArm: (label: string | null) => void;
+    chewbaccaCamera: (w: number, h: number) => void;
     chewbaccaGain: (k?: number) => number;
     chewbaccaSize: (k?: number) => number;
     chewbaccaReach: (k?: number) => number;
@@ -329,6 +330,27 @@ window.chewbaccaTrail = (k) => {
 // reveals nothing and the portal is a ring around the desktop.
 let placedOk = false;
 window.chewbaccaPlaced = (ok) => { placedOk = !!ok; };
+// THE CAMERA FRAME IS NOT THE SHAPE OF THE SCREEN.
+//
+// Vision normalises each landmark axis to the CAMERA frame, and toScreen
+// multiplies x by the display width and y by its height. Those are different
+// shapes, so one physical unit of hand motion becomes a different number of
+// pixels on each axis and a round hand circle arrives squashed. On this
+// machine the frame is 192x108, so it is 1512/192 = 7.88px across and
+// 982/108 = 9.09px down: a 1.155:1 oval before any noise.
+//
+// The roundness gate refuses above about 1.45:1 and degrades from 1.0, so
+// every circle starts a sixth of the way to being rejected, which is why
+// they were hard to begin.
+//
+// The size is REPORTED, not assumed. The preset is `.low` and our own
+// comment calls that 352x288; it actually delivers 192x108, and a correction
+// computed from the comment would be wrong by a third.
+let camW = 352, camH = 288;
+window.chewbaccaCamera = (w, h) => {
+  if (w > 0 && h > 0) { camW = w; camH = h; }
+};
+
 window.chewbaccaArm = (label) => {
   armed = label ? { label } : null;
 };
@@ -410,14 +432,22 @@ function frame(now: number) {
   // a wide field and an arm uses all of it, so mapping it one to one runs
   // off both edges. The clamp is the guarantee that a wrong mapping is
   // VISIBLE rather than silent: "I cant see the knob its prob off screen".
-  const fit = (v: number) => Math.max(0.02, Math.min(0.98, 0.5 + (v - 0.5) * reachScale));
+  // Equal physical motion, equal screen pixels. ax/ay must be in the ratio
+  // (H/camH)/(W/camW); split evenly about 1 so the correction changes shape
+  // without changing overall reach. At 192x108 that is x times 1.075 and y
+  // times 0.931, after which both axes are 8.46px per unit.
+  const camK = (H / camH) / (W / camW);
+  const ax = Math.sqrt(camK);
+  const ay = 1 / Math.sqrt(camK);
+  const fit = (v: number, a: number) =>
+    Math.max(0.02, Math.min(0.98, 0.5 + (v - 0.5) * reachScale * a));
   // Normalized landmark -> normalized screen. Mirror, reach, clamp. The one
   // door. Kept in normalized units so the detector, which works in them,
   // sees exactly what is drawn.
   const toScreen = (p: { x: number; y: number }, hub?: { x: number; y: number }) => {
     const sx = hub ? hub.x + (p.x - hub.x) * handScale : p.x;
     const sy = hub ? hub.y + (p.y - hub.y) * handScale : p.y;
-    return { x: fit(1 - sx), y: fit(sy) };
+    return { x: fit(1 - sx, ax), y: fit(sy, ay) };
   };
   // Screen-normalized -> pixels. No decisions here, just units.
   const mx = (nx: number) => nx * W;
