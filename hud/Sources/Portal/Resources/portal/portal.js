@@ -1069,6 +1069,7 @@ void main() {
     });
   }
   var LATCH_AT = 0.8;
+  var SWEEP_TO_OPEN = 5.4;
   var lastSeen = 0;
   var armed = null;
   window.chewbaccaGain = (k) => {
@@ -1802,7 +1803,7 @@ void main() {
         }
         drawnMax = Math.max(
           drawnMax,
-          arcStart !== null ? Math.min(1, arcSpan / (Math.PI * 2)) : Math.min(1, Math.abs(p.sweep) / (Math.PI * 2))
+          arcStart !== null ? Math.min(1, arcSpan / SWEEP_TO_OPEN) : Math.min(1, Math.abs(p.sweep) / SWEEP_TO_OPEN)
         );
         const doneTurns = drawnMax;
         const gapTarget = Math.max(0, 1 - doneTurns);

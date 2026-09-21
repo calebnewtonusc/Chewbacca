@@ -380,6 +380,10 @@ if (mirrorGL.error) {
 // degrees: most of the way round, and past the point where a curved flick
 // could still turn into something else.
 const LATCH_AT = 0.8;
+// Radians of sweep that open a portal. Must match circle.ts sweepThreshold:
+// the reveal is scaled to this so that completing the circle changes nothing
+// about the other side, it only lights the ring.
+const SWEEP_TO_OPEN = 5.4;
 let lastSeen = 0;
 
 // The host pushes frames in here. Declared on window so evaluateJavaScript
@@ -2152,10 +2156,27 @@ function frame(now: number) {
           cand < arcSpan - Math.PI ? cand + Math.PI * 2 : cand);
       }
 
+      // SCALED TO WHAT ACTUALLY OPENS IT, NOT TO A WHOLE TURN.
+      //
+      // "Too much of the completion is happening upon the completion
+      // animation, it should seem seamless when it is done."
+      //
+      // A portal opens at 5.4 radians, 309 degrees, because the last stretch
+      // of a hand drawn circle is where the wrist gives out. The reveal was
+      // scaled to a full turn, so at the moment it fired the fill stood at
+      // 86% and the gap was still 14% open, and the ignition had to finish
+      // both at once. That is a visible lurch at the one instant that should
+      // be invisible.
+      //
+      // Scaled to the threshold instead, the reveal arrives at exactly the
+      // moment the portal does. Completion then changes nothing about the
+      // other side; it only lights the ring. It also means the spill closes
+      // its own gap slightly before the hand finishes the circle, which is
+      // the same liquid behaviour the reach already gives it.
       drawnMax = Math.max(drawnMax,
         arcStart !== null
-          ? Math.min(1, arcSpan / (Math.PI * 2))
-          : Math.min(1, Math.abs(p.sweep) / (Math.PI * 2)));
+          ? Math.min(1, arcSpan / SWEEP_TO_OPEN)
+          : Math.min(1, Math.abs(p.sweep) / SWEEP_TO_OPEN));
       const doneTurns = drawnMax;
       // Followed, not assigned. The fit moves a little every frame and the
       // boundary is a big shape, so even a correct change reads as a jerk
