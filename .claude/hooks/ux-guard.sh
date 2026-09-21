@@ -68,6 +68,9 @@ HIGH="$(printf '%s' "$OUT" | grep -c '^HIGH' || true)"
     *dialog*|*modal*|*drawer*|*"<sheet"*)             PRESET=dialog ;;
     *toast*|*snackbar*|*notification*)                PRESET=toast ;;
     *cmdk*|*"command palette"*|*commandpalette*)      PRESET=command-palette ;;
+    *"<nav"*|*sidebar*|*"side-nav"*|*navigation*)     PRESET=sidebar-nav ;;
+    *chart*|*recharts*|*"<svg"*|*d3*|*plot*)          PRESET=chart ;;
+    *"no results"*|*"nothing here"*|*emptystate*)     PRESET=empty-state ;;
   esac
   if [ -n "$PRESET" ]; then
     echo "And this looks like a $PRESET, so load its behaviour spec:"
