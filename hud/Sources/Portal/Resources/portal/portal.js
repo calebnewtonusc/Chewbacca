@@ -724,14 +724,20 @@
       const k = Math.pow(conf, 0.9);
       if (fitC) {
         const rate = 0.12 + 0.3 * conf;
+        const cxp = mx(fitC.cx);
+        const cyp = my(fitC.cy);
+        const rp = fitC.r * RPX;
         for (const q of stroke) {
-          const dx = q.rx - fitC.cx;
-          const dy = q.ry - fitC.cy;
+          const px0 = mx(q.rx), py0 = my(q.ry);
+          const dx = px0 - cxp;
+          const dy = py0 - cyp;
           const d = Math.hypot(dx, dy) || 1;
-          const tx2 = fitC.cx + dx / d * fitC.r;
-          const ty2 = fitC.cy + dy / d * fitC.r;
-          q.rx += (tx2 - q.rx) * rate;
-          q.ry += (ty2 - q.ry) * rate;
+          const tx2 = cxp + dx / d * rp;
+          const ty2 = cyp + dy / d * rp;
+          const nx = px0 + (tx2 - px0) * rate;
+          const ny = py0 + (ty2 - py0) * rate;
+          q.rx = nx / W;
+          q.ry = ny / H;
         }
       }
       ctx.globalCompositeOperation = "lighter";
@@ -766,7 +772,7 @@
       path();
       ctx.stroke();
       ctx.shadowBlur = 0;
-      const boundShare = Math.min(0.85, conf * 1.1);
+      const boundShare = Math.min(0.35, conf * 0.45);
       const bindMaybe = () => Math.random() < boundShare;
       if (fitC && conf > 0.05) {
         for (let i = 0; i < stroke.length; i += 6) {

@@ -634,15 +634,30 @@ function frame(now: number) {
     // distance per frame. This is what makes it MOVE rather than simply be
     // in a different place than it was.
     if (fitC) {
+      // PROJECT IN PIXELS, NOT IN NORMALIZED SPACE.
+      //
+      // x divides by the width and y by the height, so a circle in
+      // normalized space is an OVAL on screen. Pulling points onto a
+      // normalized circle therefore drew an oval however round the hand's
+      // path was, which is the same mistake the ring made earlier and the
+      // reason the rule says the correction has to happen in the space it
+      // is displayed in.
       const rate = 0.12 + 0.3 * conf;
+      const cxp = mx(fitC.cx);
+      const cyp = my(fitC.cy);
+      const rp = fitC.r * RPX;
       for (const q of stroke) {
-        const dx = q.rx - fitC.cx;
-        const dy = q.ry - fitC.cy;
+        const px0 = mx(q.rx), py0 = my(q.ry);
+        const dx = px0 - cxp;
+        const dy = py0 - cyp;
         const d = Math.hypot(dx, dy) || 1;
-        const tx = fitC.cx + (dx / d) * fitC.r;
-        const ty = fitC.cy + (dy / d) * fitC.r;
-        q.rx += (tx - q.rx) * rate;
-        q.ry += (ty - q.ry) * rate;
+        const tx = cxp + (dx / d) * rp;
+        const ty = cyp + (dy / d) * rp;
+        const nx = px0 + (tx - px0) * rate;
+        const ny = py0 + (ty - py0) * rate;
+        // Back to the space the stroke is stored in.
+        q.rx = nx / W;
+        q.ry = ny / H;
       }
     }
 
@@ -692,7 +707,9 @@ function frame(now: number) {
     // nothing to most of them. Early on almost all of them drift; later,
     // most are on the line, and a few stragglers are still loose, which is
     // what stops it reading as a switch being thrown.
-    const boundShare = Math.min(0.85, conf * 1.1);
+    // A MINORITY, not a majority. Most of them should still be flying off
+    // and dying: the line is made of the ones that stayed.
+    const boundShare = Math.min(0.35, conf * 0.45);
     const bindMaybe = () => Math.random() < boundShare;
 
     if (fitC && conf > 0.05) {
