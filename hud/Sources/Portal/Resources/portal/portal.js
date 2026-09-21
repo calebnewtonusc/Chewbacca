@@ -739,6 +739,8 @@
   var demoT = 0;
   var demoTurns = 1.15;
   var demoR = 0.3;
+  var demoLog = 0;
+  var lastProgress = IDLE_PROGRESS;
   window.chewbaccaDemo = (secs, turns, r) => {
     demoUntil = performance.now() + (secs || 3) * 1e3;
     demoT = 0;
@@ -786,10 +788,21 @@
     requestAnimationFrame(frame);
     if (now < demoUntil) {
       demoT += 1 / 30;
+      if (now - demoLog > 250) {
+        demoLog = now;
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "log",
+          text: `demo t=${demoT.toFixed(1)} phase=${state.phase} sweep=${Math.abs(lastProgress.sweep).toFixed(2)}/5.40 round=${lastProgress.roundness.toFixed(2)} r=${lastProgress.radius.toFixed(3)}`
+        });
+      }
       const th = demoT / 3 * Math.PI * 2 * demoTurns;
       const wob = 1 + 0.03 * Math.sin(demoT * 7);
+      const sq = camH / camW;
       window.chewbaccaHands(
-        demoHand(0.5 + Math.cos(th) * demoR * wob, 0.5 + Math.sin(th) * demoR * wob)
+        demoHand(
+          0.5 + Math.cos(th) * demoR * sq * wob,
+          0.5 + Math.sin(th) * demoR * wob
+        )
       );
     }
     const frameDt = Math.min(0.05, Math.max(1e-3, (now - lastFrameMs) / 1e3));
@@ -1016,6 +1029,7 @@
       detector.reset();
       p = IDLE_PROGRESS;
     }
+    lastProgress = p;
     if (stroke.length) {
       const circling = p.progress > 0.4 && p.roundness > 0.55;
       const LIFE_BASE = 650, LIFE_REF = 400, LIFE_MIN = 180, LIFE_MAX = 800;

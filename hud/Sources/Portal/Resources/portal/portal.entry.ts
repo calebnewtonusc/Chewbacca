@@ -369,7 +369,8 @@ window.chewbaccaCamera = (w, h) => {
 //
 // It pushes the same landmark frames the camera would, through the same
 // mapping, so what it exercises is the real path and not a simulation of it.
-let demoUntil = 0, demoT = 0, demoTurns = 1.15, demoR = 0.3;
+let demoUntil = 0, demoT = 0, demoTurns = 1.15, demoR = 0.3, demoLog = 0;
+let lastProgress: CircleProgress = IDLE_PROGRESS;
 window.chewbaccaDemo = (secs, turns, r) => {
   demoUntil = performance.now() + (secs || 3) * 1000;
   demoT = 0;
@@ -427,10 +428,33 @@ function frame(now: number) {
   // takes the identical path a camera frame does.
   if (now < demoUntil) {
     demoT += 1 / 30;
+    // While a replay runs, say what the detector makes of it. Four times a
+    // second is enough to see which gate is refusing and never enough to
+    // flood the log.
+    if (now - demoLog > 250) {
+      demoLog = now;
+      window.webkit?.messageHandlers?.portal?.postMessage({
+        event: "log",
+        text: `demo t=${demoT.toFixed(1)} phase=${state.phase}`
+          + ` sweep=${Math.abs(lastProgress.sweep).toFixed(2)}/5.40`
+          + ` round=${lastProgress.roundness.toFixed(2)}`
+          + ` r=${lastProgress.radius.toFixed(3)}`,
+      });
+    }
     const th = (demoT / 3) * Math.PI * 2 * demoTurns;
     const wob = 1 + 0.03 * Math.sin(demoT * 7);
+    // A PHYSICALLY ROUND circle, which is an ELLIPSE in camera-normalised
+    // space. Each landmark axis is normalised to its own side of the frame,
+    // and the frame is 192 by 108, so equal physical distances are not equal
+    // normalised ones: x has to be camH/camW of y.
+    //
+    // Tracing a circle in normalised space instead, which is what this did
+    // first, simulates a hand drawing a 1.78:1 oval. The detector refused it
+    // on roundness, correctly, and the replay looked like a detector bug.
+    const sq = camH / camW;
     window.chewbaccaHands(
-      demoHand(0.5 + Math.cos(th) * demoR * wob, 0.5 + Math.sin(th) * demoR * wob));
+      demoHand(0.5 + Math.cos(th) * demoR * sq * wob,
+               0.5 + Math.sin(th) * demoR * wob));
   }
   // The springs integrate against this. Clamped, because a frame dropped
   // while the window was occluded would otherwise arrive as a single huge
@@ -1059,6 +1083,8 @@ function frame(now: number) {
     detector.reset();
     p = IDLE_PROGRESS;
   }
+  // Kept so the replay can report what the detector made of the frame.
+  lastProgress = p;
 
   // A LINE THAT IS NOT BECOMING A CIRCLE TRAILS OFF. "if it's just a line
   // and not a circle, the end of the line should go after a little bit as
