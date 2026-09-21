@@ -60,10 +60,13 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         .appendingPathComponent(".chewbacca/portal-reach")
     private static let handFile = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".chewbacca/portal-hand")
+    private static let trailFile = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".chewbacca/portal-trail")
     private var gain: Double?
     private var size: Double?
     private var reach: Double?
     private var hand: Double?
+    private var trail: Double?
 
     func applicationDidFinishLaunching(_: Notification) {
         // Bundle.main first, because that is where bundle-portal.sh puts the
@@ -147,6 +150,7 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
                 self.readSize()
                 self.readReach()
                 self.readHand()
+            self.readTrail()
             }
         }
 
@@ -175,6 +179,9 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         }
         if let hd = hand {
             web?.evaluateJavaScript("window.chewbaccaHand&&window.chewbaccaHand(\(hd))")
+        }
+        if let tr = trail {
+            web?.evaluateJavaScript("window.chewbaccaTrail&&window.chewbaccaTrail(\(tr))")
         }
     }
 
@@ -237,6 +244,15 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         hand = value
         guard ready, let web else { return }
         web.evaluateJavaScript("window.chewbaccaHand&&window.chewbaccaHand(\(value))")
+    }
+
+    private func readTrail() {
+        let text = (try? String(contentsOf: Self.trailFile, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let text, let value = Double(text), trail != value else { return }
+        trail = value
+        guard ready, let web else { return }
+        web.evaluateJavaScript("window.chewbaccaTrail&&window.chewbaccaTrail(\(value))")
     }
 
     private func applyArm() {

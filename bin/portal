@@ -10,6 +10,7 @@
 #   portal size 0.3              how big it is next to the circle you drew
 #   portal reach 0.4             how far from centre your hand can push it
 #   portal hand 0.4              how wide the hand is drawn, around its centre
+#   portal trail 300             how long the line is, in pixels of travel
 #   portal close                 disarm and quit
 #   portal status                is it running, and what is it armed with
 #
@@ -31,6 +32,7 @@ GAIN="$HOME/.chewbacca/portal-gain"
 SIZE="$HOME/.chewbacca/portal-size"
 REACH="$HOME/.chewbacca/portal-reach"
 HAND="$HOME/.chewbacca/portal-hand"
+TRAIL="$HOME/.chewbacca/portal-trail"
 mkdir -p "$(dirname "$TARGET")"
 
 running() { pgrep -f "Portal.app/Contents/MacOS/Portal" >/dev/null 2>&1; }
@@ -160,6 +162,16 @@ case "${1:-status}" in
     fi
     printf '%s' "$2" > "$HAND"
     echo "Hand scale set to $2. It takes effect within a quarter second."
+    ;;
+  trail)
+    # Measured in pixels of travel, not frames, so the line is the same
+    # length whether the hand is moving fast or slow.
+    if [ -z "${2:-}" ]; then
+      echo "trail: $(cat "$TRAIL" 2>/dev/null || echo 300) px"
+      exit 0
+    fi
+    printf '%s' "$2" > "$TRAIL"
+    echo "Trail set to $2 px. It takes effect within a quarter second."
     ;;
   close)
     : > "$TARGET"

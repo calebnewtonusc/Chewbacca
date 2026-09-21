@@ -3,6 +3,22 @@
   var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
   var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
+  // vendor/smooth.ts
+  function smoothPath(points, passes = 2) {
+    let pts = points.map((p) => ({ x: p.x, y: p.y }));
+    for (let pass = 0; pass < passes; pass++) {
+      const out = pts.slice();
+      for (let i = 1; i < pts.length - 1; i++) {
+        out[i] = {
+          x: (pts[i - 1].x + pts[i].x * 2 + pts[i + 1].x) / 4,
+          y: (pts[i - 1].y + pts[i].y * 2 + pts[i + 1].y) / 4
+        };
+      }
+      pts = out;
+    }
+    return pts;
+  }
+
   // vendor/circle.ts
   var EMPTY = {
     progress: 0,
@@ -562,6 +578,8 @@
   var softFit = null;
   var reachScale = 1;
   var handScale = 0.45;
+  var trailPx = 300;
+  var LATCH_AT = 0.65;
   var lastSeen = 0;
   var armed = null;
   window.chewbaccaGain = (k) => {
@@ -587,6 +605,12 @@
       handScale = Math.max(0.1, Math.min(1, k));
     }
     return handScale;
+  };
+  window.chewbaccaTrail = (k) => {
+    if (typeof k === "number" && isFinite(k)) {
+      trailPx = Math.max(40, Math.min(1200, k));
+    }
+    return trailPx;
   };
   window.chewbaccaArm = (label) => {
     armed = label ? { label } : null;
@@ -711,7 +735,7 @@
     }
     if (stroke.length) {
       const circling = p.progress > 0.4 && p.roundness > 0.55;
-      const maxPx = circling ? 4e3 : 170;
+      const maxPx = circling ? 4e3 : trailPx;
       let run = 0;
       for (let i = stroke.length - 1; i > 0; i--) {
         run += Math.hypot(
@@ -843,12 +867,12 @@
         } : raw;
       }
       const fitC = drawing ?? softFit;
-      const turned = Math.max(0, Math.min(1, (p.progress - 0.55) / 0.3));
+      const turned = Math.max(0, Math.min(1, (p.progress - LATCH_AT) / 0.25));
       const round = Math.max(0, Math.min(1, (p.roundness - 0.55) / 0.3));
       const conf = turned * round;
       const k = Math.pow(conf, 0.9);
       if (fitC) {
-        const rate = 0.12 + 0.3 * conf;
+        const rate = 0.32 + 0.46 * conf;
         const cxp = mx(fitC.cx);
         const cyp = my(fitC.cy);
         const rp = fitC.r * RPX;
@@ -869,21 +893,21 @@
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       const rBase = fitC ? fitC.r : 0.05;
+      const SP = stroke.length >= 3 ? smoothPath(stroke.map((q) => ({ x: mx(q.rx), y: my(q.ry) }))) : null;
       const path = () => {
         ctx.beginPath();
-        if (stroke.length < 3) return;
-        ctx.moveTo(mx(stroke[0].rx), my(stroke[0].ry));
-        for (let i = 1; i < stroke.length - 1; i++) {
-          const a = stroke[i], b = stroke[i + 1];
+        if (!SP) return;
+        const q = SP;
+        ctx.moveTo(q[0].x, q[0].y);
+        for (let i = 1; i < q.length - 1; i++) {
           ctx.quadraticCurveTo(
-            mx(a.rx),
-            my(a.ry),
-            mx((a.rx + b.rx) / 2),
-            my((a.ry + b.ry) / 2)
+            q[i].x,
+            q[i].y,
+            (q[i].x + q[i + 1].x) / 2,
+            (q[i].y + q[i + 1].y) / 2
           );
         }
-        const e = stroke[stroke.length - 1];
-        ctx.lineTo(mx(e.rx), my(e.ry));
+        ctx.lineTo(q[q.length - 1].x, q[q.length - 1].y);
       };
       ctx.shadowBlur = 10 + 22 * k;
       ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
@@ -918,8 +942,10 @@
       }
       const head = stroke[stroke.length - 1];
       const prev = stroke[stroke.length - 2] ?? head;
-      let tx = mx(head.rx) - mx(prev.rx);
-      let ty = my(head.ry) - my(prev.ry);
+      const hp = SP ? SP[SP.length - 1] : { x: mx(head.rx), y: my(head.ry) };
+      const pp = SP && SP.length > 1 ? SP[SP.length - 2] : hp;
+      let tx = hp.x - pp.x;
+      let ty = hp.y - pp.y;
       const tm = Math.hypot(tx, ty) || 1;
       const n = Math.round(1 + k * 9);
       for (let i = 0; i < n; i++) {
@@ -936,7 +962,6 @@
       if (fitC && conf > 0.2) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
     }
     if (S.phase === "drawing" && p.center && p.startAngle !== null && p.progress > 0.16) {
-      const LATCH_AT = 0.65;
       if (!drawing || p.progress < LATCH_AT) {
         drawing = { cx: p.center.x, cy: p.center.y, r: p.radius, a0: p.startAngle };
       }

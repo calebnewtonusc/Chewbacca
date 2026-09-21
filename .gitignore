@@ -53,3 +53,4 @@ voice/.build/
 # not a project to publish.
 /asa/
 tests/.circle-under-test.mjs
+tests/.smooth-under-test.mjs
