@@ -179,7 +179,14 @@ function frame(now: number) {
   const RSCALE = (W + H) / 2;
   const RMIN = 24;
   const RMAX = Math.min(W, H) * 0.42;
-  const clampR = (r: number) => Math.max(RMIN, Math.min(RMAX, r * sizeScale));
+  // THE RADIUS IS COMPRESSED TOO. `fit` pulls every POSITION toward the
+  // middle by reachScale, so a radius left at full size describes a circle
+  // that no longer passes through the compressed fingertip path: the ring
+  // was drawn nowhere near the points. "the portal isn't drawing where the
+  // finger tips are lmao". A distance has to shrink by the same factor the
+  // positions do.
+  const clampR = (r: number) =>
+    Math.max(RMIN, Math.min(RMAX, r * sizeScale * reachScale));
 
   // Pull a normalized position toward the middle of the screen.
   //
