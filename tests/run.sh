@@ -349,6 +349,11 @@ if group "installer"; then
   check  "kit-debt fires when a session taught the kit nothing" \
     bash "$ROOT/tests/kit_debt.sh" "$ROOT"
 
+  # The guard existed since 18:49 and commit 4a0b1df still absorbed another
+  # session's files at 21:44. mtime cannot separate two live sessions.
+  check  "pre-commit refuses an index holding two sessions' work" \
+    bash "$ROOT/tests/precommit_authorship.sh" "$ROOT"
+
   check  "committed checksums describe the committed tree" \
     python3 "$ROOT/tools/committed_checksums.py"
 

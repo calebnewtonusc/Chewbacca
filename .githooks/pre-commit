@@ -105,6 +105,50 @@ done
 printf 'pre-commit: committing %s file(s):\n' "$(printf '%s\n' "$STAGED" | wc -l | tr -d ' ')" >&2
 printf '%s\n' "$STAGED" | sed 's/^/  /' >&2
 
+# ── Two live sessions ────────────────────────────────────────────────────────
+#
+# The mtime heuristic below catches a tab that closed hours ago. It cannot catch
+# a session running right now, whose files are as fresh as yours. On 2026-09-20
+# commit 4a0b1df absorbed another session's bin/evolve and tests/evolve.sh,
+# written minutes earlier, and this hook printed them and let them through.
+#
+# Authorship is exact where timestamps are not. write-log.sh records the session
+# id beside every path a tool writes, so an index holding two authors is a fact
+# rather than a guess.
+#
+# FAILS OPEN on purpose. No log, or paths nobody logged (a hand edit, a build
+# step, a human in an editor), and this says nothing and leaves the old
+# behaviour exactly as it was.
+WRITE_LOG="${CHEWBACCA_WRITE_LOG:-$HOME/.chewbacca/write-log.tsv}"
+if [ -s "$WRITE_LOG" ]; then
+  MIXED=$(
+    { printf '%s\n' "$STAGED"; } | while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      abs="$(cd "$(dirname "$f")" 2>/dev/null && pwd)/$(basename "$f")"
+      sid=$(grep -F "	$abs" "$WRITE_LOG" 2>/dev/null | tail -1 | cut -f2)
+      [ -n "$sid" ] && printf '%s\t%s\n' "$sid" "$f"
+    done
+  )
+  SESSIONS=$(printf '%s\n' "$MIXED" | cut -f1 | grep -v '^$' | sort -u | wc -l | tr -d ' ')
+  if [ "${SESSIONS:-0}" -gt 1 ]; then
+    cat >&2 <<MIXEDMSG
+
+pre-commit: refusing. The index holds files written by $SESSIONS different
+sessions. One of them is not yours, and committing it files somebody else's
+work under your message.
+
+$(printf '%s\n' "$MIXED" | awk -F'\t' '{printf "  [%s] %s\n", substr($1,1,8), $2}')
+
+Commit only your own paths:
+
+  git commit -- path/one path/two
+
+If they really are all yours:  ALLOW_STALE_STAGED=1 git commit ...
+MIXEDMSG
+    exit 1
+  fi
+fi
+
 [ -z "$STALE" ] && exit 0
 
 cat >&2 <<MSG
