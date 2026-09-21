@@ -882,7 +882,7 @@ function frame(now: number) {
         spiral,
         // A fraction of the hole, so it cannot touch the middle early and
         // cannot outlive completion.
-        fog: 0.18,
+        fog: 0.30,
         veil: (1 - gf) * 0.75,
         strength,
         img: {
