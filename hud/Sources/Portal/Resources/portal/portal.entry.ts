@@ -707,13 +707,19 @@ function frame(now: number) {
     // nothing to most of them. Early on almost all of them drift; later,
     // most are on the line, and a few stragglers are still loose, which is
     // what stops it reading as a switch being thrown.
-    // A MINORITY, not a majority. Most of them should still be flying off
-    // and dying: the line is made of the ones that stayed.
-    const boundShare = Math.min(0.35, conf * 0.45);
+    // STARTS AT NOTHING AND CLIMBS. A linear share is already meaningful on
+    // the first frame it exists, which reads as the effect switching on.
+    // Squared, it is 1 percent at a quarter confidence and 9 percent at a
+    // third, so the first sparks all fly off and the line gathers its own
+    // slowly. "rmr its sypposed to scale up".
+    const boundShare = Math.min(0.4, conf * conf * 0.45);
     const bindMaybe = () => Math.random() < boundShare;
 
     if (fitC && conf > 0.05) {
-      for (let i = 0; i < stroke.length; i += 6) {
+      // Sample fewer points early, so the pull shows up as a few strands
+      // rather than the whole line lifting at once.
+      const step = Math.max(4, Math.round(22 - conf * 18));
+      for (let i = 0; i < stroke.length; i += step) {
         const q = stroke[i];
         const gap = Math.hypot(mx(q.rx) - mx(q.x), my(q.ry) - my(q.y));
         if (gap < 6) continue;
@@ -734,7 +740,7 @@ function frame(now: number) {
         2.2 + k * 3.0, bindMaybe());
     }
     // The attractor only exists once there is something to be attracted to.
-    if (fitC && conf > 0.08) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
+    if (fitC && conf > 0.15) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
   }
 
   // ── The latch ────────────────────────────────────────────────────────────
