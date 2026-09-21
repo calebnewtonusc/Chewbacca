@@ -240,8 +240,14 @@ struct GuideView: View {
                     bubble(tint: tint)
                         // Clear of the ring, whichever side it is on: the
                         // ring's reach plus a gap for the bubble's tail.
-                        .alignmentGuide(.top) { $0[.bottom] + Marker.guideReach + 8 }
-                        .alignmentGuide(.bottom) { $0[.top] - Marker.guideReach - 8 }
+                        // Written against `height` and a constant, not
+                        // against each other: `$0[.top]` inside the second
+                        // guide returned the first guide's explicit value,
+                        // so the bottom guide came out at the plain bottom
+                        // and a bubble meant to hang below the control sat
+                        // on it instead.
+                        .alignmentGuide(.top) { $0.height + Marker.guideReach + 8 }
+                        .alignmentGuide(.bottom) { _ in -(Marker.guideReach + 8) }
                 }
             }
         }

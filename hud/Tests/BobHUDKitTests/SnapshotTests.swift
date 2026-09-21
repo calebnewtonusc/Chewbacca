@@ -290,7 +290,7 @@ struct SnapshotTests {
         let scale = max(told.pixelsHigh / Int(size.height), 1)
         let ringTop = Int(rect.minY - Marker.guideReach) * scale
         let ringBottom = Int(rect.maxY + Marker.guideReach + 12) * scale
-        #expect(!same(told, bare, rows: 0..<ringTop), "no bubble above the control")
+        #expect(ink(told, bare, rows: 0..<ringTop), "no bubble above the control")
         #expect(same(told, bare, rows: ringBottom..<told.pixelsHigh), "the bubble leaked below the control")
     }
 
@@ -315,8 +315,10 @@ struct SnapshotTests {
             return
         }
         let scale = max(told.pixelsHigh / Int(size.height), 1)
+        let ringTop = Int(rect.minY - Marker.guideReach) * scale
         let ringBottom = Int(rect.maxY + Marker.guideReach) * scale
-        #expect(!same(told, bare, rows: ringBottom..<told.pixelsHigh), "no bubble below the control")
+        #expect(ink(told, bare, rows: ringBottom..<told.pixelsHigh), "no bubble below the control")
+        #expect(same(told, bare, rows: 0..<ringTop), "the bubble leaked above the control")
     }
 
     @Test("a label does not move the mark")
@@ -406,6 +408,30 @@ struct SnapshotTests {
             }
         }
         return true
+    }
+
+    /// Whether the bubble's own ink, not a shadow's haze, appears in a band
+    /// of rows. Presence checks use this and absence checks use `same`,
+    /// because a bubble sitting on the control still spills shadow into the
+    /// rows below it: on 2026-09-20 "no bubble below the control" passed on
+    /// that spill while the bubble had never left the control. Ink differs
+    /// from the ground by 40 levels or more a channel; haze by a dozen
+    /// summed at most.
+    private func ink(
+        _ a: NSBitmapImageRep, _ b: NSBitmapImageRep, rows: Range<Int>
+    ) -> Bool {
+        guard a.pixelsWide == b.pixelsWide else { return false }
+        for y in rows where y < a.pixelsHigh && y < b.pixelsHigh {
+            for x in stride(from: 0, to: a.pixelsWide, by: 3) {
+                guard let left = a.colorAt(x: x, y: y),
+                      let right = b.colorAt(x: x, y: y) else { continue }
+                let delta = abs(left.redComponent - right.redComponent)
+                    + abs(left.greenComponent - right.greenComponent)
+                    + abs(left.blueComponent - right.blueComponent)
+                if delta > 0.5 { return true }
+            }
+        }
+        return false
     }
 
     @Test("the pill draws in every visible phase", arguments: Ground.allCases)
