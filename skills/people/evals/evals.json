@@ -89,6 +89,27 @@
       "reject": [
         "any TTS or Blue Modern Advisory fact, which belong to Tyler Larsen"
       ]
+    },
+    {
+      "prompt": "Give me everyone I've texted more than a few times, then narrow it to who'd be a good beta tester",
+      "expect_tools": [
+        "people"
+      ],
+      "expect_behavior": "enumerates group chats, quiet threads and cold threads before filtering, and names which sources were checked and which were skipped",
+      "reject": [
+        "shortlisting from one-to-one threads alone",
+        "applying a volume floor or recency cutoff without saying so"
+      ]
+    },
+    {
+      "prompt": "Who in my life could help me with this project?",
+      "expect_tools": [
+        "people"
+      ],
+      "expect_behavior": "sweeps one-to-one, group chats and the people store, and reports the channels it could not read",
+      "reject": [
+        "a list drawn from a single message source"
+      ]
     }
   ]
 }
