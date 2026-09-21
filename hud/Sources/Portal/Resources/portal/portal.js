@@ -785,21 +785,32 @@
         };
         ctx.globalCompositeOperation = "destination-out";
         ctx.filter = `blur(${Math.max(7, Rp * 0.17).toFixed(1)}px)`;
-        ctx.beginPath();
+        const ring = [];
         for (let i = 0; i <= STEPS; i++) {
           const u = i / STEPS;
           const th = aOld + dir * u * drawnAng;
           const rr = Rp * (1 - depthAt(u));
-          const x = cxp + Math.cos(th) * rr, y = cyp + Math.sin(th) * rr;
-          if (i) ctx.lineTo(x, y);
-          else ctx.moveTo(x, y);
+          ring.push({ x: cxp + Math.cos(th) * rr, y: cyp + Math.sin(th) * rr });
         }
         if (gapAng > 1e-3) {
           for (let i = 0; i <= STEPS; i++) {
             const th = aNew + dir * (i / STEPS) * gapAng;
-            ctx.lineTo(cxp + Math.cos(th) * Rp, cyp + Math.sin(th) * Rp);
+            ring.push({ x: cxp + Math.cos(th) * Rp, y: cyp + Math.sin(th) * Rp });
           }
         }
+        let ring2 = ring;
+        for (let pass = 0; pass < 12; pass++) {
+          const out = ring2.slice();
+          const n = ring2.length;
+          for (let i = 0; i < n; i++) {
+            const a = ring2[(i - 1 + n) % n], c = ring2[i], b = ring2[(i + 1) % n];
+            out[i] = { x: (a.x + c.x * 2 + b.x) / 4, y: (a.y + c.y * 2 + b.y) / 4 };
+          }
+          ring2 = out;
+        }
+        ctx.beginPath();
+        ctx.moveTo(ring2[0].x, ring2[0].y);
+        for (let i = 1; i < ring2.length; i++) ctx.lineTo(ring2[i].x, ring2[i].y);
         ctx.closePath();
         ctx.fillStyle = "rgba(0,0,0,0.93)";
         ctx.fill();

@@ -583,23 +583,51 @@ function frame(now: number) {
       // blur, and the fill itself is a gradient rather than flat black, so
       // the boundary has depth instead of an outline.
       ctx.filter = `blur(${Math.max(7, Rp * 0.17).toFixed(1)}px)`;
-      ctx.beginPath();
+      // Build the whole region as one closed ring of points first, then
+      // round it, then fill it.
+      const ring: { x: number; y: number }[] = [];
       // The inner edge of the opening, old end to leading edge: the spiral.
       for (let i = 0; i <= STEPS; i++) {
         const u = i / STEPS;
         const th = aOld + dir * u * drawnAng;
         const rr = Rp * (1 - depthAt(u));
-        const x = cxp + Math.cos(th) * rr, y = cyp + Math.sin(th) * rr;
-        if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+        ring.push({ x: cxp + Math.cos(th) * rr, y: cyp + Math.sin(th) * rr });
       }
       // Out to the rim at the leading edge, round the part not yet reached,
       // and back in where the circle began.
       if (gapAng > 0.001) {
         for (let i = 0; i <= STEPS; i++) {
           const th = aNew + dir * (i / STEPS) * gapAng;
-          ctx.lineTo(cxp + Math.cos(th) * Rp, cyp + Math.sin(th) * Rp);
+          ring.push({ x: cxp + Math.cos(th) * Rp, y: cyp + Math.sin(th) * Rp });
         }
       }
+
+      // ROUND THE CORNERS, HEAVILY.
+      //
+      // Where the spiral runs out to the rim at each end of the drawn arc it
+      // meets it at a corner, and a corner on a thing made of weather is
+      // wrong however much the fill is blurred. Twelve cyclic passes of a
+      // [1,2,1] kernel over the closed ring rounds every corner at once, and
+      // the ones that are already curves barely move, because smoothing a
+      // circle returns a circle.
+      //
+      // Cyclic, not the shared smoother: that one pins its ends, which is
+      // right for a line with two ends and wrong for a loop, where the pinned
+      // point would be the one corner left sharp.
+      let ring2 = ring;
+      for (let pass = 0; pass < 12; pass++) {
+        const out = ring2.slice();
+        const n = ring2.length;
+        for (let i = 0; i < n; i++) {
+          const a = ring2[(i - 1 + n) % n], c = ring2[i], b = ring2[(i + 1) % n];
+          out[i] = { x: (a.x + c.x * 2 + b.x) / 4, y: (a.y + c.y * 2 + b.y) / 4 };
+        }
+        ring2 = out;
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(ring2[0].x, ring2[0].y);
+      for (let i = 1; i < ring2.length; i++) ctx.lineTo(ring2[i].x, ring2[i].y);
       ctx.closePath();
       ctx.fillStyle = "rgba(0,0,0,0.93)";
       ctx.fill();
