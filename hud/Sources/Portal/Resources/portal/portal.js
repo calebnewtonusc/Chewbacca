@@ -792,6 +792,33 @@
       }
       m.closePath();
       m.fill();
+      const blobAt = (u, out, rad, a) => {
+        const th = aOld + dir * u * drawnAng;
+        const rr = Math.max(0, Rp * (1 - depthAt(u)));
+        const bx = mx0 + Math.cos(th) * rr, by = my0 + Math.sin(th) * rr;
+        if (out) {
+          m.fillStyle = `rgba(255,255,255,${a})`;
+          m.beginPath();
+          m.arc(bx, by, rad, 0, Math.PI * 2);
+          m.fill();
+        } else {
+          m.globalCompositeOperation = "destination-out";
+          const g2 = m.createRadialGradient(bx, by, 0, bx, by, rad);
+          g2.addColorStop(0, `rgba(0,0,0,${a})`);
+          g2.addColorStop(1, "rgba(0,0,0,0)");
+          m.fillStyle = g2;
+          m.beginPath();
+          m.arc(bx, by, rad, 0, Math.PI * 2);
+          m.fill();
+          m.globalCompositeOperation = "source-over";
+        }
+      };
+      for (let i = 0; i < 7; i++) {
+        const t = now / 2800 + i * 1.7;
+        const u = (Math.sin(t) + 1) / 2;
+        const rad = Rp * (0.07 + 0.1 * ((Math.cos(t * 0.9 + i) + 1) / 2));
+        blobAt(u, i % 2 === 0, rad, 0.5 + 0.35 * cloud);
+      }
       m.filter = "none";
       const veil = (1 - f) * 0.75;
       if (veil > 4e-3) {

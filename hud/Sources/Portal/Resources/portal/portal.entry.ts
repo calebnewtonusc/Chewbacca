@@ -545,6 +545,43 @@ function frame(now: number) {
     }
     m.closePath();
     m.fill();
+
+    // WEATHER ALONG THE BOUNDARY. Lost in the rewrite to the offscreen mask,
+    // and it is half of what stops the spiral reading as a drawn shape: the
+    // other side bleeds out past its edge in places and has not arrived in
+    // others. Drifting on a slow clock so it breathes rather than flickers.
+    //
+    // These are drawn INTO the mask while the blur is still on, so they are
+    // soft for the same reason the boundary is, instead of being soft by
+    // being gradients. The ones that eat back in have to be gradients,
+    // because destination-out is where the filter gets dropped.
+    const blobAt = (u: number, out: boolean, rad: number, a: number) => {
+      const th = aOld + dir * u * drawnAng;
+      const rr = Math.max(0, Rp * (1 - depthAt(u)));
+      const bx = mx0 + Math.cos(th) * rr, by = my0 + Math.sin(th) * rr;
+      if (out) {
+        m.fillStyle = `rgba(255,255,255,${a})`;
+        m.beginPath();
+        m.arc(bx, by, rad, 0, Math.PI * 2);
+        m.fill();
+      } else {
+        m.globalCompositeOperation = "destination-out";
+        const g2 = m.createRadialGradient(bx, by, 0, bx, by, rad);
+        g2.addColorStop(0, `rgba(0,0,0,${a})`);
+        g2.addColorStop(1, "rgba(0,0,0,0)");
+        m.fillStyle = g2;
+        m.beginPath();
+        m.arc(bx, by, rad, 0, Math.PI * 2);
+        m.fill();
+        m.globalCompositeOperation = "source-over";
+      }
+    };
+    for (let i = 0; i < 7; i++) {
+      const t = now / 2800 + i * 1.7;
+      const u = (Math.sin(t) + 1) / 2;
+      const rad = Rp * (0.07 + 0.1 * ((Math.cos(t * 0.9 + i) + 1) / 2));
+      blobAt(u, i % 2 === 0, rad, 0.5 + 0.35 * cloud);
+    }
     m.filter = "none";
 
     // Faded overall, most at the rim, and the fade goes as the circle
