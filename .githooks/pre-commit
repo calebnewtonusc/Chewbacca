@@ -37,6 +37,18 @@ set -uo pipefail
 STAGED=$(git diff --cached --name-only --diff-filter=ACM)
 [ -n "$STAGED" ] || exit 0
 
+# A file the manifest covers, committed without the manifest, breaks install
+# verification for everyone: setup.sh checks its downloads against
+# SHA256SUMS.txt. It has happened twice, 2026-09-19 and 2026-09-21.
+#
+# This runs HERE, not at the end of the file. Appended after the last block it
+# was unreachable, because every success path exits before then, and a probe
+# commit sailed straight through it. A guard that cannot be reached is worth
+# less than no guard, because it reads like cover.
+if [ -z "${SKIP_MANIFEST_GUARD:-}" ] && [ -f tools/manifest_guard.py ]; then
+  python3 tools/manifest_guard.py || exit 1
+fi
+
 # ── Concurrent sessions ──────────────────────────────────────────────────────
 #
 # The mtime heuristic below CANNOT catch the case that keeps happening, and it
