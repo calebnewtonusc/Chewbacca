@@ -2083,7 +2083,24 @@ function frame(now: number) {
     //   radius 0.22                 at 60%
     //   radius 0.30                 at 45%
     //   radius 0.40                 at 35%
-    const initAt = Math.max(0.35, Math.min(0.95, 1.02 - 1.9 * (fitC ? fitC.r : 0)));
+    // MUCH EARLIER, BECAUSE A WHOLE TURN NOW FOLLOWS IT. "It is now way too
+    // hard to draw a circle."
+    //
+    // These numbers were picked when the entire gesture was 309 degrees and
+    // initiation was most of it. Stacking a full turn on top of that made a
+    // small circle nearly two revolutions. Initiation is only the
+    // recognition phase now, so it wants to be as short as it can be while
+    // still giving a centre and radius worth committing to.
+    //
+    //   radius   initiates after   portal opens after
+    //    0.06        114 deg             474 deg
+    //    0.15         90 deg             450 deg
+    //    0.30         51 deg             411 deg
+    //    0.40         31 deg             391 deg
+    //
+    // It cannot go below 360 while a full turn follows initiation, so that
+    // rule is the remaining lever, not this curve.
+    const initAt = Math.max(0.10, Math.min(0.42, 0.42 - 0.85 * (fitC ? fitC.r : 0)));
     // EARLY AND FAST. The pull starts at a tenth of a turn and is at full
     // strength by a third, because the correction is most of the effect and
     // arriving late made it look like a separate thing happening afterwards.
@@ -2131,8 +2148,22 @@ function frame(now: number) {
     // The ramp is sized from whatever is LEFT after initiating, or a late
     // initiation on a small circle would leave the bend unfinished when the
     // portal opens: at 0.95, a fixed 0.15 wide ramp reaches full at 1.10.
+    // GATED ON INITIATION ITSELF, NOT ON PROGRESS. "The arc is going to the
+    // circle but it shouldn't do that until initiation."
+    //
+    // This read p.progress alone, and progress saturates at 1 as soon as
+    // the sweep passes the recognition threshold. Initiation needs more
+    // than that: roundness, and a fitted radius that has stopped moving. So
+    // on any gesture where those lagged, progress sat at 1, `turned` went
+    // to full, and the line snapped onto a circle that had not been
+    // committed to yet.
+    //
+    // recognisedLatch is the initiation. Read from the previous frame,
+    // since it is recomputed later in this one.
     const bendSpan = Math.max(0.05, (1 - initAt) * 0.7);
-    const turned = Math.max(0, Math.min(1, (p.progress - initAt) / bendSpan));
+    const turned = recognisedLatch
+      ? Math.max(0, Math.min(1, (p.progress - initAt) / bendSpan))
+      : 0;
     const round = Math.max(0, Math.min(1, (p.roundness - 0.55) / 0.3));
     const conf = turned * round;
     const k = Math.pow(conf, 0.9);
