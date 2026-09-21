@@ -16,6 +16,9 @@ open source.
 It closes, or starts to close, items 361, 372, 478, 635, 637, 975, 982 and
 995 in [1000.md](1000.md), which already named the gap from eight angles.
 
+This covers what the kit hears. What it does, a task in an app nobody wrote
+a tool for, learned once and run again, is [LEARNING-TO-ACT.md](LEARNING-TO-ACT.md).
+
 ## The questions first
 
 The instruction was to reason from evidence rather than from what a

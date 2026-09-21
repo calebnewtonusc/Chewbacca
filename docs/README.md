@@ -45,3 +45,5 @@ driving apps, [mac/](mac/) the layer model.
 next, [../CHANGELOG.md](../CHANGELOG.md) what has already changed.
 [SELF-LEARNING.md](SELF-LEARNING.md) how the kit would grow from its own
 log instead of being taught, and what in it is actually hard to copy.
+[LEARNING-TO-ACT.md](LEARNING-TO-ACT.md) how it would learn a site or an app
+by doing a task in it once, and the registry that makes that a product.
