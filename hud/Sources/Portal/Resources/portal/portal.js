@@ -614,6 +614,7 @@
   var openGap = 0;
   var openGapFrom = 0;
   var openCcw = false;
+  var mirrorAmt = 0;
   var stroke = [];
   var softFit = null;
   var reachScale = 1;
@@ -763,39 +764,38 @@
       if (gapSize > 2e-3 && cloud > 2e-3) {
         const blur = Math.max(3, Rp * 0.1);
         ctx.filter = `blur(${blur.toFixed(1)}px)`;
-        const feather = Math.min(gapSize * 0.45, 0.13);
         const dir = ccw ? -1 : 1;
-        const cg = ctx.createConicGradient?.(gapFrom, cxp, cyp);
-        if (cg) {
-          const at = (f) => Math.max(0, Math.min(1, ccw ? 1 - f : f));
-          const stops = [
-            [at(0), "rgba(0,0,0,0)"],
-            [at(feather), "rgba(0,0,0,1)"],
-            [at(gapSize - feather), "rgba(0,0,0,1)"],
-            [at(gapSize), "rgba(0,0,0,0)"]
-          ];
-          for (const [o, c] of stops.sort((a, b) => a[0] - b[0])) cg.addColorStop(o, c);
-          ctx.fillStyle = cg;
-          ctx.beginPath();
-          ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
-          ctx.fill();
-        } else {
-          ctx.fillStyle = "rgba(0,0,0,1)";
-          ctx.beginPath();
-          ctx.moveTo(cxp, cyp);
-          ctx.arc(cxp, cyp, Rp, gapFrom, gapFrom + dir * gapSize * Math.PI * 2, ccw);
-          ctx.closePath();
-          ctx.fill();
+        const gapAng = gapSize * Math.PI * 2;
+        const dip = Rp * (1 - Math.pow(gapSize, 0.75)) + Rp * 0.06;
+        const STEPS = 40;
+        ctx.beginPath();
+        for (let i = 0; i <= STEPS; i++) {
+          const th = gapFrom + dir * (i / STEPS) * gapAng;
+          const x = cxp + Math.cos(th) * Rp, y = cyp + Math.sin(th) * Rp;
+          if (i) ctx.lineTo(x, y);
+          else ctx.moveTo(x, y);
         }
-        const edge = gapFrom + dir * feather * Math.PI * 2;
+        for (let i = STEPS; i >= 0; i--) {
+          const u = i / STEPS;
+          const th = gapFrom + dir * u * gapAng;
+          const bow = Math.sin(Math.PI * u);
+          const rough = 1 + 0.05 * Math.sin(u * 7.3 + now / 900) + 0.03 * Math.sin(u * 13.1 - now / 1400);
+          const rr = (Rp - (Rp - Math.min(dip, Rp)) * bow) * rough;
+          ctx.lineTo(cxp + Math.cos(th) * rr, cyp + Math.sin(th) * rr);
+        }
+        ctx.closePath();
+        ctx.fillStyle = "rgba(0,0,0,1)";
+        ctx.fill();
         for (let i = 0; i < 5; i++) {
           const t = now / 3e3 + i * 1.7;
-          const a = edge + dir * (Math.sin(t) * 0.22 + 0.06);
-          const rr = Rp * (0.3 + 0.45 * ((Math.sin(t * 1.3 + i) + 1) / 2));
-          const br = Rp * (0.18 + 0.12 * ((Math.cos(t * 0.9 + i) + 1) / 2));
-          const bx = cxp + Math.cos(a) * rr, by = cyp + Math.sin(a) * rr;
+          const u = 0.15 + 0.7 * ((Math.sin(t) + 1) / 2);
+          const th = gapFrom + dir * u * gapAng;
+          const bow = Math.sin(Math.PI * u);
+          const rr = Rp - (Rp - Math.min(dip, Rp)) * bow;
+          const br = Rp * (0.1 + 0.1 * ((Math.cos(t * 0.9 + i) + 1) / 2));
+          const bx = cxp + Math.cos(th) * rr, by = cyp + Math.sin(th) * rr;
           const g2 = ctx.createRadialGradient(bx, by, 0, bx, by, br);
-          g2.addColorStop(0, "rgba(0,0,0,0.85)");
+          g2.addColorStop(0, "rgba(0,0,0,0.8)");
           g2.addColorStop(1, "rgba(0,0,0,0)");
           ctx.fillStyle = g2;
           ctx.beginPath();
@@ -1061,18 +1061,19 @@
       }
       const REVEAL_AT = 0.5;
       const reveal = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / (1 - REVEAL_AT)));
-      if (fitC && !portalUp && reveal > 0.01) {
+      const recognised = pinched && p.roundness >= 0.55 && p.progress >= REVEAL_AT;
+      const want = !portalUp && fitC && recognised ? 0.12 + 0.88 * reveal : 0;
+      mirrorAmt += (want - mirrorAmt) * 0.15;
+      if (fitC && !portalUp && mirrorAmt > 6e-3) {
         const cvx = mx(fitC.cx), cvy = my(fitC.cy);
         const Rv = Math.max(4, fitC.r * RPX);
-        const ccw = p.sweep < 0;
-        const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
-        const gapSize = Math.max(0, 1 - doneTurns);
-        const gapFrom = p.endAngle ?? 0;
-        const strength = 0.12 + 0.88 * reveal;
-        openGap = gapSize;
-        openGapFrom = gapFrom;
-        openCcw = ccw;
-        paintMirror(cvx, cvy, Rv, strength, gapFrom, gapSize, ccw, 1);
+        if (recognised) {
+          const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
+          openGap = Math.max(0, 1 - doneTurns);
+          openGapFrom = p.endAngle ?? 0;
+          openCcw = p.sweep < 0;
+        }
+        paintMirror(cvx, cvy, Rv, mirrorAmt, openGapFrom, openGap, openCcw, 1);
       }
       ctx.globalCompositeOperation = "lighter";
       ctx.lineCap = "round";
