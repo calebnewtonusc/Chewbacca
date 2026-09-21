@@ -611,6 +611,9 @@
   var drawing = null;
   var trimmedAtLatch = false;
   var announcedAtLatch = false;
+  var openGap = 0;
+  var openGapFrom = 0;
+  var openCcw = false;
   var stroke = [];
   var softFit = null;
   var reachScale = 1;
@@ -739,23 +742,25 @@
       ctx.drawImage(mirror, (W - dw) / 2, (H - dh) / 2, dw, dh);
       ctx.globalAlpha = 1;
     };
-    const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw) => {
+    const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw, cloud) => {
       if (!mirrorReady || strength <= 4e-3 || Rp < 3) return;
       ctx.save();
       ctx.beginPath();
       ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
       ctx.clip();
       drawMirror(strength);
-      ctx.globalCompositeOperation = "destination-out";
-      const fade = ctx.createRadialGradient(cxp, cyp, Rp * 0.22, cxp, cyp, Rp);
-      fade.addColorStop(0, "rgba(0,0,0,0)");
-      fade.addColorStop(0.72, "rgba(0,0,0,0.4)");
-      fade.addColorStop(1, "rgba(0,0,0,1)");
-      ctx.fillStyle = fade;
-      ctx.beginPath();
-      ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
-      ctx.fill();
-      if (gapSize > 2e-3) {
+      if (cloud > 2e-3) {
+        ctx.globalCompositeOperation = "destination-out";
+        const fade = ctx.createRadialGradient(cxp, cyp, Rp * 0.22, cxp, cyp, Rp);
+        fade.addColorStop(0, "rgba(0,0,0,0)");
+        fade.addColorStop(0.72, `rgba(0,0,0,${0.4 * cloud})`);
+        fade.addColorStop(1, `rgba(0,0,0,${cloud})`);
+        ctx.fillStyle = fade;
+        ctx.beginPath();
+        ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (gapSize > 2e-3 && cloud > 2e-3) {
         const blur = Math.max(3, Rp * 0.1);
         ctx.filter = `blur(${blur.toFixed(1)}px)`;
         const feather = Math.min(gapSize * 0.45, 0.13);
@@ -1063,7 +1068,11 @@
         const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
         const gapSize = Math.max(0, 1 - doneTurns);
         const gapFrom = p.endAngle ?? 0;
-        paintMirror(cvx, cvy, Rv, reveal, gapFrom, gapSize, ccw);
+        const strength = 0.12 + 0.88 * reveal;
+        openGap = gapSize;
+        openGapFrom = gapFrom;
+        openCcw = ccw;
+        paintMirror(cvx, cvy, Rv, strength, gapFrom, gapSize, ccw, 1);
       }
       ctx.globalCompositeOperation = "lighter";
       ctx.lineCap = "round";
@@ -1181,7 +1190,18 @@
           ctx.fill();
           ctx.globalCompositeOperation = "source-over";
         } else {
-          paintMirror(cx0, cy0, rpx, vis, 0, 0, false);
+          const shut2 = ease(shut);
+          const opened = ease(ignite);
+          paintMirror(
+            cx0,
+            cy0,
+            rpx,
+            1 - shut2,
+            openGapFrom,
+            openGap * (1 - opened),
+            openCcw,
+            1 - opened
+          );
         }
         ctx.globalCompositeOperation = "lighter";
         const bloom = ctx.createRadialGradient(cx0, cy0, rpx * 0.9, cx0, cy0, rpx * 1.22);
