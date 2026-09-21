@@ -601,8 +601,7 @@
       const last = stroke[stroke.length - 1];
       const sm = last ? { x: last.x + (cursor.x - last.x) * 0.45, y: last.y + (cursor.y - last.y) * 0.45 } : cursor;
       stroke.push({ x: sm.x, y: sm.y, rx: sm.x, ry: sm.y });
-      const keep = p.progress > 0.2 ? 260 : 34;
-      while (stroke.length > keep) stroke.shift();
+      while (stroke.length > 260) stroke.shift();
     } else if (stroke.length) {
       stroke = [];
     }
@@ -612,6 +611,10 @@
     } else {
       detector.reset();
       p = IDLE_PROGRESS;
+    }
+    if (stroke.length) {
+      const keep = p.progress > 0.2 ? 260 : 34;
+      while (stroke.length > keep) stroke.shift();
     }
     const prevPhase = state.phase;
     state = stepPortal(
