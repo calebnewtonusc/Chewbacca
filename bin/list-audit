@@ -19,6 +19,17 @@ from collections import Counter
 csv.field_size_limit(10**9)
 
 # Column aliases, lowercased and stripped of separators before matching.
+# Free consumer mailboxes. A contact reachable only here, on a row with no
+# company, is not a sourced lead.
+FREE_MAIL = {
+    "gmail.com", "hotmail.com", "yahoo.com", "yahoo.co.in", "yahoo.co.uk",
+    "yahoo.com.ph", "rediffmail.com", "mail.ru", "live.com", "outlook.com",
+    "aol.com", "icloud.com", "me.com", "msn.com", "protonmail.com",
+    "hotmail.co.uk", "gmx.de", "web.de", "qq.com", "163.com",
+}
+# Placeholders a scraper writes when it found nothing.
+NULL_ORG = {"unknown", "person", "company", "n/a", "none", "-"}
+
 ALIASES = {
     "name":    ("fullname", "name", "contactname", "personname", "fullnames"),
     "email":   ("email", "emailaddress", "workemail", "primaryemail", "mail"),
@@ -54,7 +65,8 @@ def audit(path, usable_grades):
         if "name" not in cols and "email" not in cols:
             sys.exit("could not find a name or email column; is this a contact list?")
 
-        n = usable = people = 0
+        n = usable = people = qualified = 0
+        junk = free_mail = no_org = 0
         have = Counter(); grades = Counter()
         org_junk = 0                      # company cell holding an image or a URL
         nan_name = 0; nan_other = 0       # the pandas NaN-strip signature
@@ -76,7 +88,22 @@ def audit(path, usable_grades):
             kind = (row.get(cols.get("kind", ""), "") or "").strip().lower()
             is_person = kind == "person" if kind else bool(name and " " in name.strip())
             if is_person: people += 1
-            if email and (not usable_grades or grade in usable_grades): usable += 1
+            graded_ok = (not usable_grades or grade in usable_grades)
+            if email and graded_ok: usable += 1
+
+            # The qualified tier. Grade plus an email is not enough: a row can be
+            # a name and a gmail address with no company, no title and no
+            # LinkedIn, which is a consumer list wearing a business label.
+            dom = email.split("@")[-1].lower() if "@" in email else ""
+            is_free = dom in FREE_MAIL
+            org_null = (not comp) or comp.strip().lower() in NULL_ORG
+            if email and graded_ok and is_person:
+                if is_free: free_mail += 1
+                if org_null: no_org += 1
+                if is_free and org_null:
+                    junk += 1
+                elif not is_free and not org_null:
+                    qualified += 1
 
             # company cell carrying an attachment URL or a bare link
             low = comp.lower()
@@ -114,6 +141,8 @@ def audit(path, usable_grades):
         "organizations": n - people, "with_email": have["email"],
         "with_linkedin": have["linkedin"], "grades": dict(grades.most_common()),
         "usable_rows": usable, "usable_pct": round(pct(usable, n), 1),
+        "qualified_rows": qualified, "qualified_pct": round(pct(qualified, n), 1),
+        "junk_rows": junk, "free_mail_rows": free_mail, "no_org_rows": no_org,
         "company_cell_is_junk": org_junk,
         "nan_strip_names": nan_name, "nan_strip_other_fields": nan_other,
         "linkedin_checked": li_checked, "linkedin_flagged": li_flagged,
@@ -133,7 +162,13 @@ def report(r, grades):
     if r["grades"]:
         p(f"  grades: {', '.join(f'{k} {v:,}' for k, v in r['grades'].items())}")
     label = f"grade in {sorted(grades)} and an email" if grades else "an email"
-    p(f"\n  USABLE ({label}): {r['usable_rows']:,}  ({r['usable_pct']}% of the file)")
+    p(f"\n  usable ({label}): {r['usable_rows']:,}  ({r['usable_pct']}% of the file)")
+    p(f"    of those, free consumer mailbox  {r['free_mail_rows']:,}")
+    p(f"    of those, no real company name   {r['no_org_rows']:,}")
+    p(f"    junk (both at once)              {r['junk_rows']:,}")
+    p(f"\n  QUALIFIED (a person, a real company and a work email): {r['qualified_rows']:,}"
+      f"  ({r['qualified_pct']}% of the file)")
+    p("  Plan against the qualified number. The row count is what the seller quotes.")
 
     issues = []
     if r["company_cell_is_junk"]:
