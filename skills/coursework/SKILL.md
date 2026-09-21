@@ -97,6 +97,31 @@ attendance arithmetic, the AI policy verbatim, and the late-work schedule. Write
 one `courses/<code>.yml`. Run `coursework check`. Report what the syllabus did
 not say, because that list is the set of questions to ask in class.
 
+## The textbook
+
+A course textbook is half a million words and does not belong in a session.
+`textbook` searches an ingested one and returns passages, not chapters:
+
+```bash
+textbook books                              # what is ingested
+textbook toc                                # chapters, page spans, lengths
+textbook search "participant observation"   # ranked passages, each with a page
+textbook search "kula" --chapter 6          # one chapter
+textbook glossary reciprocity               # defined terms only
+```
+
+Every hit carries the page printed in the book. **Quote the page, not the PDF
+page**, for the same reason every deadline carries a `source`: a claim the user
+cannot look up is one they have to take on faith, and they will stop checking.
+
+Reading the source PDF instead is the failure to avoid. It burns the session on
+one chapter and returns a worse answer than a search that cost four hundred
+words.
+
+To ingest a new one, `~/Chewbacca/texts/ingest/ingest.py scan <pdf>` prints the
+chapter plan and writes nothing. Read the plan before `apply` files 500 pages
+under the wrong headings.
+
 ## Answering questions about the semester
 
 - **"What's due?"** `coursework due`. Do not editorialize the list into a plan
