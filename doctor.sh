@@ -525,7 +525,24 @@ else
   # where this one sees and vice versa. Both are kept, in one place.
   KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   if [ -d "$KIT_DIR/voice/Sources" ] && [ ! -x "$HOME/.local/bin/hud-voice" ]; then
-    warn "hud-voice is not built, so replies use the hud-speak fallback (cd $KIT_DIR/voice && swift build -c release)"
+    # WHY IT WON'T BUILD, when it won't. 2026-09-21: `swift build` here died
+    # on `unable to read tree`, and the suggested command below would simply
+    # have failed again, which is the worst kind of advice a doctor can give.
+    #
+    # The chain: an agent sandbox exports GIT_CONFIG_COUNT with
+    # safe.bareRepository=explicit, git then refuses to operate on SwiftPM's
+    # package cache because that cache IS a bare repository, so SwiftPM can
+    # never UPDATE the cache. A cache that cannot be updated cannot heal, and
+    # a half-fetched dependency stays half-fetched forever. Purging it is the
+    # fix, and it is not guessable from the error.
+    _spm_cache="$HOME/Library/Caches/org.swift.swiftpm/repositories"
+    if [ "$(git config --get safe.bareRepository 2>/dev/null)" = "explicit" ] \
+       && [ -d "$_spm_cache" ]; then
+      warn "hud-voice is not built, and safe.bareRepository=explicit is set, so SwiftPM cannot refresh its package cache. If the build says 'unable to read tree', move the cache aside and rebuild: mv $_spm_cache/FluidAudio-* /tmp/ && cd $KIT_DIR/voice && swift build -c release"
+    else
+      warn "hud-voice is not built, so replies use the hud-speak fallback (cd $KIT_DIR/voice && swift build -c release)"
+    fi
+    unset _spm_cache
   fi
 
   # "Play X" by voice plays whatever Spotify's own search puts at the top,
