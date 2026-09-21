@@ -29,6 +29,7 @@ import socket
 import subprocess
 import sys
 import threading
+import random
 import time
 import uuid
 from collections.abc import MutableMapping
@@ -1880,6 +1881,10 @@ class Listener:
                 return
             self.stop()
             return
+        # Cheapest test first: a greeting costs nothing to recognise and 21
+        # seconds to send to a model.
+        if not relayed and self.pleasantry(said):
+            return
         if not relayed and self.bubble_request(said):
             return
         if not relayed and self.music_request(said, typed):
@@ -1994,6 +1999,81 @@ class Listener:
         self.send("s " + json.dumps(phrase))
         self.speak(phrase)
         self.settle("done", self.LEAVE_AFTER)
+
+    # Pleasantries, answered without a model at all.
+    #
+    # THE MEASUREMENT. On 2026-09-21 Caleb said "Good morning" and waited
+    # 21.4 seconds. The reply was "Morning.", eight characters. The usage
+    # record says why: output_tokens 861, of which thinking_tokens 854. The
+    # model reasoned for 854 tokens to produce one word, and output is
+    # generated serially, so that reasoning IS the twenty seconds.
+    #
+    # No prompt fixes this. The instruction "simple gets simple" was already
+    # there and obeyed, in that the ANSWER was one word. The cost was in the
+    # thinking before it, which no wording reaches.
+    #
+    # WHOLE UTTERANCES ONLY. "Good morning" is a greeting; "good morning,
+    # what's on my calendar" is a request with a greeting on the front, and
+    # sending that here would answer the wrong half. So the whole normalised
+    # utterance has to match, and anything longer falls through.
+    GREETINGS = {
+        "hi", "hey", "hello", "yo", "yo yo", "hey there", "hiya",
+        "good morning", "morning", "gm", "good afternoon", "good evening",
+    }
+    FAREWELLS = {
+        "good night", "goodnight", "night", "gn", "bye", "goodbye",
+        "see you", "later", "see ya", "peace",
+    }
+    THANKS = {
+        "thanks", "thank you", "ty", "thx", "appreciate it", "nice one",
+        "perfect", "great", "cheers", "you're the best", "youre the best",
+    }
+    # Rotated, because the prompt forbids repeating an acknowledgement and a
+    # canned reply that never varies is worse than a slow one that does.
+    PLEASANTRY_REPLIES = {
+        "greeting": ["Morning.", "Hey.", "Hi.", "Yo."],
+        "farewell": ["Night.", "See you.", "Later.", "Sleep well."],
+        "thanks": ["Any time.", "Sure thing.", "No problem.", "Course."],
+    }
+
+    def pleasantry(self, said: str) -> bool:
+        """Answer a greeting, a goodbye or a thank you with no model turn."""
+        words = normalise(said)
+        if not words:
+            return False
+        if words in self.GREETINGS:
+            kind = "greeting"
+        elif words in self.FAREWELLS:
+            kind = "farewell"
+        elif words in self.THANKS:
+            kind = "thanks"
+        else:
+            return False
+
+        # Time of day beats the literal word: "good morning" at 9pm is a
+        # person being funny, and "Morning." back is the joke landing wrong.
+        options = list(self.PLEASANTRY_REPLIES[kind])
+        if kind == "greeting":
+            hour = time.localtime().tm_hour
+            if hour >= 18 or hour < 4:
+                options = ["Evening.", "Hey.", "Yo."]
+            elif hour >= 12:
+                options = ["Afternoon.", "Hey.", "Hi."]
+
+        last = getattr(self, "_last_pleasantry", None)
+        fresh = [o for o in options if o != last] or options
+        answer = random.choice(fresh)
+        self._last_pleasantry = answer
+
+        self.log(f"pleasantry: {kind}:", answer)
+        if self.in_flight():
+            self.stop()
+        req = Request(said=said, spoken_at=time.monotonic(), pointed=None, typed=False)
+        self.remember(req, answer, True, "done")
+        self.send("s " + json.dumps(answer))
+        self.speak(answer)
+        self.settle("done", self.LEAVE_AFTER)
+        return True
 
     def bubble_request(self, said: str) -> bool:
         """Put a dictation bubble up or take one down, with no model turn.
