@@ -45,7 +45,18 @@ import sys
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-LEDGER = pathlib.Path.home() / ".chewbacca" / "fitness.jsonl"
+# CHEWBACCA_FITNESS_LEDGER lets an isolated experiment score itself without
+# writing the real trajectory. bin/evolve sets it.
+#
+# THE BUG THIS FIXES, 2026-09-20. evolve runs fitness inside a detached
+# worktree. fitness wrote to the shared ledger, so a change that was NEVER
+# MERGED recorded a 93.25 as if it were the kit's real score, and the next
+# comparison read "90.12, down 3.13" against code that does not exist.
+# An experiment that can move the baseline it is measured against destroys
+# the only thing a fitness function is for.
+LEDGER = pathlib.Path(
+    __import__("os").environ.get("CHEWBACCA_FITNESS_LEDGER")
+    or pathlib.Path.home() / ".chewbacca" / "fitness.jsonl")
 
 
 def git(*args):

@@ -32,6 +32,7 @@ exact path. Nothing touches the working tree you are sitting in.
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -68,9 +69,15 @@ def baseline():
 
 
 def score_in(path):
+    # Score into a THROWAWAY ledger. The first run of this tool wrote its
+    # worktree score into the real one, so an unmerged change became the
+    # baseline and the next real comparison read as a 3.13 regression against
+    # code that was never committed.
+    env = dict(os.environ)
+    env["CHEWBACCA_FITNESS_LEDGER"] = str(path / ".evolve-fitness.jsonl")
     r = subprocess.run([sys.executable, str(path / "bin/fitness"),
                         "--no-tests"], capture_output=True, text=True,
-                       timeout=900, cwd=str(path))
+                       timeout=900, cwd=str(path), env=env)
     out = r.stdout + r.stderr
     import re
     m = re.search(r"structural\s+([\d.]+)", out)
