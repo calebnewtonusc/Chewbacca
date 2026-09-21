@@ -524,28 +524,24 @@
     };
     const px = mx;
     const py = my;
+    const RPX = Math.min(W, H);
     const arcPath = (cn, rn, a0, a1, segs = 96, jitterPx = 0) => {
+      const cx0 = px(cn.x), cy0 = py(cn.y);
+      const r = rn * RPX;
       ctx.beginPath();
       for (let i = 0; i <= segs; i++) {
         const a = a0 + (a1 - a0) * i / segs;
-        const rr = jitterPx ? rn * (1 + (Math.random() - 0.5) * jitterPx * 4e-3) : rn;
-        const qx = px(cn.x + Math.cos(a) * rr);
-        const qy = py(cn.y + Math.sin(a) * rr);
+        const rr = jitterPx ? r + (Math.random() - 0.5) * jitterPx : r;
+        const qx = cx0 + Math.cos(a) * rr;
+        const qy = cy0 + Math.sin(a) * rr;
         if (i === 0) ctx.moveTo(qx, qy);
         else ctx.lineTo(qx, qy);
       }
     };
-    const rpxOf = (cn, rn) => Math.hypot(px(cn.x + rn) - px(cn.x), 0) || 1;
+    const rpxOf = (_cn, rn) => rn * RPX || 1;
     const disc = (cn, rn) => {
       ctx.beginPath();
-      for (let i = 0; i <= 96; i++) {
-        const a = Math.PI * 2 * i / 96;
-        const qx = px(cn.x + Math.cos(a) * rn);
-        const qy = py(cn.y + Math.sin(a) * rn);
-        if (i === 0) ctx.moveTo(qx, qy);
-        else ctx.lineTo(qx, qy);
-      }
-      ctx.closePath();
+      ctx.arc(px(cn.x), py(cn.y), rn * RPX, 0, Math.PI * 2);
     };
     const spawnAt = (x, y, tangentX, tangentY, count, speed, bind = false) => {
       for (let i = 0; i < count; i++) {
@@ -557,7 +553,7 @@
           vx: (tangentX + spread * -tangentY) * sp,
           vy: (tangentY + spread * tangentX) * sp,
           life: 1,
-          decay: 9e-3 + Math.random() * 0.024,
+          decay: 0.03 + Math.random() * 0.05,
           heat: Math.random(),
           width: 0.35 + Math.random() * 0.85,
           bind
@@ -733,7 +729,7 @@
         hy,
         tx,
         ty,
-        Math.round((2 + k * 34) * (1 + Math.min(1.2, speedPx * 0.05))),
+        Math.round((1 + k * 9) * (1 + Math.min(0.8, speedPx * 0.03))),
         2.2 + k * 3,
         true
       );
@@ -866,7 +862,7 @@
       if (sp.life <= 0) continue;
       alive.push(sp);
       const speed = Math.hypot(sp.vx, sp.vy) || 1;
-      const len = Math.max(7, Math.min(48, speed * 4.2));
+      const len = Math.max(5, Math.min(20, speed * 2.4));
       const h = sp.heat * sp.life;
       const col = h > 0.62 ? CORE : h > 0.3 ? SPARK_HOT : h > 0.14 ? SPARK_MID : SPARK_COLD;
       ctx.strokeStyle = `rgba(${col}, ${Math.min(1, sp.life * 1.5)})`;
@@ -877,7 +873,7 @@
       ctx.lineTo(sp.x - sp.vx / speed * len, sp.y - sp.vy / speed * len);
       ctx.stroke();
     }
-    sparks = alive.length > 11e3 ? alive.slice(-11e3) : alive;
+    sparks = alive.length > 1400 ? alive.slice(-1400) : alive;
   }
   requestAnimationFrame(frame);
 })();
