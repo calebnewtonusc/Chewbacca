@@ -111,6 +111,23 @@ ok("three quarters of one",   !opens(ring((t) => [Math.cos(t), Math.sin(t)], 90)
 // drawn in the air with a fingertip is a circle, and no measurement this side
 // of the camera noise floor says otherwise. A spiral fires on its first loop,
 // because its first loop is a circle.
+// SIZE. A small circle used to fail 41% of the time, because roundness is the
+// minimum of a radial test and a corner test, and the corner test was
+// measuring noise: a genuine 60px circle scored 0.56 against a 0.55 gate. The
+// corner test runs on the smoothed path now. These are the sizes a hand
+// actually draws, at the scale the detector sees them.
+console.log("\na circle opens a portal at any size a hand can draw:");
+for (const R of [0.05, 0.09, 0.14, 0.22, 0.32]) {
+  const pts = Array.from({ length: 95 }, (_, i) => {
+    const t = (i / 90) * TAU;       // 95 samples over 90, so it overshoots
+    return { x: Math.cos(t) * R + nz(0.004), y: Math.sin(t) * R + nz(0.004) };
+  });
+  const d = new CircleGestureDetector();
+  let tt = 0, fired = false;
+  for (const q of pts) if (d.push(q.x + 0.5, q.y + 0.5, (tt += 16)).completed) { fired = true; break; }
+  ok(`radius ${Math.round(R * 982)}px`, fired);
+}
+
 console.log("\nknown to open a portal, and that is the intended answer:");
 ok("a rounded hexagon",        opens(ngon(6, 10)));
 ok("a rounded octagon",        opens(ngon(8, 10)));

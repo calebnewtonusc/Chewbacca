@@ -172,16 +172,17 @@
       }
       if (pts.length >= 12) {
         const BINS = 8;
+        const sm = smoothPath(pts, 2);
         let total = 0;
-        for (let i = 1; i < pts.length; i++) {
-          total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+        for (let i = 1; i < sm.length; i++) {
+          total += Math.hypot(sm[i].x - sm[i - 1].x, sm[i].y - sm[i - 1].y);
         }
         if (total > 1e-6) {
           const acc = new Array(BINS).fill(0);
           let run = 0;
-          for (let i = 1; i < pts.length - 1; i++) {
-            const ax = pts[i].x - pts[i - 1].x, ay = pts[i].y - pts[i - 1].y;
-            const bx = pts[i + 1].x - pts[i].x, by = pts[i + 1].y - pts[i].y;
+          for (let i = 1; i < sm.length - 1; i++) {
+            const ax = sm[i].x - sm[i - 1].x, ay = sm[i].y - sm[i - 1].y;
+            const bx = sm[i + 1].x - sm[i].x, by = sm[i + 1].y - sm[i].y;
             const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
             run += la;
             if (la < 1e-7 || lb < 1e-7) continue;
