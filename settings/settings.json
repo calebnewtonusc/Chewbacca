@@ -136,6 +136,15 @@
             "statusMessage": "Checking the prose against your writing rules..."
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/write-log.sh"
+          }
+        ]
       }
     ],
     "Stop": [
