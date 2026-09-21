@@ -1,3 +1,4 @@
+import { smoothPath } from "./vendor/smooth";
 import { CircleGestureDetector, type CircleProgress } from "./vendor/circle";
 import {
   initialPortalState,
@@ -129,6 +130,26 @@ let reachScale = 1;
 // keeps the hand WHERE it is and only changes how large it reads.
 //   portal hand 0.5
 let handScale = 0.45;
+// How much of the path stays on the glass before a circle is recognised, in
+// pixels of travel. Live: `portal trail 420`.
+let trailPx = 300;
+
+// WHERE THE CIRCLE STOPS MOVING, and, because they are the same moment, where
+// it first appears at all.
+//
+// "Also the circle is still moving while it is being created." The ring became
+// visible at 0.55 of progress and froze at 0.65, so for that tenth it was on
+// the glass and still being refitted every frame. Two correct numbers in two
+// places, and the gap between them was the bug.
+//
+// One constant now. The bend gate below derives from it, so the ring cannot
+// appear before it is fixed.
+//
+// 0.65 itself is measured. Against an oval path with arm drift, scored on the
+// fit to the whole stroke: latching at 45% is 59px off centre, at 65% 19px,
+// at 75% 26px. Worse again past 65 because the last stretch of a hand-drawn
+// circle is where the wrist gives out.
+const LATCH_AT = 0.65;
 let lastSeen = 0;
 
 // The host pushes frames in here. Declared on window so evaluateJavaScript
@@ -145,6 +166,7 @@ declare global {
     chewbaccaSize: (k?: number) => number;
     chewbaccaReach: (k?: number) => number;
     chewbaccaHand: (k?: number) => number;
+    chewbaccaTrail: (k?: number) => number;
     webkit?: { messageHandlers?: { portal?: { postMessage: (m: unknown) => void } } };
   }
 }
@@ -181,6 +203,12 @@ window.chewbaccaHand = (k) => {
     handScale = Math.max(0.1, Math.min(1, k));
   }
   return handScale;
+};
+window.chewbaccaTrail = (k) => {
+  if (typeof k === "number" && isFinite(k)) {
+    trailPx = Math.max(40, Math.min(1200, k));
+  }
+  return trailPx;
 };
 window.chewbaccaArm = (label) => {
   armed = label ? { label } : null;
@@ -497,8 +525,14 @@ function frame(now: number) {
     // leaves a comet rather than a scribble. Once a circle is being
     // recognised the whole path is kept, because by then the tail is the
     // part already snapped onto the ring and holding it there.
+    // 170px was too short to read as anything: "Lines should still be
+    // somewhat curvy as you move your hand around the screen." A hand's
+    // circle is roughly 900px around, so 170 is a fifth of a turn and shows
+    // as a straight stub however smoothly it is drawn. 300 is a third of a
+    // turn, which is visibly an arc, and on a fast sweep across a 1512px
+    // display it is still a comet rather than a stripe.
     const circling = p.progress > 0.4 && p.roundness > 0.55;
-    const maxPx = circling ? 4000 : 170;
+    const maxPx = circling ? 4000 : trailPx;
     let run = 0;
     for (let i = stroke.length - 1; i > 0; i--) {
       run += Math.hypot(
@@ -722,7 +756,11 @@ function frame(now: number) {
     // that had not been decided. 0.55 puts the first bend just past halfway
     // and full strength at 0.85, which is 263 degrees, shortly before the
     // ring latches and stops moving.
-    const turned = Math.max(0, Math.min(1, (p.progress - 0.55) / 0.3));
+    // Derived from LATCH_AT, never written separately. The frame the ring
+    // appears is the frame it stops moving, and the bend ramps to full over
+    // the quarter of progress after that: 201 degrees of arc to 278, with
+    // the portal opening at 309.
+    const turned = Math.max(0, Math.min(1, (p.progress - LATCH_AT) / 0.25));
     const round = Math.max(0, Math.min(1, (p.roundness - 0.55) / 0.3));
     const conf = turned * round;
     const k = Math.pow(conf, 0.9);
@@ -739,7 +777,22 @@ function frame(now: number) {
       // path was, which is the same mistake the ring made earlier and the
       // reason the rule says the correction has to happen in the space it
       // is displayed in.
-      const rate = 0.12 + 0.3 * conf;
+      // "The line should more quickly curve, currently it slowly moves into
+      // a curve." Each point travels this fraction of its remaining distance
+      // to the ring per frame, so the number is a speed. At 60fps, frames to
+      // cover 90 percent of the way:
+      //
+      //     conf    0.12+0.30c      0.32+0.46c
+      //     0.25    10.6 frames     4.0 frames
+      //     0.50     7.3            2.9
+      //     1.00     4.2            1.5
+      //
+      // Ten frames is a sixth of a second of visible drifting, which is what
+      // reads as the line moving into a curve rather than becoming one. Four
+      // reads as it snapping. The low end matters more than the high end,
+      // because that is where the gesture is still being recognised and where
+      // the drift was showing.
+      const rate = 0.32 + 0.46 * conf;
       const cxp = mx(fitC.cx);
       const cyp = my(fitC.cy);
       const rp = fitC.r * RPX;
@@ -763,20 +816,30 @@ function frame(now: number) {
     ctx.lineJoin = "round";
     const rBase = fitC ? fitC.r : 0.05;
 
+    // "No line should ever be jagged." The shape is smoothed at the point
+    // of drawing, on a copy, so the stored points stay as the hand made them
+    // and the circle fit still sees the real gesture. Why two passes and why
+    // not more input smoothing is in vendor/smooth.ts, with the numbers.
+    // Once per frame. path() draws it twice and the head tangent reads it,
+    // and smoothing the same points three times would be three times the
+    // cost for the same answer.
+    const SP = stroke.length >= 3
+      ? smoothPath(stroke.map((q) => ({ x: mx(q.rx), y: my(q.ry) })))
+      : null;
+
     // CURVES, NOT SEGMENTS. Each point becomes a control point and the path
     // runs through the midpoints between them, so corners round off instead
     // of showing as vertices.
     const path = () => {
       ctx.beginPath();
-      if (stroke.length < 3) return;
-      ctx.moveTo(mx(stroke[0].rx), my(stroke[0].ry));
-      for (let i = 1; i < stroke.length - 1; i++) {
-        const a = stroke[i], b = stroke[i + 1];
-        ctx.quadraticCurveTo(mx(a.rx), my(a.ry),
-          mx((a.rx + b.rx) / 2), my((a.ry + b.ry) / 2));
+      if (!SP) return;
+      const q = SP;
+      ctx.moveTo(q[0].x, q[0].y);
+      for (let i = 1; i < q.length - 1; i++) {
+        ctx.quadraticCurveTo(q[i].x, q[i].y,
+          (q[i].x + q[i + 1].x) / 2, (q[i].y + q[i + 1].y) / 2);
       }
-      const e = stroke[stroke.length - 1];
-      ctx.lineTo(mx(e.rx), my(e.ry));
+      ctx.lineTo(q[q.length - 1].x, q[q.length - 1].y);
     };
 
     // TWO passes, not three. Three widths of additive stroke on a light
@@ -826,10 +889,17 @@ function frame(now: number) {
       }
     }
 
+    // The tangent at the fingertips, which decides which way every spark
+    // leaves the line. Taken from two raw samples it is the direction of the
+    // last frame's jitter as much as the hand's, so the sparks sprayed at
+    // angles the line never went. Off the smoothed path it follows the
+    // stroke.
     const head = stroke[stroke.length - 1];
     const prev = stroke[stroke.length - 2] ?? head;
-    let tx = mx(head.rx) - mx(prev.rx);
-    let ty = my(head.ry) - my(prev.ry);
+    const hp = SP ? SP[SP.length - 1] : { x: mx(head.rx), y: my(head.ry) };
+    const pp = SP && SP.length > 1 ? SP[SP.length - 2] : hp;
+    let tx = hp.x - pp.x;
+    let ty = hp.y - pp.y;
     const tm = Math.hypot(tx, ty) || 1;
     const n = Math.round(1 + k * 9);
     for (let i = 0; i < n; i++) {
@@ -867,7 +937,6 @@ function frame(now: number) {
     // Three times better at 65, and worse again past it because the last
     // stretch of a hand-drawn circle is where the wrist gives out and the
     // path stops describing what was meant.
-    const LATCH_AT = 0.65;
     if (!drawing || p.progress < LATCH_AT) {
       drawing = { cx: p.center.x, cy: p.center.y, r: p.radius, a0: p.startAngle };
     }
