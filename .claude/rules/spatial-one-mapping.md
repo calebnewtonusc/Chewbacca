@@ -1,3 +1,10 @@
+---
+paths:
+  - "**/*{hand,gaze,pinch,portal,hud,landmark,tracker,cursor}*.{ts,tsx,js,swift,py}"
+  - "**/{hud,portal,vision,tracking}/**/*"
+  - "**/*.{glsl,frag,vert}"
+---
+
 # Spatial input: one mapping, applied once, at the door
 
 Loads when the work touches hand tracking, gaze, a HUD overlay, a canvas
