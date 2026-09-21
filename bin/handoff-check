@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""Refuse a reply that hands the user a command to run.
+
+THE FAILURE THIS EXISTS FOR. `~/.claude/rules/do-it-yourself.md` is an
+ALWAYS-ON rule, loaded into every session, and it says plainly: never end a
+task with a command for them to run. On 2026-09-21 Caleb said, twice in one
+night:
+
+    "Bro chewbacca u must be stupid to hv to ask me to do something manual"
+    "Never ask me to do something manual retard"
+
+An always-on rule did not prevent the behaviour it exists to prevent, twice,
+inside six hours. That is the whole argument for this file. Writing a lesson
+down does not make it fire; a repeated mistake needs a gate, not another
+paragraph. The rule even ends with the test, which nothing ever ran:
+
+    "Reread your final message and look for an imperative aimed at the user."
+
+So this runs it.
+
+WHAT IT MUST NOT DO is fire on a reply that merely contains a command. Most
+do: reporting what was run is the honest thing, and Caleb explicitly asked
+for a runnable prompt for a parallel tab on the same night. The difference
+is grammatical, not lexical. Past tense about what happened is a report.
+Second-person imperative about what should happen next is a handoff.
+
+Getting that wrong in the strict direction is expensive: a guard that fires
+on correct replies gets switched off within a day, and then it protects
+nothing. So every pattern here needs a second-person subject or an explicit
+instruction frame, and three escapes are honoured: a BLOCKED: line, which
+is the sanctioned way to name a real blocker; an explicit request from the
+user for a command; and the three genuine blockers the rule already names.
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+
+# Second person plus an action. These are handoffs in any framing.
+HANDOFF = [
+    (r"\byou'?ll need to\s+\w+", "'you'll need to ...'"),
+    (r"\byou need to\s+(?:run|install|open|add|set|export|chmod|brew|npm|pip)\b",
+     "'you need to run/install/...'"),
+    (r"\byou (?:should|can|could) (?:run|execute)\b", "'you should run ...'"),
+    # "now run" only at the start of a sentence. Measured against 1051 real
+    # replies, the bare form matched "the tests now run clean", which is
+    # prose about a state and not an instruction to anybody.
+    (r"(?:^|(?<=[.!?]\s))\s*(?:go ahead and\s+)?now run\b", "'now run ...'"),
+    (r"\bgo ahead and run\b", "'go ahead and run ...'"),
+    (r"\bjust run\b", "'just run ...'"),
+    # "run it" is dropped deliberately. In 1051 replies it matched "make me
+    # go test it and run it" and similar, where the subject is me. The
+    # ambiguity is not resolvable by keyword and the false positives are
+    # what kills a guard.
+    (r"\brun (?:this|these|the following)\b", "'run this'"),
+    (r"\btry running\b", "'try running ...'"),
+    (r"\b(?:in|from|open) (?:a|your) terminal\b", "'open a terminal'"),
+    (r"\byou'?ll have to\s+\w+", "'you'll have to ...'"),
+    (r"\bmake sure (?:you|to)\s+(?:run|install|set|add)\b", "'make sure you run ...'"),
+    (r"\bdon'?t forget to\s+(?:run|install|set|add)\b", "'don't forget to run ...'"),
+]
+
+# A command block introduced as an instruction rather than a report.
+#
+# Keyed on the SHAPE OF THE BLOCK, not on the verb that introduces it. The
+# first version looked for run/execute/paste/enter/type in the lead-in line
+# and missed "Rebuild to see it:", which is the exact example the rule file
+# itself lists as wrong. There are unlimited ways to introduce a command and
+# a short list of ways to start one.
+BLOCK_LEAD = re.compile(r"(?:^|\n)[^\n]*:\s*\n+```[a-z]*\n(.+?)(?:\n|$)", re.S)
+# A first line that starts a shell command. Anything else in a fenced block
+# is output, data or code being discussed.
+SHELL_START = re.compile(
+    r"^\s*(?:\$\s*)?(?:cd|\./|sh |bash |npm|npx|pnpm|yarn|brew|pip3?|python3?|"
+    r"git|swift|make|sudo|chmod|export|mkdir|mv|cp|open|defaults|osascript|"
+    r"claude|code|curl|ssh|docker|vercel|railway)\b", re.I)
+
+# Escapes. Any of these and the reply is not a handoff.
+BLOCKED_LINE = re.compile(r"^\s*BLOCKED:", re.M)
+# Past tense about what already happened is a report, not an instruction.
+REPORT = re.compile(
+    r"\bI (?:ran|installed|built|pushed|committed|linked|fixed|moved|started)\b", re.I)
+
+
+def asked_for_a_command(user_text: str) -> bool:
+    """Did they ask for something runnable? Then handing it over is correct."""
+    if not user_text:
+        return False
+    return bool(re.search(
+        r"\b(give me (?:a|the) (?:prompt|command)|what'?s the command|"
+        r"how do i run|paste(?:able)?|copy)\b", user_text, re.I))
+
+
+def check(message: str, user_text: str = "") -> list[str]:
+    if not message:
+        return []
+    if BLOCKED_LINE.search(message):
+        return []
+    if asked_for_a_command(user_text):
+        return []
+
+    found = []
+    for pattern, label in HANDOFF:
+        m = re.search(pattern, message, re.I)
+        if m:
+            line = message[:m.start()].count("\n") + 1
+            found.append(f"line {line}: {label}  ->  \"{m.group(0)}\"")
+    m = BLOCK_LEAD.search(message)
+    if m and SHELL_START.match(m.group(1) or "") and not REPORT.search(message):
+        found.append("a shell command in a block, introduced as an instruction, "
+                     f"with no report of having run anything: \"{m.group(1).strip()[:50]}\"")
+    return found
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--user", default="", help="what the user asked, for the escape")
+    ap.add_argument("--quiet", action="store_true")
+    a = ap.parse_args()
+    msg = sys.stdin.read()
+    hits = check(msg, a.user)
+    if not hits:
+        return 0
+    if not a.quiet:
+        print("handoff-check: this reply hands the user something to run.", file=sys.stderr)
+        for h in hits:
+            print(f"  {h}", file=sys.stderr)
+        print("\nYou have a shell. Run it, then report what happened. If it is a real\n"
+              "blocker (a physical action, a credential only they have, a decision\n"
+              "only they can make), say BLOCKED: and name it in one line.",
+              file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
