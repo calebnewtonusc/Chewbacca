@@ -567,7 +567,24 @@ function frame(now: number) {
     //
     // The wind is (1-u)^1.6 rather than linear, so the radius changes by a
     // growing factor along the arc instead of a fixed step.
-    const lead = 1 - Math.pow(1 - f, 1.6);
+    // WRONG FAMILY, FIXED. "The distance from middle is way too little too
+    // quickly." (1-f)^1.6 shrinks the distance FASTER early, which is the
+    // opposite of holding out and then plunging. f^2.5 is the one that hugs
+    // the rim through the first half and descends through the second:
+    //
+    //     drawn   (1-f)^1.6   f^2.5
+    //      25%      0.63       0.97
+    //      40%      0.44       0.90
+    //      50%      0.33       0.82
+    //      65%      0.19       0.66
+    //      80%      0.08       0.43
+    //      95%      0.01       0.12
+    //
+    // The separation between the spiral's two ends is capped by how deep the
+    // leading edge has got, so it is necessarily smaller early now and peaks
+    // later. That is geometry rather than a choice: the start cannot be
+    // further out than the rim.
+    const lead = Math.pow(f, 2.5);
     const depthAt = (u: number) => {
       const wind = 1 + 1.6 * Math.pow(1 - u, 1.6) * spiral;
       const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950)

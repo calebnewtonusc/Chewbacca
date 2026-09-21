@@ -771,7 +771,7 @@
       const aOld = aNew - dir * drawnAng;
       const f = Math.max(0, Math.min(1, fill));
       const STEPS = 72;
-      const lead = 1 - Math.pow(1 - f, 1.6);
+      const lead = Math.pow(f, 2.5);
       const depthAt = (u) => {
         const wind = 1 + 1.6 * Math.pow(1 - u, 1.6) * spiral;
         const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950) + 0.028 * Math.sin(u * 15.7 - now / 1500);
