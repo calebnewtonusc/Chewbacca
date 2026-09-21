@@ -50,6 +50,17 @@ SEEN="${TMPDIR:-/tmp}/method-guard-$SESSION-$KIND"
 [ -f "$SEEN" ] && exit 0
 : > "$SEEN"
 
+# The sharpest question bank this kit has is its own history. 53 commits
+# describe a failure somebody actually made here, and nothing ever read them.
+# The silent-except bug that ate every focus state tonight was already
+# written down months ago: "Every bug this kit shipped failed silently."
+SCARS_BIN=$(command -v scars || echo "$HOME/.local/bin/scars")
+SCARS=""
+if [ -x "$SCARS_BIN" ]; then
+  SCARS=$("$SCARS_BIN" find "$PROMPT" --terse -n 2 2>/dev/null) || SCARS=""
+fi
+[ -n "$SCARS" ] && TERSE="$TERSE"$'\n\n'"$SCARS"
+
 jq -n --arg t "$TERSE" '{
   hookSpecificOutput: {
     hookEventName: "UserPromptSubmit",

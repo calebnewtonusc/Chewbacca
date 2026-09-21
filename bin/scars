@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""Ask the question the last failure would have caught.
+
+    scars                      every failure this kit has recorded
+    scars find "<task>"        the ones most like what you are about to do
+    scars find "<task>" --terse   the two lines a hook injects
+    scars reindex              rebuild from git history
+
+WHY THIS AND NOT MORE GENERIC QUESTIONS. methods/ asks the same six questions
+forever. It never gets cheaper and never gets sharper, which makes it a
+checklist, and expertise is mostly knowing which questions to skip.
+
+This kit already holds the sharpest possible question bank and never reads it:
+its own commit messages. 30 of the last 200 carry a postmortem. Every one of
+them is a mistake somebody actually made here, which beats a generic prompt
+about rigour because it is specific, it is ours, and it already cost
+something.
+
+So: before building X, retrieve the past failures most like X and ask THEIR
+questions.
+
+Model-free and deterministic, because it runs inside a hook.
+"""
+import argparse
+import json
+import pathlib
+import re
+import subprocess
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+CACHE = pathlib.Path.home() / ".chewbacca" / "scars.json"
+
+# A commit that describes a failure says so in one of these ways. Tuned
+# against this repo's own history rather than guessed.
+FAILURE = re.compile(
+    r"(THE FAILURE THIS EXISTS FOR|ROOT CAUSE|root cause|"
+    r"A BUG WORTH|the bug|silently|swallow|swallowed|"
+    r"I (?:got|had) .{0,30}(?:wrong|backwards)|"
+    r"CORRECTION|AND A CORRECTION|which was wrong|did it again|"
+    r"never fires?|did nothing|vacuous|false positive)", re.I)
+
+STOP = set("""the a an and or of to in for on with that this it is was were be
+been are as at by from but not no if then than so such very can will would
+into over under about after before when where which who whom whose why how
+what all any both each few more most other some only own same too also just
+because while during through against between out up down off again further
+once here there these those they them their we our you your i me my""".split())
+
+
+def sentences(body):
+    flat = re.sub(r"\s+", " ", body)
+    return [s.strip() for s in re.split(r"(?<=[.!?]) ", flat) if len(s.strip()) > 30]
+
+
+def build():
+    """One scar per commit that describes a failure."""
+    raw = subprocess.run(
+        ["git", "-C", str(ROOT), "log", "-400", "--format=%H\x1f%s\x1f%b\x1e"],
+        capture_output=True, text=True, timeout=120).stdout
+    scars = []
+    for rec in raw.split("\x1e"):
+        if not rec.strip():
+            continue
+        parts = rec.strip().split("\x1f")
+        if len(parts) < 3:
+            continue
+        sha, subj, body = parts[0][:8], parts[1], parts[2]
+        if not FAILURE.search(body):
+            continue
+        hits = [s for s in sentences(body) if FAILURE.search(s)]
+        if not hits:
+            continue
+        text = " ".join([subj] + hits)
+        words = {w for w in re.findall(r"[a-z][a-z0-9-]{2,}", text.lower())
+                 if w not in STOP}
+        scars.append({"sha": sha, "subject": subj,
+                      "what_happened": hits[0][:300], "terms": sorted(words)})
+    return scars
+
+
+def load(rebuild=False):
+    if not rebuild and CACHE.exists():
+        try:
+            return json.loads(CACHE.read_text())
+        except json.JSONDecodeError:
+            pass
+    s = build()
+    CACHE.parent.mkdir(parents=True, exist_ok=True)
+    CACHE.write_text(json.dumps(s, indent=1))
+    return s
+
+
+def rank(scars, task, n=3, floor=0.12):
+    """Score by IDF-weighted coverage of the QUERY, not Jaccard of the union.
+
+    Plain Jaccard scored everything at 0.05 and ranked by commit length,
+    because the union is dominated by whatever else a long message mentions.
+    What matters is: how much of what I am about to do does this scar cover,
+    and are the shared words rare enough to mean anything. "hook" is in half
+    the history and carries almost nothing; "swallow" appears twice and
+    carries a lot.
+    """
+    import math
+    q = {w for w in re.findall(r"[a-z][a-z0-9-]{2,}", task.lower())
+         if w not in STOP}
+    if not q:
+        return []
+    N = len(scars) or 1
+    df = {}
+    for s in scars:
+        for w in set(s["terms"]):
+            df[w] = df.get(w, 0) + 1
+    idf = {w: math.log(N / (1 + df.get(w, 0))) + 1.0 for w in q}
+    total = sum(idf.values()) or 1.0
+
+    out = []
+    for s in scars:
+        overlap = q & set(s["terms"])
+        if not overlap:
+            continue
+        score = sum(idf[w] for w in overlap) / total
+        best = sorted(overlap, key=lambda w: -idf[w])[:4]
+        out.append((score, best, s))
+    out.sort(key=lambda r: -r[0])
+    # Below the floor it is a coincidence, and an irrelevant scar trains
+    # people to skip scars.
+    return [r for r in out if r[0] >= floor][:n]
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("cmd", nargs="?", default="list")
+    ap.add_argument("task", nargs="?")
+    ap.add_argument("--terse", action="store_true")
+    ap.add_argument("-n", type=int, default=3)
+    a = ap.parse_args()
+
+    if a.cmd == "reindex":
+        s = load(rebuild=True)
+        print(f"{len(s)} scar(s) indexed from git history -> {CACHE}")
+        return 0
+
+    scars = load()
+    if not scars:
+        print("no failures recorded in history yet", file=sys.stderr)
+        return 1
+
+    if a.cmd == "find":
+        if not a.task:
+            print('scars find "<task>"', file=sys.stderr)
+            return 2
+        hits = rank(scars, a.task, a.n)
+        if not hits:
+            # Refuse to pad. An irrelevant scar trains people to skip scars.
+            if not a.terse:
+                print("nothing in this kit's history looks like that. "
+                      "New territory, so the generic method applies: `method pick`.")
+            return 0
+        if a.terse:
+            print("WHAT WENT WRONG LAST TIME, from this kit's own history:")
+            for score, why, s in hits:
+                print(f"  [{s['sha']}] {s['what_happened'][:150]}")
+            return 0
+        print(f"{len(hits)} PAST FAILURE(S) THAT LOOK LIKE THIS\n")
+        for score, why, s in hits:
+            print(f"  {s['sha']}  match {score:.2f} on {', '.join(why)}")
+            print(f"    {s['subject']}")
+            print(f"    {s['what_happened'][:260]}\n")
+        return 0
+
+    print(f"{len(scars)} failure(s) recorded in this kit's history\n")
+    for s in scars[:a.n if a.cmd == 'list' and a.n != 3 else 25]:
+        print(f"  {s['sha']}  {s['subject'][:68]}")
+    print(f"\n  scars find \"<what you are about to do>\"")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
