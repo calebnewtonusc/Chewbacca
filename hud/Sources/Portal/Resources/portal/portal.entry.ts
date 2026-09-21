@@ -599,7 +599,12 @@ function frame(now: number) {
     // slowly or thrown across the display. The floor stops a very fast flick
     // vanishing before it is seen, the ceiling stops a still hand keeping a
     // permanent mark.
-    const LIFE_BASE = 450, LIFE_REF = 400, LIFE_MIN = 180, LIFE_MAX = 650;
+    // The steady-state tail is LIFE_BASE * LIFE_REF / 1000 px, so 650 * 400
+    // is 260px of line on screen at any ordinary drawing speed. It was 180px
+    // and that is not enough to steer by: with the ring not appearing until
+    // 248 degrees, the line is the only thing showing where the circle is
+    // going, and two thirds of it had already faded.
+    const LIFE_BASE = 650, LIFE_REF = 400, LIFE_MIN = 180, LIFE_MAX = 800;
     if (!circling && stroke.length > 3) {
       // Speed over the last few samples, in px per second.
       const k = Math.max(0, stroke.length - 6);
