@@ -770,11 +770,11 @@
       const aOld = aNew - dir * drawnAng;
       const f = Math.max(0, Math.min(1, fill));
       const STEPS = 72;
+      const lead = 1 - Math.pow(1 - f, 1.6);
       const depthAt = (u) => {
-        const wound = Math.pow(u, 2.4) * spiral + (1 - spiral);
-        const g = wound * (1 - f) + f;
+        const wind = 1 + 1.6 * Math.pow(1 - u, 1.6) * spiral;
         const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950) + 0.028 * Math.sin(u * 15.7 - now / 1500);
-        return Math.max(0, Math.min(1, f * g)) * rough;
+        return Math.max(0, Math.min(1, Math.pow(lead, wind))) * rough;
       };
       m.filter = `blur(${blurPx.toFixed(1)}px)`;
       m.fillStyle = "#fff";
