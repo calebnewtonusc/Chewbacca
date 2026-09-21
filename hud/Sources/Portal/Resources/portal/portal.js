@@ -751,7 +751,7 @@
     const maskCtx = maskCv.getContext("2d");
     const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw, cloud, fill, spiral) => {
       if (!mirrorReady || !maskCtx || strength <= 4e-3 || Rp < 3) return;
-      const blurPx = Math.max(6, Rp * (0.04 + 0.34 * cloud));
+      const blurPx = Rp * 0.38 * cloud;
       const pad = Math.max(16, blurPx * 2.5);
       const size = Math.ceil(2 * Rp + pad * 2);
       if (maskCv.width !== size || maskCv.height !== size) {
@@ -776,7 +776,7 @@
         const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950) + 0.028 * Math.sin(u * 15.7 - now / 1500);
         return Math.max(0, Math.min(1, Math.pow(lead, wind))) * rough;
       };
-      m.filter = `blur(${blurPx.toFixed(1)}px)`;
+      if (blurPx > 0.5) m.filter = `blur(${blurPx.toFixed(1)}px)`;
       m.fillStyle = "#fff";
       m.beginPath();
       for (let i = 0; i <= STEPS; i++) {
@@ -793,32 +793,85 @@
       }
       m.closePath();
       m.fill();
-      const blobAt = (u, out, rad, a) => {
-        const th = aOld + dir * u * drawnAng;
-        const rr = Math.max(0, Rp * (1 - depthAt(u)));
-        const bx = mx0 + Math.cos(th) * rr, by = my0 + Math.sin(th) * rr;
-        if (out) {
-          m.fillStyle = `rgba(255,255,255,${a})`;
+      if (cloud > 0.01) {
+        const atBoundary = (u, inward) => {
+          const th = aOld + dir * u * drawnAng;
+          const rr = Math.max(0, Rp * (1 - depthAt(u))) * (1 - inward);
+          return { x: mx0 + Math.cos(th) * rr, y: my0 + Math.sin(th) * rr };
+        };
+        for (let i = 0; i < 5; i++) {
+          const t = now / 3400 + i * 2.1;
+          const u = (Math.sin(t) + 1) / 2;
+          const inward = 0.1 + 0.26 * ((Math.sin(t * 0.7 + i * 1.3) + 1) / 2);
+          const q = atBoundary(u, inward);
+          const rad = Rp * (0.12 + 0.16 * ((Math.cos(t * 0.55 + i) + 1) / 2));
+          m.fillStyle = `rgba(255,255,255,${(0.16 + 0.2 * cloud) * cloud})`;
           m.beginPath();
-          m.arc(bx, by, rad, 0, Math.PI * 2);
+          m.arc(q.x, q.y, rad, 0, Math.PI * 2);
           m.fill();
-        } else {
-          m.globalCompositeOperation = "destination-out";
-          const g2 = m.createRadialGradient(bx, by, 0, bx, by, rad);
-          g2.addColorStop(0, `rgba(0,0,0,${a})`);
-          g2.addColorStop(1, "rgba(0,0,0,0)");
-          m.fillStyle = g2;
-          m.beginPath();
-          m.arc(bx, by, rad, 0, Math.PI * 2);
-          m.fill();
-          m.globalCompositeOperation = "source-over";
         }
-      };
-      for (let i = 0; i < 7; i++) {
-        const t = now / 2800 + i * 1.7;
-        const u = (Math.sin(t) + 1) / 2;
-        const rad = Rp * (0.07 + 0.1 * ((Math.cos(t * 0.9 + i) + 1) / 2));
-        blobAt(u, i % 2 === 0, rad, 0.5 + 0.35 * cloud);
+        for (let i = 0; i < 7; i++) {
+          const t = now / 2800 + i * 1.7;
+          const u = (Math.sin(t) + 1) / 2;
+          const q = atBoundary(u, 0);
+          const rad = Rp * (0.07 + 0.1 * ((Math.cos(t * 0.9 + i) + 1) / 2));
+          const a = (0.5 + 0.35 * cloud) * cloud;
+          if (i % 2 === 0) {
+            m.fillStyle = `rgba(255,255,255,${a})`;
+            m.beginPath();
+            m.arc(q.x, q.y, rad, 0, Math.PI * 2);
+            m.fill();
+          } else {
+            m.globalCompositeOperation = "destination-out";
+            const g2 = m.createRadialGradient(q.x, q.y, 0, q.x, q.y, rad);
+            g2.addColorStop(0, `rgba(0,0,0,${a})`);
+            g2.addColorStop(1, "rgba(0,0,0,0)");
+            m.fillStyle = g2;
+            m.beginPath();
+            m.arc(q.x, q.y, rad, 0, Math.PI * 2);
+            m.fill();
+            m.globalCompositeOperation = "source-over";
+          }
+        }
+        const atRim = (u, inward) => {
+          const th = aOld + dir * u * drawnAng;
+          const rr = Rp * (1 - inward);
+          return { x: mx0 + Math.cos(th) * rr, y: my0 + Math.sin(th) * rr };
+        };
+        for (let i = 0; i < 5; i++) {
+          const t = now / 3100 + i * 2.4;
+          const u = (Math.sin(t) + 1) / 2;
+          const inward = 0.04 + 0.2 * ((Math.sin(t * 0.8 + i * 1.1) + 1) / 2);
+          const q = atRim(u, inward);
+          const rad = Rp * (0.1 + 0.14 * ((Math.cos(t * 0.6 + i) + 1) / 2));
+          m.fillStyle = `rgba(255,255,255,${(0.14 + 0.18 * cloud) * cloud})`;
+          m.beginPath();
+          m.arc(q.x, q.y, rad, 0, Math.PI * 2);
+          m.fill();
+        }
+        for (let i = 0; i < 6; i++) {
+          const t = now / 2500 + i * 1.9;
+          const u = (Math.sin(t) + 1) / 2;
+          const q = atRim(u, 0);
+          const rad = Rp * (0.06 + 0.09 * ((Math.cos(t * 1.1 + i) + 1) / 2));
+          const a = (0.45 + 0.3 * cloud) * cloud;
+          if (i % 2 === 0) {
+            m.fillStyle = `rgba(255,255,255,${a})`;
+            m.beginPath();
+            m.arc(q.x, q.y, rad, 0, Math.PI * 2);
+            m.fill();
+          } else {
+            m.globalCompositeOperation = "destination-out";
+            const g3 = m.createRadialGradient(q.x, q.y, 0, q.x, q.y, rad);
+            g3.addColorStop(0, `rgba(0,0,0,${a})`);
+            g3.addColorStop(1, "rgba(0,0,0,0)");
+            m.fillStyle = g3;
+            m.beginPath();
+            m.arc(q.x, q.y, rad, 0, Math.PI * 2);
+            m.fill();
+            m.globalCompositeOperation = "source-over";
+          }
+        }
       }
       m.filter = "none";
       const veil = (1 - f) * 0.75;
