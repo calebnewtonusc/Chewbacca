@@ -229,8 +229,31 @@ collapse a selection the person meant to keep, and it is the action most likely
 to do something surprising inside an app nobody here controls. Tier 1 already
 puts the caret where it needs to be for tier 2 to work.
 
-Which tier runs where is unknown until the spike below measures it. The design
-holds either way; only the expected latency changes.
+**`kAXValueAttribute` is never a tier, and the spike is why.** Probed read-only
+on 2026-09-21 with `AXUIElementIsAttributeSettable`, which answers "would a
+write land" without writing:
+
+| field | `kAXSelectedText` | `kAXValue` |
+| --- | --- | --- |
+| Chrome, omnibox | YES | YES |
+| Terminal, toolbar search | no | YES |
+| Mail, toolbar search | no | YES |
+
+Every field that refused `kAXSelectedText` still offered `kAXValue`, which is
+the trap. Setting a value replaces the **entire** contents of the field, so a
+bubble reaching for it as a fallback would silently delete a half-written
+message to insert a sentence at the end of nothing. It is the one attribute that
+looks like the easy answer and is the only one that destroys work, so the
+fallback stays `peekaboo paste`, which inserts at the caret and keeps what is
+already there.
+
+The per-app table is incomplete on purpose: an app in the background exposes
+little or nothing of its text tree, so Messages and Notes returned no text
+element at depth 14 and Terminal and Mail returned their toolbars rather than
+their real inputs. Finishing it needs each app frontmost with a caret in it,
+which needs the machine for a minute. What the partial run did settle is that
+`AXIsProcessTrusted` is true here, that the settable check discriminates, and
+that the two-tier split is real rather than theoretical.
 
 ## Cleanup
 
@@ -270,16 +293,17 @@ Every dictation writes a line with the tier that inserted, the transcript
 length, the model round trip, and whether the timeout fired. That is the data
 for moving all four.
 
-## The spike, before any of the above
+## The spike
 
-Tier 1 against Messages, Terminal, Mail and Chrome, in a throwaway binary, with
-a scratch TextEdit window as the control. The output is a four-row table saying
-which apps accept `kAXSelectedTextAttribute`.
+Run read-only on 2026-09-21 and reported in Insertion above. It settled the
+design question it existed for, that the two tiers are real and that `kAXValue`
+must not be one of them, and it ruled out a permission blocker
+(`AXIsProcessTrusted` is true).
 
-It is first because it decides whether tier 2 is a rare fallback or the normal
-path, which changes the expected latency of the whole feature and would be
-expensive to discover after the state machine is written. It is throwaway: the
-answer is kept, the code is not.
+**Still open:** the per-app table, which needs each app frontmost with a caret
+in its real input rather than probed from the background. Worth finishing before
+tier 2's share of traffic is quoted anywhere, and not worth blocking the build
+on, because the code path is the same either way.
 
 ## Testing
 
