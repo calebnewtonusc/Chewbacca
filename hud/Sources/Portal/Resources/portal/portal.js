@@ -616,6 +616,7 @@
   var openGapFrom = 0;
   var openCcw = false;
   var mirrorAmt = 0;
+  var recognisedLatch = false;
   var lastFill = 0;
   var holdOld = 0;
   var settleX = 0;
@@ -1117,6 +1118,7 @@
       softFit = null;
       trimmedAtLatch = false;
       announcedAtLatch = false;
+      recognisedLatch = false;
     }
     if (!portalUp) placedOk = false;
     if (!portalUp) {
@@ -1216,15 +1218,23 @@
       }
       const REVEAL_AT = 0.5;
       const reveal = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / (1 - REVEAL_AT)));
-      const recognised = pinched && p.roundness >= 0.55 && p.progress >= REVEAL_AT;
+      if (!pinched || p.progress < REVEAL_AT - 0.05) recognisedLatch = false;
+      else if (p.roundness >= 0.58) recognisedLatch = true;
+      else if (p.roundness < 0.44) recognisedLatch = false;
+      const recognised = recognisedLatch && pinched && p.progress >= REVEAL_AT;
       const want = !portalUp && fitC && recognised ? 0.12 + 0.88 * reveal : 0;
       mirrorAmt += (want - mirrorAmt) * (want > mirrorAmt ? 0.15 : 0.09);
       if (recognised) {
         const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
-        openGap = Math.max(0, 1 - doneTurns);
+        const gapTarget = Math.max(0, 1 - doneTurns);
+        openGap += (gapTarget - openGap) * 0.3;
         openCcw = p.sweep < 0;
-        lastFill = doneTurns;
-        holdOld = (p.endAngle ?? 0) - (openCcw ? -1 : 1) * doneTurns * Math.PI * 2;
+        lastFill += (doneTurns - lastFill) * 0.3;
+        const oldTarget = (p.endAngle ?? 0) - (openCcw ? -1 : 1) * doneTurns * Math.PI * 2;
+        let d = oldTarget - holdOld;
+        while (d > Math.PI) d -= Math.PI * 2;
+        while (d < -Math.PI) d += Math.PI * 2;
+        holdOld += d * 0.3;
       } else if (mirrorAmt > 6e-3) {
         lastFill += (0 - lastFill) * 0.1;
         openGap += (1 - openGap) * 0.1;
