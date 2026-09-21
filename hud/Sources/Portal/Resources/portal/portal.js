@@ -723,6 +723,14 @@
     return trailPx;
   };
   var placedOk = false;
+  var camW = 352;
+  var camH = 288;
+  window.chewbaccaCamera = (w, h) => {
+    if (w > 0 && h > 0) {
+      camW = w;
+      camH = h;
+    }
+  };
   window.chewbaccaPlaced = (ok) => {
     placedOk = !!ok;
   };
@@ -755,11 +763,14 @@
     ctx.fillStyle = "rgba(0, 0, 0, 0.20)";
     ctx.fillRect(0, 0, W, H);
     const lm = now - lastSeen < 300 ? latest : null;
-    const fit = (v) => Math.max(0.02, Math.min(0.98, 0.5 + (v - 0.5) * reachScale));
+    const camK = H / camH / (W / camW);
+    const ax = Math.sqrt(camK);
+    const ay = 1 / Math.sqrt(camK);
+    const fit = (v, a) => Math.max(0.02, Math.min(0.98, 0.5 + (v - 0.5) * reachScale * a));
     const toScreen = (p2, hub) => {
       const sx = hub ? hub.x + (p2.x - hub.x) * handScale : p2.x;
       const sy = hub ? hub.y + (p2.y - hub.y) * handScale : p2.y;
-      return { x: fit(1 - sx), y: fit(sy) };
+      return { x: fit(1 - sx, ax), y: fit(sy, ay) };
     };
     const mx = (nx) => nx * W;
     const my = (ny) => ny * H;

@@ -67,6 +67,7 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
     private var reach: Double?
     private var hand: Double?
     private var trail: Double?
+    private var sentCameraSize = false
 
     func applicationDidFinishLaunching(_: Notification) {
         // Bundle.main first, because that is where bundle-portal.sh puts the
@@ -342,6 +343,15 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         }
         web.evaluateJavaScript(
             "window.chewbaccaHands&&window.chewbaccaHands(\(arg),\(eyesArg))")
+        // The page corrects for the camera's aspect, so it needs the real
+        // frame size rather than the preset's nominal one. Sent once.
+        if !sentCameraSize, let sz = HandTracker.frameSize {
+            sentCameraSize = true
+            web.evaluateJavaScript(
+                "window.chewbaccaCamera&&window.chewbaccaCamera(\(Int(sz.width)),\(Int(sz.height)))")
+            FileHandle.standardError.write(Data(
+                "portal: camera frame \(Int(sz.width))x\(Int(sz.height))\n".utf8))
+        }
     }
 
     func applicationWillTerminate(_: Notification) {
