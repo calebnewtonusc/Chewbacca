@@ -347,8 +347,44 @@ void main() {
                 + sin(r * 0.033 - 0.9) * 0.30
                 + sin(r * 0.019 + 1.7) * 0.15;
   float reachHere = reach + uR * 0.13 * endWave * (1.0 - uLead);
-  float outAng = rel > span ? min(rel - span, TAU - rel) : 0.0;
-  float dAng = max(outAng * uR - reachHere, 0.0) * 0.55;
+  // THE TWO ENDS COMBINE INTO EACH OTHER, THEY DO NOT MEET. "What happened
+  // to clouds/liquid that combine INTO each other not just next to each
+  // other."
+  //
+  // This was min() of the distance to each end, and a plain minimum is the
+  // operator for "whichever shape you are nearer to". Each end therefore
+  // terminated on its own terms and the two of them met along the line
+  // halfway between, which is precisely two things next to each other.
+  // Rounding the corners and fraying the edges made them prettier and kept
+  // them separate.
+  //
+  // Liquid merges because the fields ADD. As two droplets approach, each
+  // one's surface is pulled toward the other and they fuse with a neck
+  // rather than touching. The operator for that is a smooth minimum, which
+  // is what a metaball is, and it is one line:
+  //
+  //   smin(a, b) = -log(exp(-ka) + exp(-kb)) / k
+  //
+  // Far apart it is the plain minimum and nothing changes. Close together
+  // it dips below both, so the surface reaches out toward the other end and
+  // the gap closes early and smoothly. With the blend radius at 0.22 R:
+  //
+  //   ends 400px apart   min 200px   smin 160px
+  //   ends 240px apart   min 120px   smin  80px
+  //   ends 140px apart   min  70px   smin  30px
+  //   ends  80px apart   min  40px   smin   0px   <- fused
+  //
+  // The 40px it pulls by is the neck. That is the "into".
+  float dAng;
+  if (rel <= span) {
+    dAng = 0.0;
+  } else {
+    float dA1 = (rel - span) * uR;
+    float dA2 = (TAU - rel) * uR;
+    float k = 1.0 / max(uR * 0.22, 1.0);
+    float sm = -log(exp(-k * dA1) + exp(-k * dA2)) / k;
+    dAng = max(sm - reachHere, 0.0) * 0.55;
+  }
   float dRad = max(inner - r, 0.0);
   float dist = length(vec2(dAng, dRad));
   // The distance as a fraction of the band: 0 solid, 1 gone. Expressed this
@@ -368,11 +404,21 @@ void main() {
 
   float fBody = 1.0 - smoothstep(0.0, 1.0, edge + wisp);
 
-  // STOPS SHORT OF THE RING. "The image should NEVER overlap the arc."
-  // The rim is where the ring's own stroke is drawn, so painting the other
-  // side out to it put the city underneath the fire. Held inside the ring's
-  // inner edge, with a couple of pixels of softness so it is not a cut.
-  float fRim = smoothstep(uR - uInset, uR - uInset - 2.5, r);
+  // AND IT FADES OUT OVER A REAL DISTANCE, NOT TWO PIXELS. "Bro there's
+  // still a rough edge."
+  //
+  // That edge was always there. Until the inset went in, the image ran all
+  // the way to the rim and the ring's own stroke sat on top of exactly
+  // those pixels, so the cut was hidden under the fire rather than absent.
+  // Holding the image inside the ring exposed it, with 2.5px of softness
+  // against a 261px radius, which is a cut with a hint of anti-aliasing.
+  //
+  // A tenth of the radius now, fading INWARD so the image reaches zero at
+  // the ring's inner edge and never crosses it. Independent of the fill,
+  // unlike the inner band, because this edge exists for the whole life of
+  // the portal and has nothing to do with how much has been revealed.
+  float outerEdge = uR - uInset;
+  float fRim = smoothstep(outerEdge, outerEdge - max(3.0, uR * 0.10), r);
 
   // Fades toward the rim while the circle is still filling.
   float veil = 1.0 - uVeil * mix(0.3, 1.0, clamp(r / uR, 0.0, 1.0));
