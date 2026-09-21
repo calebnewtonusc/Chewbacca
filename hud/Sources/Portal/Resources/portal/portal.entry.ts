@@ -221,35 +221,33 @@ function frame(now: number) {
   // it however reach, size or the clamp are set. `rn` is a normalized
   // radius; the jitter is still in pixels because raggedness is a fixed
   // number of pixels whatever the ring's size.
+  // A CIRCLE, with ONE radius in pixels.
+  //
+  // Mapping every point through mx and my stretched it into an oval, because
+  // x divides by the width and y by the height and a 1512x982 display is not
+  // square. The centre still maps, so the ring follows the hand; only the
+  // radius is uniform, so it is round.
+  const RPX = Math.min(W, H);
   const arcPath = (
     cn: { x: number; y: number }, rn: number,
     a0: number, a1: number, segs = 96, jitterPx = 0,
   ) => {
+    const cx0 = px(cn.x), cy0 = py(cn.y);
+    const r = rn * RPX;
     ctx.beginPath();
     for (let i = 0; i <= segs; i++) {
       const a = a0 + ((a1 - a0) * i) / segs;
-      // Wobble the RADIUS, not each mapped point. Jittering x and y
-      // independently moved every vertex in its own direction, which reads
-      // as a ragged polygon rather than a burning edge.
-      const rr = jitterPx ? rn * (1 + (Math.random() - 0.5) * jitterPx * 0.004) : rn;
-      const qx = px(cn.x + Math.cos(a) * rr);
-      const qy = py(cn.y + Math.sin(a) * rr);
+      const rr = jitterPx ? r + (Math.random() - 0.5) * jitterPx : r;
+      const qx = cx0 + Math.cos(a) * rr;
+      const qy = cy0 + Math.sin(a) * rr;
       if (i === 0) ctx.moveTo(qx, qy); else ctx.lineTo(qx, qy);
     }
   };
   /** The on-screen radius of a normalized radius, for line widths and glows. */
-  const rpxOf = (cn: { x: number; y: number }, rn: number) =>
-    Math.hypot(px(cn.x + rn) - px(cn.x), 0) || 1;
+  const rpxOf = (_cn: { x: number; y: number }, rn: number) => rn * RPX || 1;
   const disc = (cn: { x: number; y: number }, rn: number) => {
-    // Built from mapped points too, so the fill matches the rim exactly.
     ctx.beginPath();
-    for (let i = 0; i <= 96; i++) {
-      const a = (Math.PI * 2 * i) / 96;
-      const qx = px(cn.x + Math.cos(a) * rn);
-      const qy = py(cn.y + Math.sin(a) * rn);
-      if (i === 0) ctx.moveTo(qx, qy); else ctx.lineTo(qx, qy);
-    }
-    ctx.closePath();
+    ctx.arc(px(cn.x), py(cn.y), rn * RPX, 0, Math.PI * 2);
   };
 
   const spawnAt = (
@@ -264,7 +262,7 @@ function frame(now: number) {
         vx: (tangentX + spread * -tangentY) * sp,
         vy: (tangentY + spread * tangentX) * sp,
         life: 1,
-        decay: 0.009 + Math.random() * 0.024,
+        decay: 0.03 + Math.random() * 0.05,
         heat: Math.random(),
         width: 0.35 + Math.random() * 0.85,
         bind,
@@ -538,7 +536,7 @@ function frame(now: number) {
     comet.push({ x: hx, y: hy });
     if (comet.length > 40) comet.shift();
     spawnAt(hx, hy, tx, ty,
-      Math.round((2 + k * 34) * (1 + Math.min(1.2, speedPx * 0.05))), 2.2 + k * 3.0, true);
+      Math.round((1 + k * 9) * (1 + Math.min(0.8, speedPx * 0.03))), 2.2 + k * 3.0, true);
     spawnAt(hx, hy, tx, ty, Math.round(k * 3), 3.0 + k * 2.8, false);
     attract = { cx: cn.x, cy: cn.y, r: rpx };
   }
@@ -676,7 +674,7 @@ function frame(now: number) {
     // half-disc at each end, so a 2px wide streak 2px long draws an exact
     // circle, and every slow spark rendered as a blob. Butt caps, a floor on
     // the length well above the width, and thinner strokes.
-    const len = Math.max(7, Math.min(48, speed * 4.2));
+    const len = Math.max(5, Math.min(20, speed * 2.4));
     const h = sp.heat * sp.life;
     const col = h > 0.62 ? CORE : h > 0.3 ? SPARK_HOT : h > 0.14 ? SPARK_MID : SPARK_COLD;
     ctx.strokeStyle = `rgba(${col}, ${Math.min(1, sp.life * 1.5)})`;
@@ -687,6 +685,6 @@ function frame(now: number) {
     ctx.lineTo(sp.x - (sp.vx / speed) * len, sp.y - (sp.vy / speed) * len);
     ctx.stroke();
   }
-  sparks = alive.length > 11000 ? alive.slice(-11000) : alive;
+  sparks = alive.length > 1400 ? alive.slice(-1400) : alive;
 }
 requestAnimationFrame(frame);
