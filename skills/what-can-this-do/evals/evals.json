@@ -1,0 +1,29 @@
+{
+  "skill": "what-can-this-do",
+  "cases": [
+    {
+      "prompt": "I don't know where to start today",
+      "expect_tools": [
+        "what-can-this-do"
+      ],
+      "why": "the whole point is proposing, not reciting a catalogue",
+      "reject": [
+        "listing every skill"
+      ]
+    },
+    {
+      "prompt": "What should I automate around here?",
+      "expect_tools": [
+        "what-can-this-do"
+      ],
+      "why": "he is asking for proposals he has not thought of"
+    },
+    {
+      "prompt": "Just cloned this repo, what is it good for?",
+      "expect_tools": [
+        "what-can-this-do"
+      ],
+      "why": "arriving in an unfamiliar repo is a named trigger"
+    }
+  ]
+}
