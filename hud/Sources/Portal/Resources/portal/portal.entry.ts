@@ -470,7 +470,7 @@ function frame(now: number) {
   const paintMirror = (
     cxp: number, cyp: number, Rp: number,
     strength: number, gapFrom: number, gapSize: number, ccw: boolean,
-    cloud: number, fill: number,
+    cloud: number, fill: number, spiral: number,
   ) => {
     if (!mirrorReady || strength <= 0.004 || Rp < 3) return;
     ctx.save();
@@ -497,118 +497,81 @@ function frame(now: number) {
 
     drawMirror(strength);
 
-    // IT FILLS INWARD FROM THE RIM, it does not open outward from the middle.
+    // A SPIRAL CLOSING IN, NOT A CURVE FROM A TO B.
     //
-    // "make the middle not filled at first, make it fill with distance from
-    //  the edge of the circle... half way through the circle filling from the
-    //  rim towards half way to the middle, and the end of the circle filling
-    //  to the whole middle, creating a opening more towards the middle as you
-    //  keep going."
+    // "It should look like a spiral that is closing in not just a curve from
+    //  point a to point b. and cloudy around the edges for a natural fade."
     //
-    // So the other side arrives as a ring at the rim and eats inward, and how
-    // deep it has eaten is how far round the hand has gone:
+    // The depth has a second axis, and adding it makes the boundary a spiral
+    // by itself rather than by drawing one. The part of the arc the hand drew
+    // FIRST has been eating inward the longest; the part under the fingers
+    // has only just started. So along the drawn arc the inner edge runs from
+    // deep at the old end out to the rim at the new end, which is a spiral,
+    // and it tightens toward the middle as the circle closes.
     //
-    //     drawn    the mirror reaches in to
-    //      10%           0.90 R      a band at the rim
-    //      25%           0.75 R      the rim and a little more
-    //      50%           0.50 R      half way to the middle
-    //      75%           0.25 R
-    //     100%           0.00 R      the whole circle
+    // At the old end, by how much is drawn:
+    //     10%  0.90 R    50%  0.50 R    90%  0.10 R
+    // and at the leading edge it is always R, because nothing has opened
+    // there yet.
     //
-    // The old version did the exact opposite, clear in the middle and faded
-    // at the rim, which is what an eye already inside another world would
-    // see. This is what a hole being cut looks like from outside it.
-    //
-    // The INNER edge is the soft one now. Erasing outward from the centre to
-    // innerR, with a feather that thins as the circle closes, so the opening
-    // always has weather at its inner boundary and none left at the end.
-    const innerR = Rp * (1 - Math.max(0, Math.min(1, fill)));
-    if (innerR > 0.5 && cloud > 0.002) {
-      ctx.globalCompositeOperation = "destination-out";
-      // 0.28 R of feather was most of the way to the middle, so the inner
-      // boundary was a gradient across the whole opening rather than an edge
-      // with weather on it.
-      const feather = Rp * (0.05 + 0.09 * cloud);
-      const outer = Math.max(2, innerR + feather);
-      const g = ctx.createRadialGradient(cxp, cyp, 0, cxp, cyp, outer);
-      const hold = Math.max(0, Math.min(0.95, (innerR - feather * 0.4) / outer));
-      g.addColorStop(0, "rgba(0,0,0,1)");
-      g.addColorStop(hold, "rgba(0,0,0,0.92)");
-      g.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(cxp, cyp, outer, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // The part of the circle the hand has not reached yet.
-    //
-    // NOT A WEDGE. Twice now this has been two straight radii meeting at the
-    // middle: "It still looks like a pie lol."
-    //
-    // "it should be a rough curve that goes from the 2 points on the
-    //  incomplete circle, curving towards the center, with the middle part of
-    //  the curve getting closer to the 2 other points and all 3 pts coming
-    //  together when the circle completes."
-    //
-    // So the region erased is a LUNE, not a sector. Its outer edge is the
-    // undrawn arc itself. Its inner edge is a curve running between the two
-    // ends of that arc, dipping toward the middle without ever arriving
-    // there, and the dip is what shrinks as the circle closes:
-    //
-    //     undrawn   dip reaches   what it looks like
-    //       90%        0.1 R      nearly the whole disc, tip rounded off
-    //       50%        0.5 R      a broad crescent
-    //       20%        0.8 R      a sliver along the rim
-    //        0%          R        the three points meet, nothing erased
-    //
-    // A radius has one shape and it is the shape of a pie chart. A lune with
-    // a moving depth is the only version of this where the boundary is a
-    // curve at every stage, including the first.
-    if (gapSize > 0.002 && cloud > 0.002) {
-      const blur = Math.max(3, Rp * 0.1);
-      ctx.filter = `blur(${blur.toFixed(1)}px)`;
+    // ONE ERASED REGION, NOT TWO. Everything not yet the other side is a
+    // single shape containing the middle: the inside of the spiral, joined to
+    // the part of the circle the hand has not reached. Erasing it in one
+    // blurred pass is what makes every edge cloudy at once, the spiral and
+    // the unfinished arc both, instead of one being soft and the other a cut.
+    if (cloud > 0.002) {
       const dir = ccw ? -1 : 1;
-      const gapAng = gapSize * Math.PI * 2;
-      // How far in the middle of the curve reaches. Never the centre, and it
-      // climbs to the rim as the gap closes so all three points converge.
-      const dip = Rp * (1 - Math.pow(gapSize, 0.75)) + Rp * 0.06;
-      const STEPS = 40;
+      const drawnAng = Math.min(Math.PI * 2, (1 - gapSize) * Math.PI * 2);
+      const gapAng = Math.PI * 2 - drawnAng;
+      const aNew = gapFrom;                     // the leading edge
+      const aOld = aNew - dir * drawnAng;       // where the circle began
+      const f = Math.max(0, Math.min(1, fill));
+      const STEPS = 64;
+
+      // How far in the other side has eaten, at a point u of the way from the
+      // old end to the leading edge. `spiral` is 1 while drawing and relaxes
+      // to 0 as the portal opens, which is what unwinds it into a full disc.
+      const depthAt = (u: number) => {
+        const wound = (1 - u) * spiral + (1 - spiral);
+        const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950)
+                        + 0.028 * Math.sin(u * 15.7 - now / 1500);
+        return Math.max(0, Math.min(1, f * wound)) * rough;
+      };
+
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.filter = `blur(${Math.max(3, Rp * 0.07).toFixed(1)}px)`;
       ctx.beginPath();
-      // Out along the undrawn arc.
+      // The inner edge of the opening, old end to leading edge: the spiral.
       for (let i = 0; i <= STEPS; i++) {
-        const th = gapFrom + dir * (i / STEPS) * gapAng;
-        const x = cxp + Math.cos(th) * Rp, y = cyp + Math.sin(th) * Rp;
+        const u = i / STEPS;
+        const th = aOld + dir * u * drawnAng;
+        const rr = Rp * (1 - depthAt(u));
+        const x = cxp + Math.cos(th) * rr, y = cyp + Math.sin(th) * rr;
         if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
       }
-      // And back along the bowed curve. Rough, not clean: the radius carries
-      // a slow wobble so the boundary looks like weather rather than a
-      // compass arc.
-      for (let i = STEPS; i >= 0; i--) {
-        const u = i / STEPS;
-        const th = gapFrom + dir * u * gapAng;
-        const bow = Math.sin(Math.PI * u);
-        const rough = 1 + 0.05 * Math.sin(u * 7.3 + now / 900)
-                        + 0.03 * Math.sin(u * 13.1 - now / 1400);
-        const rr = (Rp - (Rp - Math.min(dip, Rp)) * bow) * rough;
-        ctx.lineTo(cxp + Math.cos(th) * rr, cyp + Math.sin(th) * rr);
+      // Out to the rim at the leading edge, round the part not yet reached,
+      // and back in where the circle began.
+      if (gapAng > 0.001) {
+        for (let i = 0; i <= STEPS; i++) {
+          const th = aNew + dir * (i / STEPS) * gapAng;
+          ctx.lineTo(cxp + Math.cos(th) * Rp, cyp + Math.sin(th) * Rp);
+        }
       }
       ctx.closePath();
       ctx.fillStyle = "rgba(0,0,0,1)";
       ctx.fill();
 
-      // Blobs along the boundary, so the edge is lumpy rather than a clean
-      // sweep. Slow, tied to the clock, so it drifts instead of flickering.
-      for (let i = 0; i < 5; i++) {
+      // Weather along the boundary, drifting on a slow clock so it breathes
+      // rather than flickers.
+      for (let i = 0; i < 6; i++) {
         const t = now / 3000 + i * 1.7;
-        const u = 0.15 + 0.7 * ((Math.sin(t) + 1) / 2);
-        const th = gapFrom + dir * u * gapAng;
-        const bow = Math.sin(Math.PI * u);
-        const rr = Rp - (Rp - Math.min(dip, Rp)) * bow;
-        const br = Rp * (0.1 + 0.1 * ((Math.cos(t * 0.9 + i) + 1) / 2));
+        const u = (Math.sin(t) + 1) / 2;
+        const th = aOld + dir * u * drawnAng;
+        const rr = Rp * (1 - depthAt(u));
+        const br = Rp * (0.07 + 0.09 * ((Math.cos(t * 0.9 + i) + 1) / 2));
         const bx = cxp + Math.cos(th) * rr, by = cyp + Math.sin(th) * rr;
         const g2 = ctx.createRadialGradient(bx, by, 0, bx, by, br);
-        g2.addColorStop(0, "rgba(0,0,0,0.8)");
+        g2.addColorStop(0, "rgba(0,0,0,0.75)");
         g2.addColorStop(1, "rgba(0,0,0,0)");
         ctx.fillStyle = g2;
         ctx.beginPath();
@@ -1218,7 +1181,7 @@ function frame(now: number) {
         ? Math.min(1, Math.abs(p.sweep) / (Math.PI * 2))
         : lastFill;
       lastFill = fill;
-      paintMirror(cvx, cvy, Rv, mirrorAmt, openGapFrom, openGap, openCcw, 1, fill);
+      paintMirror(cvx, cvy, Rv, mirrorAmt, openGapFrom, openGap, openCcw, 1, fill, 1);
     }
 
     ctx.globalCompositeOperation = "lighter";
@@ -1505,9 +1468,12 @@ function frame(now: number) {
         const closing = ease(ignite);
         const clearing = ignite * ignite;
         // The last of the middle fills in on the same curve the sector does.
+        // The spiral unwinds as it opens: the deep end stays deep, the
+        // leading end catches up, and by the end the depth is uniform and the
+        // whole circle is the other side.
         paintMirror(cx0, cy0, rpx, 1 - shut2,
           openGapFrom, openGap * (1 - closing), openCcw, 1 - clearing,
-          lastFill + (1 - lastFill) * closing);
+          lastFill + (1 - lastFill) * closing, 1 - closing);
       }
 
       ctx.globalCompositeOperation = "lighter";
