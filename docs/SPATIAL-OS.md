@@ -1,191 +1,122 @@
 # The spatial layer: hands, voice, and the glass
 
 Caleb, 2026-09-21: *"I wanna be doctor strange iron man mixed tgt"* and
-*"I'm tryna open a doctor strange portal and control chewbacca w hand gestures
-and voice together. We're inventing a new operating system lol"*
+*"I'm tryna open a portal and control chewbacca w hand gestures and voice
+together. We're inventing a new operating system lol"*
 
-This file is the plan for that, written so it can be picked up cold.
+Built overnight 2026-09-20 to 21. **This file was a plan and is now a status
+report**, because a plan left lying around after the work is done is worse
+than no document: the next person builds what it describes instead of what
+is missing.
 
 ---
 
-## Read this before writing any code
+## Try it in one minute
 
-**Caleb already built most of the visual half, in September, and it is public.**
-`github.com/calebnewtonusc/OpenVision`, live at `openvision.vercel.app`, last
-touched 2026-09-04. He sent the link twice on 9/20 and 9/21 and both times this
-kit built past it and started from scratch in Swift instead. That is the tenth
-instance of the same failure this session, recorded in
-[[../memory/feedback_built_but_never_fires]]: a capability exists, is correct,
-is tested, and never fires.
+```
+cd hud && ./scripts/bundle-portal.sh    # builds Portal.app
+portal open dashboard                    # or: notes, calendar, chewbacca
+```
 
-What is in it, verified by reading the repo on 2026-09-21:
+Pinch thumb to index, sweep a circle in the air. The portal burns open where
+you drew it, with that window behind the hole. Pinch again to close. Esc
+quits. `portal targets` lists what it knows; add a line to
+`~/.chewbacca/portal-targets.tsv` and a new target is openable immediately.
 
-| Piece | Path | What it is |
+The browser version, for hacking on the visuals without a Swift build, is
+`calebnewtonusc/OpenVision` route `/strange`: `npm run dev`.
+
+---
+
+## What is built
+
+| Piece | Where | State |
 | --- | --- | --- |
-| Hand tracking | `lib/openvision/react/useHandTracking.ts` | MediaPipe Hands, 21 landmarks, 30fps+, as a hook |
-| Gesture classifier | `lib/openvision/core/gestures.ts` | 44 lines, zero deps. fist, open, point, peace, thumbs_up, pinky, pinch. Has a 151-line test file |
-| Pinch detector | `lib/openvision/core/pinch.ts` | `PinchDetector` class, 154 lines, 130 lines of tests |
-| Eye tracking | `lib/openvision/react/useGazeTracking.ts` | WebGazer, 9-point calibration, Kalman-filtered |
-| Dwell to click | `lib/openvision/react/useDwellClick.ts` | Stare 1.2s at any `data-gaze-target` element |
-| Glass panels | `lib/openvision/react/SpatialPanel.tsx` | Draggable, gaze focus ring, already gaze-tagged |
-| **Portal** | `components/HandsWeb.tsx:528-630` | Pulsing radial void, fingertip orbital trails, negative-gravity particles, per-finger glow |
-| Air keyboard | `components/toolkit/AirKeyboard.tsx` | Type without touching anything |
-| Glass hands | `components/toolkit/GlassHands.tsx` | |
+| Circle gesture, by total turning angle | `OpenVision lib/openvision/core/circle.ts` | Works. 13 tests, including realistic landmark noise |
+| Least-squares circle fit (Kasa) | same | Works. Centre lands 0.0005 off on a 216 degree arc, versus 0.0656 for a centroid |
+| Open/close state machine | `core/portal-state.ts` | Works. Pure reducer, 7 tests |
+| Eye-through-fingertip pointing | `core/pointing.ts` | Works. 20 tests, collinearity asserted in 3D |
+| Apple Vision hand tracking | `hud/Sources/BobHUDKit/HandTracker.swift` | Works. 7.56ms one hand, 4-6% of one core on an M4 Pro |
+| Landmark bridge, and pupils | `hud/Sources/BobHUDKit/LandmarkBridge.swift` | Works. 8 tests |
+| The portal on the HUD glass | `hud/Sources/Portal/` | Works. Transparent WKWebView, click-through |
+| Window placement behind the hole | `hud/Sources/Portal/WindowPlacer.swift` | Works. Needs Accessibility, prompts for it |
+| `portal` CLI and named targets | `bin/portal` | Works |
+| Voice knows about portals | `bin/hud-agent.md` | Works |
 
-`core/` is **zero-React and zero-dependency** by design, and its README says so:
-*"When the toolkit matures into a standalone npm package, the `core/` folder
-ports cleanly."* That is the seam this plan uses.
-
-The portal is ~100 lines of Canvas 2D. No shader, no WebGL, no library. It reads
-`hands[].lm` (21 landmarks each) and draws. **Anything that can produce 21
-landmarks can drive it unchanged.**
-
----
-
-## What Chewbacca has that OpenVision does not
-
-Built the night of 2026-09-20 to 21, on branch `feat/hand-control`:
-
-| Piece | Path | Measured |
-| --- | --- | --- |
-| Native hand tracking | `hud/Sources/BobHUDKit/HandTracker.swift` | Apple Vision, 380 lines. **7.56ms one hand, 9.96ms two, 4-6% of one core sustained on M4 Pro** |
-| Two gestures wired to real actions | same | palm-to-dismiss, point-to-deixis |
-| The event the voice layer already eats | `OutboundEvent.region` | point-deixis emits it |
-| Voice with his whole brain | `bin/hud-agent.md`, `bin/superassistant` | lean+brain+doctrine+index, ~53,700 tokens, 6-10s |
-| Narration in waves | `bin/hud-agent.md` | the Bash `description` field becomes the pill text |
-| A transparent always-on-top window | `hud/` | already shipping |
-
-So: **Chewbacca has the input and the intelligence. OpenVision has the output.**
-Neither has the other. The remaining work is a seam, not a capability.
-
----
-
-## The architecture
+### The architecture, and why it is not the obvious one
 
 ```
-Apple Vision (Swift)          the OpenVision portal (Canvas 2D)
-HandTracker.swift      ──►    WKWebView inside the HUD overlay
-7.56ms, 4-6% of a core        ~100 lines, already written
-      │                                  ▲
-      │ 21 landmarks per hand, 30fps     │ window.chewbaccaHands(frame)
-      └──────────────────────────────────┘
-
-            gesture ──► OutboundEvent ──► hud-listen (voice, has his brain)
+Apple Vision  ->  LandmarkBridge  ->  WKWebView  ->  canvas
+7.56ms/frame      y flip, pupils     no camera      draws
 ```
 
-Three reasons this shape and not the others:
+**Not MediaPipe in a webview.** That is the quick build: point a WKWebView at
+the browser version and let it open the camera. It is a second camera stream
+beside the one the process already runs, a WASM model off a CDN at every
+launch, and several times the CPU.
 
-1. **Do not port the portal to Swift.** It is Canvas 2D with `shadowBlur` and
-   `globalAlpha`. Reimplementing it in Core Graphics or Metal is a week for a
-   pixel-identical result.
-2. **Do not run MediaPipe in the HUD.** Apple Vision is already measured at
-   7.56ms and needs no CDN, no WASM, no network. MediaPipe loads from a CDN,
-   which the HUD should never depend on.
-3. **The landmark format is the same.** MediaPipe and Apple Vision both give 21
-   points per hand. The index order differs and needs one mapping table, written
-   once. `lib/openvision/core/skeleton.ts` has `HAND_CONNECTIONS` for the
-   MediaPipe order; Apple's `VNHumanHandPoseObservation.JointName` is the other
-   side of that table.
+**The gesture logic stays in the web layer**, which looks backwards until you
+count implementations. The circle detector, the fit, the mirror mapping, the
+pointing ray and the state reducer have 73 tests in OpenVision. A Swift
+rewrite means two implementations of subtle geometry and tests for one. The
+core is vendored into `hud/Sources/Portal/Resources/portal/vendor/` at a
+recorded commit, with `sync.sh` to update it, because an app bundle must not
+resolve a dependency at launch.
 
----
-
-## Build order
-
-Each step is shippable on its own and each one is visible.
-
-### 1. The landmark bridge (half a day)
-
-Write `hud/Sources/BobHUDKit/LandmarkBridge.swift`: take
-`VNHumanHandPoseObservation`, emit MediaPipe-ordered `[{x, y, z}]` as JSON,
-push it into a `WKWebView` via `evaluateJavaScript("window.chewbaccaHands(...)")`.
-
-The mapping table is the only real content. Apple gives named joints
-(`.thumbTip`, `.indexMCP`); MediaPipe gives indices 0-20. Write the table with a
-test that asserts a known pose maps to known indices, because getting it wrong
-produces a hand that looks almost right, which is the worst failure mode to
-debug by eye.
-
-**Gate:** `classifyGesture` from OpenVision, running unmodified on
-Apple-sourced landmarks, returns `point` when Caleb points. If that passes, 44
-lines of his gesture logic and 151 lines of its tests come across for free.
-
-### 2. Portal in the HUD (one day)
-
-Extract `HandsWeb.tsx:528-630` into a standalone HTML file with no React and no
-Next.js: a canvas, the particle loop, and `window.chewbaccaHands` as the entry
-point. Load it in a transparent `WKWebView` layered over the HUD.
-
-**Gate:** he waves at the screen and the portal follows his hands, with the HUD
-still clickable through it. Transparent-window hit testing is the part that
-will fight back: the WKWebView must not eat mouse events meant for what is
-underneath.
-
-### 3. Gesture to action (half a day)
-
-`OutboundEvent.region` already exists and `hud-listen` already consumes it. Wire
-the classifier's output to it, and hold the line already written in
-[BACKLOG.md](../BACKLOG.md) item 10: **two gestures, not seven.** Palm dismisses.
-Point says "this one" and hands the region to the voice agent.
-
-A seven-gesture vocabulary is a demo. Two gestures nobody has to remember is a
-feature.
-
-### 4. Voice and hands in one turn (half a day)
-
-The thing he actually asked for. He points at a window, says "what is this", and
-the voice agent answers about that region, narrating in waves while it works.
-
-Every piece for this exists today and none have been run together.
-
-**Gate:** that exact sentence, start to finish, on video.
+**An armed portal punches a real hole** with `destination-out`, and the
+target window is moved behind it. Nothing is captured and nothing is
+composited, so it is live with no latency by construction. ScreenCaptureKit
+would cost a frame of latency, a second encode of pixels already on screen, a
+recording indicator in the menu bar, and a picture of a window rather than
+the window.
 
 ---
 
-## What is deliberately not in this plan
+## What is NOT built
 
-**Eye tracking.** OpenVision has WebGazer with 9-point calibration and it works
-in a browser. In an always-on desktop overlay, a 5-clicks-per-dot calibration
-that decays as you move your head is a worse pointer than the mouse. Revisit
-only if the hands land and it still feels like something is missing.
-
-**The air keyboard.** Typing without touching anything is a party trick and he
-has a keyboard four inches away. Same for a seven-gesture vocabulary, which step
-3 already rules out, and for rebuilding the portal natively, which the
-architecture section rules out. All three are written down here because each one
-will get proposed again by somebody who has not read those sections.
-
----
-
-## The honest read
-
-The research verdict already in [BACKLOG.md](../BACKLOG.md) item 21 was **"a
-demo, not a feature,"** and Gavin reached that independently. That verdict still
-stands and this plan does not overturn it.
-
-What changed is the cost. When the estimate was "build hand tracking, build a
-particle system, build a gesture classifier," a demo was not worth it. Now the
-tracker is measured and shipping, the classifier and the portal are written and
-tested in his own repo, and what is left is a mapping table and a WKWebView.
-**A two-day demo that makes his friends say woahhhh is worth two days.** A
-two-week one was not.
-
-Ship it as its own target with a README that says it is a demo, exactly as item
-21 specifies. Do not let it become a dependency of anything in the daily path.
+1. **The voice answering before he draws.** He wants to say *"Can I open a
+   portal to some dashboards"* and hear *"sure go ahead doctor strange"*, and
+   only then draw. Today `portal open` arms silently and the reply is
+   whatever the agent says about the command. The arming and the spoken line
+   need to be one turn.
+2. **The dashboard INSIDE the ring.** Today the window sits BEHIND a hole, so
+   it is framed rather than contained: it does not move or scale with the
+   portal, and drawing a small circle crops the window rather than shrinking
+   it. His words were "the dashboard pops up in the middle of the portal".
+3. **The browser build still uses the camera-relative cursor.** `pointing.ts`
+   is only wired into the HUD, because MediaPipe there has no face landmarks
+   without adding FaceMesh.
+4. **Palm-dismiss and point-deixis are off.** They work and they were noisy:
+   *"it's j randomly picking up me pointing my finger and it isn't useful"*.
+   Still in `HandTracker`, still on the menu toggle, `hud.handControl` false.
 
 ---
 
-## Picking this up cold
+## What this cost, and the lessons worth inheriting
 
-```
-git checkout feat/hand-control          # HandTracker.swift, HandDemo target
-gh repo clone calebnewtonusc/OpenVision # the portal and the classifier
-```
+**One screenshot beat an hour of reading the code.** Four visual bugs shipped
+at once with 47 tests green: a squashed ellipse, a flat orange wash, a neon
+hairline instead of a band of fire, and sparks pinned to the rim. All four
+were obvious in a picture and invisible in source.
 
-Read, in this order: `hud/Sources/BobHUDKit/HandTracker.swift`, then
-OpenVision's `lib/openvision/README.md`, then `components/HandsWeb.tsx` lines
-528-630.
+**Tests of correctness say nothing about plausibility.** The circle fit was
+mathematically right and visually absurd: a small flick genuinely does lie on
+a circle bigger than the screen. `circle.noise.test.ts` and the
+ill-conditioned-fit tests are the pattern, and they assert what must be true
+ON SCREEN.
 
-Then start at step 1. Do not start by writing anything that already exists in
-either repo, which is the whole reason this file is here.
+**Perfect synthetic input hides real failures.** The detector fired 0 times
+out of 20 on a circle with realistic landmark jitter while passing every test
+built from a compass, because noise flips the sign of a turn and the sweep
+restarted on every flip.
+
+**Do not make an agent infer.** Asked for "a portal to dashboard" the voice
+agent spent 68 seconds cloning repos, because the name resolved to nothing.
+A lookup table fixed it. An agent given a puzzle will always find something
+expensive to do.
+
+**Check his own repos first.** OpenVision already had hand tracking, a
+gesture classifier and a portal, built in September. It was linked twice
+before anyone opened it.
 
 Built with Chewbacca
