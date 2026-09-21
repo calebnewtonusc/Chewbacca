@@ -413,12 +413,25 @@ void main() {
   // Holding the image inside the ring exposed it, with 2.5px of softness
   // against a 261px radius, which is a cut with a hint of anti-aliasing.
   //
-  // A tenth of the radius now, fading INWARD so the image reaches zero at
-  // the ring's inner edge and never crosses it. Independent of the fill,
-  // unlike the inner band, because this edge exists for the whole life of
-  // the portal and has nothing to do with how much has been revealed.
+  // AND IT IS WIDE AT THE START AND CLOSED BY THE END. "It should start
+  // with this gap/cloud on the outside, but as the circle closes it
+  // progresses and it fades in, liquid expands to fill the circle."
+  //
+  // Making this independent of the fill was wrong in the other direction:
+  // a finished portal kept a permanent cloudy vignette inside its own ring,
+  // which is what the screenshot showed. The cloud belongs at the
+  // BEGINNING, when the other side is only just bleeding through the rim,
+  // and the liquid should push it out as it spreads.
+  //
+  //   fill 0.00   the image fades over 18% of the radius, all cloud
+  //   fill 0.50   over 11%
+  //   fill 1.00   over 2%, just enough not to alias
+  //
+  // Still fading inward from the ring's inner edge, so however wide it
+  // gets it never crosses the arc.
   float outerEdge = uR - uInset;
-  float fRim = smoothstep(outerEdge, outerEdge - max(3.0, uR * 0.10), r);
+  float outerFade = max(2.0, uR * (0.02 + 0.16 * (1.0 - uLead)));
+  float fRim = smoothstep(outerEdge, outerEdge - outerFade, r);
 
   // Fades toward the rim while the circle is still filling.
   float veil = 1.0 - uVeil * mix(0.3, 1.0, clamp(r / uR, 0.0, 1.0));
