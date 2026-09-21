@@ -41,10 +41,26 @@ const SPARK_COLD = "214, 74, 16";
 // on a smoothstep spends its time in the middle where the shape is actually
 // changing.
 const IGNITE_MS = 1150;
-const CLOSE_MS = 380;
+// 380 gave the collapse a tenth of a second of real movement once the
+// ease-out had eaten the front of it. Even on a proper curve it is too
+// quick for something this big to stop being there.
+const CLOSE_MS = 620;
 const MIN_OPEN_MS = 600;
 
 const ease = (t: number) => 1 - Math.pow(1 - t, 3);
+// A CLOSE IS NOT AN OPEN PLAYED BACKWARDS. "it snaps into place so abruptly
+// when the portal closes."
+//
+// The collapse used `ease` too, and `ease` is an ease-OUT: its slope at t=0
+// is 3, so the radius fell at triple speed on the very first frame and then
+// crawled the last few pixels. That front-loaded jump IS the snap. Over
+// 380ms it was most of the portal gone inside a tenth of a second.
+//
+// Ease-in-out instead: it leaves at zero speed, so the rim gathers itself
+// before it goes, accelerates through the middle, and settles at zero speed
+// rather than stopping dead.
+const easeShut = (t: number) =>
+  t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
 interface Spark {
   x: number; y: number; vx: number; vy: number;
@@ -113,6 +129,9 @@ let recognisedLatch = false;
 let lastFill = 0;
 // The high-water mark of how far round the hand has got, this pinch.
 let drawnMax = 0;
+// A CANCEL IS AN ANIMATION, NOT AN EVENT. True from the frame the fingers
+// open until the line has finished retracting back to where it started.
+let cancelling = false;
 // Where the circle BEGAN, held. A cancelled circle winds back toward this
 // point, so the angle that has to survive the cancel is the start and not the
 // leading edge.
@@ -1231,7 +1250,32 @@ function frame(now: number) {
     // drawing code wrong at all.
     while (stroke.length > 260) stroke.shift();
   } else if (stroke.length) {
-    stroke = [];
+    // THE LINE RETRACTS, IT DOES NOT VANISH. "When a circle is in the
+    // process of being made but then gets cancelled it needs to be a dope
+    // unspiraling that follows the line."
+    //
+    // This used to be `stroke = []`, one frame, gone. The mirror then spent
+    // a second unwinding along a line that was no longer on screen, so the
+    // unspiral had nothing to follow and the whole cancel read as a blink.
+    //
+    // Now the head of the stroke is eaten backwards along itself: the line
+    // withdraws the way it was drawn, in reverse, and the mirror's arc
+    // retracts on the same 0.10 ease so the two stay locked together. The
+    // spiral, the sparks and the tangent all read `stroke`, so they follow
+    // it home without knowing anything about cancelling.
+    cancelling = true;
+    // EXACTLY 10% A FRAME, the same rate the mirror's arc and depth ease
+    // back on, so the line and the spiral arrive home together. An earlier
+    // floor of 2 points broke that on short strokes: 40 points reeled in
+    // over 0.25s against the mirror's 0.63s, so the line beat the spiral
+    // home and the last of the unwind played against nothing. `ceil` is
+    // already never less than 1, so no floor is needed to terminate.
+    const eat = Math.ceil(stroke.length * 0.10);
+    stroke.length = Math.max(0, stroke.length - eat);
+    if (stroke.length < 3) { stroke = []; cancelling = false; softFit = null; }
+  } else if (cancelling) {
+    cancelling = false;
+    softFit = null;
   }
 
   let p: CircleProgress;
@@ -1415,7 +1459,11 @@ function frame(now: number) {
     }
   }
   if (S.phase !== "drawing" && drawing) drawing = null;
-  if (!pinched) { softFit = null; trimmedAtLatch = false; announcedAtLatch = false; recognisedLatch = false; drawnMax = 0; }
+  // softFit IS WHAT THE UNWIND FOLLOWS, so it outlives the pinch. Nulling it
+  // the instant the fingers opened left the retraction with no circle to
+  // retract along, which is half of why a cancel just blinked out.
+  if (!pinched) { trimmedAtLatch = false; announcedAtLatch = false; recognisedLatch = false; drawnMax = 0; }
+  if (!pinched && !cancelling) softFit = null;
   if (!portalUp) placedOk = false;
   if (!portalUp) { settleX = 0; settleV = 0; arcX = 0; arcV = 0; }
   if (portalUp) stroke = [];
@@ -1528,7 +1576,13 @@ function frame(now: number) {
     }
   }
 
-  if (!portalUp && pinched && stroke.length > 2) {
+  // OR CANCELLING. Everything below, the line, the spiral, the sparks and
+  // the unwind branch itself, sat behind `pinched`, so the moment the
+  // fingers opened the whole block stopped running and the portal-in-
+  // progress disappeared between one frame and the next. The unwind that
+  // was written for this only ever ran while STILL pinching with a shape
+  // that had stopped being a circle, which is the rarer case by far.
+  if (!portalUp && (pinched || cancelling) && stroke.length > 2) {
     const raw = drawing ?? (p.center ? { cx: p.center.x, cy: p.center.y, r: p.radius } : null);
     if (raw) {
       softFit = softFit
@@ -2016,7 +2070,7 @@ function frame(now: number) {
     const shut = collapseAmount(S, now, CLOSE_MS);
     const e = ease(ignite);
     const cn = { x: geom.cx, y: geom.cy };
-    const rn = clampRN(geom.r) * (1 - ease(shut));
+    const rn = clampRN(geom.r) * (1 - easeShut(shut));
     const rpx = rpxOf(rn);
 
     // NO HOLE ANIMATION. There used to be a growing hole here, opening from
@@ -2060,7 +2114,7 @@ function frame(now: number) {
         // drawn frame, and 820ms later there is no gap and no cloud left:
         // "when the portal is fully open the whole thing is completely
         // visible no clouds."
-        const shut2 = ease(shut);
+        const shut2 = easeShut(shut);
         // TWO CURVES, BECAUSE THEY ARE TWO DIFFERENT EVENTS.
         //
         // The last unfinished sector fills in quickly: that is the circle
@@ -2149,7 +2203,7 @@ function frame(now: number) {
       }
 
       const flicker = 0.82 + Math.sin(now / 55) * 0.1 + Math.random() * 0.08;
-      const heat = 1 + (1 - e) * 1.6 + ease(shut) * 2.6;
+      const heat = 1 + (1 - e) * 1.6 + easeShut(shut) * 2.6;
       ctx.lineCap = "round";
       ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
 
