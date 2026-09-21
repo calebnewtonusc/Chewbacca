@@ -1958,7 +1958,25 @@ function frame(now: number) {
     sp.life -= 0.004;
     if (sp.life <= 0) continue;
     alive.push(sp);
-    if (portalUp && insidePortal(sp.x, sp.y)) sparksInHole++;
+
+    // NOTHING IS DRAWN INSIDE THE PORTAL, WHATEVER SPAWNED IT.
+    //
+    // "The orange in the middle appears to be going there when the portal
+    // completes", and that timing is the whole explanation. At the moment a
+    // circle completes, every spark seeded along the stroke is inside the
+    // circle, bound to the attractor, and gets flung outward across the
+    // middle. The diagnostic counted 302 of them in one sample.
+    //
+    // They do not read as sparks. Hundreds of short overlapping streaks at
+    // low alpha average out into a smooth orange arc with a blob on its end,
+    // which is exactly what the close-up showed and why "doesn't rlly look
+    // like sparks" was a fair description of a pile of sparks.
+    //
+    // This was written once, reverted on that description, and is back
+    // because the count says otherwise. Gating emitters one at a time missed
+    // three times; asking what is being drawn where the other side is has
+    // one answer and no list to keep up to date.
+    if (portalUp && insidePortal(sp.x, sp.y)) { sparksInHole++; continue; }
 
     const speed = Math.hypot(sp.vx, sp.vy) || 1;
     // A ROUND CAP ON A SHORT STROKE IS A DOT. lineCap "round" adds a
