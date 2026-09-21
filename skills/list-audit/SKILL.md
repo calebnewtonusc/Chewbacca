@@ -208,3 +208,42 @@ a string replacement silently failed against a format string that had changed
 underneath it. Zero reads as a crash rather than as a lie, which is why it nearly
 shipped. Assert the anchor before writing and re-read the file after, since a
 `replace()` that matches nothing still exits successfully.
+
+## Check what the matcher throws away, not just what it keeps
+
+The leaks above were all things that got in. The worse failure is silent
+discarding, and it does not show up anywhere in the output.
+
+**A sparse column will quietly drop most of your file.** Matching on each row's
+`sectors` cell looked reasonable until the discards were counted: **68 percent of
+the qualified pool had no sector at all, and 11,748 of those carried a senior
+title.** General partners and chief investment officers were being dropped
+because a column was blank. A thesis is a property of the organization, so pool
+the values across every row at that firm and let people with none inherit them,
+scored lower than a row's own value.
+
+**A flag used as a gate is evidence you are not counting.** One campaign required
+a crypto flag and then scored only sectors, so a crypto-flagged grade-A partner
+at the best crypto fund in the file lost to his own sectors cell reading
+"Software". When a flag is the thesis, it has to score.
+
+**Run a recall test before trusting any list.** Take twenty firms you would
+expect to see and check they survived. That one check surfaced all three of these
+at once, and it costs a minute. Also check the discards directly: sample what
+scored zero and ask whether you would have emailed them.
+
+## The entity you cap has to be the entity that exists
+
+A per-firm cap keyed on the raw name is not a per-firm cap. One fund appeared as
+"Andreessen Horowitz", "Andreessen Horowitz LLC", "a16z crypto" and "A16Z
+Crypto", so a cap of two allowed eight. Normalize before keying: casefold, strip
+punctuation and legal suffixes, and never let the key collapse to empty, because
+"Capital Group" is a real name made entirely of noise words.
+
+A flat cap is also usually the wrong shape. It treats a 179-person multi-stage
+fund like a two-partner shop, and it makes campaigns compete for a firm by score,
+so the highest scorer takes the whole allowance and a campaign with a better
+match there gets nothing. What offends a recipient is two messages about the
+**same** thing, so make that the hard rule, one contact per firm per campaign,
+and let the firm-wide ceiling scale with how many people that firm has. Different
+partners in different practices are different audiences.
