@@ -443,18 +443,18 @@ function frame(now: number) {
     // and still does not compete with the ring, which is what made the fat
     // circles ugly.
     for (const t of FINGER_TIPS) {
-      ctx.shadowBlur = pinched ? 5 : 3;
-      ctx.shadowColor = `rgba(${SPARK_MID}, 0.7)`;
-      ctx.fillStyle = `rgba(${SPARK_HOT}, ${pinched ? 0.7 : 0.45})`;
+      ctx.shadowBlur = pinched ? 9 : 6;
+      ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
+      ctx.fillStyle = `rgba(${SPARK_HOT}, ${pinched ? 1 : 0.8})`;
       ctx.beginPath();
-      ctx.arc(mx(lm[t].x), my(lm[t].y), pinched ? 1.5 : 1.2, 0, Math.PI * 2);
+      ctx.arc(mx(lm[t].x), my(lm[t].y), pinched ? 1.7 : 1.4, 0, Math.PI * 2);
       ctx.fill();
     }
     // The pinch point is the pen, so it is the brightest thing on the hand.
     if (pinch?.center) {
-      ctx.shadowBlur = 8;
-      ctx.shadowColor = `rgba(${CORE}, 0.8)`;
-      ctx.fillStyle = `rgba(${CORE}, 0.85)`;
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = `rgba(${CORE}, 1)`;
+      ctx.fillStyle = `rgba(${CORE}, 1)`;
       ctx.beginPath();
       ctx.arc(mx(pinch.center.x), my(pinch.center.y), 1.9, 0, Math.PI * 2);
       ctx.fill();
