@@ -37,11 +37,13 @@ A sampled score is never compared against a full one; --compare refuses.
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import random
 import re
 import subprocess
 import sys
+import tempfile
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -93,18 +95,58 @@ def _num(rx, text, default=0):
 
 
 def behavioural(sample=None, seed=1337):
-    """Shells out to the kit's own behavioural pass. Costs model calls."""
-    cmd = [sys.executable, str(ROOT / "tools/evals.py"), "--run"]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=5400)
-    out = r.stdout + r.stderr
+    """Shells out to the kit's own behavioural pass. Costs model calls.
+
+    RECORDS WHICH CASES FAILED, not how many. The first version regexed
+    "N passed, M failed" out of stdout and kept the two integers, so ten
+    runs of this benchmark recorded "25 failed" and nothing about which 25.
+    That makes credit assignment impossible, and credit assignment is the
+    whole problem in a learning loop: with a scalar there is nothing to
+    attribute a regression to and nothing to fix. `tools/evals.py --json`
+    now writes a row per case, and the failures are carried into the log.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        results_path = os.path.join(tmp, "cases.jsonl")
+        cmd = [sys.executable, str(ROOT / "tools/evals.py"), "--run",
+               "--json", results_path]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=5400)
+        out = r.stdout + r.stderr
+        cases = []
+        if os.path.exists(results_path):
+            with open(results_path, encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if line:
+                        try:
+                            cases.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            pass
+
     m = re.search(r"(\d+) passed, (\d+) failed", out)
     if not m:
         return None
     p, f = int(m.group(1)), int(m.group(2))
     total = p + f
+
+    failures = [
+        {"id": c.get("id"), "skill": c.get("skill"),
+         "reason": c.get("reason"), "missing": c.get("missing") or []}
+        for c in cases if not c.get("pass")
+    ]
+    # Per-skill counts, because a skill failing six of its eight cases is a
+    # different problem from six skills failing one each, and the scalar
+    # could not tell those apart either.
+    by_skill = {}
+    for c in cases:
+        k = c.get("skill") or "?"
+        d = by_skill.setdefault(k, {"pass": 0, "fail": 0})
+        d["pass" if c.get("pass") else "fail"] += 1
+
     return {"passed": p, "failed": f, "total": total,
             "behavioural_score": round(100 * p / total, 2) if total else 0.0,
-            "sampled": sample}
+            "sampled": sample,
+            "failed_cases": failures,
+            "by_skill": {k: v for k, v in sorted(by_skill.items()) if v["fail"]}}
 
 
 def tests():
