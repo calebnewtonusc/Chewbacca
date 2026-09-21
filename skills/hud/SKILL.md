@@ -55,6 +55,9 @@ c <id> <Type> prop=value ...
 d /pointer <json>
 r <id>
 - <surface>
+s "<text>" [step=true]             say one line on the pill under the panels; step marks a tool call
+w "<text>" [done=true]             the written answer, whole, for the conversation panel
+q <n>                              how many requests are waiting
 listen                             ask to receive events on this connection
 ```
 
@@ -217,7 +220,7 @@ spaces inside them.
 
 ## Marking the screen
 
-A panel sits *beside* the work. A mark sits **on** it.
+A panel sits _beside_ the work. A mark sits **on** it.
 
 ```
 m <id> <x> <y> <w> <h> [label="..."] [tone=bad] [life=30]
@@ -241,6 +244,63 @@ outlives what it described is worse than no mark, because the person learns to
 disbelieve all of them.
 
 Twelve marks maximum. Past a dozen the screen is not annotated, it is hatched.
+
+## Guiding a person
+
+A mark says "look at this" to somebody who knows the screen. A guide says
+"press this" to somebody who does not: a ring around the control, a bubble
+that says what to do in words, and a slow pulse so the eye finds it.
+
+```
+m guide 724 70 30 30 label="Click Sign in" tone=guide life=120
+```
+
+`tone=guide` is the whole difference. A guide is the one mark that answers a
+click: when the person presses inside its rectangle, or on the ring around it,
+the display takes it down and sends
+
+```
+e hit guide label="Click Sign in"
+```
+
+so whoever is guiding can look at the screen again and show the next step.
+Nothing on the glass takes the click itself; it reaches the app underneath as
+it always did.
+
+`bin/hud-guide` does the finding: `hud-guide list` reads the front window's
+controls through the accessibility tree, `find "sign in"` matches by name,
+`show elem_12 --say "Click Sign in"` sends the line above, `clear` takes it
+down. One bubble at a time, by design: re-sending `guide` moves it, and a
+person following along wants the next step, not a trail. The voice's rules
+for guiding, one step, their words, their hands, are in `bin/hud-agent.md`
+under "Showing them where".
+
+## Playing music
+
+"Play Blinding Lights", "play some Drake", "pause", "skip", "what's playing",
+"turn it up": the bridge reads these itself and drives the player, so nothing
+waits on the model. `bin/hud-music` is the same code as a command:
+
+```bash
+hud-music play "fred again"      # Spotify by name, or YouTube audio without keys
+hud-music pause | resume | next | previous | again | stop | shuffle
+hud-music volume up              # or down, or a number
+hud-music now                    # what is on, in a sentence
+hud-music status                 # which players are ready, and why not
+```
+
+Spotify plays whatever its own search puts at the top for the words, misheard
+or not: a headless browser (`pip3 install playwright && playwright install
+chromium-headless-shell`, once) reads the top result off Spotify's web player,
+about 1.5 s, and the desktop app plays it. With keys in `~/.bob/spotify.json`
+(`hud-music setup`, a free developer app's client id and secret) it is one
+API search instead. Without either, Deezer, Wikidata, MusicBrainz and
+Spotify's public embed pages find the URI for anything well known, and a
+guess they are not sure of goes to the model, which works out the name and
+plays it with `hud-music play --anyway`.
+"On YouTube" plays the first result through `ffplay` with no window, a few
+seconds in, and so does any request when Spotify is not installed. "Stop" on
+its own pauses the music when the voice is idle; "stop the music" always does.
 
 ## Panels that take themselves down
 
@@ -288,12 +348,52 @@ need to see it.
 ## Hearing them
 
 The display can listen. It is off until the person turns it on from the menu bar
-(hold the globe key to talk, or a wake word), and when it hears something it
-sends `h "what they said"` back up the socket.
+(hold the talk key, the globe by default, or a wake word), and when it hears
+something it sends `h "what they said"` back up the socket.
+
+What they said is drawn on the pill at the bottom of the screen first, in
+quotes, and held there for a second before `h` goes up, so pressing the key
+again takes it back instead of sending it. To the person the pill is the
+"hyper bar", which is what the voice calls it. Two quick presses of the talk key
+are the way out: the panel, the microphone, a run in flight, the voice and the
+glass all go, and `x` comes up the socket so `hud listen` stops talking. One
+press sends `k down` before the microphone opens, and `hud listen` stops
+talking on that line too; what is said next replaces whatever it was doing.
+
+`hud listen` runs Claude Code under a lean profile by default: its own short
+system prompt (`bin/hud-agent.md`, which carries the `mac` usage), one tool,
+and none of the person's settings, with their permission mode and deny list
+passed back by hand. That is 15k tokens a turn against 237k, measured on one
+calendar question, and it is what makes a day of talking fit a subscription.
+`--profile full` runs it the way `claude -p` runs at a terminal. Every turn
+writes one `turn:` line to the log with where the time and the tokens went.
+The reply is read by `hud-speak` (Python) or, with `HUD_SPEAKER=hud-voice`,
+by the Swift server in `voice/`, which needs nothing installed.
+
+How the voice is meant to sound, and where each rule came from, is in
+`docs/VOICE-DESIGN.md`: a tone on the press, the model's restate-then-acknowledge
+first sentence ("Texting Caleb you're running ten late. On it."), and a
+context-shaped filler from the bridge only when nothing has been said for two
+seconds. Change `bin/hud-agent.md` with that doc open.
 
 `hud listen` is the loop: it holds a connection open, and when something is said
 it asks a model to answer by drawing. Run it in the background of a session where
 you want the screen to be answerable out loud.
+
+The pill is also where the answer is spoken. `hud listen` turns every tool call
+into a breadcrumb on it (`s "Reading your calendar"`) and the reply's first two
+sentences into the last line, and it sends `q <n>` when more than one request
+is waiting. A spoken reply is one to two sentences and at most 140 characters,
+because the pill holds two lines of 13 point text at 440 points wide and a
+panel has less room than an ear. Lead with the answer; the panel carries the
+rest. A long answer is not read at all: the model writes it for the panel and
+says one line pointing at the hyper bar ("All the info on the Civil War is
+ready for you in the hyper bar"), and `hud listen` reads only up to that
+sentence. A long block with no such line is cut at `SPOKEN_CAP` words and
+"The rest is in the hyper bar." is said instead. The panel's header has the
+switch, "Speech off for long answers", on by default; off, the display sends
+`e prefer voice long=spoken`, `hud listen` reads everything out and tells the
+model on each spoken request not to point at the hyper bar.
 
 Recognition is on-device. Do not add anything that ships audio somewhere.
 
@@ -336,6 +436,78 @@ printf 'd /graph [{"t":"node","x":0.5,"y":0.5,"label":"compile"}]\n' | hud draw
 `@/pointer` is the binding. Re-sending a whole component every tick works, costs
 far more, and throws away the animation.
 
+## The presence field, and how to judge a change to it
+
+The field is the living edge of the screen: the thing that says the assistant is
+here and what it is doing. Seven states, one shader, and the numbers that
+separate them live in one table, `Presence.field` in `PresenceField.swift`.
+
+Two pages in `skills/hud/presence/`, both generated by `build-tuner.py` from the
+real Metal so neither can drift from what ships:
+
+```bash
+python3 skills/hud/presence/build-tuner.py   # writes tuner.html and states.html
+```
+
+- **`tuner.html`** is one big field with the palette and the alpha terms on
+  sliders. It answers "what should this look like."
+- **`states.html`** is all seven at once, each paced at its own fps, with a blur
+  slider and a table of which pairs sit too close. It answers "can you tell them
+  apart," which is the question that actually decides whether the field works.
+
+Never hand-copy the state table into a preview page. The old one in
+`tuner.template.html` drifted to `hearing: 0.38` while the Swift said `0.200`,
+so an evening of tuning was spent on a state that does not exist.
+
+### What separates states, in order of how well it works
+
+From the ambient and calm-technology literature, and confirmed by looking at the
+seven tiles side by side:
+
+1. **Colour.** The strongest channel by a distance, and preattentive. It is
+   spent on exactly three readings and no more: white while it is idle,
+   listening or waiting on you, green while it is doing something to your
+   machine, red when something failed.
+2. **Motion rate.** Works, but only while you are actually watching. A glance
+   catches one frame, and in one frame `attentive`, `hearing` and `attention`
+   are the same picture. `acting` is the exception, because it breathes on its
+   own clock and nothing else does.
+3. **Thickness.** The weakest, and for a long time the one asked to do the
+   most. `attention` is documented as "the thickest, because this is the one
+   that has to be noticed" while sitting 35% above `acting`, and 35% on a
+   channel nobody can measure by eye is not what makes those two different.
+   The hue is.
+
+So: **spend colour on the states that must be noticed, and do not ask thickness
+to carry a distinction on its own.** Two states with the same fps, thickness
+within 15%, and no hue difference are one state with two names, and `states.html`
+prints that pair in red rather than leaving you to notice it.
+
+The steel palette is what makes that affordable. Every constant in the shader
+sits within a few percent of neutral, so the palette itself carries no meaning
+at all and the whole colour budget is free for the state to spend. A tint is
+one `SIMD4` in `Presence.field`: rgb the body is multiplied by, and how much of
+it to take. Steel takes none, `acting` takes 0.60 of a green that breathes
+between a quarter and six tenths of that, `done` takes 0.75 of a darker one and
+holds still, `failed` takes all of a red.
+
+Two rules hold that together and both are load-bearing:
+
+**The hue goes on the body and never on the hot specular.** A highlight that
+takes the object's own colour is the single thing that makes a surface read as
+plastic. The shader keeps the blown core neutral and tints everything below it,
+which is what a coloured light on steel does.
+
+**Green means something is happening to the machine, not that something is
+being considered.** `thinking` is white. Nothing has been done yet, and a
+person who cannot tell those apart cannot tell when it is safe to walk away.
+
+### Judge it at the edge of your eye, not in a tab
+
+These live in peripheral vision on a screen somebody is not looking at. Staring
+at a bright tile judges the wrong thing. Open `states.html`, turn the blur up,
+then look at something else and say out loud which tile just changed.
+
 ## Rules
 
 **Do not narrate the panel.** If you drew the chart, do not also describe it in
@@ -350,8 +522,34 @@ theirs.
 silently by the renderer, so the panel will just be missing that piece and
 nothing will tell you.
 
-**Set the ring.** `p thinking` when you start something slow and `p dormant`
-when you are done. It is the only signal the user has that you are alive.
+**Set the ring.** It is the only signal the user has that you are alive, and
+it costs one line:
+
+| Line | When | What they see |
+| ---- | ---- | ------------- |
+| `p thinking` | you took a request and are working out what to do | white, thin, moving fast |
+| `p acting` | you are running something on their machine | green, breathing |
+| `p done` | it worked | darker green, still |
+| `p failed` | it did not | red |
+| `p attention` | you are blocked on them | white, thick, two pulses |
+| `p dormant` | nothing in flight | nothing at all |
+| `p speaking amp=0.6` | the voice is playing; hud-listen sends this itself, twenty times a second, from the level of what it is saying | white, thickness moving with the voice, the same as while they talk |
+
+The pill opens into the conversation panel when clicked: every request and
+answer of the session, selectable, with a field to type the next one. A typed
+request comes up the socket as `h "<text>" via=typed` and is answered in
+writing. `w "<text>"` is the answer so far for that panel, the whole text each
+time rather than a delta, and `w "<text>" done=true` closes it; hud-listen
+sends these itself from what the model writes, one per sentence. The panel
+draws Markdown in full (lists, headings, quotes, tables, fenced code with a
+copy button), keeps each tool call (`s "<text>" step=true`, which hud-listen
+sends for every tool use) as a folded list of steps under the answer with how
+long it took, and gives each answer copy, read aloud and ask-again buttons.
+Read aloud comes up as `e say turn text="<answer>"` and hud-listen speaks it.
+
+Send `p acting` before the thing that takes time, not after. A state that
+arrives once the work is finished is a state nobody ever saw, and the colour
+takes about a second to come up on purpose.
 
 **Get the screen size before placing a mark.** `hud screen`. Coordinates are
 points, and a Retina screenshot reports twice that. This is the single easiest

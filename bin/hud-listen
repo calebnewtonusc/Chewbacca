@@ -18,6 +18,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import collections
+import importlib.machinery
+import importlib.util
 import json
 import os
 import re
@@ -28,17 +31,443 @@ import sys
 import threading
 import time
 import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 
 SOCKET = os.environ.get("BOB_HUD_SOCKET", str(Path.home() / ".bob" / "hud.sock"))
 SKILL = Path(__file__).resolve().parent.parent / "skills" / "hud" / "SKILL.md"
 CONTEXT = Path(__file__).resolve().parent / "hud-context"
+# Which voice server reads the replies. `hud-speak` is the Python one
+# (Kokoro through MLX, needs uv and espeak-ng); `hud-voice` is the Swift one
+# (the same model on the Neural Engine through FluidAudio, one binary, no
+# installs), built from voice/ into ~/.local/bin. Both speak the same lines.
+# Measured 2026-09-20, warm, to the first sound of a three-word line: 0.16s
+# through hud-speak, 0.13s through hud-voice; ready 2.3s and 1.6s after
+# start. hud-speak stays the default until a day of use says otherwise.
+SPEAKER = os.environ.get("HUD_SPEAKER", "hud-speak")
+SPEAK = Path(__file__).resolve().parent / SPEAKER
+if not SPEAK.exists():
+    SPEAK = Path.home() / ".local" / "bin" / SPEAKER
+# Kokoro names a voice by language and gender, then a name: af_heart,
+# am_michael, bf_emma. Nothing macOS ships looks like that.
+KOKORO_VOICE = re.compile(r"[a-z]{2}_[a-z]+")
+# The macOS voice used when hud-speak is not there. The best of the ones
+# that ship without a download; `say -v '?'` lists them.
+FALLBACK_VOICE = "Samantha"
 
 # Fences are the single most common thing a model wraps output in, and a fence
 # line is not a valid op, so it would be dropped silently and the surface would
 # simply be missing whatever the fence swallowed.
 FENCE = re.compile(r"^\s*```[a-zA-Z]*\s*$")
-VERBS = ("@", "c", ">", "d", "r", "-", "p")
+# `s` and `q` are the pill's verbs (a subtitle line, a queue depth), so an agent
+# that speaks through the hud skill itself passes the filter too.
+VERBS = ("@", "c", ">", "d", "r", "-", "p", "s", "q")
+
+# Re-send the presence line at most this often while stream events are flowing.
+# The ring's `thinking` patience is 8 s (PresenceRing.swift 55) and the research
+# brief's rule is that something visible changes every 2 to 3 s; the recorded
+# run (tests/fixtures/hud-listen-stream.jsonl) emitted `thinking_tokens` every
+# 50 to 150 tokens, far under 2 s, hence a throttle rather than a pass-through.
+PULSE_EVERY = 2.0
+
+# Re-send even when no event arrives, as long as the process is alive. The
+# recorded run produced no `tool_progress` events at all; a `mac` call that
+# takes 20 s produces nothing either, and the read loop is blocked on stdout the
+# whole time. 6 leaves 2 s of margin under the 8 s `thinking` patience for the
+# send lock and the socket write; 30 s of silence in `acting` turns the ring
+# yellow (PresenceRing.swift 56), which is the lie this exists to stop.
+KEEPALIVE = 6.0
+
+# The one place the spoken reply is capped. The pill holds two 13 pt lines at
+# 440 pt wide, about 70 characters each, so 140 shows the whole reply the prompt
+# asked for and the pill truncates nothing on its own.
+SUBTITLE_LIMIT = 140
+
+# A sentence ends at . ! or ? followed by whitespace. Good enough for a reply
+# capped at twenty words; abbreviations inside one are the model's problem.
+SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+# Where a spoken chunk ends: a sentence end, or a line break, because a list
+# item or a heading has no full stop and would otherwise wait for the next
+# sentence to be said.
+CHUNK_END = re.compile(r"(?<=[.!?])\s+|\n+")
+# Fewer words than this and a chunk waits for the next one. "Yes." alone is a
+# generation call and a pause for one syllable; hud-speak's `sentences` has the
+# same rule for a text it is handed whole, and this is the same rule for text
+# handed over one chunk at a time.
+SHORT_CHUNK = 3
+# The floating pill at the bottom of the screen is "the hyper bar" to the
+# person, and a click on it opens the conversation panel where everything the
+# model writes is kept. A spoken sentence that names it ends the spoken part
+# of that reply: whatever follows in the block is written for the panel and
+# not read aloud. Asked for on 2026-09-20: "when the user asks questions with
+# large summaries that require a lot of speaking for the assistant, it just
+# says something along the lines of 'all info on x topic is ready for you in
+# the hyper bar'". The prompt asks the model to write long answers that way;
+# this is what makes the pointer mean it.
+HYPER_BAR = re.compile(r"hyper\s*bar", re.IGNORECASE)
+# The backstop for a long block that never pointed at the hyper bar: this
+# many words are read, the rest is written, and one line says so. Sixty is
+# about twenty seconds at a spoken pace. Guessed, never measured.
+SPOKEN_CAP = 60
+HYPER_BAR_POINTER = "The rest is in the hyper bar."
+
+# Where Claude Code keeps the session this listener resumes: the cwd with "/"
+# swapped for "-", and cwd is $HOME (see run_streamed). Checked 2026-09-19: a
+# session SIGKILLed six seconds in, mid tool call, left this file on disk and
+# `--resume` on it answered coherently with exit 0.
+SESSIONS = Path.home() / ".claude" / "projects" / str(Path.home()).replace("/", "-")
+# The system prompt the answering agent runs with under the lean profile:
+# who it is, how to speak, and the `mac` usage it used to spend the warm-up
+# turn reading. Next to this script, through the symlink.
+AGENT_PROMPT = Path(__file__).resolve().parent / "hud-agent.md"
+# The person's own Claude Code settings. The lean profile drops every
+# settings source (their hooks were the bulk of a turn, see `agent_flags`),
+# so the permission posture they chose there is carried across by hand.
+USER_SETTINGS = Path.home() / ".claude" / "settings.json"
+# The prompt the agent is actually given: hud-agent.md with a digest of the
+# person's second brain appended by `superassistant`, rebuilt before every
+# run. See bin/superassistant and superassistant/README.md.
+PROMPT_OUT = Path.home() / ".bob" / "agent-prompt.md"
+SUPERASSISTANT = Path(__file__).resolve().parent / "superassistant"
+# The music player, loaded the same way. "Play X" is read here and played
+# here, without the model: a request that took a model turn (2 to 8 s
+# measured on 2026-09-20) to reach `hud-music` now reaches it in the time
+# one search and one AppleScript take.
+MUSIC = Path(__file__).resolve().parent / "hud-music"
+_superassistant: object = None
+
+
+def superassistant():
+    """The `superassistant` module next to this script, loaded once, or None.
+
+    Loaded by path because, like this file, it has no `.py` suffix. None
+    when it is missing or broken, and the bridge then answers without the
+    brain and keeps no log rather than not answering.
+    """
+    global _superassistant
+    if _superassistant is None:
+        try:
+            loader = importlib.machinery.SourceFileLoader("superassistant", str(SUPERASSISTANT))
+            spec = importlib.util.spec_from_loader("superassistant", loader)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["superassistant"] = module
+            loader.exec_module(module)
+            _superassistant = module
+        except Exception:  # noqa: BLE001
+            _superassistant = False
+    return _superassistant or None
+_music: object = None
+_music_stamp: float = 0.0
+
+
+def music():
+    """The `hud-music` module next to this script, or None.
+
+    Loaded again whenever the file changes: the words and the players get
+    edited more often than the bridge, and a restart drops whatever the
+    person is in the middle of.
+    """
+    global _music, _music_stamp
+    try:
+        stamp = MUSIC.stat().st_mtime
+    except OSError:
+        stamp = 0.0
+    if _music is None or stamp != _music_stamp:
+        _music_stamp = stamp
+        if _music:
+            # The old copy's browser would otherwise outlive it.
+            try:
+                _music.shutdown()
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            loader = importlib.machinery.SourceFileLoader("hud_music", str(MUSIC))
+            spec = importlib.util.spec_from_loader("hud_music", loader)
+            module = importlib.util.module_from_spec(spec)
+            # A dataclass cannot be built in a module that is not in
+            # sys.modules (dataclasses._is_type reads it back by name).
+            sys.modules["hud_music"] = module
+            loader.exec_module(module)
+            _music = module
+        except Exception:  # noqa: BLE001
+            _music = False
+    return _music or None
+
+
+# What `claude --permission-mode` accepts on 2.1.278. Anything else in the
+# person's settings is left off rather than passed on to fail the spawn.
+PERMISSION_MODES = {"acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"}
+# A session is retired, and the next one opened and warmed, once it has run
+# this many turns or its cached prefix has passed this many tokens. Guessed,
+# never measured: a lean session starts at about 12k tokens (measured
+# 2026-09-20 on 2.1.278) and each turn adds what was said and done, so 60k
+# is on the order of fifty short turns. Until the `turn:` lines in the log
+# show what a day of use actually reaches, these are the ceiling and not
+# the target.
+RETIRE_TURNS = 50
+RETIRE_TOKENS = 60_000
+# The names the display's recogniser is told to expect (Vocabulary in
+# BobHUDKit reads this): whoever the person has been texting, then whoever
+# is in Contacts. Written once per start, in the background.
+NAMES = Path.home() / ".bob" / "names.txt"
+NAMES_CHATS = 60
+# `mac contacts find` needs a query and has no list-all; six vowels reach
+# almost every name there is.
+NAMES_QUERIES = ("a", "e", "i", "o", "u", "y")
+
+# The whole utterance, lowercased, punctuation stripped, must equal one of
+# these. A closed list and no NLU: a cancel must be an explicit gesture, and a
+# spoken "stop" through push-to-talk is as explicit as a button. Anything
+# longer is a request and is queued.
+STOP_WORDS = frozenset({
+    "stop", "stop it", "stop that", "cancel", "cancel that",
+    "never mind", "nevermind", "forget it",
+})
+
+# Stop words only while something is running. Spoken over a run these can
+# mean nothing else, and on 2026-09-19 a "No" said the moment "Looking up
+# Rylee's contact to send that text" was read out was queued behind the
+# send, the text went, and 44 seconds later the model asked what the no was
+# about. With nothing in flight they are answers ("no" to a question the
+# model asked) and go to it as requests.
+BARGE_WORDS = frozenset({
+    "no", "no no", "no stop", "wait", "wait wait", "hold on", "hang on",
+})
+
+# What the agent got onto the glass, read out of its own tool calls. It draws
+# with `hud draw <<'EOF' ... EOF` and takes a surface down with `hud close
+# <name>` or a `- <name>` line (both seen in a real hud-listen transcript,
+# session 560a0c4b, 2026-09-19).
+SURFACE = re.compile(r"(?m)^\s*@\s+(\S+)")
+CLOSED = re.compile(r"(?m)hud close\s+(\S+)|^\s*-\s+(\S+)")
+
+
+# When the model has said nothing yet, the bridge says something small so
+# the gap is not silence. The literature on fillers (Duplex's "um"s, the
+# 2021 to 2025 virtual-agent studies) agrees on two things: a filler helps
+# once the wait passes about two seconds and is noise under that, and a
+# filler shaped to what was asked beats a generic one. Under the lean
+# profile the first words came at 1.0 to 1.7s on 2026-09-20, so 2.0s is
+# just past the turns that need nothing; guessed from that, never
+# measured against a listener. HUD_FILLER_AFTER overrides it, for tuning
+# against a real listener without an edit.
+FILLER_AFTER = float(os.environ.get("HUD_FILLER_AFTER", "2.0"))
+# A question gets a looking filler, a task gets "On it." and its kin, the
+# same words the model opens a task with (hud-agent.md): "I'm tired of it
+# saying yes or ok" (2026-09-20). When the filler has already said it, a
+# bare acknowledgement arriving from the model is not said again, so the
+# person hears "On it." once and never "On it. On it."
+QUESTION_WORDS = frozenset({
+    "what", "whats", "when", "whens", "who", "whos", "where", "wheres", "why",
+    "how", "hows", "is", "are", "am", "was", "were", "do", "does", "did",
+    "can", "could", "will", "would", "should", "which", "any", "have", "has",
+})
+QUESTION_FILLERS = ("Let me see.", "One sec.", "Let me look.")
+TASK_FILLERS = ("On it.", "Right away.", "Doing it.")
+# A first sentence that is only an acknowledgement, in any of the model's
+# wordings, and so adds nothing after a filler.
+ACKNOWLEDGEMENT = re.compile(
+    r"(?:on it|on that|right away|doing (?:it|that|this)(?: now)?|working on it|handling it|getting (?:to|on) it|will do)[.!]?",
+    re.IGNORECASE)
+
+
+def pick_filler(said: str, last: str | None = None) -> str:
+    """The filler for `said`, never the one used last time."""
+    words = normalise(said).split()
+    asking = said.rstrip().endswith("?") or (bool(words) and words[0] in QUESTION_WORDS)
+    options = QUESTION_FILLERS if asking else TASK_FILLERS
+    if last in options:
+        return options[(options.index(last) + 1) % len(options)]
+    return options[0]
+
+
+def normalise(said: str) -> str:
+    """An utterance as the stop-word list sees it: lowercase, letters only."""
+    return " ".join(re.sub(r"[^a-z ]", "", said.lower()).split())
+
+
+@dataclass
+class Request:
+    """One utterance, from the moment it is heard until its run has ended."""
+
+    said: str
+    spoken_at: float
+    # Captured when spoken, not when run. A queued request runs a minute or
+    # more later (measured runs are 60 to 85 s), by which time the pointed
+    # region has passed POINT_TTL and the "looking at" sample is of whatever
+    # the previous answer put on screen.
+    pointed: tuple[int, int, int, int] | None
+    seen: str = ""
+    # Typed into the conversation panel rather than spoken. Answered in
+    # writing: the person chose not to speak, and a reply read aloud to
+    # someone who typed because they could not be heard is the wrong reply.
+    typed: bool = False
+    # What the bridge already knows about the request, for the prompt: a
+    # music request the quick path could not settle says so here.
+    hint: str = ""
+    # Sent by the display about something the person did, not something they
+    # said: a click on a guide bubble, a press on a control. The model is
+    # told so, because "the user said this out loud" would be a lie.
+    relayed: bool = False
+    id: str = field(default_factory=lambda: uuid.uuid4().hex[:6])
+
+
+def later(delay: float, fn) -> threading.Timer:
+    """Run `fn` after `delay` seconds on a daemon timer.
+
+    Daemon, because a pending kill or a hold must never keep the process
+    alive past the loop it belongs to: `threading.Timer` is not one by default
+    and a 2 s kill grace held the test runner open for 2 s after its last
+    test.
+    """
+    timer = threading.Timer(delay, fn)
+    timer.daemon = True
+    timer.start()
+    return timer
+
+
+def pick_names(chats: list, contacts: list) -> list[str]:
+    """One name per line for the recogniser, the recent chats first.
+
+    A chat with no contact behind it is named by its handle, a number or an
+    address, which is nothing anyone says out loud; those are left out, and
+    so are group chats, which are named by whoever made them up.
+    """
+    names: list[str] = []
+    seen: set[str] = set()
+
+    def add(row: object) -> None:
+        if not isinstance(row, dict) or row.get("isGroup"):
+            return
+        name = str(row.get("name") or "").strip()
+        if not name or "@" in name or any(ch.isdigit() for ch in name):
+            return
+        if name.lower() in seen:
+            return
+        seen.add(name.lower())
+        names.append(name)
+
+    for row in chats:
+        add(row)
+    for row in contacts:
+        add(row)
+    return names
+
+
+def mac_json(args: list[str]) -> list:
+    """One `mac` command's JSON rows, or nothing: no binary, no grant, no
+    rows and a bad row all read the same to the caller, which only wants
+    names it can have."""
+    try:
+        done = subprocess.run(
+            ["mac", *args, "--json"], capture_output=True, text=True, timeout=30
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if done.returncode != 0:
+        return []
+    try:
+        rows = json.loads(done.stdout)
+    except ValueError:
+        return []
+    return rows if isinstance(rows, list) else []
+
+
+def write_names() -> int:
+    """Write `NAMES` from Messages and Contacts; the count written."""
+    chats = mac_json(["messages", "chats", "--limit", str(NAMES_CHATS)])
+    contacts: list = []
+    for query in NAMES_QUERIES:
+        contacts += mac_json(["contacts", "find", query])
+    names = pick_names(chats, contacts)
+    if not names:
+        return 0
+    try:
+        NAMES.parent.mkdir(parents=True, exist_ok=True)
+        NAMES.write_text("\n".join(names) + "\n", encoding="utf-8")
+    except OSError:
+        return 0
+    return len(names)
+
+
+def turn_line(
+    wait: float | None,
+    first_text: float | None,
+    first_audio: float | None,
+    api_ms: int | None,
+    usage: dict,
+    tools: int,
+    turns: int,
+) -> str:
+    """One line per turn saying where the time and the tokens went.
+
+    Fixed field order, so the log can be grepped and two days compared:
+    `wait` is the queue (final transcript in to prompt written), `text` the
+    prompt to the first words of the reply, `audio` the prompt to the first
+    sound of it, then the API's own clock, the tool calls, and the token
+    counts from the result event. `-` is a value that never arrived: no
+    result event, no voice, a reply with no words.
+    """
+
+    def secs(value: float | None) -> str:
+        return "-" if value is None else f"{value:.1f}s"
+
+    def count(key: str) -> str:
+        value = usage.get(key)
+        return "-" if value is None else str(value)
+
+    return (
+        f"turn: wait={secs(wait)} text={secs(first_text)} audio={secs(first_audio)} "
+        f"api={'-' if api_ms is None else f'{api_ms}ms'} tools={tools} "
+        f"input={count('input_tokens')} cache_read={count('cache_read_input_tokens')} "
+        f"cache_create={count('cache_creation_input_tokens')} "
+        f"output={count('output_tokens')} session_turns={turns}"
+    )
+
+
+def agent_flags(profile: str, settings: dict, prompt: Path = AGENT_PROMPT) -> list[str]:
+    """The Claude Code flags that make the answering agent lean.
+
+    Measured 2026-09-20 on Claude Code 2.1.278, one spoken request each:
+    the default profile read 77k to 158k tokens a turn and its API time
+    ran 1.1 to 7.6s; with the person's settings dropped, one tool, and a
+    short system prompt of its own it read 6k to 12k and answered in 0.9
+    to 1.8s. On a subscription every token of that is the monthly window,
+    so this is the difference between an assistant that is used all day
+    and one that is rationed.
+
+    `--setting-sources local` is most of it: the user settings carry the
+    hooks that inject a session briefing into every turn (75k of the
+    tokens above), and this agent needs none of it. It also drops the
+    permission mode and deny list the person set there, so those two are
+    read from the same file and passed back by hand: the agent keeps
+    exactly the posture they chose for every Claude Code session, nothing
+    looser and nothing new. A mode this build does not know is left off.
+    """
+    if profile != "lean":
+        return []
+    flags = [
+        "--setting-sources", "local",
+        "--tools=Bash",
+        "--system-prompt-file", str(prompt),
+    ]
+    permissions = settings.get("permissions") or {}
+    mode = permissions.get("defaultMode")
+    if mode in PERMISSION_MODES:
+        flags += ["--permission-mode", str(mode)]
+    deny = [rule for rule in permissions.get("deny") or [] if isinstance(rule, str)]
+    if deny:
+        flags += ["--settings", json.dumps({"permissions": {"deny": deny}})]
+    return flags
+
+
+def user_settings() -> dict:
+    """The person's Claude Code settings, or nothing if unreadable."""
+    try:
+        loaded = json.loads(USER_SETTINGS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def instructions() -> str:
@@ -80,6 +509,387 @@ def draw_lines(text: str) -> list[str]:
     return out
 
 
+def prose(text: str) -> str:
+    """The complement of draw_lines: what the model said rather than drew.
+
+    Blank lines are kept because the subtitle rule below reads paragraphs.
+    """
+    out = []
+    for line in text.splitlines():
+        if FENCE.match(line):
+            continue
+        stripped = line.strip()
+        if stripped and stripped.split(None, 1)[0] in VERBS:
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
+def subtitle(text: str, limit: int = SUBTITLE_LIMIT) -> str:
+    """One subtitle: the first two sentences, cut to the pill.
+
+    This used to drop the first paragraph whenever there was more than one,
+    as a backstop for the session opener that CLAUDE.md prepends ("Building
+    ship-ready work today.\\n\\nIt's Saturday...", recorded 2026-09-19).
+    Since answers became chat-length (2026-09-20) the first paragraph is the
+    lead sentence the prompt asks for, the one written for the pill, and a
+    real answer about Paris lost it to that rule. The prompt says not to
+    write an opener; an opener that arrives anyway is on the pill for a
+    moment, which is the cheaper failure.
+    """
+    paragraphs = [p for p in re.split(r"\n\s*\n", text.strip()) if p.strip()]
+    if not paragraphs:
+        return ""
+    flat = " ".join(" ".join(p.split()) for p in paragraphs)
+    sentences = SENTENCE_END.split(flat)[:2]
+    # A sentence that points at the hyper bar is the whole line, as it is
+    # the whole spoken reply: the write-up behind it is not a subtitle.
+    if HYPER_BAR.search(sentences[0]):
+        sentences = sentences[:1]
+    line = " ".join(sentences)
+    if len(line) <= limit:
+        return line
+    cut = line.rfind(" ", 0, limit)
+    return line[: cut if cut > 0 else limit].rstrip(",;:") + "…"
+
+
+def without_pointer(text: str) -> str:
+    """The answer with its hyper bar pointer taken off the front.
+
+    The pointer is the one sentence written to be spoken instead of the
+    answer. The read-aloud button on the panel is pressed by someone who
+    has already opened the hyper bar, so for them it is the one sentence
+    with nothing in it. Asked for on 2026-09-20: "if the user does want to
+    listen and clicks the audio button at the bottom of the response the
+    assistant should start at the response content and not reply the line
+    'Its ready for you in the hyperbar'". Only the first paragraph is
+    looked at, because the answer itself may say the words.
+    """
+    parts = re.split(r"\n\s*\n", text.strip(), maxsplit=1)
+    sentences = SENTENCE_END.split(" ".join(parts[0].split()))
+    kept = [s for s in sentences if not HYPER_BAR.search(s)]
+    if len(kept) == len(sentences):
+        return text
+    lead = " ".join(kept)
+    rest = parts[1] if len(parts) > 1 else ""
+    if lead and rest:
+        return f"{lead}\n\n{rest}"
+    return lead or rest or text
+
+
+def spoken(text: str) -> str:
+    """Prose for the voice: Markdown taken off, whitespace folded.
+
+    The model writes Markdown whether or not it is asked to, and Kokoro reads
+    an asterisk as a word. Headings, list markers, quotes, rules, links, code
+    spans and emphasis all go; the words stay. A table row is read as its
+    cells, because skipping it would drop the one line that held the number.
+    """
+    out: list[str] = []
+    for line in text.splitlines():
+        line = re.sub(r"^\s{0,3}#{1,6}\s+", "", line)
+        line = re.sub(r"^\s*(?:[-*+]|\d+[.)])\s+", "", line)
+        line = re.sub(r"^\s*>\s?", "", line)
+        if re.fullmatch(r"\s*(?:[-*_]\s*){3,}", line):
+            continue
+        if re.fullmatch(r"\s*\|?[\s:|-]+\|?\s*", line) and "|" in line:
+            continue
+        if line.strip().startswith("|") and line.strip().endswith("|"):
+            line = ", ".join(cell.strip() for cell in line.strip().strip("|").split("|") if cell.strip())
+        out.append(line)
+    text = "\n".join(out)
+    text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
+    text = re.sub(r"`{1,3}([^`]*)`{1,3}", r"\1", text)
+    text = re.sub(r"(\*\*|__)(.+?)\1", r"\2", text)
+    text = re.sub(r"(?<!\w)([*_])(?!\s)(.+?)(?<!\s)\1(?!\w)", r"\2", text)
+    return " ".join(text.split())
+
+
+def breadcrumb(block: dict) -> str:
+    """One decision, in words, from one tool call.
+
+    Bash and Task carry a model-written `description` (observed on CLI 2.1.278:
+    {'command': 'date', 'description': 'Display current date and time'}),
+    which is already the phrase a person wants and needs no rewriting. The
+    rest fall back to the one input that names what was touched.
+    """
+    name = block.get("name") or ""
+    inp = block.get("input") or {}
+    desc = inp.get("description")
+    if isinstance(desc, str) and desc.strip():
+        return subtitle(desc)
+    path = inp.get("file_path") or inp.get("path") or inp.get("notebook_path")
+    if name == "Read" and path:
+        return f"Reading {Path(str(path)).name}"
+    if name in ("Edit", "Write", "MultiEdit", "NotebookEdit") and path:
+        return f"Editing {Path(str(path)).name}"
+    if name == "Grep" and inp.get("pattern"):
+        return f"Searching for {inp['pattern']}"
+    if name == "Glob" and inp.get("pattern"):
+        return f"Finding {inp['pattern']}"
+    if name in ("WebFetch", "WebSearch"):
+        return f"Looking up {inp.get('url') or inp.get('query') or 'the web'}"
+    if name == "Skill" and inp.get("skill"):
+        return f"Using the {inp['skill']} skill"
+    if name == "ToolSearch":
+        # Loading a tool's schema is plumbing, and "toolsearch" on the pill
+        # (seen 2026-09-19 during a weather request) is a word nobody said.
+        return ""
+    if name.startswith("mcp__"):
+        return name.split("__")[-1].replace("_", " ")
+    return name.lower() or "working"
+
+
+class Run:
+    """One request, from the stream's point of view.
+
+    Pure: feed it events, take lines. `run_streamed` owns the process and the
+    socket; this owns nothing, which is what lets a recorded stream be a test.
+
+    Every `assistant` event on CLI 2.1.278 carries exactly one content block,
+    so narration and breadcrumbs arrive as separate events and are translated
+    one at a time. `user` events are read for their tool_results and produce
+    no lines. Not translated on purpose: `stream_event` deltas (a token-level
+    subtitle is a half-arrived line, which is the thing a subtitle exists to
+    never be), empty `thinking` blocks, hook events, rate limits, and
+    anything from a subagent (`parent_tool_use_id` set: its steps interleaved
+    with the parent's read as one agent that cannot decide).
+    """
+
+    def __init__(self) -> None:
+        self.state = "thinking"
+        # The last phrase put on the pill, so three `mac calendar` calls in a
+        # row do not flicker the same words three times.
+        self.said: str | None = None
+        self.ok = False
+        self.text = ""
+        self.last_pulse = 0.0
+        # From the turn's result event, for the `turn:` line: the API's own
+        # clock and the token counts. None and empty until it arrives.
+        self.api_ms: int | None = None
+        self.usage: dict = {}
+        self.tools = 0
+        # When the first words of the reply arrived, on the clock `translate`
+        # is handed. None until they do.
+        self.first_text_at: float | None = None
+        # Surfaces this run has put on the glass: the names declared in every
+        # `hud draw` whose tool_result came back without is_error, minus the
+        # ones closed since. A stop reads this to tell the next prompt what
+        # the person actually saw, so it is filled from results and never from
+        # intent: a draw that failed drew nothing.
+        self.drawn: list[str] = []
+        self.pending: dict[str, list[str]] = {}
+        # The first thing the model said in prose, before any tool ran. The
+        # prompt asks for one short line up front, and it is spoken the moment
+        # it lands: the person hears what is about to happen four seconds in
+        # rather than a minute later. Read by the `say` fallback; with
+        # hud-speak every chunk is spoken as it lands and this is just the
+        # first of them.
+        self.first_text: str | None = None
+        # The text block being written, from `stream_event` deltas, and how
+        # much of it the voice already has. `--include-partial-messages`
+        # delivers a text block as deltas, then the whole block as an
+        # `assistant` event, then `content_block_stop`; the deltas are what
+        # let the first sentence of a long answer be spoken while the rest
+        # is still being written.
+        self.block = ""
+        self.spoken_upto = 0
+        # A chunk too short to say on its own, waiting for the next.
+        self.hold = ""
+        # Words of the open block the voice has had, whether a sentence of
+        # it named the hyper bar, and whether any of it was kept back.
+        self.block_words = 0
+        self.block_pointed = False
+        self.withheld = False
+        # Whether anything in this turn was written for the hyper bar
+        # instead of spoken, so the glass can hold a little longer for the
+        # click that opens it.
+        self.written_aside = False
+        # The panel's switch. Off, and nothing is ever kept from the voice:
+        # a pointer sentence is just a sentence and the cap does not apply.
+        self.long_written = True
+        # Every finished prose block of the turn, in order: the written
+        # answer, for the conversation panel.
+        self.blocks: list[str] = []
+        self.written: str | None = None
+        # Chunks ready for the voice, in order. `run_streamed` takes them.
+        self.voice: list[str] = []
+        # Whether text blocks reach the pill from here. False when hud-speak
+        # captions the pill itself, one sentence at a time as it says it, so
+        # the words on the pill are the words being heard.
+        self.subtitles = True
+
+    def pulse(self, now: float, force: bool = False) -> list[str]:
+        if not force and now - self.last_pulse < PULSE_EVERY:
+            return []
+        self.last_pulse = now
+        return [f"p {self.state}"]
+
+    def say(self, phrase: str, step: bool = False) -> list[str]:
+        """A line for the pill. `step` marks a tool call, which the panel
+        keeps on the answer as what was done to get it, apart from the
+        answer's own lines."""
+        if not phrase or phrase == self.said:
+            return []
+        self.said = phrase
+        return ["s " + json.dumps(phrase) + (" step=true" if step else "")]
+
+    def answer(self) -> str:
+        """The written answer so far: every prose block, paragraph by paragraph."""
+        parts = self.blocks + ([self.block] if self.block.strip() else [])
+        return "\n\n".join(p.strip() for p in parts if p.strip())
+
+    def write(self, done: bool = False) -> list[str]:
+        """The answer for the panel, whole each time, when it has changed."""
+        text = self.answer()
+        if not text or (text == self.written and not done):
+            return []
+        self.written = text
+        return ["w " + json.dumps(text) + (" done=true" if done else "")]
+
+    def flush(self, final: bool) -> list[str]:
+        """Hand the open block's complete chunks to the voice; all of it when final.
+
+        Not all of it, when the block is long: see `HYPER_BAR`. Every chunk
+        still reaches the panel through `write`; only the voice is spared.
+        """
+        rest = self.block[self.spoken_upto:]
+        chunks: list[str] = []
+        while True:
+            end = CHUNK_END.search(rest)
+            if end is None:
+                break
+            chunks.append(rest[: end.end()])
+            rest = rest[end.end():]
+        if final and rest.strip():
+            chunks.append(rest)
+            rest = ""
+        self.spoken_upto = len(self.block) - len(rest)
+        for chunk in chunks:
+            words = spoken(chunk)
+            if not words:
+                continue
+            if self.long_written and (self.block_pointed or self.block_words >= SPOKEN_CAP):
+                self.withheld = True
+                continue
+            self.block_words += len(words.split())
+            if HYPER_BAR.search(words):
+                self.block_pointed = True
+            self.hold = f"{self.hold} {words}".strip()
+            if len(self.hold.split()) >= SHORT_CHUNK:
+                self.voice.append(self.hold)
+                self.hold = ""
+        if final and self.hold:
+            self.voice.append(self.hold)
+            self.hold = ""
+        return self.write() if (chunks or final) else []
+
+    def close_block(self) -> list[str]:
+        """The open text block is complete: speak the rest, keep the text."""
+        out = self.flush(final=True)
+        if self.withheld:
+            self.written_aside = True
+            # Cut by the cap rather than by its own pointer: say where the
+            # rest went, or the reply just stops mid-thought.
+            if not self.block_pointed:
+                self.voice.append(HYPER_BAR_POINTER)
+        if self.block.strip():
+            self.blocks.append(self.block.strip())
+        self.block = ""
+        self.spoken_upto = 0
+        self.block_words, self.block_pointed, self.withheld = 0, False, False
+        return out
+
+    def take_voice(self) -> list[str]:
+        out, self.voice = self.voice, []
+        return out
+
+    def note_draw(self, block: dict) -> None:
+        """Remember what a tool call would put on, or take off, the glass.
+
+        A draw counts only once its result is in. A close counts at once,
+        before its result, which errs towards telling the model less is on
+        screen than there is: the direction in which "check before you assume"
+        is still the right advice.
+        """
+        command = str((block.get("input") or {}).get("command", ""))
+        if "hud draw" in command:
+            self.pending[str(block.get("id", ""))] = SURFACE.findall(command)
+        for closed, removed in CLOSED.findall(command):
+            name = closed or removed
+            self.drawn = [d for d in self.drawn if d != name]
+
+    def translate(self, event: dict, now: float) -> list[str]:
+        if event.get("parent_tool_use_id"):
+            return []
+        kind = event.get("type")
+        out: list[str] = []
+        if kind == "stream_event":
+            inner = event.get("event") or {}
+            etype = inner.get("type")
+            if etype == "content_block_start":
+                if (inner.get("content_block") or {}).get("type") == "text":
+                    self.block, self.spoken_upto, self.hold = "", 0, ""
+                    self.block_words, self.block_pointed, self.withheld = 0, False, False
+            elif etype == "content_block_delta":
+                delta = inner.get("delta") or {}
+                if delta.get("type") == "text_delta":
+                    if self.first_text_at is None and delta.get("text"):
+                        self.first_text_at = now
+                    self.block += str(delta.get("text", ""))
+                    out += self.flush(final=False)
+            elif etype == "content_block_stop" and self.block:
+                # Normally the `assistant` event has closed it already.
+                out += self.close_block()
+        elif kind == "assistant":
+            for block in event.get("message", {}).get("content", []) or []:
+                btype = block.get("type")
+                if btype == "text":
+                    text = str(block.get("text", ""))
+                    # The block is the truth. The deltas may have carried
+                    # all of it, some of it, or none (a model command that
+                    # does not stream partial messages); whatever the voice
+                    # has not had goes to it now.
+                    if not text.startswith(self.block):
+                        self.spoken_upto, self.hold = 0, ""
+                        self.block_words, self.block_pointed, self.withheld = 0, False, False
+                    if self.first_text_at is None and text:
+                        self.first_text_at = now
+                    self.block = text
+                    out += self.close_block()
+                    phrase = subtitle(text)
+                    if self.first_text is None and phrase:
+                        self.first_text = phrase
+                    if self.subtitles:
+                        out += self.say(phrase)
+                elif btype == "tool_use":
+                    self.state = "acting"
+                    self.tools += 1
+                    self.note_draw(block)
+                    out += self.say(breadcrumb(block), step=True)
+                    out += self.pulse(now, force=True)
+        elif kind == "user":
+            # A plain user turn has a string here; tool results are a list.
+            blocks = event.get("message", {}).get("content", [])
+            for block in blocks if isinstance(blocks, list) else []:
+                if block.get("type") == "tool_result" and not block.get("is_error"):
+                    for name in self.pending.pop(block.get("tool_use_id"), []):
+                        if name not in self.drawn:
+                            self.drawn.append(name)
+        elif kind == "system" and event.get("subtype") == "thinking_tokens":
+            out += self.pulse(now)
+        elif kind == "tool_progress":
+            out += self.pulse(now)
+        elif kind == "result":
+            self.ok = not event.get("is_error", False)
+            self.text = event.get("result", "") or ""
+            api_ms = event.get("duration_api_ms")
+            self.api_ms = int(api_ms) if isinstance(api_ms, (int, float)) else None
+            usage = event.get("usage")
+            self.usage = usage if isinstance(usage, dict) else {}
+        return out
+
+
 def looking_at() -> str:
     """What is in front of the person right now.
 
@@ -105,9 +915,26 @@ def looking_at() -> str:
 
 
 class Listener:
-    def __init__(self, model_cmd: str, verbose: bool, bare: bool) -> None:
+    def __init__(
+        self,
+        model_cmd: str,
+        verbose: bool,
+        bare: bool,
+        voice: str | None = None,
+        profile: str = "lean",
+    ) -> None:
         self.model_cmd = model_cmd
         self.verbose = verbose
+        # `lean` gives Claude Code its own short system prompt, one tool and
+        # none of the person's settings (see `agent_flags`); `full` runs it
+        # the way `claude -p` runs at a terminal, for comparison.
+        self.lean = profile == "lean"
+        self.prompt_path = self.refresh_prompt()
+        self.flags = agent_flags(profile, user_settings(), self.prompt_path)
+        # Turns run in the current session, for the `turn:` line and for
+        # `retire`.
+        self.turns = 0
+        self.last_usage: dict = {}
         # `bare` means the model command has no tools and no skills, so it has
         # to be handed the vocabulary and can only answer in lines.
         self.bare = bare
@@ -127,6 +954,19 @@ class Listener:
         self.session = str(uuid.uuid4())
         self.started = False
 
+        # The reply is said out loud, by this voice, unless it is None. A
+        # Kokoro voice (`af_heart`, `am_michael`: two letters, underscore,
+        # name) runs through `hud-speak`, a server that keeps the model warm;
+        # anything else is a macOS voice for `say`. What `say` is currently
+        # speaking is kept so a new request or a stop can cut it off: the
+        # person talking over it is the strongest signal there is that they
+        # have heard enough. `hud-speak` does its own cutting off.
+        self.voice = voice
+        self.saying: subprocess.Popen[bytes] | None = None
+        self.speaker: subprocess.Popen[str] | None = None
+        if voice and KOKORO_VOICE.fullmatch(voice):
+            self.speaker = self.start_speaker(voice)
+
         # The last region the person pointed at, and when.
         #
         # Deixis has a short half-life. Pointing at something and asking about
@@ -136,14 +976,176 @@ class Listener:
         self.region: tuple[int, int, int, int] | None = None
         self.region_at = 0.0
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        # The send lock. Never taken while `self.state` is held, so a stalled
+        # socket write can never hold the queue.
         self.lock = threading.Lock()
-        self.busy = False
+        # Whether hud-speak is making sound right now, and the last presence
+        # line sent that was not the voice's, for `heard_speaker` to restore.
+        self.talking = False
+        self.shown: str | None = None
+        # When hud-speak's first level line of the current reply arrived,
+        # and the `turn:` line waiting for it. A turn is logged once its
+        # first sound is heard, or at the start of the next turn if it
+        # never was.
+        self.first_level_at: float | None = None
+        self.turn_report: dict | None = None
+        # The last silence filler said, so the next one is different.
+        self.last_filler: str | None = None
+        # Whether the last reply was written for the hyper bar rather than spoken.
+        self.aside = False
+        # The panel's switch, "Speech off for long answers": on, a long
+        # answer is written for the hyper bar and one sentence points at it;
+        # off, everything is read out. The display sends it as `e prefer
+        # voice long=written|spoken` on every change and again each time
+        # this bridge subscribes, so a restart starts right. On until told.
+        self.long_written = True
+        # A reply handed to hud-speak that has not yet reported quiet. Set
+        # before the first level arrives, because synthesis takes most of a
+        # second and the leave timer must not start in that gap.
+        self.voiced = False
+
+        # One lock for everything the reader thread and the worker both touch.
+        self.state = threading.Lock()
+        self.queue: collections.deque[Request] = collections.deque()
+        # The request the worker holds, from the moment it is spoken to the
+        # end of its outcome's hold. Kept through the hold on purpose: an
+        # utterance spoken during the glow queues instead of racing a second
+        # worker, which is the case that was dropped today.
+        self.current: Request | None = None
+        # The request whose model run is under way right now. None during the
+        # hold, which is how a stop word spoken during the glow knows there is
+        # nothing to stop and must not mark a finished run as cut short.
+        self.running: Request | None = None
+        # The model process in flight, so a stop from the glass has something
+        # to signal. None between requests.
+        self.proc: subprocess.Popen[str] | None = None
+        # One player command at a time. "Play Y" spoken while X is still
+        # being looked up waits for X to land, so that X's late start cannot
+        # kill Y and Y's stop cannot kill X.
+        self.music_lock = threading.Lock()
+        # The one Claude Code process for the session, kept between requests
+        # and fed each one as a stream-json turn. See `spawn`. Dead or None
+        # means the next request starts another and resumes the session.
+        self.model: subprocess.Popen[str] | None = None
+        # The run stopped on purpose, kept until the next prompt has told the
+        # model what actually reached the screen.
+        self.cancelled: Request | None = None
+        # The request whose remaining words are written, not spoken: the
+        # talk key went down while it was running. See `interrupted`.
+        self.muted: Request | None = None
+        # The request a spoken one cut off. Its cancellation is not
+        # announced, because the words that replaced it are the reason.
+        self.replaced: Request | None = None
+        self.cancelled_drawn: list[str] = []
+        # Surfaces the in-flight run has confirmed on the glass so far.
+        self.drawn: list[str] = []
 
     def log(self, *args) -> None:
         if self.verbose:
             print(*args, file=sys.stderr, flush=True)
 
+    def refresh_prompt(self) -> Path:
+        """The system prompt file, with the person's brain digest appended.
+
+        Rebuilt before every run and rewritten only when its inputs changed,
+        so a NOW.md edited a minute ago reaches the next request and an
+        unchanged prompt keeps its cache. Once the bare prompt has been
+        chosen it stays: the flags carry the path, and they are set once.
+        """
+        if getattr(self, "prompt_path", None) == AGENT_PROMPT:
+            return AGENT_PROMPT
+        module = superassistant()
+        if module is None:
+            return AGENT_PROMPT
+        try:
+            return module.agent_prompt(AGENT_PROMPT, PROMPT_OUT)
+        except Exception as err:  # noqa: BLE001
+            self.log("prompt not refreshed:", err)
+            return AGENT_PROMPT
+
+    def remember(self, req: Request, answer: str, ok: bool, outcome: str) -> None:
+        """Keep the request and its answer in the superassistant log.
+
+        The other half of `refresh_prompt`: the voice reads the person's
+        brain, and every Claude Code session reads what was asked out loud,
+        through the session-context hook. Never raises; a log that cannot be
+        written must not cost a reply.
+        """
+        module = superassistant()
+        if module is None:
+            return
+        entry = {
+            "said": req.said,
+            "typed": req.typed,
+            "relayed": req.relayed,
+            "answer": answer or "",
+            "aside": self.aside,
+            "outcome": outcome,
+            "ok": ok,
+            "seconds": round(time.monotonic() - req.spoken_at, 1),
+            "session": self.session,
+            "turn": self.turns,
+            "usage": self.last_usage,
+        }
+        try:
+            if module.record(entry):
+                self.log("remembered:", req.said[:60])
+        except Exception as err:  # noqa: BLE001
+            self.log("not remembered:", err)
+
+    def hit(self, rest: str) -> None:
+        """`guide label="..."`: the person clicked the control the bubble was on.
+
+        The display has already taken the bubble down. What is asked of the
+        model is the next step, which it finds by looking at the screen again
+        with `hud-guide`, so following along costs the person nothing but the
+        click they were told to make.
+        """
+        fields = rest.split(None, 1)
+        if not fields or fields[0] != "guide":
+            return
+        label = ""
+        marker = rest.find("label=")
+        if marker >= 0:
+            raw = rest[marker + len("label="):]
+            try:
+                decoded, _ = json.JSONDecoder().raw_decode(raw)
+                label = decoded if isinstance(decoded, str) else ""
+            except json.JSONDecodeError:
+                # A bare word is sent unquoted.
+                label = raw.split()[0] if raw.split() else ""
+        self.log("guide hit:", label or "(unlabelled)")
+        what = f"the highlighted control, {label!r}," if label else "the highlighted control,"
+        self.ask(
+            f"They just clicked {what} and the bubble is gone. Look at the screen again with "
+            "hud-guide and put the bubble on the next step, in one short sentence. If that was "
+            "the last step, say they are done in one line and run hud-guide clear.",
+            relayed=True,
+        )
+
+    def prefer(self, rest: str) -> None:
+        """`voice long=written|spoken`, from the panel's switch."""
+        fields = rest.split()
+        if not fields or fields[0] != "voice":
+            return
+        for field in fields[1:]:
+            key, _, raw = field.partition("=")
+            value = raw.strip('"')
+            if key == "long" and value in ("written", "spoken"):
+                self.long_written = value == "written"
+                self.log("long answers", value)
+
     def send(self, line: str) -> None:
+        if line.startswith("p "):
+            state = line.split()[1]
+            if state != "speaking":
+                self.shown = f"p {state}"
+                # A `thinking` pulse landing mid-sentence would swap the
+                # voice's ring for the spinner for one frame every two
+                # seconds. The voice keeps the display awake on its own, and
+                # `quiet` puts the pulse's state back.
+                if self.talking and state in ("thinking", "acting"):
+                    return
         with self.lock:
             try:
                 self.sock.sendall((line.rstrip("\n") + "\n").encode("utf-8"))
@@ -163,10 +1165,11 @@ class Listener:
         on the loop. It keeps trying quietly, and says so once at the top.
         """
         print(
-            f"listening on {SOCKET} — say something to the display\n"
+            f"listening on {SOCKET}: say something to the display\n"
             f"conversation: {self.session}",
             file=sys.stderr,
         )
+        self.prime()
 
         delay = 0.5
         announced = False
@@ -225,11 +1228,32 @@ class Listener:
         self.log("<-", line)
 
         if line.startswith("h "):
+            # `h "<text>"`, or `h "<text>" via=typed` from the conversation
+            # panel. The string first, so a display that only ever sends the
+            # string is still understood.
+            rest = line[2:]
             try:
-                said = json.loads(line[2:])
+                said, end = json.JSONDecoder().raw_decode(rest)
             except json.JSONDecodeError:
                 return
-            self.ask(said)
+            if not isinstance(said, str):
+                return
+            self.ask(said, typed="via=typed" in rest[end:].split())
+        elif line == "k down":
+            # The talk key went down: they are about to speak. The voice
+            # stops now, not when their words arrive a few seconds later.
+            self.interrupted()
+        elif line == "k up":
+            # The words, if there were any, follow as `h`.
+            pass
+        elif line == "x":
+            # The person took everything down: Escape on an empty pill, or
+            # two quick globe presses. The display has already gone dormant
+            # on its own, so nothing is sent; the voice is cut, and the
+            # state the quiet would have put back is dormant, not the done
+            # the exit just cleared.
+            self.hush()
+            self.shown = "p dormant"
         elif line.startswith("g "):
             parts = line.split()
             if len(parts) == 5:
@@ -240,31 +1264,684 @@ class Listener:
                 except ValueError:
                     pass
         elif line.startswith("e "):
-            # A control was used. Same path: the press is a request in words.
             parts = line.split(None, 2)
-            if len(parts) >= 3:
-                self.ask(f"The user pressed {parts[1]} on {parts[2]}. Respond by updating the display.")
+            if len(parts) < 3:
+                return
+            action, component = parts[1], parts[2]
+            if action == "stop":
+                # The X on the pill and Escape during a run both send
+                # `e stop run`; a Stop button on any surface means the same.
+                # Intercepted before the generic branch below, which would
+                # otherwise hand "the user pressed stop on run" to the model
+                # as a fresh request.
+                self.stop()
+            elif action == "say":
+                # `e say turn text="<answer>"`: the read-aloud button on an
+                # answer in the conversation panel. Spoken here, not asked,
+                # because the words already exist.
+                self.read_aloud(component)
+            elif action == "prefer":
+                # `e prefer voice long=written|spoken`: a switch on the
+                # panel. Kept, not asked: the next request carries it.
+                self.prefer(component)
+            elif action == "hit":
+                # `e hit guide label="..."`: they clicked the control a
+                # guide bubble was on. The next step is asked for.
+                self.hit(component)
+            else:
+                # A control was used. Same path: the press is a request in words.
+                self.ask(
+                    f"The user pressed {action} on {component}. Respond by updating the display.",
+                    relayed=True,
+                )
 
-    def ask(self, said: str) -> None:
-        # One request at a time. Two models drawing to the same surfaces at once
-        # is a race with a visible symptom, and the person only asked once.
-        if self.busy:
-            self.log("busy, dropped:", said)
-            # Say so on the glass. Dropping a request in silence is the same
-            # failure as having nothing connected: the person cannot tell
-            # whether they were heard, so they say it again, and now there are
-            # two queued requests neither of which they wanted.
-            for line in (
-                "@ busy at=top w=380 life=4",
-                'c bs Screen title="STILL WORKING"',
-                "r bs",
-                'c bt Text value="One thing at a time. Ask again when this finishes." tone=muted',
-                "> bs bt",
-            ):
-                self.send(line)
+    # SIGTERM first so Claude Code can write its last session row, then kill.
+    # Guessed, never measured: the probe used SIGKILL outright and the session
+    # still resumed, so this is courtesy, not a requirement.
+    KILL_GRACE = 2.0
+    # How long the done ring holds when another request is waiting. Nielsen's
+    # 1.0 s is the limit of an uninterrupted flow of thought; a shorter flash
+    # reads as a flicker, and the full 8 s hold would make the person wait for
+    # the glow before their next request starts.
+    NEXT_HOLD_DONE = 1.0
+    # Failed needs to be seen before the ring goes white again. Guessed, never
+    # measured.
+    NEXT_HOLD_FAILED = 3.0
+    # How long a finished exchange stays on the glass after the reply has been
+    # said, with nothing else asked, before the display leaves. Ten, from the
+    # ask on 2026-09-19: "if the user doesnt respond back after the task has
+    # been complete for 10s, execute the exit animation". Counted from the end
+    # of the voice, not from `p done`: an eight-second hold from done used to
+    # take a twelve-second reply down mid-sentence.
+    LEAVE_AFTER = 10.0
+    # Longer when the reply was written for the hyper bar rather than spoken:
+    # the voice said "it's in the hyper bar" and stopped, and the bar is what
+    # they now reach for. Twenty is guessed, never measured; the panel keeps
+    # the text after the bar has gone either way.
+    LEAVE_AFTER_WRITTEN = 20.0
+    # How long "Stopped." stays up with nothing waiting. The pill's own X path
+    # hides the same line after 3 s (OverlayModel.swift cancelRun, marked
+    # guessed there too); matching it makes a spoken stop and a pressed one
+    # look the same.
+    STOP_HOLD = 3.0
+
+    def in_flight(self) -> bool:
+        """Whether a request is running or waiting to."""
+        with self.state:
+            return self.current is not None
+
+    def stop(self) -> None:
+        """End the run in flight and keep what it drew.
+
+        Surfaces never clear on their own, so everything already on the glass
+        survives; only the reply that had not been written yet is lost. Queued
+        (typed) requests still run, because each was asked for on purpose.
+        With nothing in flight there is nothing else the word can mean, so it
+        clears the queue instead. A spoken request that arrives mid-run does
+        not come here: it replaces the run (`interrupt`).
+        """
+        self.hush()
+        with self.state:
+            req, proc = self.running, self.proc
+            cleared = 0
+            if req is None:
+                cleared = len(self.queue)
+                self.queue.clear()
+            else:
+                self.cancelled = req
+                self.cancelled_drawn = list(self.drawn)
+        if req is not None:
+            self.log("stopped:", req.said)
+            # `proc` is None only in the gap before Popen; `_run` and both
+            # runners check `cancelled` across that gap.
+            if proc is not None and proc.poll() is None:
+                proc.terminate()
+                later(self.KILL_GRACE, proc.kill)
             return
-        self.busy = True
-        threading.Thread(target=self._ask, args=(said,), daemon=True).start()
+        if cleared:
+            self.send("q 0")
+        # The display put the pill in `working` the moment it heard the word
+        # (main.swift sets thinking on every heard utterance) and only done or
+        # failed takes it out of that phase again; attentive alone leaves it
+        # counting. A stop with nothing to stop is a stop that failed.
+        self.send("s " + json.dumps("Dropped what was waiting." if cleared else "Nothing to stop."))
+        self.send("p failed")
+        later(self.NEXT_HOLD_FAILED, self.release)
+
+    def interrupted(self) -> None:
+        """The talk key went down while the voice was speaking or a run was
+        in flight: stop talking at once, and keep quiet for the rest of that
+        run. What it goes on to write still reaches the panel.
+
+        "It keeps talking over me when I try to speak while it's working or
+        giving a response from a previous request" (2026-09-20). Before this
+        the voice was cut only when the words arrived, seconds after the
+        key went down, and the run then carried on speaking its later
+        sentences over whatever was said next.
+        """
+        self.hush()
+        with self.state:
+            self.muted = self.current
+        if self.muted is not None:
+            self.log("muted:", self.muted.said)
+
+    def interrupt(self, req: Request) -> None:
+        """A spoken request while one is in flight replaces it.
+
+        The run is ended without a word and `req` runs next; nothing waits
+        behind it. What they most recently asked for is what they mean, and
+        an answer to the earlier question read out after the new one would
+        be the talking-over this exists to end. Typed requests still queue
+        (`ask`): typing interrupts nobody.
+        """
+        with self.state:
+            old, proc = self.current, self.proc
+            self.cancelled = old
+            self.cancelled_drawn = list(self.drawn)
+            self.replaced = old
+            self.queue.clear()
+            self.queue.append(req)
+        self.log("interrupted:", old.said if old else "", "for:", req.said)
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            later(self.KILL_GRACE, proc.kill)
+
+    def release(self) -> None:
+        """Leave the glass, unless a request started during the hold."""
+        with self.state:
+            idle = self.running is None
+        if idle:
+            self.send("p dormant")
+
+    def start_speaker(self, voice: str) -> subprocess.Popen[str] | None:
+        """Start the voice server (`SPEAK`) and keep it. Its first line,
+        "ready", means the model is loaded and warm; until then anything
+        spoken waits in the pipe. On the first run of a fresh machine that
+        is a minute of installing or downloading; after that a few
+        seconds."""
+        try:
+            proc = subprocess.Popen(
+                [str(SPEAK), "--voice", voice],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=sys.stderr,
+                text=True,
+            )
+        except OSError as err:
+            self.log("hud-speak did not start, falling back to say:", err)
+            self.voice = FALLBACK_VOICE
+            return None
+
+        def watch() -> None:
+            # The model loader prints its own lines to stdout before "ready"
+            # ("Creating new KokoroPipeline ..."), so read until it comes.
+            # After it, every line is the voice's level, one JSON object per
+            # frame while it plays, and reading them is not optional: a pipe
+            # nobody drains fills, and a full pipe stops the speaker.
+            for line in proc.stdout or []:
+                if line.strip() == "ready":
+                    self.log(f"voice ready: {voice}")
+                    continue
+                try:
+                    message = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(message, dict):
+                    self.heard_speaker(message)
+            proc.wait()
+            self.log(f"hud-speak exited ({proc.returncode}), falling back to say")
+            self.speaker = None
+            self.voice = FALLBACK_VOICE
+
+        threading.Thread(target=watch, daemon=True).start()
+        return proc
+
+    def heard_speaker(self, message: dict) -> None:
+        """Move the ring with the voice, and put it back when the voice stops.
+
+        `level` becomes `p speaking amp=`, the same line the display makes
+        for itself from the microphone while the person talks, so the reply
+        has the same talking effect as the request (asked for on
+        2026-09-19). `quiet` restores whatever presence the bridge last set,
+        which is the run's state while the opening sentence is spoken and
+        `done` for the reply.
+        """
+        if "level" in message:
+            try:
+                level = min(max(float(message["level"]), 0.0), 1.0)
+            except (TypeError, ValueError):
+                return
+            self.talking = True
+            if self.first_level_at is None:
+                self.first_level_at = time.monotonic()
+                self.report_turn()
+            self.send(f"p speaking amp={level:.2f}")
+        elif "saying" in message:
+            # The sentence that just started playing. On the pill as the
+            # subtitle, so the words on the glass are the words in the air:
+            # asked for on 2026-09-19 as "have the text go with the pill".
+            text = str(message["saying"] or "")
+            if text:
+                self.send("s " + json.dumps(text))
+        elif "status" in message:
+            # The voice server is not ready and says why ("Getting the
+            # voice ready" while a first run downloads the model). On the
+            # pill, so a first launch that sits silent for a minute is
+            # seen to be doing something.
+            text = str(message["status"] or "")
+            if text:
+                self.send("s " + json.dumps(text))
+        elif message.get("quiet"):
+            self.voiced = False
+            if not self.talking:
+                return
+            self.talking = False
+            if self.shown:
+                self.send(self.shown)
+
+    def report_turn(self) -> None:
+        """Log the turn waiting on its first sound, now that it has one, or
+        with `audio=-` if the next turn is starting without it."""
+        with self.state:
+            report, self.turn_report = self.turn_report, None
+        if report is None:
+            return
+        audio = None
+        if self.first_level_at is not None and report["started"] <= self.first_level_at:
+            audio = self.first_level_at - report["started"]
+        self.log(turn_line(
+            report["wait"], report["text"], audio, report["api_ms"],
+            report["usage"], report["tools"], report["turns"],
+        ))
+
+    def retire(self) -> None:
+        """Close the session and open the next one, warm, before it is needed.
+
+        Called by the worker after a reply's hold, never mid-turn, so the
+        next request finds a primed process rather than paying the cold
+        start `spawn` exists to avoid. The conversation so far is gone
+        with it: a follow-up to something said fifty turns ago starts
+        over, which is the trade for a session that never grows past the
+        point where every turn slows and every turn costs.
+        """
+        proc = self.model
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+        self.model = None
+        self.log(f"retired the session after {self.turns} turns")
+        self.session = str(uuid.uuid4())
+        self.started = False
+        self.turns = 0
+        self.last_usage = {}
+        self.prime()
+
+    def should_retire(self) -> bool:
+        if not self.lean or not self.started:
+            return False
+        read = self.last_usage.get("cache_read_input_tokens")
+        cached = read if isinstance(read, (int, float)) else 0
+        return self.turns >= RETIRE_TURNS or cached >= RETIRE_TOKENS
+
+    def voice_active(self) -> bool:
+        """Whether a reply is being said, or is about to be."""
+        proc = self.saying
+        return self.voiced or self.talking or (proc is not None and proc.poll() is None)
+
+    def tell_speaker(self, message: dict) -> bool:
+        proc = self.speaker
+        if proc is None or proc.stdin is None or proc.poll() is not None:
+            return False
+        try:
+            proc.stdin.write(json.dumps(message) + "\n")
+            proc.stdin.flush()
+            return True
+        except (BrokenPipeError, OSError) as err:
+            self.log("hud-speak pipe broke, falling back to say:", err)
+            self.speaker = None
+            self.voice = FALLBACK_VOICE
+            return False
+
+    def speak_part(self, text: str, first: bool) -> bool:
+        """One chunk of a reply to hud-speak as it lands.
+
+        `say` with `more` for the first chunk, which cuts off whatever was
+        still being said and holds the quiet; `add` for the rest, which queue
+        behind it; `end` is sent by the caller once the reply is complete,
+        and hud-speak reports quiet after the last chunk has played. Only
+        hud-speak can take a reply in parts: `say` gets the whole reply at
+        the end, as before.
+        """
+        if self.speaker is None or not text:
+            return False
+        if self.tell_speaker({"say": text, "more": True} if first else {"add": text}):
+            self.voiced = True
+            return True
+        return False
+
+    def read_aloud(self, rest: str) -> None:
+        """Speak the text in an `e say` line's `text=` field, minus its pointer."""
+        marker = rest.find("text=")
+        if marker < 0:
+            return
+        try:
+            text, _ = json.JSONDecoder().raw_decode(rest[marker + len("text="):])
+        except json.JSONDecodeError:
+            return
+        if isinstance(text, str) and text.strip():
+            self.speak(spoken(without_pointer(text)))
+
+    def speak(self, text: str) -> None:
+        """Say the reply out loud, cutting off whatever was still being said.
+
+        Asked for by voice on 2026-09-19: "if you can hear me say it out
+        loud". A reply that only lands on the glass is one the person has to
+        look for, and the whole point of speaking to it was not looking.
+        """
+        if not self.voice or not text:
+            return
+        if self.speaker is not None and self.tell_speaker({"say": text}):
+            self.voiced = True
+            return
+        self.hush()
+        try:
+            self.saying = subprocess.Popen(
+                ["say", "-v", self.voice, text],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError as err:
+            self.log("say failed:", err)
+
+    def hush(self) -> None:
+        """Stop talking."""
+        # Whatever the ring shows next is set by whoever called for the
+        # hush, a new request or a stop, so the quiet that follows a cut-off
+        # must not put an older state back over it.
+        self.talking = False
+        self.voiced = False
+        if self.speaker is not None:
+            self.tell_speaker({"hush": True})
+        proc, self.saying = self.saying, None
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+
+    def prime(self) -> None:
+        """Open the session and have the skill and CLI usage read before the
+        first spoken request, so that request does not pay for it.
+
+        Measured 2026-09-19 on the first request of a fresh session: the
+        model spent 3.3s to 12.5s of a 19s calendar booking on "Using the hud
+        skill", "Check HUD status and mac calendar CLI help" and "Show mac
+        calendar add usage", none of which the person asked for. Done here,
+        before the socket is even open, that reading costs them nothing.
+        Synchronous on purpose: `--session-id` twice is an error, and a
+        request arriving mid-prime would be the second.
+        """
+        if self.bare:
+            return
+        argv = self.command()
+        if Path(argv[0]).name != "claude":
+            return
+        started = time.monotonic()
+        # Under the lean profile the usage is in the system prompt already,
+        # so the warm-up is only the process start and the cache, and the
+        # turn is one word each way.
+        prompt = (
+            "Warm-up for this session, before the first spoken request arrives. "
+            "Reply with only the word: ready\n"
+            if self.lean
+            else "Warm-up for this session, before the first spoken request arrives. "
+            "Read the usage of these commands, each with --help: mac calendar "
+            "add, mac calendar list, mac messages send, mac messages chats, "
+            "mac messages history, mac contacts find. Do not draw anything, do "
+            "not send anything, and do not write a session opener. Reply with "
+            "only the word: ready\n"
+        )
+        proc = self.spawn()
+        if proc is None or not self.turn(proc, prompt):
+            self.log("prime failed: the model did not start")
+            return
+        killer = later(120.0, proc.kill)
+        reply = ""
+        for raw in proc.stdout or []:
+            try:
+                event = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "result":
+                reply = str(event.get("result") or "")
+                break
+        killer.cancel()
+        if proc.poll() is not None:
+            self.log(f"prime failed: the model exited ({proc.returncode})")
+            return
+        self.started = True
+        self.log(f"primed in {time.monotonic() - started:.0f}s: {reply.strip()[:60]!r}")
+
+    def spawn(self) -> subprocess.Popen[str] | None:
+        """Start the model process that answers every request of the session.
+
+        One process for the session, taking each request as a turn over
+        `--input-format stream-json`, rather than one process per request.
+        Measured 2026-09-19 on this Mac: a fresh `claude -p` took 1.9s to its
+        init event (eleven SessionStart hooks in that) and 5.0s to a one-word
+        reply; a second turn on the same process took 2.1s. Three seconds off
+        every request before the model has said a word, which was most of
+        the 4 to 6s the person waited for the first spoken sentence.
+        """
+        argv = self.command()
+        try:
+            proc = subprocess.Popen(
+                argv + [
+                    "--input-format", "stream-json",
+                    "--output-format", "stream-json", "--verbose",
+                    # Text arrives as deltas, so the first sentence of a
+                    # long answer is spoken while the rest is still being
+                    # written, and the panel fills as it is read.
+                    "--include-partial-messages",
+                ],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                # Answer from home, never from wherever the listener was
+                # started. Started inside a repo, the answering agent reads
+                # that repo's CLAUDE.md and takes its doctrine as the job:
+                # asked out loud for an unread message count from
+                # `~/dev/bob-the-builder`, it spent the whole turn on whether
+                # the branch should be pushed and drew nothing. A spoken
+                # request is not a task in the current project.
+                cwd=str(Path.home()),
+            )
+        except OSError as err:
+            self.log("the model did not start:", err)
+            return None
+        self.model = proc
+        return proc
+
+    def model_process(self) -> subprocess.Popen[str] | None:
+        """The live model process, or a fresh one resuming the session."""
+        proc = self.model
+        if proc is not None and proc.poll() is None:
+            return proc
+        return self.spawn()
+
+    @staticmethod
+    def turn(proc: subprocess.Popen[str], prompt: str) -> bool:
+        """Hand the process one request, as the user message of a new turn."""
+        message = {
+            "type": "user",
+            "message": {"role": "user", "content": [{"type": "text", "text": prompt}]},
+        }
+        try:
+            assert proc.stdin is not None
+            proc.stdin.write(json.dumps(message) + "\n")
+            proc.stdin.flush()
+            return True
+        except (BrokenPipeError, OSError, AssertionError):
+            return False
+
+    def ask(self, said: str, typed: bool = False, relayed: bool = False) -> None:
+        self.hush()
+        words = normalise(said)
+        if words in STOP_WORDS or (words in BARGE_WORDS and self.in_flight()):
+            # "Stop" with nothing running and music playing is the music.
+            if not self.in_flight() and self.music_request(said, typed, bare_stop=True):
+                return
+            self.stop()
+            return
+        if not relayed and self.music_request(said, typed):
+            return
+        req = Request(
+            said=said, spoken_at=time.monotonic(), pointed=self.pointing(),
+            typed=typed, relayed=relayed,
+        )
+        with self.state:
+            waiting = self.current is not None
+            if waiting and (typed or relayed):
+                self.queue.append(req)
+                depth = len(self.queue)
+            elif not waiting:
+                self.current = req
+        if not waiting:
+            threading.Thread(target=self._drain, daemon=True).start()
+            return
+        if not typed and not relayed:
+            self.interrupt(req)
+            return
+        self.log("queued:", said)
+        # Depth on the glass first, screen sample second: looking_at() can
+        # take 3 s, and the +1 has to be up inside the second the person gives
+        # a system before deciding it did not hear them and saying it again.
+        self.send(f"q {depth}")
+        req.seen = looking_at()
+
+    # What the model is told when the quick path understood "music" but not
+    # which: Spotify's search page could not be read and the open sources
+    # were not sure of the name. "Give it reasoning": a name the recogniser
+    # mangled takes knowing, and the model knows.
+    MUSIC_HINT = (
+        "This is a music request the quick lookup could not settle: Spotify's search page "
+        "could not be read, and speech may have misheard a name (it hears 'Fred again..' as "
+        "'freddie again'). Work out what they most likely mean, then run exactly one "
+        "command: hud-music play --anyway \"<song> by <artist>\", or \"<artist>\", or "
+        "\"the album <album> by <artist>\". Say its first line and nothing more. Do not "
+        "search the web, and do not script Spotify yourself."
+    )
+
+    def to_model(self, req: Request) -> None:
+        """Hand a music request the quick path could not settle to the model."""
+        with self.state:
+            self.current = Request(said=req.said, spoken_at=req.spoken_at, pointed=None, typed=req.typed, hint=self.MUSIC_HINT)
+        self._drain()
+
+    def music_request(self, said: str, typed: bool, bare_stop: bool = False) -> bool:
+        """Play, pause, skip or ask what is on, without the model.
+
+        True when the words were about music and are being acted on: the
+        answer is spoken, written to the panel and kept in the log, and the
+        model never sees the request. False hands the words on as usual.
+        `bare_stop` is a stop word on its own: a pause, and only if
+        something is playing, since with nothing on the word means the
+        bridge.
+
+        Asked for on 2026-09-20: "tell the assistant to play a song or artist
+        and it plays almost instantly". A model turn is the slow part, so the
+        words are read here and the player driven here; `hud-music` keeps the
+        vocabulary, in one place for the bridge and the command line.
+        """
+        module = music()
+        if module is None:
+            return False
+        try:
+            if bare_stop:
+                if module.active_player() is None:
+                    return False
+                command = module.Command("pause")
+            else:
+                command = module.parse(said)
+        except Exception:  # noqa: BLE001
+            return False
+        if command is None:
+            return False
+        if self.in_flight():
+            # They want the music now, not the rest of a reply.
+            self.stop()
+        req = Request(said=said, spoken_at=time.monotonic(), pointed=None, typed=typed)
+        with self.state:
+            self.current = req
+            self.queue.clear()
+        command.quiet_miss = True
+        threading.Thread(target=self._play, args=(req, command), daemon=True).start()
+        return True
+
+    def _play(self, req: Request, command) -> None:
+        """The music worker: drive the player, say how it went, take the next."""
+        module = music()
+        started = time.monotonic()
+        with self.music_lock:
+            with self.state:
+                self.running = req
+            try:
+                outcome = module.perform(command)
+            except Exception as err:  # noqa: BLE001
+                self.log("music failed:", err)
+                outcome = module.Outcome(False, "The player didn't answer.")
+            with self.state:
+                self.running = None
+                stopped = self.cancelled is req
+                if stopped:
+                    self.cancelled = None
+                # Another request took the glass while this one was looked
+                # up; its own outcome is the one that lands.
+                superseded = self.current is not req
+            if stopped and outcome.ok and command.verb in ("play", "resume"):
+                # "Play X" and then "stop" before X was found: the stop wins.
+                try:
+                    module.perform(module.Command("stop"))
+                except Exception:  # noqa: BLE001
+                    pass
+                outcome = module.Outcome(True, "Stopped.")
+        self.log(f"music: [{time.monotonic() - started:.1f}s] {command.verb}:", outcome.line)
+        if superseded:
+            return
+        if getattr(outcome, "unsure", False) and not stopped:
+            # Understood as music, not which: the model works out the rest.
+            self.to_model(req)
+            return
+        self.remember(req, outcome.line, outcome.ok, "cancelled" if stopped else "done" if outcome.ok else "failed")
+        note = getattr(outcome, "note", "")
+        self.send("w " + json.dumps(outcome.line + ("\n\n" + note if note else "")) + " done=true")
+        self.send("s " + json.dumps(outcome.line))
+        if not req.typed and not stopped:
+            self.speak(outcome.line)
+        self.settle("done" if outcome.ok else "failed", self.LEAVE_AFTER)
+        with self.state:
+            self.current = self.queue.popleft() if self.queue else None
+            has_next = self.current is not None
+        if has_next:
+            self._drain()
+
+    def _drain(self) -> None:
+        """The one worker: run `current`, show how it went, take the next."""
+        while True:
+            with self.state:
+                req = self.current
+            if req is None:
+                return
+            outcome = self._ask(req)
+            with self.state:
+                has_next = bool(self.queue)
+                replaced = outcome == "cancelled" and self.replaced is req
+                if self.replaced is req:
+                    self.replaced = None
+                if self.muted is req:
+                    self.muted = None
+            if replaced:
+                # Cut off by the words that follow: no "Stopped", no hold,
+                # straight on to them. The pill went to thinking when they
+                # were heard.
+                with self.state:
+                    self.current = self.queue.popleft() if self.queue else None
+                    depth = len(self.queue)
+                if self.current is None:
+                    return
+                self.send(f"q {depth}")
+                continue
+            if outcome == "cancelled":
+                # The same words the pill's own X puts up, so a spoken stop
+                # and a pressed one read the same. `done` rather than
+                # `failed`: a stop that stopped is not a red edge, and the
+                # pill leaves `working` only on done or failed (OverlayModel
+                # setPresence), never on attentive.
+                self.send('s "Stopped. What was drawn stays."')
+                state, hold = "done", self.STOP_HOLD
+            elif outcome == "done":
+                # Say how it went, and then stop saying it. A field that holds
+                # `done` forever is a field that stops meaning finished, and
+                # one that leaves the moment the reply lands never showed the
+                # person that their errand worked at all.
+                state, hold = "done", self.LEAVE_AFTER_WRITTEN if self.aside else self.LEAVE_AFTER
+            else:
+                state, hold = "failed", self.LEAVE_AFTER
+            if has_next:
+                self.send(f"p {state}")
+                time.sleep(self.NEXT_HOLD_DONE if state == "done" else self.NEXT_HOLD_FAILED)
+            else:
+                self.settle(state, hold)
+                # The quiet moment after a reply, with nothing queued, is
+                # when a session that has grown past its ceiling is swapped
+                # for a fresh, warm one.
+                if self.should_retire():
+                    self.retire()
+            with self.state:
+                self.current = self.queue.popleft() if self.queue else None
+                more = self.current is not None
+                depth = len(self.queue)
+            if not more:
+                return
+            self.send(f"q {depth}")
 
     # Thirty seconds. Long enough to point, think, and speak; short enough that
     # an unrelated question a minute later does not inherit the region.
@@ -279,7 +1956,8 @@ class Listener:
         return self.region
 
     def command(self) -> list[str]:
-        """The model command, with continuity flags if it understands them.
+        """The model command, with the profile and continuity flags if it
+        understands them.
 
         Only Claude Code is given the flags, and only because they were checked
         against the real binary rather than assumed. Any other command is run
@@ -290,79 +1968,460 @@ class Listener:
         argv = shlex.split(self.model_cmd)
         if not argv or Path(argv[0]).name != "claude":
             return argv
+        self.refresh_prompt()
+        argv = argv + self.flags
         if self.started:
             return argv + ["--resume", self.session]
         return argv + ["--session-id", self.session]
 
-    def _ask(self, said: str) -> None:
+    def _ask(self, req: Request) -> str:
+        """Run one request to its outcome: "done", "failed" or "cancelled"."""
+        with self.state:
+            self.running = req
+            self.drawn = []
+        outcome = "failed"
         try:
-            self.send("p thinking")
-            # Short on purpose. An agent with tools should go and find out
-            # rather than be told what to draw, and a long prompt about
-            # components is a long prompt about the wrong thing.
-            seen = looking_at()
-            pointed = self.pointing()
-            prompt = (
-                f"The user said this out loud, to their screen: {said!r}\n\n"
-                + (f"They are looking at: {seen}\n\n" if seen else "")
-                + (
-                    f"They are pointing at the region {pointed} on screen "
-                    "(x, y, width, height, in points, top-left origin). If the "
-                    "request says 'this' or 'that', it means whatever is there. "
-                    "Look at it before answering.\n\n"
-                    if pointed
-                    else ""
-                )
-                + "Use the hud skill to answer them by drawing on their display. "
-                "Look up whatever real data the answer needs first. Do not "
-                "invent a number. Keep any spoken reply under twenty words, "
-                "because the panel is the answer and the sentence is only a "
-                "pointer to it.\n"
-            )
-            if self.bare:
-                prompt = (
-                    f"{instructions()}\n\n---\n\n"
-                    f"The user said, out loud: {said!r}\n\n"
-                    "Answer by drawing on their screen. Reply with Bob Lines "
-                    "and nothing else: no prose, no explanation, no code "
-                    "fences. If the request does not warrant a panel, reply "
-                    "with a single line that is only the word: none\n"
-                )
-            self.log("->", said)
-            result = subprocess.run(
-                self.command(),
-                input=prompt,
-                capture_output=True,
-                text=True,
-                timeout=180,
-            )
-            # An agent with tools draws for itself and answers in prose, so
-            # stray lines here are the exception rather than the payload.
-            # Only after a request has actually run, or a first attempt that
-            # failed would leave the listener resuming a session that was never
-            # opened, and every request after it would fail the same way.
-            if result.returncode == 0:
-                self.started = True
-            for line in draw_lines(result.stdout):
-                self.send(line)
-            self.send("p attentive")
-            spoken = result.stdout.strip()
-            if spoken:
-                self.log("said:", spoken[:300])
+            outcome = self._run(req)
         except subprocess.TimeoutExpired:
-            self.send("p failed")
+            pass
         except Exception as err:  # noqa: BLE001
             self.log("failed:", err)
-            self.send("p failed")
         finally:
-            self.busy = False
+            with self.state:
+                self.running = None
+                stopped = self.cancelled is req
+                if stopped and outcome == "done":
+                    # The stop landed after the run had already finished.
+                    # Nothing was cut short, so the next prompt is not told
+                    # that something was.
+                    self.cancelled = None
+                    stopped = False
+        if not stopped:
+            return outcome
+        # Continuity now depends on the disk, not on `ok`: the session file
+        # exists once Claude Code wrote a row, and `--session-id` twice is an
+        # error while `--resume` on nothing is also one.
+        self.started = self.started or (SESSIONS / f"{self.session}.jsonl").exists()
+        return "cancelled"
+
+    def _run(self, req: Request) -> str:
+        self.send("p thinking")
+        seen = req.seen or looking_at()
+        with self.state:
+            if self.cancelled is req:
+                # Stopped before the model was started. The model never saw
+                # this request, so the next prompt has nothing to be told.
+                self.cancelled = None
+                return "cancelled"
+        prompt = self.prompt_for(req, seen)
+        self.log("->", req.said, f"[{req.id}, spoken {time.monotonic() - req.spoken_at:.0f}s ago]")
+        argv = self.command()
+        first: str | None = None
+        voiced = False
+        if Path(argv[0]).name == "claude":
+            ok, out, said, first, answer, voiced = self.run_streamed(
+                argv, prompt, typed=req.typed, asked_at=req.spoken_at, said=req.said
+            )
+        else:
+            ok, out, said = self.run_plain(argv, prompt)
+            answer = prose(out).strip()
+        with self.state:
+            if self.cancelled is req:
+                self.remember(req, answer, False, "cancelled")
+                return "cancelled"
+        # An agent with tools draws for itself and answers in prose, so
+        # stray lines here are the exception rather than the payload.
+        # Only after a request has actually run, or a first attempt that
+        # failed would leave the listener resuming a session that was never
+        # opened, and every request after it would fail the same way.
+        if ok:
+            self.started = True
+        for line in draw_lines(out):
+            self.send(line)
+        replied = out.strip()
+        if replied:
+            self.log(f"said: [{time.monotonic() - req.spoken_at:.1f}s]", replied[:300])
+        # The whole answer, closed, for the conversation panel. Sent even
+        # when the stream wrote it already: the last `w` is the one the
+        # panel keeps, and `done` is what lets it close the turn.
+        if answer:
+            self.send("w " + json.dumps(answer) + " done=true")
+        # The reply reaches the glass as the last subtitle, unless the
+        # stream already put the same sentence there (the final text block
+        # and `result.result` are the same words on CLI 2.1.278), or the
+        # voice is captioning the pill itself as it reads.
+        reply = subtitle(prose(out))
+        if reply and reply != said and not voiced:
+            self.send("s " + json.dumps(reply))
+        # A typed request is answered in writing. A run that was one
+        # sentence long already had it spoken as it arrived, and one read
+        # in parts by hud-speak has been heard in full; saying it twice is
+        # the tell of a machine.
+        if ok and not req.typed and not voiced and reply != first:
+            self.speak(reply or said or "")
+        self.remember(req, answer, ok, "done" if ok else "failed")
+        return "done" if ok else "failed"
+
+    def prompt_for(self, req: Request, seen: str) -> str:
+        """The prompt, with what a stopped run left on the glass in front.
+
+        Nothing truncates a Claude Code session: the killed turn stays in the
+        jsonl, so the model's own transcript still holds whatever it planned
+        to draw. The prefix corrects its belief about what was delivered,
+        which is the intent of a truncate with a display in place of a
+        speaker. `cancelled_drawn` is real, not inferred: only `hud draw`
+        calls whose tool_result came back without is_error are in it.
+
+        The body is short on purpose. An agent with tools should go and find
+        out rather than be told what to say, and a long prompt about
+        components is a long prompt about the wrong thing.
+
+        Since 2026-09-19 the pill is the whole answer: the model is told not
+        to draw. Panels had been landing as dialog-sized cards ("LISTENING",
+        "TEXT SENT", "NEED CLARITY") over a display whose only object is
+        meant to be the one line at the bottom, and the ask was "get rid of
+        those popups that arent the bubble".
+        """
+        with self.state:
+            stopped, drawn = self.cancelled, list(self.cancelled_drawn)
+            if stopped is req:
+                # Its own stop, landed while this prompt was being built.
+                # That is `_run`'s to see, not the model's.
+                stopped = None
+            else:
+                self.cancelled = None
+        prefix = ""
+        if stopped is not None:
+            prefix = (
+                f"Your previous run, for {stopped.said!r}, was stopped by the user before it "
+                "finished. Only these panels reached their screen: "
+                f"{', '.join(drawn) if drawn else 'none'}. Anything you drew or said after "
+                "that never appeared, and any action you were about to take may not have "
+                "happened: check before you assume it did.\n\n"
+            )
+        if self.bare:
+            return (
+                f"{instructions()}\n\n---\n\n"
+                + prefix
+                + f"The user said, out loud: {req.said!r}\n\n"
+                "Answer by drawing on their screen. Reply with Bob Lines "
+                "and nothing else: no prose, no explanation, no code "
+                "fences. If the request does not warrant a panel, reply "
+                "with a single line that is only the word: none\n"
+            )
+        if req.relayed:
+            asked = f"From their screen, not from them: {req.said}\n\n"
+        elif req.typed:
+            asked = f"The user typed this into the conversation panel on their screen: {req.said!r}\n\n"
+        else:
+            asked = f"The user said this out loud, to their screen: {req.said!r}\n\n"
+        if req.hint:
+            asked += req.hint + "\n\n"
+        heard = (
+            "Reply in writing: nothing is read aloud for a typed request. "
+            if req.typed
+            else "Everything you write is read aloud to them a sentence at a time "
+            "as you write it, and shown in full in the conversation panel. "
+        )
+        pointed = (
+            f"They are pointing at the region {req.pointed} on screen "
+            "(x, y, width, height, in points, top-left origin). If the "
+            "request says 'this' or 'that', it means whatever is there. "
+            "Look at it before answering.\n\n"
+            if req.pointed
+            else ""
+        )
+        # The switch overrides the standing rule, so it is said on every
+        # spoken request while it is off, not once: the rule is in the
+        # system prompt for every turn, and a note said once fades under it.
+        aloud = (
+            "They have turned speech on for long answers: read this answer "
+            "out in full, however long it runs, and do not point at the "
+            "hyper bar.\n"
+            if not self.long_written and not req.typed
+            else ""
+        )
+        if self.lean:
+            # The standing rules are the system prompt's (hud-agent.md);
+            # only what changed since the last turn is repeated, because
+            # every word here stays in the session for every turn after.
+            return (
+                prefix
+                + asked
+                + (f"They are looking at: {seen}\n\n" if seen else "")
+                + pointed
+                + ("Reply in writing: nothing is read aloud for a typed request.\n" if req.typed else "")
+                + aloud
+            )
+        return (
+            prefix
+            + asked
+            + (f"They are looking at: {seen}\n\n" if seen else "")
+            + pointed
+            + "Answer the way a good assistant answers in a chat: in full when "
+            "the question deserves it, in a sentence when a sentence is enough, "
+            "on any subject. Never stop short and never trail off; if the answer "
+            "takes four paragraphs, write four paragraphs. Lead with one "
+            "sentence, under twenty words, that answers on its own: it is the "
+            "line on the pill at the bottom of their screen. "
+            + heard
+            + aloud
+            + "Write plain prose in short paragraphs: no headings, no tables, "
+            "and no code unless they asked for code; a short list is fine. "
+            "Before any tool call, write one short sentence saying what you "
+            "are about to do. Do what they asked with the mac CLI you already "
+            "know; read its help only when a command fails. Look up whatever "
+            "real data the answer "
+            "needs. Do not invent a number. Do not draw anything on the "
+            "display: no panels, no cards, no marks, no hud draw. Do not "
+            "write a session opener; this is a conversation, not a session, "
+            "and not a coding task: do not edit, commit, or push anything "
+            "unless they ask for exactly that.\n"
+        )
+
+    def run_plain(self, argv: list[str], prompt: str) -> tuple[bool, str, None]:
+        """Any other model command, on a pipe so a stop can still reach it."""
+        proc = subprocess.Popen(
+            argv,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        with self.state:
+            self.proc = proc
+            # A stop that landed between `_run`'s check and Popen.
+            late = self.cancelled is not None and self.cancelled is self.running
+        if late:
+            proc.terminate()
+        try:
+            out, _ = proc.communicate(prompt, timeout=180)
+        except subprocess.TimeoutExpired:
+            # communicate() leaves the child running on a timeout; run() used
+            # to kill it, and a model still writing to a closed loop is worse.
+            proc.kill()
+            proc.communicate()
+            raise
+        finally:
+            with self.state:
+                self.proc = None
+        return proc.returncode == 0, out, None
+
+    def settle(self, state: str, hold: float) -> None:
+        """Show an outcome, hold it for `hold` seconds of silence, then leave.
+
+        The hold restarts whenever the voice is active, so it is measured
+        from the end of the reply. A request spoken during it ends the hold
+        at once with nothing sent: its own run takes the glass next, and
+        `p dormant` under a `p thinking` would play the exit over the
+        arrival. `p dormant` is what runs the exit: the band ruptures and the
+        pill goes (PresenceField.sync, OverlayModel.setPresence).
+        """
+        self.send(f"p {state}")
+        deadline = time.monotonic() + hold
+        # Never longer than this, however the voice reports. Guessed, never
+        # measured: a reply is under twenty words and hud-speak says quiet
+        # within a frame of the last one.
+        limit = time.monotonic() + hold + 60.0
+        while time.monotonic() < deadline:
+            with self.state:
+                if self.queue:
+                    return
+            if self.voice_active() and time.monotonic() < limit:
+                deadline = time.monotonic() + hold
+            time.sleep(0.1)
+        self.send("p dormant")
+
+    def run_streamed(
+        self,
+        argv: list[str],
+        prompt: str,
+        typed: bool = False,
+        asked_at: float | None = None,
+        said: str = "",
+    ) -> tuple[bool, str, str | None, str | None, str, bool]:
+        """Run Claude Code and put what it is actually doing on the glass.
+
+        The field has two working states and they mean different things:
+        `thinking` is white and means a request is in flight, `acting` is green
+        and means something is being done to this machine. Only the stream
+        knows which one is true right now. Run with `--output-format
+        stream-json` and the first `tool_use` event is the moment it stops
+        being deliberation and starts being action, which is exactly the moment
+        a person watching the edge of their screen wants to know about.
+
+        `Run.translate` turns every event into subtitle lines (one per tool
+        call, one per narration block), `w` lines carrying the answer so far,
+        and presence pulses; this loop only moves them to the socket, hands
+        each finished sentence to hud-speak, and keeps the pulses coming
+        while a tool blocks the read. Returns ok, the reply text, the last
+        subtitle sent (so the caller does not repeat it), the first prose
+        line, the written answer, and whether hud-speak read the reply in
+        parts as it arrived.
+
+        With hud-speak and a spoken request, the pill is captioned by the
+        voice (`saying` lines from hud-speak, one per sentence as it starts)
+        rather than by the text blocks, so the words on the glass are the
+        words being heard. A typed request is answered in writing only.
+
+        Falls back to whatever text arrived if the stream never produced a
+        result event, because a missing final event is not a reason to throw
+        away an answer the model already gave.
+
+        The process is the session's one model process (`spawn`), and the
+        request is one turn of it: the loop reads until that turn's result
+        and leaves the process running for the next. A stop kills it, and
+        the next request starts another that resumes the session.
+        """
+        # The turn before this one is still waiting on a first sound that
+        # is not coming now: the new request hushed it.
+        self.report_turn()
+        self.first_level_at = None
+        proc = self.model_process()
+        if proc is None:
+            return False, "", None, None, "", False
+        with self.state:
+            self.proc = proc
+            # A stop that landed between `_run`'s check and here. Nothing has
+            # been sent, so there is nothing to kill.
+            late = self.cancelled is not None and self.cancelled is self.running
+        if late or not self.turn(proc, prompt):
+            with self.state:
+                self.proc = None
+            return False, "", None, None, "", False
+        # A watchdog rather than a read timeout, because the read loop is
+        # what is blocked. 240s: a request that chains four CLI calls and then
+        # draws runs to about a minute, and killing a working answer at 180
+        # left the person with a red edge and no panel.
+        killer = threading.Timer(240.0, proc.kill)
+        killer.start()
+        run = Run()
+        streaming = self.speaker is not None and self.voice is not None and not typed
+        run.subtitles = not streaming
+        run.long_written = self.long_written
+        started = time.monotonic()
+        spoken_first = False
+        voiced = False
+        for line in run.pulse(started, force=True):
+            self.send(line)
+        stop = threading.Event()
+        # The silence filler and the first chunk race for the voice; the
+        # gate decides which one opens the reply (`say`) and which queues
+        # behind it (`add`). `spoke` is set by whichever got there first.
+        gate = threading.Lock()
+        spoke = threading.Event()
+        filled = threading.Event()
+
+        def fill() -> None:
+            if not streaming or proc.poll() is not None or stop.is_set() or self.muted is self.running:
+                return
+            with gate:
+                if spoke.is_set():
+                    return
+                spoke.set()
+                filled.set()
+            phrase = pick_filler(said, self.last_filler)
+            self.last_filler = phrase
+            if self.speak_part(phrase, first=True):
+                self.log(f"[+{time.monotonic() - started:.1f}s] filler:", phrase)
+
+        filler = threading.Timer(FILLER_AFTER, fill)
+        filler.start()
+
+        def keepalive() -> None:
+            # The read loop below is blocked on stdout for as long as a tool
+            # runs, so it cannot pulse; this thread does. Both call
+            # `run.pulse`, and the worst that race produces is one extra `p`
+            # line, which the display treats as the same state again.
+            while not stop.wait(KEEPALIVE):
+                if proc.poll() is None:
+                    for line in run.pulse(time.monotonic(), force=True):
+                        self.send(line)
+
+        threading.Thread(target=keepalive, daemon=True).start()
+        try:
+            for raw in proc.stdout:
+                try:
+                    event = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                for line in run.translate(event, time.monotonic()):
+                    if line.startswith("s "):
+                        self.log(f"[+{time.monotonic() - started:.1f}s]", line)
+                    self.send(line)
+                for chunk in run.take_voice():
+                    if not streaming or self.muted is self.running:
+                        # Muted: the talk key went down. Written, not said.
+                        continue
+                    if not voiced and filled.is_set() and ACKNOWLEDGEMENT.fullmatch(chunk.strip()):
+                        # The filler already said it.
+                        self.log(f"[+{time.monotonic() - started:.1f}s] voice: {chunk.strip()} (already said)")
+                        continue
+                    with gate:
+                        first = not voiced and not filled.is_set()
+                        spoke.set()
+                    if self.speak_part(chunk, first=first):
+                        if not voiced:
+                            self.log(f"[+{time.monotonic() - started:.1f}s] voice:", chunk[:80])
+                        voiced = True
+                if run.first_text and not spoken_first and not typed and not streaming:
+                    spoken_first = True
+                    if self.muted is not self.running:
+                        self.speak(run.first_text)
+                with self.state:
+                    self.drawn = list(run.drawn)
+                if event.get("type") == "result":
+                    break
+        finally:
+            stop.set()
+            killer.cancel()
+            filler.cancel()
+            if voiced or filled.is_set():
+                # Everything has been handed over; quiet follows the last
+                # sentence rather than the last chunk queued.
+                self.tell_speaker({"end": True})
+            with self.state:
+                self.proc = None
+        # A process that is gone before its result was read was stopped or
+        # timed out, whatever text got through first.
+        ok = run.ok and proc.poll() is None
+        if ok:
+            self.turns += 1
+            self.last_usage = run.usage
+        report = {
+            "started": started,
+            "wait": None if asked_at is None else max(0.0, started - asked_at),
+            "text": None if run.first_text_at is None else max(0.0, run.first_text_at - started),
+            "api_ms": run.api_ms,
+            "usage": run.usage,
+            "tools": run.tools,
+            "turns": self.turns,
+        }
+        with self.state:
+            self.turn_report = report
+        self.aside = run.written_aside
+        # Logged now if the voice has started or is not coming; a one
+        # sentence reply usually ends its turn before its first sound, and
+        # then `heard_speaker` logs it on that sound.
+        if self.first_level_at is not None or not voiced:
+            self.report_turn()
+        return ok, run.text, run.said, run.first_text, run.answer(), voiced
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--model-cmd",
-        default=os.environ.get("BOB_MODEL_CMD", "claude -p"),
+        # `--strict-mcp-config` loads no MCP servers, which is worth about
+        # four times the work on a request like this and also stops the agent
+        # wandering off to a remote service for something one local CLI knows.
+        # The first measured round trip without it was 190 seconds, most of it
+        # before the model had read anything. Sonnet rather than Haiku for the
+        # same reason ChewieRouter gives: these requests chain several CLI
+        # calls and that is where Haiku gets lost.
+        default=os.environ.get(
+            "BOB_MODEL_CMD", "claude -p --strict-mcp-config --model sonnet"
+        ),
         help="any command that reads a prompt on stdin and writes the answer to stdout",
     )
     parser.add_argument("--verbose", action="store_true")
@@ -371,8 +2430,34 @@ def main() -> int:
         action="store_true",
         help="the model command cannot use tools, so paste it the vocabulary and expect lines back",
     )
+    parser.add_argument(
+        "--voice",
+        # A Kokoro voice runs through hud-speak (see its docstring for why);
+        # a macOS voice name goes to `say`, and `say -v '?'` lists those.
+        default=os.environ.get("HUD_VOICE", "af_heart"),
+        help="who reads each reply aloud: a Kokoro voice like af_heart, a macOS voice like Samantha, or 'off'",
+    )
+    parser.add_argument(
+        "--profile",
+        choices=["lean", "full"],
+        default=os.environ.get("HUD_AGENT_PROFILE", "lean"),
+        help="lean: Claude Code with its own short system prompt and one tool (see agent_flags); "
+        "full: as claude -p runs at a terminal",
+    )
     args = parser.parse_args()
-    return Listener(args.model_cmd, args.verbose, args.bare).run()
+    voice = None if args.voice.lower() in {"off", "none", ""} else args.voice
+    if os.environ.get("HUD_NAMES", "").lower() != "off":
+        # Six `mac` calls, a few seconds; the recogniser reads the file on
+        # every press, so it lands whenever it lands.
+        def names() -> None:
+            count = write_names()
+            if count and args.verbose:
+                print(f"names: {count} written to {NAMES}", file=sys.stderr, flush=True)
+
+        threading.Thread(target=names, daemon=True).start()
+    return Listener(
+        args.model_cmd, args.verbose, args.bare, voice=voice, profile=args.profile
+    ).run()
 
 
 if __name__ == "__main__":

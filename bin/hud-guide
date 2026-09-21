@@ -1,0 +1,437 @@
+#!/usr/bin/env python3
+"""Show them where to click.
+
+A person who does not know a screen does not need a paragraph about it. They
+need a bubble on the button. This reads the front window the way a screen
+reader does, through the accessibility tree peekaboo already walks, and puts
+one mark on the glass over the control they need next, in words they would
+use.
+
+    hud-guide list [--app <name>]                    what can be pressed in the front window
+    hud-guide find <words> [--app <name>]            the controls whose name matches
+    hud-guide show <id | words> [--say "..."] [--life 120]   the bubble, on that one
+    hud-guide at <x> <y> <w> <h> --say "..."         a bubble on a rectangle you found yourself
+    hud-guide clear                                  take the bubble down
+
+`list` and `find` look at the screen; `show <id>` reuses that look, because an
+id means nothing outside the look that produced it, and `show <words>` looks
+again. One bubble at a time: showing the next step moves the bubble rather
+than adding one, which is what "next" means to somebody following along.
+
+The display answers a click on a bubbled control by taking the bubble down and
+telling the bridge, so the voice can look again and show the next step. That
+is the whole loop. Nothing here clicks, types or moves the mouse: the hands
+stay the person's.
+"""
+
+from __future__ import annotations
+
+import argparse
+import difflib
+import json
+import os
+import re
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+BOB_DIR = Path(os.environ.get("BOB_DIR") or Path.home() / ".bob")
+SOCKET = os.environ.get("BOB_HUD_SOCKET") or str(BOB_DIR / "hud.sock")
+# Written by the display on every app switch: the app in front that is not
+# the display itself. Read when the system says the display is in front, which
+# it is for anything typed into the conversation panel.
+FRONT_APP = BOB_DIR / "front-app"
+# The last look, so `show elem_12` after `find` does not read the screen twice.
+LOOK = BOB_DIR / "guide-look.json"
+# A saved snapshot to read instead of the screen. For tests, which have no
+# screen and must not read this machine's.
+SNAPSHOT_OVERRIDE = os.environ.get("HUD_GUIDE_SNAPSHOT")
+# The display's own name, which is never the app to guide somebody through.
+OWN_APP = "BobHUD"
+# The one mark this tool owns. Re-sending an id moves the mark, so the next
+# step replaces the last instead of leaving a trail of bubbles.
+MARK = "guide"
+# How long a bubble stays up, in seconds. The mark layer's default is twelve,
+# tuned for a note the assistant added unasked; a step somebody asked for has
+# to outlast them reading it, finding the mouse and moving it there. Guessed,
+# never measured: nobody has timed a first-time user on this yet.
+LIFE = 120
+# peekaboo's own timeout is 20 s, and an app with no window on 2026-09-20 ran
+# the whole 20 before giving up. Fifteen keeps a failed look inside the time a
+# person keeps watching the screen for the bubble they were promised.
+SEE_TIMEOUT = 15
+# The bubble is drawn at its text's natural width, so the label is capped here
+# rather than wrapped there. Forty-four characters at the bubble's size is
+# about the width of a dialog, and a longer instruction is two steps, not one.
+MAX_SAY = 44
+# A control bigger than this share of its window is a container with a label,
+# not something to press.
+MAX_SHARE = 0.5
+# Below this a fuzzy match is a coincidence. difflib's own documentation calls
+# 0.6 the threshold for "close"; nothing here has measured it further.
+CLOSE_ENOUGH = 0.6
+ELEMENT_ID = re.compile(r"elem_\d+")
+
+# The roles a person can act on, by the accessibility names macOS gives them.
+# peekaboo flags most of these actionable itself; the set catches the ones it
+# misses in web content, where a link or a field is often only its role.
+PRESSABLE = {
+    "AXButton", "AXTextField", "AXTextArea", "AXSecureTextField", "AXCheckBox",
+    "AXRadioButton", "AXPopUpButton", "AXMenuButton", "AXMenuItem",
+    "AXMenuBarItem", "AXLink", "AXComboBox", "AXTab", "AXSlider",
+    "AXDisclosureTriangle", "AXIncrementor", "AXSearchField", "AXToggle",
+    "AXSwitch", "AXColorWell", "AXDateField", "AXTimeField", "AXCell", "AXRow",
+}
+# Containers. Actionable or not, a bubble on a whole scroll area tells nobody
+# anything.
+CONTAINERS = {
+    "AXWindow", "AXSheet", "AXDrawer", "AXScrollArea", "AXWebArea",
+    "AXSplitGroup", "AXToolbar", "AXMenu", "AXMenuBar", "AXApplication",
+    "AXUnknown", "AXList", "AXTable", "AXOutline", "AXBrowser", "AXTabGroup",
+    "AXLayoutArea", "AXGrid",
+}
+# The words a person would use, for the roles that have one.
+ROLE_WORDS = {
+    "AXButton": "button", "AXTextField": "text field", "AXTextArea": "text area",
+    "AXSecureTextField": "password field", "AXCheckBox": "checkbox",
+    "AXRadioButton": "option", "AXPopUpButton": "menu", "AXMenuButton": "menu",
+    "AXMenuItem": "menu item", "AXMenuBarItem": "menu", "AXLink": "link",
+    "AXComboBox": "dropdown", "AXTab": "tab", "AXSlider": "slider",
+    "AXDisclosureTriangle": "expander", "AXSearchField": "search field",
+    "AXToggle": "switch", "AXSwitch": "switch", "AXStaticText": "text",
+    "AXImage": "image", "AXGroup": "area", "AXCell": "cell", "AXRow": "row",
+}
+
+
+class LookError(Exception):
+    """One sentence for the model about why there is no bubble."""
+
+
+def role_word(role: str) -> str:
+    if role in ROLE_WORDS:
+        return ROLE_WORDS[role]
+    bare = role[2:] if role.startswith("AX") else role
+    return re.sub(r"(?<=[a-z])(?=[A-Z])", " ", bare).lower() or "control"
+
+
+def rect(value) -> tuple[float, float, float, float] | None:
+    """peekaboo writes [[x, y], [w, h]]; a {x, y, width, height} is taken too."""
+    try:
+        if isinstance(value, dict):
+            return (float(value["x"]), float(value["y"]),
+                    float(value["width"]), float(value["height"]))
+        (x, y), (w, h) = value
+        return (float(x), float(y), float(w), float(h))
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
+def control_name(element: dict) -> str:
+    """What the control is called on screen.
+
+    The label or title, else the developer's identifier, which is at least a
+    word. Never the field's value: a filled-in field's value is the person's
+    own data, and it would end up in the bubble.
+    """
+    for key in ("label", "title", "identifier"):
+        value = element.get(key)
+        if isinstance(value, str) and value.strip():
+            return " ".join(value.split())[:80]
+    return ""
+
+
+def under_display() -> str | None:
+    """The app the display took focus from, as the display recorded it."""
+    try:
+        recorded = json.loads(FRONT_APP.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    name = recorded.get("name") if isinstance(recorded, dict) else None
+    if isinstance(name, str) and name and name != OWN_APP:
+        return name
+    return None
+
+
+def front_app() -> str | None:
+    """The app in front by name, or the one under the display."""
+    try:
+        asn = subprocess.run(
+            ["lsappinfo", "front"], capture_output=True, text=True, timeout=3
+        ).stdout.strip()
+        info = subprocess.run(
+            ["lsappinfo", "info", "-only", "name", asn],
+            capture_output=True, text=True, timeout=3,
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    match = re.search(r'"LSDisplayName"="([^"]*)"', info)
+    name = match.group(1) if match else ""
+    if not name or name == OWN_APP:
+        name = under_display() or name
+    return name or None
+
+
+def see(app: str | None) -> dict:
+    """One look at the front window: the app, its title and where its controls are."""
+    if SNAPSHOT_OVERRIDE:
+        return look_from(SNAPSHOT_OVERRIDE, app or "", "")
+    app = app or front_app()
+    command = ["peekaboo", "see", "--json", "--timeout-seconds", str(SEE_TIMEOUT)]
+    if app:
+        command += ["--app", app]
+    try:
+        result = subprocess.run(
+            command, capture_output=True, text=True, timeout=SEE_TIMEOUT + 10
+        )
+    except FileNotFoundError:
+        raise LookError("peekaboo is not installed, so the screen cannot be read") from None
+    except subprocess.TimeoutExpired:
+        raise LookError("reading the screen took too long; try again") from None
+    raw = result.stdout
+    start = raw.find("{")
+    if start < 0:
+        why = (result.stderr or raw).strip().splitlines()
+        raise LookError(f"the screen could not be read: {why[-1][:160] if why else 'no output'}")
+    try:
+        # peekaboo's debug log rides along in the JSON with control characters
+        # in its strings, which a strict parse refuses.
+        parsed, _ = json.JSONDecoder(strict=False).raw_decode(raw, start)
+    except ValueError:
+        raise LookError("the screen reader answered with something that is not JSON") from None
+    if not isinstance(parsed, dict) or not parsed.get("success"):
+        message = ""
+        if isinstance(parsed, dict):
+            message = str((parsed.get("error") or {}).get("message") or "")
+        raise LookError(f"the screen could not be read: {message[:160] or 'unknown error'}")
+    data = parsed.get("data") or {}
+    return look_from(
+        str(data.get("ui_map") or ""),
+        str(data.get("application_name") or app or ""),
+        str(data.get("window_title") or ""),
+    )
+
+
+def look_from(snapshot: str, app: str, window: str) -> dict:
+    if not snapshot or not Path(snapshot).is_file():
+        raise LookError("the screen was read but its controls were not saved")
+    return {"app": app, "window": window, "snapshot": snapshot, "at": time.time()}
+
+
+def controls(look: dict) -> list[dict]:
+    """Everything in the look a person could press, with a name and a place."""
+    try:
+        tree = json.loads(Path(look["snapshot"]).read_text(encoding="utf-8"))
+    except (KeyError, TypeError, OSError, ValueError):
+        return []
+    elements = tree.get("uiMap") or {}
+    if isinstance(elements, dict):
+        elements = list(elements.values())
+    bounds = rect(tree.get("windowBounds"))
+    found: list[dict] = []
+    for element in elements:
+        if not isinstance(element, dict):
+            continue
+        role = str(element.get("role") or "")
+        frame = rect(element.get("frame"))
+        if frame is None or role in CONTAINERS:
+            continue
+        x, y, w, h = frame
+        if w < 4 or h < 4:
+            continue
+        if not (element.get("isActionable") or role in PRESSABLE):
+            continue
+        name = control_name(element)
+        if not name and role not in PRESSABLE:
+            continue
+        if bounds:
+            bx, by, bw, bh = bounds
+            if bw * bh and (w * h) / (bw * bh) > MAX_SHARE:
+                continue
+            cx, cy = x + w / 2, y + h / 2
+            if not (bx <= cx <= bx + bw and by <= cy <= by + bh):
+                continue
+        found.append({
+            "id": str(element.get("id") or ""),
+            "role": role,
+            "kind": role_word(role),
+            "name": name,
+            "frame": [round(x), round(y), round(w), round(h)],
+        })
+    return found
+
+
+def matches(found: list[dict], words: str) -> list[tuple[float, dict]]:
+    """The controls whose name fits the words, best first."""
+    query = " ".join(words.lower().split())
+    tokens = query.split()
+    if not query:
+        return []
+    ranked: list[tuple[float, dict]] = []
+    for control in found:
+        name = control["name"].lower()
+        if not name:
+            continue
+        if name == query:
+            score = 3.0
+        elif query in name:
+            score = 2.0 + len(query) / len(name)
+        elif all(token in name for token in tokens):
+            score = 1.5
+        else:
+            score = difflib.SequenceMatcher(None, query, name).ratio()
+            if score < CLOSE_ENOUGH:
+                continue
+        ranked.append((score, control))
+    ranked.sort(key=lambda pair: -pair[0])
+    return ranked
+
+
+def line(control: dict) -> str:
+    x, y, w, h = control["frame"]
+    name = control["name"] or "(unnamed)"
+    return f"{control['id']:<9} {control['kind']:<14} {name:<40} {x},{y} {w}x{h}"
+
+
+def header(look: dict, count: int) -> str:
+    title = f' "{look["window"]}"' if look.get("window") else ""
+    what = "control" if count == 1 else "controls"
+    return f"{look.get('app') or 'front window'}{title}: {count} {what}"
+
+
+def save_look(look: dict) -> None:
+    try:
+        LOOK.parent.mkdir(parents=True, exist_ok=True)
+        LOOK.write_text(json.dumps(look), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def saved_look() -> dict | None:
+    try:
+        look = json.loads(LOOK.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if isinstance(look, dict) and Path(str(look.get("snapshot") or "")).is_file():
+        return look
+    return None
+
+
+def fresh_look(app: str | None) -> dict:
+    look = see(app)
+    save_look(look)
+    return look
+
+
+def resolve(target: str, app: str | None) -> tuple[dict, dict]:
+    """The control the target names, and the look it came from."""
+    by_id = ELEMENT_ID.fullmatch(target) is not None
+    look = saved_look() if by_id else None
+    if look is None:
+        look = fresh_look(app)
+    found = controls(look)
+    if by_id:
+        for control in found:
+            if control["id"] == target:
+                return control, look
+        raise LookError(f"{target} is not in the current look; run hud-guide list and use an id from it")
+    ranked = matches(found, target)
+    if not ranked:
+        raise LookError(f'nothing on the screen is called "{target}"; run hud-guide list to see what is')
+    return ranked[0][1], look
+
+
+def label_token(text: str) -> str:
+    clean = " ".join(text.split()).replace('"', "'")
+    if len(clean) > MAX_SAY:
+        clean = clean[: MAX_SAY - 3].rstrip() + "..."
+    return f'label="{clean}"'
+
+
+def mark_line(frame: list[int], say: str, life: int) -> str:
+    x, y, w, h = frame
+    return f"m {MARK} {x} {y} {w} {h} {label_token(say)} tone=guide life={life}"
+
+
+def send(text: str) -> None:
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(2)
+            sock.connect(SOCKET)
+            sock.sendall((text + "\n").encode("utf-8"))
+    except OSError as error:
+        why = error.strerror or str(error)
+        raise LookError(f"the display is not running ({why}); run: hud open") from None
+
+
+def show(control: dict, say: str, life: int) -> str:
+    words = say or control["name"] or control["kind"]
+    send(mark_line(control["frame"], words, life))
+    x, y, w, h = control["frame"]
+    what = control["name"] or f"an unnamed {control['kind']}"
+    return f"bubble on {what} ({control['kind']}) at {x},{y} {w}x{h}: {label_token(words)[6:]}"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="hud-guide", description=__doc__.split("\n\n")[1])
+    parser.add_argument("--app", help="the app to look at, instead of the one in front")
+    parser.add_argument("--json", action="store_true", help="machine-readable")
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("list", help="what can be pressed in the front window")
+    find = commands.add_parser("find", help="the controls whose name matches")
+    find.add_argument("words")
+    shown = commands.add_parser("show", help="put the bubble on a control")
+    shown.add_argument("target", help="an id from list, or words from its name")
+    shown.add_argument("--say", default="", help="what the bubble says; the control's name if omitted")
+    shown.add_argument("--life", type=int, default=LIFE, help="seconds the bubble stays up; 0 keeps it")
+    at = commands.add_parser("at", help="a bubble on a rectangle, in points from the top left")
+    for part in ("x", "y", "w", "h"):
+        at.add_argument(part, type=int)
+    at.add_argument("--say", required=True)
+    at.add_argument("--life", type=int, default=LIFE)
+    commands.add_parser("clear", help="take the bubble down")
+    args = parser.parse_args(argv)
+
+    try:
+        if args.command == "list":
+            look = fresh_look(args.app)
+            found = controls(look)
+            if args.json:
+                print(json.dumps({"app": look["app"], "window": look["window"], "controls": found}))
+            else:
+                print(header(look, len(found)))
+                for control in found:
+                    print(line(control))
+            return 0
+        if args.command == "find":
+            look = fresh_look(args.app)
+            ranked = matches(controls(look), args.words)
+            if args.json:
+                print(json.dumps([control for _, control in ranked[:5]]))
+            elif ranked:
+                print(header(look, len(ranked)))
+                for _, control in ranked[:5]:
+                    print(line(control))
+            else:
+                print(f'nothing on the screen is called "{args.words}"; run hud-guide list to see what is')
+            return 0 if ranked else 1
+        if args.command == "show":
+            control, _ = resolve(args.target, args.app)
+            print(show(control, args.say, args.life))
+            return 0
+        if args.command == "at":
+            frame = [args.x, args.y, args.w, args.h]
+            send(mark_line(frame, args.say, args.life))
+            print(f"bubble at {args.x},{args.y} {args.w}x{args.h}: {label_token(args.say)[6:]}")
+            return 0
+        send(f"u {MARK}")
+        print("bubble down")
+        return 0
+    except LookError as error:
+        print(error, file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

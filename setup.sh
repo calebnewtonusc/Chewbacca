@@ -799,11 +799,12 @@ ensure_local_bin_on_path
 unset _tool
 
 # The display: hud draws interfaces on top of everything on screen, hud-listen
-# turns what is said to it into a drawing, hud-context reports what is in front
-# of the person. All three go in together because hud calls the other two by
-# path, so installing one of them alone gives a command that fails halfway.
+# turns what is said to it into an answer, hud-context reports what is in front
+# of the person, hud-speak reads the answer aloud. They go in together because
+# hud calls the others by path, so installing one alone gives a command that
+# fails halfway.
 _installed_hud=""
-for _tool in hud hud-listen hud-context hud-watch chewbacca-mcp; do
+for _tool in hud hud-listen hud-context hud-watch hud-speak hud-guide hud-music superassistant chewbacca-mcp; do
   if [ -f "$SCRIPT_DIR/bin/$_tool" ]; then
     link_tool "$_tool"
     _installed_hud="$_installed_hud $_tool"
@@ -824,7 +825,13 @@ if [ -n "$_installed_hud" ]; then
   # rather than letting the first `hud draw` fail with a socket error.
   if [ ! -d "/Applications/BobHUD.app" ] && [ ! -d "$HOME/Applications/BobHUD.app" ]; then
     warn "BobHUD.app is not installed, so hud has nothing to draw on."
-    warn "Build it: git clone https://github.com/calebnewtonusc/bob-the-builder && cd bob-the-builder/hud && ./scripts/bundle.sh"
+    warn "Build it: cd $(dirname "$0")/hud && ./scripts/bundle.sh"
+  fi
+  # The voice with nothing to install: hud-speak needs uv and espeak-ng,
+  # hud-voice is one Swift binary. Built rather than shipped, like the app.
+  if [ ! -x "$HOME/.local/bin/hud-voice" ]; then
+    warn "hud-voice is not built; replies are read by hud-speak, which needs uv and espeak-ng."
+    warn "Build it: $(dirname "$0")/voice/build.sh, then HUD_SPEAKER=hud-voice for hud-listen."
   fi
   ensure_local_bin_on_path
 fi
@@ -1061,6 +1068,15 @@ h["SessionStart"] = [{"hooks": [{
 }]}]
 
 h["Stop"] = [{"hooks": [{
+    # Finished work sitting on the machine because nobody asked the right
+    # question. This pushes commits to the user's OWN origin only, never to an
+    # upstream fork, never auto-committing, and only from directories listed in
+    # AUTOPUSH_DIRS. Off by default: the variable is empty until someone sets it.
+    "type": "command",
+    "command": hooks_dir + "/auto-push.sh",
+    "timeout": 30,
+    "statusMessage": "Pushing finished work...",
+}]}, {"hooks": [{
     "type": "command",
     "command": hooks_dir + "/stop-check.sh",
     "statusMessage": "Checking for unpushed work...",

@@ -1,0 +1,1217 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Presence refined</title>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.11"
+      integrity="sha384-A1XhMANHciQ8ED89Ap5K0zOdmQKiEeXSjaN0sakNxIzq9Z2YfXV/BwHp7oP3z5ip"
+      crossorigin="anonymous"
+    ></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <script
+      src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"
+      integrity="sha384-hJnF5AwidE18GSWTAGHv3ByzzvfNZ1Tcx5y1UUV3WkauuMCEzBJBMSwSt/PUPXnM"
+      crossorigin="anonymous"
+    ></script>
+  </head>
+  <body
+    class="antialiased overflow-hidden bg-zinc-950"
+    style="font-family: Inter, sans-serif"
+  >
+    <div id="backdrop" class="fixed inset-0"></div>
+    <canvas
+      id="gl"
+      class="fixed inset-0 w-full h-full pointer-events-none"
+    ></canvas>
+
+    <div
+      id="panel"
+      class="fixed top-6 left-6 z-50 w-72 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 p-5 shadow-2xl transition-opacity duration-200"
+    >
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2 text-zinc-200">
+          <i data-lucide="aperture" class="w-4 h-4 text-amber-400"></i>
+          <span class="text-sm font-semibold tracking-tight"
+            >Presence refined</span
+          >
+        </div>
+        <button
+          id="hide"
+          class="text-zinc-500 hover:text-white px-2 py-1 rounded-lg hover:bg-white/5 transition-all duration-200 cursor-pointer"
+          title="Hide panel (h)"
+        >
+          <i data-lucide="chevron-up" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div id="list" class="space-y-1 mb-4"></div>
+
+      <button
+        id="replay"
+        class="w-full bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-zinc-950 font-semibold px-4 py-2.5 rounded-xl transition-all duration-200 shadow-lg shadow-amber-500/25 cursor-pointer flex items-center justify-center gap-2"
+      >
+        <i data-lucide="play" class="w-4 h-4"></i> Trigger
+      </button>
+
+      <div id="sliders" class="mt-4 space-y-3"></div>
+
+      <div class="mt-4 pt-4 border-t border-white/10">
+        <div class="text-xs text-zinc-500 mb-2">Backdrop</div>
+        <div class="grid grid-cols-3 gap-2">
+          <button
+            data-bd="dark"
+            class="bd bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 text-xs font-medium px-2 py-1.5 rounded-lg transition-all duration-200 cursor-pointer"
+          >
+            Dark
+          </button>
+          <button
+            data-bd="photo"
+            class="bd bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 text-xs font-medium px-2 py-1.5 rounded-lg transition-all duration-200 cursor-pointer"
+          >
+            Photo
+          </button>
+          <button
+            data-bd="light"
+            class="bd bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 text-xs font-medium px-2 py-1.5 rounded-lg transition-all duration-200 cursor-pointer"
+          >
+            Light
+          </button>
+        </div>
+      </div>
+
+      <div class="mt-4 pt-4 border-t border-white/10 space-y-1">
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-zinc-500">frame</span>
+          <span
+            id="fps"
+            class="text-xs text-zinc-300"
+            style="font-family: &quot;JetBrains Mono&quot;, monospace"
+          ></span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-zinc-500">buffers</span>
+          <span
+            id="fmt"
+            class="text-xs text-zinc-300"
+            style="font-family: &quot;JetBrains Mono&quot;, monospace"
+          ></span>
+        </div>
+      </div>
+      <div
+        id="errs"
+        class="mt-2 text-xs text-rose-300"
+        style="font-family: &quot;JetBrains Mono&quot;, monospace"
+      ></div>
+    </div>
+
+    <div
+      id="hint"
+      class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 text-xs text-zinc-500 pointer-events-none"
+      style="font-family: &quot;JetBrains Mono&quot;, monospace"
+    >
+      space trigger &nbsp;&middot;&nbsp; x pop &nbsp;&middot;&nbsp; h panel
+    </div>
+
+    <script>
+      // ---------------------------------------------------------------------------
+      // Three survivors, built properly.
+      //
+      // Two things changed from the ten-model sheet, and they are the two reasons
+      // that sheet looked cheap.
+      //
+      // 1. GLOW IS NOW REAL. Before, every "glow" was exp(-d*k) painted straight into
+      //    the pixel. That is a gradient, not light: it cannot spill across a shape,
+      //    it cannot accumulate where two bright things overlap, and it clips flat at
+      //    white. Here the scene renders to a half-float target, the bright part is
+      //    extracted, blurred separably at two scales, and composited back. Highlights
+      //    bleed, corners accumulate, and the falloff has the long dim tail that a
+      //    real lens produces. It is the single biggest difference available.
+      //
+      // 2. ACTIVATIONS ARE CHOREOGRAPHED. The ten shared one easing curve so the
+      //    comparison stayed honest, which also made all ten open the same way. Each
+      //    of these runs its own multi-stage sequence with its own timings, because a
+      //    single sine is the thing that reads as bland no matter how good the shape.
+      //
+      // Hairlines use fwidth for analytic antialiasing, so a line is the same weight
+      // on a laptop and on a 6K panel. A line that thickens with resolution is the
+      // other classic tell.
+      // ---------------------------------------------------------------------------
+
+      const QUAD_VS = `#version 300 es
+precision highp float;
+const vec2 V[3] = vec2[3](vec2(-1.0,-1.0), vec2(3.0,-1.0), vec2(-1.0,3.0));
+out vec2 vUV;
+void main(){
+  vec2 p = V[gl_VertexID];
+  vUV = p*0.5 + 0.5;
+  gl_Position = vec4(p, 0.0, 1.0);
+}`;
+
+      const COMMON = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform vec2  u_res;
+uniform float u_time;
+uniform float u_act;
+uniform vec2  u_cursor;
+uniform float u_gain;
+// Seconds since the close key, or negative when the bubble is still up.
+uniform float u_close;
+// Where the film ruptured, in uv.
+uniform vec2  u_pop;
+out vec4 o;
+
+float hash11(float p){ return fract(sin(p*127.1)*43758.5453); }
+float hash21(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+float noise(vec2 p){
+  vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  return mix(mix(hash21(i), hash21(i+vec2(1.0,0.0)), f.x),
+             mix(hash21(i+vec2(0.0,1.0)), hash21(i+vec2(1.0,1.0)), f.x), f.y);
+}
+float fbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<4;i++){ s+=a*noise(p); p*=2.03; a*=0.5; } return s; }
+
+// Easings. expo-out is what makes a move read as mechanical rather than soft:
+// almost all of the distance is covered in the first fifth of the duration.
+float expoOut(float x){ return x >= 1.0 ? 1.0 : 1.0 - pow(2.0, -10.0*x); }
+float stage(float t, float a, float b){ return clamp((t-a)/(b-a), 0.0, 1.0); }
+// Smooth union. Two bodies of the same liquid in contact do not intersect,
+// they coalesce: interfacial tension pulls the junction into a fillet and
+// what was two surfaces becomes one. A hard min() draws the intersection of
+// two outlines, which is the one thing that never happens in the footage.
+// This is the whole reason the frame and the blobs now read as one entity.
+float smin(float a, float b, float k){
+  float h = clamp(0.5 + 0.5*(b - a)/k, 0.0, 1.0);
+  return mix(b, a, h) - k*h*(1.0 - h);
+}
+`;
+
+      const MODELS = [
+        {
+          name: "Chromatic",
+          note: "blown in from the edges, then it wobbles and settles",
+          gain: 0.65,
+          src: `
+// Overall level of the film. Swept, see the commit.
+#define SKIN 1.25
+
+// Belcour and Barla's pre-integrated spectral response, verbatim from
+// KHR_materials_iridescence. A soap film is not a hue ramp. It is the whole
+// visible spectrum interfering with itself at one optical path difference,
+// integrated against the eye's three sensitivities.
+//
+// The exp(-phase^2*var) term is the reason to use this rather than rotate a
+// hue: it is why a thickening film washes out to pearl instead of cycling
+// saturated rainbows forever, and cycling forever is exactly the tell that
+// makes hand-rolled iridescence look like an oil slick decal.
+vec3 film(float opd){
+  float phase = 6.2831853*opd*1.0e-9;
+  vec3 val = vec3(5.4856e-13, 4.4201e-13, 5.2481e-13);
+  vec3 pos = vec3(1.6810e+06, 1.7953e+06, 2.2084e+06);
+  vec3 vr  = vec3(4.3278e+09, 9.3046e+09, 6.6121e+09);
+  vec3 xyz = val*sqrt(6.2831853*vr)*cos(pos*phase)*exp(-phase*phase*vr);
+  xyz.x += 9.7470e-14*sqrt(6.2831853*4.5282e+09)
+         * cos(2.2399e+06*phase)*exp(-4.5282e+09*phase*phase);
+  xyz /= 1.0685e-7;
+  return mat3( 3.2404542, -0.9692660,  0.0556434,
+              -1.5371385,  1.8760108, -0.2040259,
+              -0.4985314,  0.0415560,  1.0572252)*xyz;
+}
+
+// How deep into the film a point is, in screen heights, measured from a
+// silhouette that sits a constant distance off every edge of the screen.
+//
+// The level sets of a superelliptic norm are rounded at every depth. A rounded
+// rectangle's are not: that one only curves within its own corner radius of
+// the boundary and goes back to square corners deeper in, which is the same
+// failure as the Chebyshev metric it was meant to replace, just further from
+// the edge. But the norm is taken per axis, so a fixed step in it is a longer
+// step in pixels down the wide side of the screen. Dividing by its own
+// gradient turns it back into a distance. The margin is then a constant offset
+// outward rather than a scale, which is what keeps the frame the same
+// thickness all the way round while still putting the screen corners inside
+// it. The floor on the gradient is only there to stop the estimate running
+// away near the middle of the screen, where the norm has no useful gradient
+// and the answer is just "far".
+float depthAt(vec2 uvp, float W, float margin){
+  vec2 r2 = (uvp - 0.5)*2.0;
+  const float SQ = 5.0;
+  float rad = pow(pow(abs(r2.x), SQ) + pow(abs(r2.y), SQ), 1.0/SQ);
+  float gk  = pow(max(rad, 1e-3), 1.0 - SQ);
+  vec2  g   = vec2(gk*pow(abs(r2.x), SQ - 1.0)*(2.0/W),
+                   gk*pow(abs(r2.y), SQ - 1.0)*2.0);
+  return min((1.0 - rad)/max(length(g), 0.6) + margin, 0.95);
+}
+
+void main(){
+  vec2 uv = vUV;
+  float t = u_act;
+  float W = u_res.x/u_res.y;
+
+  // One breath drives the film thickness and its resting depth together. Two
+  // sines at their own rates read as two layers sitting on each other rather
+  // than as one object. The phase is modulated so the swing is not symmetric,
+  // because a breath is not: it moves through the thin half faster than it
+  // rests in the thick.
+  float bp = u_time*0.72;
+  float breath = sin(bp + 0.45*sin(bp));
+
+  // --- being blown ---------------------------------------------------------
+  // The whole intro is one number: how far into the screen the film reaches.
+  // You are standing inside the bubble, so a wall inflating toward you sweeps
+  // the band in from all four edges until the film is over nearly everything,
+  // and the wall settling back takes it out again.
+  //
+  // It does not stop dead when it arrives. A bubble that has just left the
+  // wand oscillates in its second shape mode, in and out, with the decay set
+  // by viscosity, and it crosses its rest radius three or four times before it
+  // is done. That wobble is the part that reads as liquid rather than as
+  // hardware, and it is why this is a damped cosine where every other move in
+  // this file is an expoOut.
+  float REST = 0.268, PEAK = 0.92;
+  float band;
+  if (t < 0.30) {
+    band = PEAK*expoOut(stage(t, 0.0, 0.30));
+  } else {
+    // The wobble is multiplicative, so an inward swing divides the depth
+    // instead of subtracting from it and can never reach zero. Written as a
+    // subtraction the first return took the band to four percent of the
+    // screen, which reads as the thing blinking out rather than wobbling, and
+    // the floor I put under it to stop that was also holding the band above
+    // zero at t=0, so the film was already lit before the intro began.
+    float x = t - 0.30;
+    band = REST*pow(PEAK/REST, exp(-6.0*x)*cos(x*14.0));
+  }
+
+  // Nothing at all before the film arrives.
+  float born = smoothstep(0.0, 0.07, band);
+
+  // Domain warped noise. The field is sampled at coordinates that are
+  // themselves displaced by another sample of it, twice. Plain noise gives
+  // soft round blobs. This gives drawn out filaments and folded sheets,
+  // because on a real film the thickness is not sitting still: it is being
+  // carried around by convection in the liquid, and the streaks are the flow.
+  vec2 p = uv*vec2(W, 1.0)*1.25;
+  float dt = u_time*0.035;
+  vec2 w1 = vec2(fbm(p + vec2(0.0, dt)), fbm(p + vec2(5.2, 1.3) - dt*0.7));
+  vec2 w2 = vec2(fbm(p + 3.4*w1 + vec2(1.7, 9.2) + dt*0.5),
+                 fbm(p + 3.4*w1 + vec2(8.3, 2.8)));
+  float flow = fbm(p + 3.2*w2);
+
+  // --- the shape -----------------------------------------------------------
+  // The silhouette sits off every edge of the screen, so the film runs out
+  // past all four sides and fills the corners instead of stopping short of
+  // them. You are inside the bubble: its outline is behind you, not on the
+  // monitor. The only boundary in view is the inner one, and that is the one
+  // doing the work.
+  vec2 q = (uv - 0.5)*vec2(W, 1.0);
+  const float MARGIN = 0.200;
+
+  float inward = depthAt(uv, W, MARGIN);
+
+  // Two lobes, both low, and that is the entire deformation. A blob in a lava
+  // lamp filling four hundred pixels has one continuous curve for an outline:
+  // no serration, no ripple, no texture at any scale. Three overlapping fbm
+  // terms were putting detail down to sixteen pixels on this boundary, and
+  // detail at sixteen pixels is what made it read as torn.
+  //
+  // The second is plain noise rather than fbm for the same reason. fbm's
+  // fourth octave is exactly the detail this is trying not to have, and there
+  // is no amplitude small enough to make it belong.
+  inward += (fbm(q*2.3   + vec2( u_time*0.155, -u_time*0.118)) - 0.5)*0.085
+          + (noise(q*4.1 + vec2(-u_time*0.081,  u_time*0.136)) - 0.5)*0.055;
+
+  float u0 = clamp(inward/band, 0.0, 1.0);
+
+  // One more on the inner edge alone, drifting mostly vertically while the
+  // lobes run sideways, so the boundary is worked from two directions at once.
+  // Lower in frequency than either of them and with the largest amplitude of
+  // the three, because what this is for is the long concave run: a wall of wax
+  // holds an hourglass waist, two broad convex stretches with a concave one
+  // between them, and that concave stretch is what reads as liquid rather than
+  // as a bumpy line. Bumps come free from additive noise. A waist needs
+  // amplitude at low frequency.
+  inward += (fbm(q*1.6 + vec2(-u_time*0.085, u_time*0.50)) - 0.5)*0.105
+          * smoothstep(0.30, 1.0, u0);
+
+  // --- the lava lamp -------------------------------------------------------
+  // Read up on what one actually is before touching this. It is Rayleigh
+  // Benard convection between two nearly immiscible liquids whose densities
+  // cross over inside the working temperature range: the wax is a hair denser
+  // than the water when cool and a hair lighter when warm, so heat at the base
+  // is the only thing that ever moves anything.
+  //
+  // Three facts out of that reading run everything below.
+  //
+  // One: the base is a single continuous pool and it never empties. Nothing in
+  // a lava lamp is created and nothing is destroyed. Every blob is an
+  // excursion out of that pool which comes back to it, so nothing here fades
+  // out in mid air any more and nothing arrives already at full size.
+  //
+  // Two: a blob leaves by necking, not by appearing. The pool swells, the
+  // swelling draws into a column, and the column waists. In a real lamp
+  // Plateau Rayleigh finishes the job, because surface tension minimises area
+  // and a waist thins faster the thinner it already is. Here it does not, and
+  // that is a deliberate departure from the physics: what detaches is a
+  // separate object, and a separate object is the one thing this is not
+  // allowed to be. The waist bottoms out at a third of the bulb and holds.
+  //
+  // Three: two bodies of the same liquid that touch merge. They never overlap
+  // and they never show two outlines crossing. That is smin() below, and it is
+  // also why a blob coming home does not land on the pool, it joins it.
+  //
+  // The drop is not drawn. It declares a depth into the band and the union
+  // lets it win against the pool's own, so everything downstream shades it as
+  // the same liquid: the same contour palette, the same rim, the same
+  // termination. Two earlier passes drew these as circles with a colour on
+  // top of the scene, and a circle with a colour is what they looked like.
+  float ub = inward/max(band, 1e-3);
+  if (ub < 2.60) {
+    const float CELL = 0.170;
+    // The band's own thickness, in the units inward is measured in. Every
+    // depth below is expressed as a fraction of it so a blob and the pool
+    // carry the same range of colour rather than the blob bottoming out at
+    // the solid end of the palette.
+    float SPAN = max(band - MARGIN, 1e-4);
+    vec2 cid = floor(q/CELL);
+    for (int j = -1; j <= 1; j++)
+    for (int i = -1; i <= 1; i++) {
+      vec2  cc = cid + vec2(float(i), float(j));
+      float h0 = hash21(cc), h1 = hash21(cc + 41.7);
+
+      vec2  anchor = (cc + 0.5 + (vec2(h0, h1) - 0.5)*0.30)*CELL;
+      float ad     = depthAt(anchor/vec2(W, 1.0) + 0.5, W, MARGIN);
+
+      // Wide and cheap first. Nine cells are walked for every pixel on screen
+      // and the displacement below costs three more noise samples, so it is
+      // only worth taking for a cell that is already in the right area.
+      if (exp(-pow((ad - band)/0.22, 2.0)) < 0.05) continue;
+
+      // Then the same displacement the surface itself got, sampled here. The
+      // undisplaced depth is not where the surface is: the lobes move it by up
+      // to a fifth of the band, and taking the anchor without them leaves the
+      // column rooted in mid air a long way from anything.
+      ad += (fbm(anchor*2.3   + vec2( u_time*0.155, -u_time*0.118)) - 0.5)*0.085
+          + (noise(anchor*4.1 + vec2(-u_time*0.081,  u_time*0.136)) - 0.5)*0.055
+          + (fbm(anchor*1.6   + vec2(-u_time*0.085,  u_time*0.50 )) - 0.5)*0.105;
+
+      if (exp(-pow((ad - band)/0.060, 2.0)) < 0.50) continue;
+
+      // Slow, because convection is slow. A cycle runs fourteen to twenty six
+      // seconds and it is one round trip: swell, neck, pinch, rise, stall,
+      // sink, merge. The point is that the pool got too warm, not that
+      // anything here is energetic.
+      float cyc = 14.0 + 12.0*hash21(cc + 93.1);
+      float ph  = u_time/cyc + h0*11.0;
+      float k   = fract(ph), gen = floor(ph);
+      if (hash21(cc + gen*17.3) < 0.42) continue;
+      if (fbm(anchor*3.0 + vec2(u_time*0.02, 0.0)) < 0.46) continue;
+
+      float hr = hash21(cc + gen*3.7);
+
+      // Out and back, because the density crossover runs both ways. It is
+      // buoyant while it is warm, it loses that on the way in, it stalls, and
+      // it comes home. travel is zero at both ends of the cycle, which is what
+      // makes the blob start inside the pool and finish inside it.
+      //
+      // Short. A blob in a lamp rises through a column of liquid; this one has
+      // nowhere to go, and a blob that crosses two hundred pixels of black is
+      // reading as a separate object no matter how it left. It gets about half
+      // its own pool's thickness and stays in contact with the mass for most
+      // of the cycle, which is the difference between a border that bleeds and
+      // a border that emits.
+      float TMAX   = 0.075 + 0.035*h1;
+
+      // It never lets go. Plateau Rayleigh says a column of this liquid would
+      // pinch, and the version that pinched was right about the physics and
+      // wrong about the brief: what detaches is a separate object, and no
+      // amount of necking on the way out changes how it reads once it is out
+      // there on its own. So the waist thins to a third and holds. The mass
+      // reaches in, stretches, loses its buoyancy and comes home, and it is
+      // one body the entire time.
+      float reach  = smoothstep(0.04, 0.70, k)*(1.0 - smoothstep(0.76, 1.00, k));
+      float travel = TMAX*reach;
+
+      // It grows out of the pool and is absorbed back into it. Nothing pops
+      // into existence at size: that was the single loudest thing wrong with
+      // the last pass, and no amount of easing on the position hides it.
+      float R = (0.038 + 0.026*hr)*smoothstep(0.0, 0.26, k)
+                                  *(1.0 - smoothstep(0.93, 1.00, k));
+      if (R < 0.005) continue;
+
+      vec2  dir = normalize(-anchor);
+      vec2  cen = anchor + dir*travel;
+
+      // Drawn out along its travel, most at full reach. Round is where it is
+      // heading and not where it arrives: every blob in ten minutes of footage
+      // is an irregular oval, so the stretch never settles to zero.
+      float el = 1.0 + 0.34*reach + 0.10;
+      vec2  dq = q - cen;
+      float r  = length(vec2(dot(dq, dir)/el, dot(dq, vec2(-dir.y, dir.x))*el))/R;
+
+      // The column. Widest where it leaves the pool, waisted, flaring into the
+      // blob, which is the profile in the footage rather than a cone.
+      vec2  root = anchor - dir*0.030;
+      vec2  ab = cen - root;
+      float LL = max(dot(ab, ab), 1e-9);
+      float sg = clamp(dot(q - root, ab)/LL, 0.0, 1.0);
+      // The waist rides the reach: widest when the bulge has barely left,
+      // thinnest at full stretch, and never below a third of the bulb. A
+      // thread reads as a hairline and a hairline reads as a mistake.
+      float wn = R*(0.95 - (0.40 + 0.28*reach)*smoothstep(0.0, 0.62, sg)
+                         + 0.60*smoothstep(0.62, 1.0, sg));
+      float rn = wn > 1e-5 ? length(q - root - ab*sg)/wn : 9.0;
+
+      // The union of blob and column. Everything below terminates against this
+      // rather than against the blob alone, which is what silently deleted the
+      // column: outside the blob its own radius is past the cutoff, so the
+      // ramp that ends the limb was ending the column with it.
+      float rm = min(r, rn);
+
+      if (rm <= 1.12) {
+        // One depth for the whole body, taken off the union's own radius
+        // rather than one per shape. Shading each separately and taking the
+        // min drew the column's flared end as a limb inside the blob, which
+        // came out as a second oval crossing the first.
+        //
+        // The blob is liquid with a surface, and the surface is where the
+        // colour lives: solid through the middle, running out to the free
+        // surface value at the limb, on exactly the scale the pool uses. Run
+        // over a wider range it bottoms out and draws as a flat disc.
+        float ct = sqrt(max(1.0 - min(rm, 1.0)*min(rm, 1.0), 0.0));
+        float dd = band - SPAN*mix(0.02, 0.55, ct);
+        dd = mix(dd, band*9.0, smoothstep(0.92, 1.06, rm));
+
+        // The column's root is the pool, so at the root it declares exactly
+        // what the pool already declares here and only becomes its own thing
+        // as it leaves. Ramping to a fixed value instead leaves the capsule's
+        // rounded end cap sitting on the surface as a flat disc with an
+        // outline around it: a bead again, just a dimmer one.
+        dd = mix(inward, dd, smoothstep(0.0, 0.40, sg));
+        inward = smin(inward, dd, SPAN*0.40);
+      }
+
+    }
+  }
+
+  // Off the silhouette there is no bubble to draw. On screen this is one
+  // everywhere, because the silhouette is off the edge: it is here for the
+  // case where a lobe drags the boundary past a corner.
+  float lit = smoothstep(0.0, 0.006, inward);
+
+  // The sheen tilts toward the pointer. Iridescence is the one colour that is
+  // a function of where you are looking from, and on a flat panel the only
+  // thing standing in for a viewing angle is the cursor. Reads as -9999 with
+  // no mouse on screen, which falls off to nothing on its own.
+  float glance = exp(-length(gl_FragCoord.xy - u_cursor)/300.0);
+
+  // Across the band the line of sight rolls from straight through the film to
+  // fully edge on at the silhouette. That is the geometry of standing inside a
+  // bubble and looking at its edge, and it is why the colour belongs at the
+  // edge of the screen in the first place.
+  float u = clamp(inward/band, 0.0, 1.0);
+
+  // How deep into the pool, measured across the pool rather than across the
+  // whole screen: 1 hard against the glass, 0 at the free surface. inward runs
+  // from MARGIN at the screen edge to band at the surface, which is a window
+  // about a tenth as wide as inward's full range, so every term below that
+  // used u was working on the last thirteen percent of its own domain and
+  // doing almost nothing. That is why the pool read as a gradient with no body
+  // in it: the termination ramp was three quarters of the pool.
+  float v = clamp((band - inward)/max(band - MARGIN, 1e-4), 0.0, 1.0);
+
+  // Refract it and use the real path length. cos of the refracted angle only
+  // falls to 0.66 at full grazing, so the orders compress into the silhouette
+  // rather than multiplying without limit. That crowding is the thin bright
+  // band of stacked colour on the outside of every bubble.
+  float cosI = u;
+  float sinT = sqrt(max(1.0 - cosI*cosI, 0.0))/1.33;
+  float cosT = sqrt(max(1.0 - sinT*sinT, 0.0));
+
+  // A fixed amount of liquid spread over a surface that is still growing, so
+  // the film thins as it blows. This is the part you actually watch when
+  // somebody blows a bubble: the bands sweep down through the orders while the
+  // wall is stretching, and they stop sweeping when it stops growing. Nothing
+  // else in the intro had to be animated to make it read as inflation.
+  float stretch = mix(1.9, 1.0, smoothstep(0.0, 0.70, t));
+
+  // Gravity drains the film downward, so it is thinnest at the top. On a real
+  // bubble this is the cue that says the surface is liquid rather than glass.
+  //
+  // The breath lives here and nowhere else. Driving the band depth with it as
+  // well made the whole frame swell and shrink, and a frame that changes
+  // thickness on a cycle is a pulse. Driving only the thickness of the film
+  // itself leaves the frame the size it was and moves the colour through it,
+  // which is the difference between something beating and something warming
+  // up.
+  //
+  // The whole film lives inside one interference order, and that is the single
+  // decision that separates iridescence from a rainbow. An order is one full
+  // sweep of the spectrum, so a band wide enough to hold three of them draws
+  // three stripes, which is what this was: teal, magenta, green, orange, in
+  // rings, a gradient border rather than a soap film. The centre sits at an
+  // optical path of about 400nm and the whole range, drain and flow and breath
+  // and the refracted angle together, moves it by less than a third of an
+  // order. What that buys is one colour across the band with a drift in it.
+  //
+  // Measured rather than chosen. Ramping this across the screen and reading
+  // the row back gives one full cycle every 210nm here, and inside that cycle
+  // the stretch from 265 to 335 is the only part with no dark in it: teal,
+  // pale green, pale gold, nothing that lands on brown or on the near-black
+  // violet at 205. Everything below keeps the film inside that stretch, which
+  // is a third of a cycle, so the colour drifts across the band and never
+  // comes back round to where it started. A band wide enough to hold a whole
+  // cycle draws a stripe, and three of them is a rainbow gradient border.
+  //
+  // The refracted angle is folded in at a sixth of its real weight. Taken
+  // literally it is a 1.5x multiplier on its own, which is most of a cycle
+  // before anything else has moved, and it puts the dark violet back at the
+  // silhouette.
+  float angle = mix(0.86, 1.0, cosT);
+  float nm = (296.0 + 24.0*flow - (uv.y - 0.5)*17.0
+           + 15.0*breath + 26.0*glance)*angle*stretch;
+
+  // Two-beam reflectance, not the bare integral. film() is the AC part alone
+  // and decays to zero as the film thickens, so normalising it by its own
+  // luminance hands back a fully saturated colour from what ought to be an
+  // almost colourless thick film. Adding the DC term first is what makes the
+  // high orders wash out to pearl. The minus sign is the half-wave shift at
+  // the front face, which is also why a film goes black just before it pops.
+  //
+  // It is no longer what you see. The interference runs the shimmer now and
+  // the palette below runs the colour, because the reference is not a soap
+  // bubble: it is a contour field, and no physical film produces it.
+  vec3 refl = max(0.5*(vec3(1.0) - film(2.0*1.33*nm)), vec3(0.0));
+  float shimmer = 0.86 + 0.34*dot(refl, vec3(0.333));
+
+  // The contour field. A clear ground with blue filaments winding through it,
+  // and a rim on each filament running yellow at the filament out to an
+  // inferno orange at the far side of the rim. Level sets of the same domain
+  // warped flow that used to drive the film thickness, plus the band's own
+  // depth so the filaments run along the edge rather than across it, and
+  // folded through a triangle wave so they repeat without a seam. fract()
+  // alone puts a hard step at every period, which reads as a cut.
+  //
+  // Frequency is set so the band holds two and a half filaments plus the
+  // flow's own wander. Denser than that and a 180px band is hatching.
+  // Weighted toward the flow and away from the depth. Depth alone draws
+  // contours parallel to the edge, which is a racetrack of concentric rings,
+  // and parallel rings are the stripes this was supposed to have stopped
+  // drawing. The reference's contours are closed irregular loops, and a loop
+  // is what you get when the field wandering across the band outweighs the
+  // field running through it.
+  float ctr = (flow*3.4 + v*1.0 + 0.16*breath)*stretch;
+  float tri = abs(fract(ctr) - 0.5)*2.0;
+  float d   = tri - 0.5;
+
+  // Clear is nearly transparent, not white. The ground between the filaments
+  // is film you are meant to see through, and on a dark screen that is dim,
+  // not bright. Taking it literally as white put the whole band at a level
+  // where the tonemap compresses everything toward the same pale grey, and
+  // the blue and the rim went with it: a chalk sketch of the reference.
+  // The base of a lava lamp is a continuous mass with one free surface on
+  // top. It does not thin out toward the glass, so neither does this: the
+  // ground fills in solid toward the screen edge and the only boundary in
+  // view is the inner one.
+  const vec3 CLEAR = vec3(0.14, 0.20, 0.30);
+  const vec3 POOL  = vec3(0.05, 0.15, 0.60);
+  // Two blues, as the reference has: a deep one on the filament's shoulders
+  // and a near white one along its spine. One flat blue is a painted line,
+  // and the spine is where the film is thinnest and should read as clear.
+  const vec3 BLUE_DEEP = vec3(0.10, 0.30, 1.12);
+  const vec3 BLUE_PALE = vec3(0.70, 0.88, 1.15);
+  const vec3 YEL   = vec3(1.25, 0.95, 0.24);
+  const vec3 ORG   = vec3(1.20, 0.27, 0.02);
+  vec3 BLUE = mix(BLUE_DEEP, BLUE_PALE, smoothstep(0.15, 0.46, d));
+  vec3 GROUND = mix(CLEAR, POOL, smoothstep(0.22, 0.90, v));
+
+  // The rim sits on the outside of the filament and only on the outside,
+  // which is what makes it read as heat coming off an edge rather than as a
+  // third colour in the sequence.
+  // The rim is a quarter of the period, not a third. At a third it stops
+  // being the heat on the edge of a filament and becomes a rope running round
+  // the screen, which is the same failure as the rainbow border wearing a
+  // different colour.
+  float toRim  = smoothstep(-0.13, -0.05, d);
+  float toBlue = smoothstep( 0.03,  0.11, d);
+  vec3  col    = mix(GROUND, mix(ORG, YEL, smoothstep(-0.05, 0.03, d)), toRim);
+  col          = mix(col, BLUE, toBlue);
+
+  // The rim is the only part that is hotter than the film carrying it.
+  col *= (1.0 + 0.85*exp(-pow((d + 0.01)/0.070, 2.0)))*shimmer;
+
+  // Fresnel. Physically the body of a film returns four percent and the
+  // silhouette returns nearly all of it, and driving the band with that ratio
+  // is what stops it reading as paint. But taken literally it is also a ramp
+  // from bright to nothing across three hundred pixels, and a ramp is a
+  // vignette however it was derived. Compressed to a bit under two to one, so
+  // the angle is still legible and the band still has a body.
+  // A touch hotter at the free surface, flat everywhere else. Driven off the
+  // grazing angle it was a 300px ramp from bright to nothing, and a ramp is a
+  // vignette however it was derived.
+  float fres = 0.74 + 0.36*exp(-v*7.0);
+
+  // The band ends rather than fading out, over about a tenth of its own
+  // depth. A long ramp down to nothing is a vignette, and a vignette is not a
+  // film: a real one has an inner boundary you can point at, and that
+  // boundary is the thing carrying the flow.
+  // The pool ends at its surface, over about a seventh of its own depth, and
+  // is at full strength everywhere behind that. This used to run across three
+  // quarters of the pool, which is the fade he kept pointing at.
+  float env = smoothstep(0.0, 0.14, v);
+
+  // The film's colour with its brightness divided out, for the places that
+  // want the hue without the level: the silhouette line and the rim of a pop.
+  vec3 sheen = normalize(col + vec3(0.0015));
+
+  vec3 c = col*fres*env*SKIN*born*lit;
+
+  // The inner boundary is a lip, not a place the gradient ran out. Liquid held
+  // by surface tension beads along its own edge and the bead catches light, so
+  // the thing that reads as an edge is a bright line sitting on it. Without
+  // this the termination is invisible and the band goes back to being a fade
+  // no matter how short the fade is.
+  // Gated by the same termination the pool body uses. Without that gate it is
+  // the one term with no idea where the liquid ends, and at a tenth of its
+  // peak across the whole screen it reads as a brown haze over everything.
+  c += env*exp(-pow((v - 0.11)/0.085, 2.0))*0.055
+     * mix(vec3(1.0), sheen, 0.92)*born*lit;
+
+
+  // --- the pop --------------------------------------------------------------
+  // Nothing below is eased. A rupturing film does not decelerate: the hole
+  // opens at the speed where surface tension balances the film's own inertia,
+  // and high speed footage shows that speed holding constant from the first
+  // frame to the last. Every other move in this file is an expoOut. This one
+  // is a straight line, and that is most of why it reads as a rupture rather
+  // than as a transition out.
+  //
+  // A real one is over in fifteen milliseconds, which is a single frame here.
+  // It runs at 340, slow enough to see and still far faster than anything else
+  // this thing does.
+  if (u_close >= 0.0) {
+    float k = u_close;
+    vec2  d = (uv - u_pop)*vec2(W, 1.0);
+    float r = length(d), ang = atan(d.y, d.x);
+
+    // The film thins where it is about to go. In a real bubble this is the
+    // black spot: the two surfaces come within a wavelength of each other and
+    // their reflections cancel, so the last thing you see before it bursts is
+    // darkness opening in a place that still has film in it.
+    c *= 1.0 - 0.9*exp(-r*13.0)*stage(k, 0.0, 0.10);
+
+    float R = max(k - 0.10, 0.0)*7.0;
+
+    // Smooth while the rim is thin, then shear against the still air tears
+    // indentations into it. They appear past a critical radius, which is why a
+    // pop ends in a scatter instead of starting as one.
+    float tear = smoothstep(0.30, 0.95, R);
+    float edge = R*(1.0 + 0.10*tear*sin(ang*13.0 + 1.7));
+
+    // Everything the hole has already crossed is gone.
+    c *= smoothstep(edge - 0.02, edge + 0.01, r);
+
+    // The film the hole swallowed has to go somewhere, and it collects in the
+    // rim of the hole. That is why the edge of a bursting bubble is brighter
+    // than the film was, and why fading one out looks nothing like one.
+    float ring = exp(-pow((r - edge)/0.014, 2.0))*(0.35 + R*1.1)*(1.0 - tear*0.5);
+    c += ring*mix(vec3(1.0), sheen, 0.55);
+
+    // Drops thrown out of the indentations, flying a little ahead of the rim
+    // that threw them.
+    float b  = floor((ang + 3.14159265)*15.0/6.2831853);
+    float sd = hash11(b*7.31);
+    float detach = 0.30 + sd*0.55;
+    if (R > detach) {
+      float dr = detach + (R - detach)*1.45;
+      float da = (b + 0.5)/15.0*6.2831853 - 3.14159265 + (sd - 0.5)*0.26;
+      c += exp(-pow(length(d - vec2(cos(da), sin(da))*dr)/0.011, 2.0))
+         * 1.5*exp(-(R - detach)*1.7);
+    }
+
+    // Past the far corner there is nothing left to throw.
+    c *= 1.0 - stage(k, 0.44, 0.60);
+  }
+
+  o = vec4(c*1.9*u_gain, 1.0);
+}
+`,
+        },
+      ];
+
+      // --- bloom ------------------------------------------------------------------
+      const BRIGHT_FS =
+        COMMON.split("in vec2 vUV;")[0] +
+        `
+in vec2 vUV;
+uniform sampler2D uTex;
+uniform float uThresh;
+out vec4 o;
+void main(){
+  vec3 c = texture(uTex, vUV).rgb;
+  // Soft knee. A hard threshold makes the bloom pop on and off as something
+  // crosses it, which flickers on anything that breathes.
+  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  float k = smoothstep(uThresh, uThresh + 0.55, l);
+  o = vec4(c*k, 1.0);
+}`;
+
+      const BLUR_FS = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D uTex;
+uniform vec2 uDir;      // texel-sized step, horizontal or vertical
+out vec4 o;
+void main(){
+  // Nine-tap gaussian, separable. Weights are a real binomial kernel; an
+  // even box blur leaves visible square structure in a wide bloom.
+  float w[5] = float[5](0.2270270270, 0.1945945946, 0.1216216216, 0.0540540541, 0.0162162162);
+  vec3 c = texture(uTex, vUV).rgb * w[0];
+  for(int i=1;i<5;i++){
+    vec2 off = uDir*float(i);
+    c += texture(uTex, vUV + off).rgb * w[i];
+    c += texture(uTex, vUV - off).rgb * w[i];
+  }
+  o = vec4(c, 1.0);
+}`;
+
+      const DOWN_FS = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D uTex;
+out vec4 o;
+void main(){ o = vec4(texture(uTex, vUV).rgb, 1.0); }`;
+
+      const COMP_FS = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D uScene, uBloomA, uBloomB;
+uniform float uBloom, uTime, uExposure;
+out vec4 o;
+float hash21(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+void main(){
+  vec3 c = texture(uScene, vUV).rgb;
+  c += (texture(uBloomA, vUV).rgb*0.62 + texture(uBloomB, vUV).rgb*1.00)*uBloom;
+  c *= uExposure;
+  // Reinhard. Without a tonemap every hot pixel clips to flat white and the
+  // whole thing looks like a blown-out screenshot, which is most of "cheap".
+  c = c/(1.0 + c);
+  // Temporal dither at one 8-bit step. Smooth falloffs band visibly without it
+  // and banding is the fastest way to make a gradient look amateur.
+  c += (hash21(gl_FragCoord.xy + fract(uTime)) - 0.5)/255.0;
+  c = max(c, vec3(0.0));
+  float a = clamp(max(max(c.r,c.g),c.b), 0.0, 1.0);
+  o = vec4(c, a);      // premultiplied for compositing over the page
+}`;
+
+      const canvas = document.getElementById("gl");
+      const gl = canvas.getContext("webgl2", {
+        alpha: true,
+        premultipliedAlpha: true,
+        antialias: false,
+      });
+      if (!gl) {
+        document.body.innerHTML =
+          '<div class="fixed inset-0 grid place-items-center text-zinc-300">WebGL2 unavailable in this browser.</div>';
+        throw new Error("no webgl2");
+      }
+      // Half-float targets let the scene carry values above 1.0, which is what makes
+      // a bright core bloom further than a dim one. On RGBA8 everything clips at 1
+      // and the bloom is uniform, which defeats the point.
+      const canFloat =
+        !!gl.getExtension("EXT_color_buffer_half_float") ||
+        !!gl.getExtension("EXT_color_buffer_float");
+      gl.getExtension("OES_texture_float_linear");
+      const HDR = canFloat ? gl.RGBA16F : gl.RGBA8;
+      document.getElementById("fmt").textContent = canFloat
+        ? "RGBA16F"
+        : "RGBA8 (no HDR)";
+
+      const errs = [];
+      function compile(type, src) {
+        const sh = gl.createShader(type);
+        gl.shaderSource(sh, src);
+        gl.compileShader(sh);
+        if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+          const log = gl.getShaderInfoLog(sh);
+          gl.deleteShader(sh);
+          throw new Error(log);
+        }
+        return sh;
+      }
+      function program(fs, label) {
+        try {
+          const p = gl.createProgram();
+          gl.attachShader(p, compile(gl.VERTEX_SHADER, QUAD_VS));
+          gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+          gl.linkProgram(p);
+          if (!gl.getProgramParameter(p, gl.LINK_STATUS))
+            throw new Error(gl.getProgramInfoLog(p));
+          return p;
+        } catch (e) {
+          // Console too, and the whole log. Pushing only the first line into a
+          // panel nobody is looking at turns a one line compile error into a
+          // black screen with no explanation, which is exactly how an
+          // undeclared identifier survived three rounds of probing.
+          console.error("shader " + label + "\n" + e.message);
+          errs.push(label + ": " + String(e.message).split("\n")[0]);
+          return null;
+        }
+      }
+
+      for (const m of MODELS) {
+        m.prog = program(COMMON + m.src, m.name);
+        if (m.prog) {
+          m.u = {};
+          for (const n of [
+            "u_res",
+            "u_time",
+            "u_act",
+            "u_cursor",
+            "u_gain",
+            "u_close",
+            "u_pop",
+          ])
+            m.u[n] = gl.getUniformLocation(m.prog, n);
+        }
+      }
+      const pBright = program(BRIGHT_FS, "brightpass");
+      const pBlur = program(BLUR_FS, "blur");
+      const pDown = program(DOWN_FS, "downsample");
+      const pComp = program(COMP_FS, "composite");
+      document.getElementById("errs").textContent = errs.join(" | ");
+
+      const vao = gl.createVertexArray();
+      const draw = () => {
+        gl.bindVertexArray(vao);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      };
+
+      function makeTarget() {
+        const tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        const fbo = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        gl.framebufferTexture2D(
+          gl.FRAMEBUFFER,
+          gl.COLOR_ATTACHMENT0,
+          gl.TEXTURE_2D,
+          tex,
+          0,
+        );
+        return { tex, fbo, w: 0, h: 0 };
+      }
+      const T = {
+        scene: makeTarget(),
+        a1: makeTarget(),
+        a2: makeTarget(),
+        b1: makeTarget(),
+        b2: makeTarget(),
+      };
+
+      function sizeTarget(t, w, h) {
+        if (t.w === w && t.h === h) return;
+        t.w = w;
+        t.h = h;
+        gl.bindTexture(gl.TEXTURE_2D, t.tex);
+        gl.texImage2D(
+          gl.TEXTURE_2D,
+          0,
+          HDR,
+          w,
+          h,
+          0,
+          gl.RGBA,
+          canFloat ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE,
+          null,
+        );
+      }
+
+      let W = 0,
+        H = 0,
+        PW = 0,
+        PH = 0;
+      function resize() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        W = window.innerWidth;
+        H = window.innerHeight;
+        PW = Math.round(W * dpr);
+        PH = Math.round(H * dpr);
+        canvas.width = PW;
+        canvas.height = PH;
+        sizeTarget(T.scene, PW, PH);
+        const hw = Math.max(1, PW >> 1),
+          hh = Math.max(1, PH >> 1);
+        const qw = Math.max(1, PW >> 2),
+          qh = Math.max(1, PH >> 2);
+        sizeTarget(T.a1, hw, hh);
+        sizeTarget(T.a2, hw, hh);
+        sizeTarget(T.b1, qw, qh);
+        sizeTarget(T.b2, qw, qh);
+      }
+      window.addEventListener("resize", resize);
+      resize();
+
+      function pass(prog, target, setup) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, target ? target.fbo : null);
+        gl.viewport(0, 0, target ? target.w : PW, target ? target.h : PH);
+        gl.useProgram(prog);
+        setup(prog);
+        draw();
+      }
+      function bindTex(prog, name, t, unit) {
+        gl.activeTexture(gl.TEXTURE0 + unit);
+        gl.bindTexture(gl.TEXTURE_2D, t.tex);
+        gl.uniform1i(gl.getUniformLocation(prog, name), unit);
+      }
+
+      const P = {
+        bloom: { v: 1.0, min: 0, max: 3, step: 0.01, label: "Bloom" },
+        thresh: {
+          v: 0.55,
+          min: 0,
+          max: 2,
+          step: 0.01,
+          label: "Bloom threshold",
+        },
+        exposure: { v: 1.05, min: 0.2, max: 3, step: 0.01, label: "Exposure" },
+        gain: { v: 1.0, min: 0.1, max: 4, step: 0.01, label: "Scene gain" },
+      };
+
+      const params = new URLSearchParams(location.search);
+      const FREEZE = params.get("freeze");
+      const frozen = FREEZE === null ? null : parseFloat(FREEZE);
+      let current = Math.max(
+        0,
+        Math.min(MODELS.length - 1, parseInt(params.get("m") || "0", 10) || 0),
+      );
+      let actStart = performance.now();
+      let closeStart = null;
+      let popAt = [0.5, 1.0];
+      const trigger = () => {
+        actStart = performance.now();
+        closeStart = null;
+      };
+      const close = () => {
+        if (closeStart !== null) return;
+        // Nucleate on the rim. From inside a bubble the film is only visible
+        // where you are looking through it edge on, so the rim is the only
+        // part of it you could watch a hole open in.
+        const f = Math.random(), side = (Math.random() * 4) | 0;
+        popAt =
+          side === 0
+            ? [f, 1.0]
+            : side === 1
+              ? [f, 0.0]
+              : side === 2
+                ? [0.0, f]
+                : [1.0, f];
+        closeStart = performance.now();
+      };
+
+      const list = document.getElementById("list");
+      function paintList() {
+        [...list.children].forEach((el, i) => {
+          const on = i === current;
+          el.className =
+            "w-full text-left px-3 py-2 rounded-lg transition-all duration-200 cursor-pointer flex items-baseline gap-2.5 " +
+            (on
+              ? "bg-amber-500/15 border border-amber-500/40"
+              : "border border-transparent hover:bg-white/5");
+          el.querySelector(".k").className =
+            "k text-xs " + (on ? "text-amber-400" : "text-zinc-600");
+          el.querySelector(".n").className =
+            "n text-sm font-medium " +
+            (on ? "text-amber-200" : "text-zinc-300");
+        });
+      }
+      MODELS.forEach((m, i) => {
+        const b = document.createElement("button");
+        b.innerHTML = `<span class="k" style="font-family:'JetBrains Mono',monospace">${i + 1}</span>
+                 <span class="min-w-0"><span class="n">${m.name}</span>
+                 <span class="block text-xs text-zinc-500 leading-snug">${m.note}</span></span>`;
+        b.addEventListener("click", () => {
+          current = i;
+          paintList();
+          trigger();
+        });
+        list.appendChild(b);
+      });
+      paintList();
+
+      const sliders = document.getElementById("sliders");
+      for (const [key, p] of Object.entries(P)) {
+        const row = document.createElement("div");
+        row.innerHTML = `
+    <div class="flex items-center justify-between mb-1">
+      <label class="text-xs text-zinc-400">${p.label}</label>
+      <span class="text-xs text-zinc-300" style="font-family:'JetBrains Mono',monospace" id="v_${key}">${p.v}</span>
+    </div>
+    <input type="range" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.v}"
+           class="w-full h-1 rounded-full bg-zinc-700 appearance-none cursor-pointer accent-amber-500">`;
+        const input = row.querySelector("input");
+        input.addEventListener("input", () => {
+          p.v = parseFloat(input.value);
+          document.getElementById("v_" + key).textContent = p.v;
+        });
+        sliders.appendChild(row);
+      }
+
+      document.getElementById("replay").addEventListener("click", trigger);
+      const panel = document.getElementById("panel");
+      document
+        .getElementById("hide")
+        .addEventListener("click", () => panel.classList.toggle("opacity-0"));
+      window.addEventListener("keydown", (e) => {
+        if (e.code === "Space") {
+          e.preventDefault();
+          trigger();
+          return;
+        }
+        if (e.key === "x" || e.code === "Escape") {
+          e.preventDefault();
+          close();
+          return;
+        }
+        if (e.key === "h") {
+          panel.classList.toggle("opacity-0");
+          return;
+        }
+        const n = parseInt(e.key, 10);
+        if (n >= 1 && n <= MODELS.length) {
+          current = n - 1;
+          paintList();
+          trigger();
+        }
+      });
+
+      const BACKDROPS = {
+        dark: "#0a0a0a",
+        photo:
+          "radial-gradient(ellipse at 20% 15%, #1e1b4b 0%, #0a0a0a 55%), radial-gradient(ellipse at 85% 80%, #422006 0%, transparent 60%)",
+        light: "#f4f4f5",
+      };
+      function setBackdrop(k) {
+        document.getElementById("backdrop").style.background = BACKDROPS[k];
+        document.querySelectorAll(".bd").forEach((b) => {
+          const on = b.dataset.bd === k;
+          b.classList.toggle("bg-amber-500/15", on);
+          b.classList.toggle("border-amber-500/40", on);
+          b.classList.toggle("text-amber-300", on);
+        });
+      }
+      document
+        .querySelectorAll(".bd")
+        .forEach((b) =>
+          b.addEventListener("click", () => setBackdrop(b.dataset.bd)),
+        );
+      setBackdrop("photo");
+
+      let cursor = [-9999, -9999],
+        target = [-9999, -9999];
+      window.addEventListener("mousemove", (e) => {
+        target = [(e.clientX * PW) / W, ((H - e.clientY) * PH) / H];
+      });
+
+      const fpsEl = document.getElementById("fps");
+      let last = performance.now(),
+        acc = 0,
+        frames = 0;
+
+      function render(now) {
+        const dt = Math.min((now - last) / 1000, 0.05);
+        last = now;
+        acc += dt;
+        frames++;
+        if (acc > 0.5) {
+          fpsEl.textContent = (frames / acc).toFixed(0) + " fps";
+          acc = 0;
+          frames = 0;
+        }
+        cursor[0] += (target[0] - cursor[0]) * Math.min(dt * 14, 1);
+        cursor[1] += (target[1] - cursor[1]) * Math.min(dt * 14, 1);
+
+        const m = MODELS[current];
+        if (!m.prog || !pBright || !pBlur || !pComp || !pDown) {
+          requestAnimationFrame(render);
+          return;
+        }
+
+        // Overridable so the idle can be sampled at a known phase. The breath
+        // and the film drift are both slow, and eyeballing a 9 second cycle is
+        // how you end up calling a dead frame alive.
+        const tNow =
+          window.__t != null ? window.__t : frozen !== null ? 12.0 : now / 1000;
+        const tAct =
+          window.__act != null
+            ? window.__act
+            : frozen !== null
+              ? frozen
+              : (now - actStart) / 1000;
+
+        gl.disable(gl.BLEND);
+
+        pass(m.prog, T.scene, () => {
+          gl.uniform2f(m.u.u_res, PW, PH);
+          gl.uniform1f(m.u.u_time, tNow);
+          gl.uniform1f(m.u.u_act, tAct);
+          gl.uniform2f(m.u.u_cursor, cursor[0], cursor[1]);
+          gl.uniform1f(m.u.u_gain, m.gain * P.gain.v);
+          gl.uniform1f(
+            m.u.u_close,
+            window.__close != null
+              ? window.__close
+              : closeStart === null
+                ? -1.0
+                : (now - closeStart) / 1000,
+          );
+          const pop = window.__pop || popAt;
+          gl.uniform2f(m.u.u_pop, pop[0], pop[1]);
+        });
+
+        pass(pBright, T.a1, (p) => {
+          bindTex(p, "uTex", T.scene, 0);
+          gl.uniform1f(gl.getUniformLocation(p, "uThresh"), P.thresh.v);
+        });
+        pass(pBlur, T.a2, (p) => {
+          bindTex(p, "uTex", T.a1, 0);
+          gl.uniform2f(gl.getUniformLocation(p, "uDir"), 1.0 / T.a1.w, 0.0);
+        });
+        pass(pBlur, T.a1, (p) => {
+          bindTex(p, "uTex", T.a2, 0);
+          gl.uniform2f(gl.getUniformLocation(p, "uDir"), 0.0, 1.0 / T.a2.h);
+        });
+        pass(pDown, T.b1, (p) => bindTex(p, "uTex", T.a1, 0));
+        pass(pBlur, T.b2, (p) => {
+          bindTex(p, "uTex", T.b1, 0);
+          gl.uniform2f(gl.getUniformLocation(p, "uDir"), 1.0 / T.b1.w, 0.0);
+        });
+        pass(pBlur, T.b1, (p) => {
+          bindTex(p, "uTex", T.b2, 0);
+          gl.uniform2f(gl.getUniformLocation(p, "uDir"), 0.0, 1.0 / T.b2.h);
+        });
+
+        pass(pComp, null, (p) => {
+          bindTex(p, "uScene", T.scene, 0);
+          bindTex(p, "uBloomA", T.a1, 1);
+          bindTex(p, "uBloomB", T.b1, 2);
+          gl.uniform1f(gl.getUniformLocation(p, "uBloom"), P.bloom.v);
+          gl.uniform1f(gl.getUniformLocation(p, "uExposure"), P.exposure.v);
+          gl.uniform1f(gl.getUniformLocation(p, "uTime"), tNow);
+        });
+
+        requestAnimationFrame(render);
+      }
+      requestAnimationFrame(render);
+      lucide.createIcons();
+    </script>
+  </body>
+</html>

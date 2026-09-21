@@ -1,0 +1,572 @@
+import AppKit
+import SwiftUI
+import Testing
+
+@testable import BobHUDKit
+
+/// Render every surface to a bitmap and prove it drew something.
+///
+/// A heads-up display is the hardest kind of UI to review, because seeing it
+/// needs a machine somebody is sitting at, unlocked, with the right things
+/// already behind it. `ImageRenderer` removes all of that: it takes a SwiftUI
+/// view and hands back pixels, so the interface becomes reviewable from a
+/// terminal or a build server.
+///
+/// The assertion is deliberately crude and it is the one that matters. Each
+/// surface is drawn over a backdrop, and the test checks that a meaningful
+/// share of the pixels changed. A view that renders nothing is pixel-identical
+/// to its backdrop, and "renders nothing" is the failure mode this project keeps
+/// producing: a `matchedGeometryEffect` applied to a generated tree blanked the
+/// entire display, and the only reason it was caught was that somebody happened
+/// to take a screenshot.
+///
+/// Set `HUD_SNAPSHOT_DIR` to keep the PNGs and look at them.
+@Suite("Snapshots")
+@MainActor
+struct SnapshotTests {
+    /// Where to keep the images, if anybody asked for them.
+    private var keepDirectory: URL? {
+        guard let path = ProcessInfo.processInfo.environment["HUD_SNAPSHOT_DIR"] else {
+            return nil
+        }
+        let url = URL(fileURLWithPath: path)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    /// Light and dark, because the one thing this UI cannot control is what is
+    /// behind it. A card that reads on a dark desktop and turns to grey mud over
+    /// a white document is the failure worth catching, and it is one this
+    /// project has actually shipped.
+    enum Ground: String, CaseIterable {
+        case light, dark
+
+        var color: Color {
+            self == .light
+                ? Color(red: 0.97, green: 0.97, blue: 0.96)
+                : Color(red: 0.09, green: 0.10, blue: 0.12)
+        }
+
+        var ink: Color {
+            self == .light ? .black.opacity(0.75) : .white.opacity(0.7)
+        }
+    }
+
+    /// Draw a view over a backdrop, and report how much of it changed.
+    private func coverage(
+        _ name: String, size: CGSize, ground: Ground,
+        @ViewBuilder _ content: () -> some View
+    ) -> Double {
+        let backdrop = Backdrop(ground: ground, size: size)
+        let bare = render(
+            backdrop.frame(width: size.width, height: size.height).ignoresSafeArea())
+        let over = render(
+            ZStack {
+                backdrop
+                content()
+            }
+            .frame(width: size.width, height: size.height)
+            // The real overlay ignores the safe area. A renderer that does not
+            // insets every child, which put marks tens of points away from the
+            // rectangle they were describing and made the view look wrong when
+            // the harness was.
+            .ignoresSafeArea()
+            .environment(\.colorScheme, .dark)
+            // AppKit cannot draw without a window, so the vibrancy material
+            // swaps to its SwiftUI stand-in for the render.
+            .environment(\.hudOffscreen, true)
+        )
+        guard let bare, let over else { return 0 }
+
+        if let directory = keepDirectory {
+            write(over, to: directory.appendingPathComponent("\(name)-\(ground.rawValue).png"))
+        }
+        return difference(bare, over)
+    }
+
+    private func render(_ view: some View) -> NSBitmapImageRep? {
+        let renderer = ImageRenderer(content: view)
+        // Retina, so type is judged at the density it is actually read at.
+        renderer.scale = 2
+        guard let image = renderer.nsImage,
+              let data = image.tiffRepresentation
+        else { return nil }
+        return NSBitmapImageRep(data: data)
+    }
+
+    private func write(_ rep: NSBitmapImageRep, to url: URL) {
+        guard let png = rep.representation(using: .png, properties: [:]) else { return }
+        try? png.write(to: url)
+    }
+
+    /// Fraction of pixels that differ by more than a rounding error.
+    private func difference(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Double {
+        guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return 1 }
+        var changed = 0
+        var total = 0
+        // Every fourth pixel in each direction. Sampling is enough to tell drawn
+        // from blank and keeps the suite fast enough that nobody skips it.
+        for y in stride(from: 0, to: a.pixelsHigh, by: 4) {
+            for x in stride(from: 0, to: a.pixelsWide, by: 4) {
+                total += 1
+                guard let left = a.colorAt(x: x, y: y),
+                      let right = b.colorAt(x: x, y: y) else { continue }
+                let delta = abs(left.redComponent - right.redComponent)
+                    + abs(left.greenComponent - right.greenComponent)
+                    + abs(left.blueComponent - right.blueComponent)
+                if delta > 0.02 { changed += 1 }
+            }
+        }
+        return total == 0 ? 0 : Double(changed) / Double(total)
+    }
+
+    // MARK: The surfaces
+
+    private func store(_ lines: [String]) -> SurfaceStore {
+        let store = SurfaceStore()
+        for line in lines {
+            if let op = try? LineParser.parse(line) { store.apply([op]) }
+        }
+        return store
+    }
+
+    private var dashboard: SurfaceStore {
+        store([
+            #"c s Screen title="THIS WEEK""#,
+            "r s",
+            "> s grid spark bars events",
+            "c grid Stack direction=grid cols=2 gap=3",
+            "> grid m1 m2",
+            #"c m1 Metric label="Unread" value=12 thresholds=[{"at":10,"tone":"warn"}]"#,
+            #"c m2 Metric label="Overdue" value=4 thresholds=[{"at":1,"tone":"bad"}]"#,
+            #"c spark Sparkline label="Messages" points=[31,28,44,39,58,52,71] value="71""#,
+            #"c bars Bars caption="Since last reply" rows=[{"label":"Sagar","value":2,"display":"2h"},{"label":"Ava","value":31,"display":"1d"}]"#,
+            #"c events Events caption="Due" items=[{"time":"Sep 9","text":"Origin Story","accent":true}]"#,
+        ])
+    }
+
+    private var diagram: SurfaceStore {
+        store([
+            #"c d Screen title="HOW A REQUEST REACHES THE SCREEN""#,
+            "r d",
+            "> d fig",
+            #"c fig Diagram aspect=2.4 parts=[{"t":"node","x":0.16,"y":0.5,"w":0.22,"h":0.3,"label":"Model"},{"t":"arrow","x":0.28,"y":0.5,"x2":0.42,"y2":0.5},{"t":"node","x":0.5,"y":0.5,"w":0.2,"h":0.3,"label":"Socket"},{"t":"arrow","x":0.61,"y":0.5,"x2":0.75,"y2":0.5},{"t":"node","x":0.85,"y":0.5,"w":0.22,"h":0.3,"label":"Glass","tone":"good"}]"#,
+        ])
+    }
+
+    private func card(_ store: SurfaceStore, _ chrome: Chrome, _ width: CGFloat) -> some View {
+        SurfaceCard(
+            surface: OverlaySurface(
+                id: "s", store: store, region: .center, width: width,
+                slot: 0, depth: 0, chrome: chrome),
+            onDismiss: {}, onDrag: { _ in }, onGrab: {})
+            .frame(width: width)
+    }
+
+    @Test("a card draws, on both grounds", arguments: Ground.allCases)
+    func cardDraws(ground: Ground) {
+        let drawn = coverage(
+            "surface-card", size: CGSize(width: 480, height: 430), ground: ground
+        ) {
+            card(dashboard, .card, 400)
+        }
+        #expect(drawn > 0.25, "a dashboard covered only \(drawn) of the frame")
+    }
+
+    @Test("a bare surface draws even with no panel behind it", arguments: Ground.allCases)
+    func bareDraws(ground: Ground) {
+        // The one most likely to come out invisible, because it is defined by
+        // having nothing behind it.
+        let drawn = coverage(
+            "surface-bare", size: CGSize(width: 620, height: 320), ground: ground
+        ) {
+            card(diagram, .bare, 560)
+        }
+        #expect(drawn > 0.05, "a bare diagram covered only \(drawn) of the frame")
+    }
+
+    @Test("a bracketed surface draws", arguments: Ground.allCases)
+    func bracketDraws(ground: Ground) {
+        let drawn = coverage(
+            "surface-bracket", size: CGSize(width: 340, height: 300), ground: ground
+        ) {
+            card(dashboard, .bracket, 260)
+        }
+        #expect(drawn > 0.15, "a bracketed surface covered only \(drawn) of the frame")
+    }
+
+    @Test("every presence state draws something")
+    func presenceDraws() {
+        // Dormant is deliberately faint, so it gets its own smaller floor: the
+        // point of that state is being nearly invisible while still proving the
+        // thing is alive.
+        for state in Presence.allCases {
+            let drawn = coverage(
+                "presence-\(state.rawValue)",
+                size: CGSize(width: 60, height: 60), ground: .dark
+            ) {
+                PresenceRing(presence: state, amplitude: state.voiced ? 0.7 : 0)
+            }
+            #expect(drawn > 0.01, "\(state.rawValue) drew almost nothing: \(drawn)")
+        }
+    }
+
+    @Test("a mark draws over the thing it points at", arguments: Ground.allCases)
+    func markerDraws(ground: Ground) {
+        let drawn = coverage(
+            "marker", size: CGSize(width: 460, height: 220), ground: ground
+        ) {
+            MarkerView(
+                marker: Marker(
+                    id: "m", rect: CGRect(x: 60, y: 80, width: 320, height: 90),
+                    label: "This is the one failing", tone: "bad", expires: nil),
+                screenHeight: 220)
+        }
+        #expect(drawn > 0.02, "a mark covered only \(drawn) of the frame")
+    }
+
+    @Test("a mark moves when its rectangle moves")
+    func markerFollowsItsRect() {
+        // The question asked directly, and the one worth keeping: two marks,
+        // one high and one low. Identical images would mean position is being
+        // ignored entirely, which is the failure that actually matters and the
+        // only one a pixel comparison can answer without ambiguity.
+        let size = CGSize(width: 460, height: 300)
+        let high = image("marker-high", size: size) {
+            MarkerView(
+                marker: Marker(
+                    id: "m", rect: CGRect(x: 40, y: 20, width: 200, height: 60),
+                    expires: nil),
+                screenHeight: size.height)
+        }
+        let low = image("marker-low", size: size) {
+            MarkerView(
+                marker: Marker(
+                    id: "m", rect: CGRect(x: 40, y: 200, width: 200, height: 60),
+                    expires: nil),
+                screenHeight: size.height)
+        }
+        guard let high, let low else {
+            Issue.record("could not render a marker")
+            return
+        }
+        #expect(!same(high, low, rows: 0..<Int(size.height) * 2), "the mark did not move")
+    }
+
+    @Test("a guide draws a ring and a bubble", arguments: Ground.allCases)
+    func guideDraws(ground: Ground) {
+        let drawn = coverage(
+            "guide", size: CGSize(width: 460, height: 260), ground: ground
+        ) {
+            MarkerView(
+                marker: Marker(
+                    id: "guide", rect: CGRect(x: 120, y: 140, width: 200, height: 44),
+                    label: "Click Sign in", tone: Marker.guideTone, expires: nil),
+                screenHeight: 260)
+        }
+        #expect(drawn > 0.02, "a guide covered only \(drawn) of the frame")
+    }
+
+    @Test("the bubble sits above the control, and only above it")
+    func guideBubbleAbove() {
+        let size = CGSize(width: 460, height: 260)
+        let rect = CGRect(x: 120, y: 140, width: 200, height: 44)
+        let told = image("guide-told", size: size) {
+            MarkerView(
+                marker: Marker(
+                    id: "g", rect: rect, label: "Click Sign in",
+                    tone: Marker.guideTone, expires: nil),
+                screenHeight: size.height)
+        }
+        let bare = image("guide-bare", size: size) {
+            MarkerView(
+                marker: Marker(id: "g", rect: rect, tone: Marker.guideTone, expires: nil),
+                screenHeight: size.height)
+        }
+        guard let told, let bare else {
+            Issue.record("could not render a guide")
+            return
+        }
+        let scale = max(told.pixelsHigh / Int(size.height), 1)
+        let ringTop = Int(rect.minY - Marker.guideReach) * scale
+        let ringBottom = Int(rect.maxY + Marker.guideReach + 12) * scale
+        #expect(ink(told, bare, rows: 0..<ringTop), "no bubble above the control")
+        #expect(same(told, bare, rows: ringBottom..<told.pixelsHigh), "the bubble leaked below the control")
+    }
+
+    @Test("a guide at the top of the screen puts its bubble below")
+    func guideBubbleBelowNearTheTop() {
+        let size = CGSize(width: 460, height: 260)
+        let rect = CGRect(x: 120, y: 20, width: 200, height: 30)
+        let told = image("guide-top-told", size: size) {
+            MarkerView(
+                marker: Marker(
+                    id: "g", rect: rect, label: "Click Sign in",
+                    tone: Marker.guideTone, expires: nil),
+                screenHeight: size.height)
+        }
+        let bare = image("guide-top-bare", size: size) {
+            MarkerView(
+                marker: Marker(id: "g", rect: rect, tone: Marker.guideTone, expires: nil),
+                screenHeight: size.height)
+        }
+        guard let told, let bare else {
+            Issue.record("could not render a guide")
+            return
+        }
+        let scale = max(told.pixelsHigh / Int(size.height), 1)
+        let ringTop = Int(rect.minY - Marker.guideReach) * scale
+        let ringBottom = Int(rect.maxY + Marker.guideReach) * scale
+        #expect(ink(told, bare, rows: ringBottom..<told.pixelsHigh), "no bubble below the control")
+        #expect(same(told, bare, rows: 0..<ringTop), "the bubble leaked above the control")
+    }
+
+    @Test("a label does not move the mark")
+    func markerPositionIgnoresItsLabel() {
+        // The label used to be a sibling in the stack, so it changed the mark's
+        // size and the mark was placed by the size of the pair. A labelled mark
+        // sat below the thing it pointed at, which for an annotation layer is
+        // fatal: a mark near the right place is worse than no mark, because it
+        // is confidently wrong.
+        //
+        // Compared as images rather than by hunting for coloured pixels. An
+        // earlier version of this test looked for cyan and found the colour
+        // fringes of subpixel-antialiased text instead, then reported the mark
+        // as being seventy points from where it was. The view was right and the
+        // measurement was wrong, which is the more embarrassing way round.
+        let rect = CGRect(x: 60, y: 80, width: 320, height: 90)
+        let size = CGSize(width: 460, height: 220)
+
+        let plain = image("marker-plain", size: size) {
+            MarkerView(
+                marker: Marker(id: "m", rect: rect, expires: nil),
+                screenHeight: size.height)
+        }
+        let labelled = image("marker-labelled", size: size) {
+            MarkerView(
+                marker: Marker(id: "m", rect: rect, label: "Here", expires: nil),
+                screenHeight: size.height)
+        }
+        guard let plain, let labelled else {
+            Issue.record("could not render a marker")
+            return
+        }
+
+        // Everything below the label's band must be pixel-identical: the label
+        // sits above the region and must change nothing inside or under it.
+        //
+        // Starting a few points inside the top edge, because the label's own
+        // drop shadow reaches a little past it. That is the shadow doing its
+        // job, not the mark moving, and the thing being checked is the
+        // brackets.
+        let from = (Int(rect.minY) + 10) * 2
+        #expect(
+            same(plain, labelled, rows: from..<Int(size.height) * 2),
+            "adding a label moved the mark")
+    }
+
+    /// Render without diffing, for tests that compare two renders to each other.
+    private func image(
+        _ name: String, size: CGSize, @ViewBuilder _ content: () -> some View
+    ) -> NSBitmapImageRep? {
+        let made = render(
+            ZStack {
+                Backdrop(ground: .dark, size: size)
+                content()
+            }
+            .frame(width: size.width, height: size.height)
+            .ignoresSafeArea()
+            .environment(\.colorScheme, .dark)
+            .environment(\.hudOffscreen, true)
+        )
+        if let made, let directory = keepDirectory {
+            write(made, to: directory.appendingPathComponent("\(name).png"))
+        }
+        return made
+    }
+
+    /// Whether two renders agree over a band of rows.
+    private func same(
+        _ a: NSBitmapImageRep, _ b: NSBitmapImageRep, rows: Range<Int>
+    ) -> Bool {
+        guard a.pixelsWide == b.pixelsWide else { return false }
+        for y in rows where y < a.pixelsHigh && y < b.pixelsHigh {
+            for x in stride(from: 0, to: a.pixelsWide, by: 3) {
+                guard let left = a.colorAt(x: x, y: y),
+                      let right = b.colorAt(x: x, y: y) else { continue }
+                let delta = abs(left.redComponent - right.redComponent)
+                    + abs(left.greenComponent - right.greenComponent)
+                    + abs(left.blueComponent - right.blueComponent)
+                // 0.02 passed on noise. A glass bubble anywhere in the frame
+                // re-rasterises the ground text's glyph edges by up to 7
+                // levels a channel (2026-09-20: 6,800 differing pixels above
+                // the ring, all on glyphs, with the bubble sitting on the
+                // control), so "no bubble above" held without a bubble and
+                // "none below" broke without a leak. A bubble pixel differs
+                // by 40 levels or more; 0.1 sits between.
+                if delta > 0.1 { return false }
+            }
+        }
+        return true
+    }
+
+    /// Whether the bubble's own ink, not a shadow's haze, appears in a band
+    /// of rows. Presence checks use this and absence checks use `same`,
+    /// because a bubble sitting on the control still spills shadow into the
+    /// rows below it: on 2026-09-20 "no bubble below the control" passed on
+    /// that spill while the bubble had never left the control. Ink differs
+    /// from the ground by 40 levels or more a channel; haze by a dozen
+    /// summed at most.
+    private func ink(
+        _ a: NSBitmapImageRep, _ b: NSBitmapImageRep, rows: Range<Int>
+    ) -> Bool {
+        guard a.pixelsWide == b.pixelsWide else { return false }
+        for y in rows where y < a.pixelsHigh && y < b.pixelsHigh {
+            for x in stride(from: 0, to: a.pixelsWide, by: 3) {
+                guard let left = a.colorAt(x: x, y: y),
+                      let right = b.colorAt(x: x, y: y) else { continue }
+                let delta = abs(left.redComponent - right.redComponent)
+                    + abs(left.greenComponent - right.greenComponent)
+                    + abs(left.blueComponent - right.blueComponent)
+                if delta > 0.5 { return true }
+            }
+        }
+        return false
+    }
+
+    @Test("the pill draws in every visible phase", arguments: Ground.allCases)
+    func pillDraws(ground: Ground) {
+        // Over both grounds on purpose: the pill carries half the wash the
+        // cards do, so a capsule over a dark desktop and one over a white
+        // document both have to stay visible. The wash, the rim, the shadow
+        // and the ink are what keep it separate, and this is the check on
+        // them.
+        for phase in PillState.Phase.allCases where phase != .hidden {
+            var state = PillState()
+            state.phase = phase
+            state.heard = "text Sagar I am running late"
+            state.saying = "reading your calendar"
+            state.startedAt = Date().addingTimeInterval(-42)
+            state.queued = phase == .working ? 2 : 0
+            let drawn = coverage(
+                "pill-\(phase)", size: CGSize(width: 480, height: 64), ground: ground
+            ) {
+                PillView(
+                    state: state, presence: phase == .working ? .acting : .attentive,
+                    amplitude: 0, clock: RunClock(samples: []), onCancel: {})
+            }
+            // 0.04: a 30 by 300 pill on a 480 by 64 frame is 29 percent of the
+            // area, so the floor sits well under that. A short "Listening"
+            // passes and an invisible one fails.
+            #expect(drawn > 0.04, "\(phase) drew \(drawn) over \(ground)")
+        }
+    }
+
+    @Test("a hidden pill draws nothing at all")
+    func hiddenPillIsNothing() {
+        let drawn = coverage(
+            "pill-hidden", size: CGSize(width: 480, height: 64), ground: .light
+        ) {
+            PillView(
+                state: PillState(), presence: .dormant, amplitude: 0,
+                clock: RunClock(samples: []), onCancel: {})
+        }
+        #expect(drawn == 0, "a hidden pill still drew \(drawn)")
+    }
+
+    @Test("the conversation panel draws with an exchange in it", arguments: Ground.allCases)
+    func chatDraws(ground: Ground) {
+        let model = OverlayModel()
+        model.asked("what is due this week", typed: false)
+        model.apply(.write(text: "Two things.\n\n**Origin Story** is due Tuesday and the *lab* Friday.", done: true))
+        model.asked("and next week", typed: true)
+        model.setPresence(.thinking, amplitude: 0)
+        model.say("Reading the ledger")
+        let drawn = coverage(
+            "chat", size: CGSize(width: 560, height: 420), ground: ground
+        ) {
+            ChatPanel(model: model, onSubmit: { _ in }, onSpeak: { _ in }, onStop: {}, onClose: {})
+                .frame(width: 520, height: 380)
+        }
+        // A 520 by 380 panel on a 560 by 420 frame is 84 percent of the
+        // area; the frost alone changes most of it.
+        #expect(drawn > 0.5, "the panel drew \(drawn) over \(ground)")
+    }
+
+    @Test("a turn draws as a bubble, and an answer as prose", arguments: Ground.allCases)
+    func turnsDraw(ground: Ground) {
+        // The panel's scroll view renders empty offscreen, so the turns are
+        // drawn on their own here: this is the check on the bubble, the
+        // Markdown and the copy button's row, not on the frost.
+        let person = ChatTurn(id: 1, role: .person, text: "what is due this week", done: true, typed: false)
+        let answer = ChatTurn(
+            id: 2, role: .assistant,
+            text: "Two things.\n\n- **Origin Story** is due Tuesday\n- the *lab* Friday\n```sh\ncoursework due --days 7\n```",
+            done: true, typed: false, steps: ["Reading the ledger"])
+        let open = ChatTurn(id: 3, role: .assistant, text: "Three things", done: false, typed: false)
+        let drawn = coverage(
+            "turns", size: CGSize(width: 520, height: 300), ground: ground
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                turn(person)
+                turn(answer)
+                turn(open, live: true, status: "Checking the calendar")
+            }
+            .padding(16)
+            .frame(width: 520, alignment: .leading)
+        }
+        // Measured 0.073 over the light ground and more over the dark: three
+        // lines of 13pt type, a bubble and a code plate on a 520 by 220
+        // frame. Half that is the floor; nothing drawn is zero.
+        #expect(drawn > 0.035, "the turns drew \(drawn) over \(ground)")
+    }
+
+    private func turn(_ turn: ChatTurn, live: Bool = false, status: String? = nil) -> TurnView {
+        TurnView(
+            turn: turn, live: live, status: status, isLast: live,
+            onSpeak: {}, onRegenerate: {}, onEdit: {})
+    }
+
+    @Test("the command bar draws")
+    func commandBarDraws() {
+        let drawn = coverage(
+            "command-bar", size: CGSize(width: 700, height: 150), ground: .light
+        ) {
+            CommandBarView(onSubmit: { _ in }, onEscape: {})
+                .frame(width: 640)
+        }
+        #expect(drawn > 0.2, "the command bar covered only \(drawn) of the frame")
+    }
+}
+
+/// Something behind the glass that is not a flat colour, so occlusion and
+/// contrast are visible rather than assumed.
+private struct Backdrop: View {
+    let ground: SnapshotTests.Ground
+    /// The frame it must not grow beyond.
+    ///
+    /// Its rows of text are taller than most of the frames it is used in, and a
+    /// ZStack takes the size of its largest child. That made the stack taller
+    /// than the frame around it, which then centred the overflow and moved every
+    /// other child up with it. Marks appeared tens of points above the rectangle
+    /// they were describing, and the view was right the whole time.
+    let size: CGSize
+
+    var body: some View {
+        ZStack {
+            ground.color
+            VStack(alignment: .leading, spacing: 7) {
+                ForEach(0..<16, id: \.self) { row in
+                    Text(String(repeating: "the quick brown fox jumps over ", count: 3))
+                        .font(.system(size: 11, design: row % 3 == 0 ? .monospaced : .default))
+                        .foregroundStyle(ground.ink)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(12)
+        }
+        .frame(width: size.width, height: size.height)
+        .clipped()
+    }
+}

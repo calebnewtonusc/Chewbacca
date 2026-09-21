@@ -23,6 +23,7 @@ trap 'rm -rf "$TMP"' EXIT
 export PEOPLE_DIR="$TMP/people"
 export COURSEWORK_DIR="$TMP/coursework"
 export CHEWBACCA_LOG_DIR="$TMP/logs"
+export SUPERASSISTANT_DIR="$TMP/superassistant"
 
 group() { CURRENT="$1"; [ -n "$ONLY" ] && [ "$ONLY" != "$1" ] && return 1
           echo -e "\n${BLD}$1${NC}"; return 0; }
@@ -689,7 +690,25 @@ fi
 if group "hud"; then
   check  "hud parses"         bash -n "$ROOT/bin/hud"
   check  "hud-listen parses"  python3 -m py_compile "$ROOT/bin/hud-listen"
+  check  "hud-speak parses"   python3 -m py_compile "$ROOT/bin/hud-speak"
+  # The voice, minus the model: sentence splitting and the cache of short
+  # lines, which is what "Done." costs after the first time.
+  check  "hud-speak splits and caches" python3 "$ROOT/tests/test_hud_speak.py"
   check  "hud-context parses" python3 -m py_compile "$ROOT/bin/hud-context"
+  check  "hud-guide parses"   python3 -m py_compile "$ROOT/bin/hud-guide"
+  # The bubble on the button: which elements count as controls, how words
+  # find one, and the exact line the display gets. A saved snapshot and a
+  # fake display, so no screen is read and nothing is drawn.
+  check  "hud-guide finds the control and sends the bubble" python3 "$ROOT/tests/test_hud_guide.py"
+  check  "hud-music parses"   python3 -m py_compile "$ROOT/bin/hud-music"
+  # "Play X" without the model: what the words mean, which result to play,
+  # and what each player is told. Every player is a stub, so no sound and
+  # no network.
+  check  "hud-music reads the words and drives the players" python3 "$ROOT/tests/test_hud_music.py"
+  check  "superassistant parses" python3 -m py_compile "$ROOT/bin/superassistant"
+  # The voice's memory both ways: the brain digest it is given, and the log
+  # of what it was asked. Hermetic: a temp brain and a temp log.
+  check  "superassistant keeps questions and digests the brain" python3 "$ROOT/tests/test_superassistant.py"
   check  "hud-watch parses"   python3 -m py_compile "$ROOT/bin/hud-watch"
   # The budget is the whole design. A proactive thing that interrupts whenever
   # it has an opinion gets muted within a day, and a muted assistant is worth
@@ -699,6 +718,19 @@ if group "hud"; then
   # real app, no microphone, no tokens. It is the only test that covers what
   # happens between hearing something and drawing it.
   check  "the listen loop works end to end" python3 "$ROOT/tests/test_hud_listen.py"
+  # The same file has a pytest-only path (the fixtures at its top) that no
+  # runner ever exercised: none of the python3 interpreters on the dev Macs,
+  # 3.12 through 3.14 and /usr/bin, has pytest, so a bare `python3 -m pytest`
+  # dies before collecting anything. uv fetches pytest into a throwaway env.
+  # CI's macos-latest ships neither, so it skips there and the script-mode
+  # check above is what CI proves.
+  if python3 -c 'import pytest' 2>/dev/null; then
+    check "the suite collects under pytest" python3 -m pytest "$ROOT/tests" -q
+  elif command -v uv >/dev/null 2>&1; then
+    check "the suite collects under pytest" uv run --no-project --with pytest python -m pytest "$ROOT/tests" -q
+  else
+    skip "the suite collects under pytest" "no pytest and no uv"
+  fi
   expect "the skill teaches the wire format" "Bob Lines" cat "$ROOT/skills/hud/SKILL.md"
 fi
 

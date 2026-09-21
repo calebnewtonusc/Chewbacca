@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Presence field</title>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.11"
+      integrity="sha384-A1XhMANHciQ8ED89Ap5K0zOdmQKiEeXSjaN0sakNxIzq9Z2YfXV/BwHp7oP3z5ip"
+      crossorigin="anonymous"
+    ></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <script
+      src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"
+      integrity="sha384-hJnF5AwidE18GSWTAGHv3ByzzvfNZ1Tcx5y1UUV3WkauuMCEzBJBMSwSt/PUPXnM"
+      crossorigin="anonymous"
+    ></script>
+  </head>
+  <body
+    class="antialiased overflow-hidden bg-zinc-950"
+    style="font-family: Inter, sans-serif"
+  >
+    <div id="backdrop" class="fixed inset-0"></div>
+    <canvas
+      id="gl"
+      class="fixed inset-0 w-full h-full pointer-events-none"
+    ></canvas>
+
+    <!-- Tuning panel. This is a harness, not a product surface: it stays out of the
+     way of the thing being judged, which is the motion at the screen edges. -->
+    <div
+      id="panel"
+      class="fixed top-6 left-6 z-50 w-72 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 p-5 shadow-2xl transition-opacity duration-200"
+    >
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2 text-zinc-200">
+          <i data-lucide="radio" class="w-4 h-4 text-amber-400"></i>
+          <span class="text-sm font-semibold tracking-tight"
+            >Presence field</span
+          >
+        </div>
+        <button
+          id="hide"
+          class="text-zinc-500 hover:text-white px-2 py-1 rounded-lg hover:bg-white/5 transition-all duration-200 cursor-pointer"
+          title="Hide panel (h)"
+        >
+          <i data-lucide="chevron-up" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <button
+        id="replay"
+        class="w-full bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-zinc-950 font-semibold px-4 py-2.5 rounded-xl transition-all duration-200 shadow-lg shadow-amber-500/25 cursor-pointer flex items-center justify-center gap-2 mb-4"
+      >
+        <i data-lucide="play" class="w-4 h-4"></i> Replay woosh
+      </button>
+
+      <div id="sliders" class="space-y-3"></div>
+
+      <div class="mt-4 pt-4 border-t border-white/10">
+        <div class="text-xs text-zinc-500 mb-2">Backdrop</div>
+        <div class="grid grid-cols-3 gap-2">
+          <button
+            data-bd="dark"
+            class="bd bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 text-xs font-medium px-2 py-1.5 rounded-lg transition-all duration-200 cursor-pointer"
+          >
+            Dark
+          </button>
+          <button
+            data-bd="photo"
+            class="bd bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 text-xs font-medium px-2 py-1.5 rounded-lg transition-all duration-200 cursor-pointer"
+          >
+            Photo
+          </button>
+          <button
+            data-bd="light"
+            class="bd bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-100 text-xs font-medium px-2 py-1.5 rounded-lg transition-all duration-200 cursor-pointer"
+          >
+            Light
+          </button>
+        </div>
+      </div>
+
+      <div
+        class="mt-4 pt-4 border-t border-white/10 flex items-center justify-between"
+      >
+        <span class="text-xs text-zinc-500">particles</span>
+        <span
+          id="count"
+          class="text-xs text-zinc-300"
+          style="font-family: &quot;JetBrains Mono&quot;, monospace"
+        ></span>
+      </div>
+      <div class="flex items-center justify-between mt-1">
+        <span class="text-xs text-zinc-500">frame</span>
+        <span
+          id="fps"
+          class="text-xs text-zinc-300"
+          style="font-family: &quot;JetBrains Mono&quot;, monospace"
+        ></span>
+      </div>
+      <button
+        id="dump"
+        class="mt-3 w-full hover:bg-white/5 text-zinc-400 hover:text-white text-xs px-3 py-2 rounded-lg transition-all duration-200 cursor-pointer"
+      >
+        Copy these numbers
+      </button>
+    </div>
+
+    <div
+      id="hint"
+      class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 text-xs text-zinc-500 pointer-events-none"
+      style="font-family: &quot;JetBrains Mono&quot;, monospace"
+    >
+      space replay &nbsp;&middot;&nbsp; h panel &nbsp;&middot;&nbsp; move the
+      cursor into the edge
+    </div>
+
+    <script>
+      // ---------------------------------------------------------------------------
+      // The whole field is stateless. Every particle's position is a pure function of
+      // (its two stratified coordinates, its seed, elapsed time, cursor). Nothing is
+      // simulated on the CPU and nothing is stored between frames, so the cost of
+      // 24,000 particles is one draw call and the count could go up an order of
+      // magnitude before anything notices. That matters because the real surface is a
+      // transparent always-on overlay: if presence costs measurable battery it gets
+      // turned off, and a presence layer that is off is worse than none.
+      // ---------------------------------------------------------------------------
+
+      const P = {
+        count: {
+          v: 120000,
+          min: 2000,
+          max: 200000,
+          step: 1000,
+          label: "Count",
+          reseed: true,
+        },
+        band: { v: 150, min: 30, max: 420, step: 5, label: "Band depth" },
+        reach: { v: 800, min: 80, max: 1400, step: 10, label: "Woosh reach" },
+        shear: { v: 0.42, min: 0, max: 1.5, step: 0.01, label: "Woosh shear" },
+        duration: {
+          v: 1.15,
+          min: 0.4,
+          max: 3,
+          step: 0.05,
+          label: "Woosh seconds",
+        },
+        frontier: { v: 0.3, min: 0, max: 0.8, step: 0.01, label: "Wave front" },
+        waveCount: { v: 3.5, min: 0, max: 12, step: 0.5, label: "Crests" },
+        waveAmt: { v: 0.26, min: 0, max: 0.7, step: 0.01, label: "Crest lag" },
+        hold: { v: 0.5, min: 0, max: 0.9, step: 0.01, label: "Edge anchor" },
+        breathAmp: { v: 9, min: 0, max: 60, step: 1, label: "Breath depth" },
+        breathRate: {
+          v: 0.2,
+          min: 0.02,
+          max: 1.2,
+          step: 0.01,
+          label: "Breath rate",
+        },
+        drift: { v: 2.4, min: 0, max: 20, step: 0.1, label: "Drift" },
+        hoverR: { v: 190, min: 40, max: 600, step: 10, label: "Hover radius" },
+        push: { v: 22, min: 0, max: 220, step: 2, label: "Hover push" },
+        size: { v: 3.0, min: 0.5, max: 9, step: 0.1, label: "Dot size" },
+        falloff: { v: 1.6, min: 0.4, max: 4, step: 0.1, label: "Edge falloff" },
+        glow: { v: 1.1, min: 0.02, max: 2.5, step: 0.01, label: "Brightness" },
+      };
+
+      const VERT = `#version 300 es
+precision highp float;
+// s = position along the perimeter [0,1).  d = depth into the band [0,1), 0 at
+// the very screen edge.  seed = per-particle randomness, decorrelates breathing.
+in vec3 a_p;
+
+uniform vec2  u_res;
+uniform float u_time;
+uniform float u_surge;      // 0..1 across the woosh, >1 once it has settled
+uniform vec2  u_cursor;
+uniform float u_band, u_reach, u_shear, u_frontier, u_waveCount, u_waveAmt, u_hold;
+uniform float u_breathAmp, u_breathRate, u_drift;
+uniform float u_hoverR, u_push, u_size, u_falloff;
+
+out float v_a;
+out float v_hot;
+
+void main() {
+  float s = a_p.x, d = a_p.y, seed = a_p.z;
+  float W = u_res.x, H = u_res.y, B = u_band;
+
+  // Walk the perimeter and lay the band inward from whichever edge we are on.
+  float P = 2.0 * (W + H), u = s * P;
+  vec2 home, inward;
+  if (u < W)                { home = vec2(u, d * B);                     inward = vec2( 0.0,  1.0); }
+  else if (u < W + H)       { home = vec2(W - d * B, u - W);             inward = vec2(-1.0,  0.0); }
+  else if (u < 2.0*W + H)   { home = vec2(W - (u - W - H), H - d * B);   inward = vec2( 0.0, -1.0); }
+  else                      { home = vec2(d * B, H - (u - 2.0*W - H));   inward = vec2( 1.0,  0.0); }
+  vec2 tangent = vec2(-inward.y, inward.x);
+
+  vec2 pos = home;
+
+  // --- the woosh -----------------------------------------------------------
+  // Particles deeper in the band launch later, so the outermost ones lead and
+  // the rest pile in behind them. That lag is the entire difference between
+  // reading as a wave and reading as an explosion: an explosion leaves at once.
+  if (u_surge <= 1.0) {
+    // A crest travels along each edge so the front undulates instead of the
+    // whole wall sliding in as one rigid bar. Without this the woosh reads as
+    // four shutters closing, which is what it actually looked like on screen
+    // the first time: straight edges, a rectangular hole, no water in it.
+    float crest = sin(s * 6.2831 * u_waveCount + seed * 0.7);
+    float delay = d * u_frontier + (crest * 0.5 + 0.5) * u_waveAmt;
+    float local = clamp((u_surge - delay) / max(1.0 - u_frontier, 0.001), 0.0, 1.0);
+
+    // Damped sine past the half cycle: rushes in, returns through home, drifts
+    // a little past it, comes back. The envelope forces an exact zero at the
+    // end so the field never settles a few pixels off its resting band.
+    float swing = sin(local * 3.14159265 * 1.35) * exp(-3.2 * local);
+    swing *= 1.0 - smoothstep(0.78, 1.0, local);
+
+    // Alternate the tangential direction so neighbouring particles shear past
+    // each other instead of the whole wall sliding one way.
+    float dir = mod(floor(seed * 977.0), 2.0) * 2.0 - 1.0;
+    // A share of the field never leaves home, so the band is still lit while
+    // the rest is out over the screen. Without this every particle migrates
+    // inward at once and the screen edges go black mid-woosh, which is the
+    // opposite of surf: the waterline is the one place always wet.
+    float travel = smoothstep(u_hold, 1.0, seed);
+
+    pos += inward * swing * u_reach * travel;
+    pos += tangent * swing * u_shear * u_reach * dir * travel;
+  }
+
+  // --- alive ---------------------------------------------------------------
+  // Per-particle phase offset. In unison this is a heartbeat monitor; offset it
+  // is something breathing.
+  float ph = u_time * u_breathRate * 6.2831 + seed * 6.2831;
+  float breath = sin(ph);
+  pos += inward * breath * u_breathAmp;
+  pos += tangent * sin(u_time * 0.63 + seed * 40.0) * u_drift;
+  pos += inward  * cos(u_time * 0.41 + seed * 71.0) * u_drift * 0.6;
+
+  // --- the cursor ----------------------------------------------------------
+  vec2 away = pos - u_cursor;
+  float dist = length(away);
+  float near = smoothstep(u_hoverR, 0.0, dist);
+  if (dist > 0.0001) pos += (away / dist) * near * u_push;
+
+  // Brightest at the screen edge, falling off inward: a glow leaking in from
+  // outside the display rather than a stripe painted near it.
+  float fall = pow(1.0 - d, u_falloff);
+  v_a   = fall * (0.55 + 0.45 * (0.5 + 0.5 * breath)) + near * 0.22;
+  v_hot = near;
+
+  gl_Position  = vec4((pos / u_res) * 2.0 - 1.0, 0.0, 1.0);
+  gl_Position.y = -gl_Position.y;
+  gl_PointSize = u_size * (0.6 + 0.8 * seed) + near * 1.1;
+}`;
+
+      const FRAG = `#version 300 es
+precision highp float;
+in float v_a;
+in float v_hot;
+uniform float u_glow;
+uniform vec3  u_accent;
+out vec4 o;
+void main() {
+  float r = length(gl_PointCoord - 0.5) * 2.0;
+  float soft = smoothstep(1.0, 0.0, r);
+  float a = v_a * soft * u_glow;
+  // Real glows are white where they are hot and saturated where they are faint,
+  // so the colour follows intensity rather than being painted on flat. A field
+  // of uniformly amber dots reads as a warning light.
+  vec3 c = mix(u_accent, vec3(1.0), clamp(v_a * 0.75 + v_hot * 0.4, 0.0, 1.0));
+  o = vec4(c * a, a);
+}`;
+
+      const canvas = document.getElementById("gl");
+      const gl = canvas.getContext("webgl2", {
+        alpha: true,
+        premultipliedAlpha: true,
+        antialias: false,
+      });
+      if (!gl) {
+        document.body.innerHTML =
+          '<div class="fixed inset-0 grid place-items-center text-zinc-300">WebGL2 unavailable in this browser.</div>';
+        throw new Error("no webgl2");
+      }
+
+      function compile(type, src) {
+        const sh = gl.createShader(type);
+        gl.shaderSource(sh, src);
+        gl.compileShader(sh);
+        if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS))
+          throw new Error(gl.getShaderInfoLog(sh));
+        return sh;
+      }
+      const prog = gl.createProgram();
+      gl.attachShader(prog, compile(gl.VERTEX_SHADER, VERT));
+      gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FRAG));
+      gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS))
+        throw new Error(gl.getProgramInfoLog(prog));
+      gl.useProgram(prog);
+
+      const U = {};
+      for (const n of [
+        "u_res",
+        "u_time",
+        "u_surge",
+        "u_cursor",
+        "u_band",
+        "u_reach",
+        "u_shear",
+        "u_frontier",
+        "u_waveCount",
+        "u_waveAmt",
+        "u_hold",
+        "u_breathAmp",
+        "u_breathRate",
+        "u_drift",
+        "u_hoverR",
+        "u_push",
+        "u_size",
+        "u_falloff",
+        "u_glow",
+        "u_accent",
+      ])
+        U[n] = gl.getUniformLocation(prog, n);
+
+      const vao = gl.createVertexArray();
+      gl.bindVertexArray(vao);
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      const loc = gl.getAttribLocation(prog, "a_p");
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0);
+
+      // Stratified along the perimeter so there are no clumps or bald patches, and
+      // biased toward the outer edge with a square so density matches the brightness
+      // falloff instead of fighting it.
+      function seed() {
+        const n = P.count.v,
+          arr = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) {
+          arr[i * 3] = (i + Math.random()) / n;
+          arr[i * 3 + 1] = Math.pow(Math.random(), 1.9);
+          arr[i * 3 + 2] = Math.random();
+        }
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, arr, gl.STATIC_DRAW);
+        document.getElementById("count").textContent = n.toLocaleString();
+      }
+
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // additive: overlap accumulates into glow
+
+      let W = 0,
+        H = 0;
+      function resize() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        W = window.innerWidth;
+        H = window.innerHeight;
+        canvas.width = Math.round(W * dpr);
+        canvas.height = Math.round(H * dpr);
+        gl.viewport(0, 0, canvas.width, canvas.height);
+      }
+      window.addEventListener("resize", resize);
+      resize();
+      seed();
+
+      let cursor = [-9999, -9999],
+        target = [-9999, -9999];
+      window.addEventListener("mousemove", (e) => {
+        target = [e.clientX, e.clientY];
+      });
+      window.addEventListener("mouseleave", () => {
+        target = [-9999, -9999];
+      });
+
+      // ?freeze=0.35 pins the woosh at one moment and stops the clock. Motion this
+      // fast is impossible to argue about in real time, and it is the frame at peak
+      // reach that decides whether the shape reads as a wave or as a starburst.
+      const FREEZE = new URLSearchParams(location.search).get("freeze");
+      const frozen = FREEZE === null ? null : parseFloat(FREEZE);
+
+      let surgeStart = performance.now();
+      const replay = () => {
+        surgeStart = performance.now();
+      };
+      document.getElementById("replay").addEventListener("click", replay);
+      window.addEventListener("keydown", (e) => {
+        if (e.code === "Space") {
+          e.preventDefault();
+          replay();
+        }
+        if (e.key === "h") panel.classList.toggle("opacity-0");
+      });
+
+      const panel = document.getElementById("panel");
+      document
+        .getElementById("hide")
+        .addEventListener("click", () => panel.classList.toggle("opacity-0"));
+
+      const BACKDROPS = {
+        dark: "#0a0a0a",
+        photo:
+          "radial-gradient(ellipse at 20% 15%, #1e1b4b 0%, #0a0a0a 55%), radial-gradient(ellipse at 85% 80%, #422006 0%, transparent 60%)",
+        light: "#f4f4f5",
+      };
+      function setBackdrop(k) {
+        document.getElementById("backdrop").style.background = BACKDROPS[k];
+        document.querySelectorAll(".bd").forEach((b) => {
+          const on = b.dataset.bd === k;
+          b.classList.toggle("bg-amber-500/15", on);
+          b.classList.toggle("border-amber-500/40", on);
+          b.classList.toggle("text-amber-300", on);
+        });
+      }
+      document
+        .querySelectorAll(".bd")
+        .forEach((b) =>
+          b.addEventListener("click", () => setBackdrop(b.dataset.bd)),
+        );
+      setBackdrop("photo");
+
+      const sliders = document.getElementById("sliders");
+      for (const [key, p] of Object.entries(P)) {
+        const row = document.createElement("div");
+        row.innerHTML = `
+    <div class="flex items-center justify-between mb-1">
+      <label class="text-xs text-zinc-400">${p.label}</label>
+      <span class="text-xs text-zinc-300" style="font-family:'JetBrains Mono',monospace" id="v_${key}">${p.v}</span>
+    </div>
+    <input type="range" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.v}"
+           class="w-full h-1 rounded-full bg-zinc-700 appearance-none cursor-pointer accent-amber-500">`;
+        const input = row.querySelector("input");
+        input.addEventListener("input", () => {
+          p.v = parseFloat(input.value);
+          document.getElementById("v_" + key).textContent = p.v;
+          if (p.reseed) seed();
+        });
+        sliders.appendChild(row);
+      }
+
+      document.getElementById("dump").addEventListener("click", async (e) => {
+        const text = Object.entries(P)
+          .map(([k, p]) => `${k}: ${p.v}`)
+          .join("\n");
+        try {
+          await navigator.clipboard.writeText(text);
+          e.target.textContent = "copied";
+        } catch {
+          e.target.textContent = "clipboard blocked";
+        }
+        setTimeout(() => {
+          e.target.textContent = "Copy these numbers";
+        }, 1400);
+      });
+
+      const fpsEl = document.getElementById("fps");
+      let last = performance.now(),
+        acc = 0,
+        frames = 0;
+
+      function frame(now) {
+        const dt = Math.min((now - last) / 1000, 0.05);
+        last = now;
+        acc += dt;
+        frames++;
+        if (acc > 0.5) {
+          fpsEl.textContent = (frames / acc).toFixed(0) + " fps";
+          acc = 0;
+          frames = 0;
+        }
+
+        // One frame of lag on the cursor. Particles arrive slightly after the pointer
+        // does, which is what makes them feel like matter rather than a mask.
+        cursor[0] += (target[0] - cursor[0]) * Math.min(dt * 14, 1);
+        cursor[1] += (target[1] - cursor[1]) * Math.min(dt * 14, 1);
+
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        gl.uniform2f(U.u_res, W, H);
+        gl.uniform1f(U.u_time, frozen !== null ? 0.0 : now / 1000);
+        gl.uniform1f(
+          U.u_surge,
+          frozen !== null ? frozen : (now - surgeStart) / 1000 / P.duration.v,
+        );
+        gl.uniform2f(U.u_cursor, cursor[0], cursor[1]);
+        gl.uniform1f(U.u_band, P.band.v);
+        gl.uniform1f(U.u_reach, P.reach.v);
+        gl.uniform1f(U.u_shear, P.shear.v);
+        gl.uniform1f(U.u_frontier, P.frontier.v);
+        gl.uniform1f(U.u_waveCount, P.waveCount.v);
+        gl.uniform1f(U.u_waveAmt, P.waveAmt.v);
+        gl.uniform1f(U.u_hold, P.hold.v);
+        gl.uniform1f(U.u_breathAmp, P.breathAmp.v);
+        gl.uniform1f(U.u_breathRate, P.breathRate.v);
+        gl.uniform1f(U.u_drift, P.drift.v);
+        gl.uniform1f(U.u_hoverR, P.hoverR.v);
+        gl.uniform1f(U.u_push, P.push.v);
+        gl.uniform1f(U.u_size, P.size.v);
+        gl.uniform1f(U.u_falloff, P.falloff.v);
+        gl.uniform1f(U.u_glow, P.glow.v);
+        gl.uniform3f(U.u_accent, 1.0, 0.65, 0.22);
+
+        gl.bindVertexArray(vao);
+        gl.drawArrays(gl.POINTS, 0, P.count.v);
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+      lucide.createIcons();
+    </script>
+  </body>
+</html>
