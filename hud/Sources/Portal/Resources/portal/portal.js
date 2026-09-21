@@ -740,13 +740,51 @@
   var demoTurns = 1.15;
   var demoR = 0.3;
   var demoLog = 0;
+  var demoShape = "circle";
+  var demoFired = false;
+  var demoName = "";
+  var demoPushing = 0;
   var lastProgress = IDLE_PROGRESS;
-  window.chewbaccaDemo = (secs, turns, r) => {
+  var lastPinched = false;
+  window.chewbaccaDemo = (secs, turns, r, shape, name) => {
     demoUntil = performance.now() + (secs || 3) * 1e3;
     demoT = 0;
     demoTurns = turns || 1.15;
     demoR = r || 0.3;
+    demoShape = shape || "circle";
+    demoName = name || demoShape;
+    demoFired = false;
+    detector.reset();
   };
+  function demoPath(shape, t) {
+    const a = t * Math.PI * 2;
+    switch (shape) {
+      case "oval14":
+        return [Math.cos(a) * 1.4, Math.sin(a)];
+      case "oval25":
+        return [Math.cos(a) * 2.5, Math.sin(a)];
+      case "line":
+        return [-1 + 2 * t, 0];
+      case "zigzag":
+        return [-1 + 2 * t, Math.floor(t * 8) % 2 ? 0.4 : -0.4];
+      case "scurve":
+        return [-1 + 2 * t, Math.sin(a) * 0.5];
+      case "arc70":
+        return [Math.cos(a * 0.7), Math.sin(a * 0.7)];
+      case "arc90":
+        return [Math.cos(a * 0.9), Math.sin(a * 0.9)];
+      case "square":
+      case "triangle": {
+        const n = shape === "square" ? 4 : 3;
+        const f = (t % 1 + 1) % 1 * n, k = Math.floor(f), u = f - k;
+        const vx = (i) => Math.cos(2 * Math.PI * i / n - Math.PI / 2);
+        const vy = (i) => Math.sin(2 * Math.PI * i / n - Math.PI / 2);
+        return [vx(k) + (vx(k + 1) - vx(k)) * u, vy(k) + (vy(k + 1) - vy(k)) * u];
+      }
+      default:
+        return [Math.cos(a), Math.sin(a)];
+    }
+  }
   function demoHand(px, py) {
     const S = 0.1;
     const lm = [];
@@ -769,6 +807,7 @@
     armed = label ? { label } : null;
   };
   window.chewbaccaHands = (pts, eyes) => {
+    if (demoPushing === 0 && performance.now() < demoUntil) return;
     latest = pts && pts.length === 21 ? pts : null;
     latestEyes = eyes ?? null;
     if (latest) lastSeen = performance.now();
@@ -788,22 +827,29 @@
     requestAnimationFrame(frame);
     if (now < demoUntil) {
       demoT += 1 / 30;
+      const u = demoT / 3 * demoTurns;
+      const wob = 1 + 0.03 * Math.sin(demoT * 7);
+      const [pxu, pyu] = demoPath(demoShape, u);
+      const sq = camH / camW;
+      demoPushing = 1;
+      window.chewbaccaHands(
+        demoHand(0.5 + pxu * demoR * sq * wob, 0.5 + pyu * demoR * wob)
+      );
+      demoPushing = 0;
+      if (state.phase === "igniting" || state.phase === "open") demoFired = true;
       if (now - demoLog > 250) {
         demoLog = now;
         window.webkit?.messageHandlers?.portal?.postMessage({
           event: "log",
-          text: `demo t=${demoT.toFixed(1)} phase=${state.phase} sweep=${Math.abs(lastProgress.sweep).toFixed(2)}/5.40 round=${lastProgress.roundness.toFixed(2)} r=${lastProgress.radius.toFixed(3)}`
+          text: `demo ${demoName} t=${demoT.toFixed(1)} phase=${state.phase} lm=${latest ? "yes" : "NO"} pinch=${lastPinched ? "yes" : "NO"} sweep=${Math.abs(lastProgress.sweep).toFixed(2)}/5.40 round=${lastProgress.roundness.toFixed(2)}`
         });
       }
-      const th = demoT / 3 * Math.PI * 2 * demoTurns;
-      const wob = 1 + 0.03 * Math.sin(demoT * 7);
-      const sq = camH / camW;
-      window.chewbaccaHands(
-        demoHand(
-          0.5 + Math.cos(th) * demoR * sq * wob,
-          0.5 + Math.sin(th) * demoR * wob
-        )
-      );
+    } else if (demoName) {
+      window.webkit?.messageHandlers?.portal?.postMessage({
+        event: "log",
+        text: `RESULT ${demoName} ${demoFired ? "OPENED" : "refused"}`
+      });
+      demoName = "";
     }
     const frameDt = Math.min(0.05, Math.max(1e-3, (now - lastFrameMs) / 1e3));
     lastFrameMs = now;
@@ -859,7 +905,7 @@
     const maskCtx = maskCv.getContext("2d");
     const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw, cloud, fill, spiral) => {
       if (!mirrorReady || !maskCtx || strength <= 4e-3 || Rp < 3) return;
-      const blurPx = cloud > 2e-3 ? Math.max(Rp * 0.09, Rp * 0.38 * cloud) : 0;
+      const blurPx = cloud > 2e-3 ? Math.max(Rp * 0.17, Rp * 0.45 * cloud) : 0;
       const pad = Math.max(16, blurPx * 2.6);
       const size = Math.ceil(2 * Rp + pad * 2);
       if (maskCv.width !== size || maskCv.height !== size) {
@@ -1030,6 +1076,7 @@
       p = IDLE_PROGRESS;
     }
     lastProgress = p;
+    lastPinched = pinched;
     if (stroke.length) {
       const circling = p.progress > 0.4 && p.roundness > 0.55;
       const LIFE_BASE = 650, LIFE_REF = 400, LIFE_MIN = 180, LIFE_MAX = 800;
@@ -1208,14 +1255,14 @@
       mirrorAmt += (want - mirrorAmt) * (want > mirrorAmt ? 0.15 : 0.09);
       if (recognised) {
         const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
-        openGap += (Math.max(0, 1 - doneTurns) - openGap) * 0.3;
+        openGap += (Math.max(0, 1 - doneTurns) - openGap) * 0.14;
         openCcw = p.sweep < 0;
-        lastFill += (doneTurns - lastFill) * 0.3;
+        lastFill += (doneTurns - lastFill) * 0.14;
         const oldTarget = (p.endAngle ?? 0) - (openCcw ? -1 : 1) * doneTurns * Math.PI * 2;
         let dA = oldTarget - holdOld;
         while (dA > Math.PI) dA -= Math.PI * 2;
         while (dA < -Math.PI) dA += Math.PI * 2;
-        holdOld += dA * 0.3;
+        holdOld += dA * 0.14;
       } else if (mirrorAmt > 6e-3) {
         lastFill += (0 - lastFill) * 0.1;
         openGap += (1 - openGap) * 0.1;
@@ -1231,7 +1278,7 @@
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       const rBase = fitC ? fitC.r : 0.05;
-      const SP = stroke.length >= 3 ? smoothPath(stroke.map((q) => ({ x: mx(q.rx), y: my(q.ry) })), 1) : null;
+      const SP = stroke.length >= 3 ? smoothPath(stroke.map((q) => ({ x: mx(q.rx), y: my(q.ry) })), 3) : null;
       const path = () => {
         ctx.beginPath();
         if (!SP) return;

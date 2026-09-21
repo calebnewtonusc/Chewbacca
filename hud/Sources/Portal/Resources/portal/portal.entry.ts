@@ -283,7 +283,7 @@ declare global {
     ) => void;
     chewbaccaPortalState: () => string;
     chewbaccaArm: (label: string | null) => void;
-    chewbaccaDemo: (secs?: number, turns?: number, r?: number) => void;
+    chewbaccaDemo: (secs?: number, turns?: number, r?: number, shape?: string, name?: string) => void;
     chewbaccaCamera: (w: number, h: number) => void;
     chewbaccaGain: (k?: number) => number;
     chewbaccaSize: (k?: number) => number;
@@ -370,13 +370,47 @@ window.chewbaccaCamera = (w, h) => {
 // It pushes the same landmark frames the camera would, through the same
 // mapping, so what it exercises is the real path and not a simulation of it.
 let demoUntil = 0, demoT = 0, demoTurns = 1.15, demoR = 0.3, demoLog = 0;
+let demoShape = "circle", demoFired = false, demoName = "", demoPushing = 0;
 let lastProgress: CircleProgress = IDLE_PROGRESS;
-window.chewbaccaDemo = (secs, turns, r) => {
+let lastPinched = false;
+window.chewbaccaDemo = (secs, turns, r, shape, name) => {
   demoUntil = performance.now() + (secs || 3) * 1000;
   demoT = 0;
   demoTurns = turns || 1.15;
   demoR = r || 0.3;
+  demoShape = shape || "circle";
+  demoName = name || demoShape;
+  demoFired = false;
+  detector.reset();
 };
+
+// The path a replay traces, in PHYSICAL units around the hand, before the
+// camera squashes it. Returned as a unit shape and scaled by demoR.
+//
+// Physical, because a physically round circle is an ellipse in
+// camera-normalised space and tracing a circle there simulates a 1.78:1
+// oval. Getting that backwards made a healthy detector look broken.
+function demoPath(shape: string, t: number): [number, number] {
+  const a = t * Math.PI * 2;
+  switch (shape) {
+    case "oval14":   return [Math.cos(a) * 1.4, Math.sin(a)];
+    case "oval25":   return [Math.cos(a) * 2.5, Math.sin(a)];
+    case "line":     return [-1 + 2 * t, 0];
+    case "zigzag":   return [-1 + 2 * t, (Math.floor(t * 8) % 2 ? 0.4 : -0.4)];
+    case "scurve":   return [-1 + 2 * t, Math.sin(a) * 0.5];
+    case "arc70":    return [Math.cos(a * 0.7), Math.sin(a * 0.7)];
+    case "arc90":    return [Math.cos(a * 0.9), Math.sin(a * 0.9)];
+    case "square":
+    case "triangle": {
+      const n = shape === "square" ? 4 : 3;
+      const f = ((t % 1) + 1) % 1 * n, k = Math.floor(f), u = f - k;
+      const vx = (i: number) => Math.cos((2 * Math.PI * i) / n - Math.PI / 2);
+      const vy = (i: number) => Math.sin((2 * Math.PI * i) / n - Math.PI / 2);
+      return [vx(k) + (vx(k + 1) - vx(k)) * u, vy(k) + (vy(k + 1) - vy(k)) * u];
+    }
+    default:         return [Math.cos(a), Math.sin(a)];
+  }
+}
 
 // A hand with real proportions, pinched, centred on (px, py) in camera
 // normalised space. Index tip and thumb tip together at the drawing point,
@@ -404,6 +438,12 @@ window.chewbaccaArm = (label) => {
   armed = label ? { label } : null;
 };
 window.chewbaccaHands = (pts, eyes) => {
+  // A REPLAY OWNS THE INPUT WHILE IT RUNS. The camera keeps pushing, and
+  // with no hand in front of it that is a null every frame, which clears the
+  // landmarks and resets the detector between the replay's own frames. The
+  // first battery came back with every circle refused and the sweep flat at
+  // zero for exactly this reason.
+  if (demoPushing === 0 && performance.now() < demoUntil) return;
   latest = pts && pts.length === 21 ? pts : null;
   latestEyes = eyes ?? null;
   if (latest) lastSeen = performance.now();
@@ -428,33 +468,37 @@ function frame(now: number) {
   // takes the identical path a camera frame does.
   if (now < demoUntil) {
     demoT += 1 / 30;
-    // While a replay runs, say what the detector makes of it. Four times a
-    // second is enough to see which gate is refusing and never enough to
-    // flood the log.
+    const u = (demoT / 3) * demoTurns;
+    const wob = 1 + 0.03 * Math.sin(demoT * 7);
+    // Physical to camera-normalised: x is divided by the wider side, so it
+    // comes out compressed by camH/camW. Skipping this traces a 1.78:1 oval
+    // and makes a healthy detector look broken.
+    const [pxu, pyu] = demoPath(demoShape, u);
+    const sq = camH / camW;
+    demoPushing = 1;
+    window.chewbaccaHands(
+      demoHand(0.5 + pxu * demoR * sq * wob, 0.5 + pyu * demoR * wob));
+    demoPushing = 0;
+
+    if (state.phase === "igniting" || state.phase === "open") demoFired = true;
+    // Four times a second is enough to see which gate refused, and never
+    // enough to flood the log.
     if (now - demoLog > 250) {
       demoLog = now;
       window.webkit?.messageHandlers?.portal?.postMessage({
         event: "log",
-        text: `demo t=${demoT.toFixed(1)} phase=${state.phase}`
+        text: `demo ${demoName} t=${demoT.toFixed(1)} phase=${state.phase}`
+          + ` lm=${latest ? "yes" : "NO"} pinch=${lastPinched ? "yes" : "NO"}`
           + ` sweep=${Math.abs(lastProgress.sweep).toFixed(2)}/5.40`
-          + ` round=${lastProgress.roundness.toFixed(2)}`
-          + ` r=${lastProgress.radius.toFixed(3)}`,
+          + ` round=${lastProgress.roundness.toFixed(2)}`,
       });
     }
-    const th = (demoT / 3) * Math.PI * 2 * demoTurns;
-    const wob = 1 + 0.03 * Math.sin(demoT * 7);
-    // A PHYSICALLY ROUND circle, which is an ELLIPSE in camera-normalised
-    // space. Each landmark axis is normalised to its own side of the frame,
-    // and the frame is 192 by 108, so equal physical distances are not equal
-    // normalised ones: x has to be camH/camW of y.
-    //
-    // Tracing a circle in normalised space instead, which is what this did
-    // first, simulates a hand drawing a 1.78:1 oval. The detector refused it
-    // on roundness, correctly, and the replay looked like a detector bug.
-    const sq = camH / camW;
-    window.chewbaccaHands(
-      demoHand(0.5 + Math.cos(th) * demoR * sq * wob,
-               0.5 + Math.sin(th) * demoR * wob));
+  } else if (demoName) {
+    // One verdict line per replay, which is what the runner reads.
+    window.webkit?.messageHandlers?.portal?.postMessage({
+      event: "log", text: `RESULT ${demoName} ${demoFired ? "OPENED" : "refused"}`,
+    });
+    demoName = "";
   }
   // The springs integrate against this. Clamped, because a frame dropped
   // while the window was occluded would otherwise arrive as a single huge
@@ -714,7 +758,10 @@ function frame(now: number) {
     // floor it sharpened into a hard cut exactly as the circle closed and
     // the boundary was at its largest. It still reaches exactly zero once
     // the portal is open, because cloud does.
-    const blurPx = cloud > 0.002 ? Math.max(Rp * 0.09, Rp * 0.38 * cloud) : 0;
+    // Wider again, for the same reason the line needs more smoothing: the
+    // canvas no longer keeps a fifth of the last frame, so every edge shows
+    // its true hardness. "Hard edges and the white oscillating gap is back."
+    const blurPx = cloud > 0.002 ? Math.max(Rp * 0.17, Rp * 0.45 * cloud) : 0;
     const pad = Math.max(16, blurPx * 2.6);
     const size = Math.ceil(2 * Rp + pad * 2);
     if (maskCv.width !== size || maskCv.height !== size) {
@@ -1085,6 +1132,7 @@ function frame(now: number) {
   }
   // Kept so the replay can report what the detector made of the frame.
   lastProgress = p;
+  lastPinched = pinched;
 
   // A LINE THAT IS NOT BECOMING A CIRCLE TRAILS OFF. "if it's just a line
   // and not a circle, the end of the line should go after a little bit as
@@ -1525,16 +1573,18 @@ function frame(now: number) {
       // Followed, not assigned. The fit moves a little every frame and the
       // boundary is a big shape, so even a correct change reads as a jerk
       // when it lands in one step.
-      openGap += (Math.max(0, 1 - doneTurns) - openGap) * 0.3;
+      // Slower, because nothing smears it now: 0.3 a frame was invisible
+      // under the old motion blur and reads as a swing without it.
+      openGap += (Math.max(0, 1 - doneTurns) - openGap) * 0.14;
       openCcw = p.sweep < 0;
-      lastFill += (doneTurns - lastFill) * 0.3;
+      lastFill += (doneTurns - lastFill) * 0.14;
       // The angle takes the short way round, or the boundary sweeps the
       // long way whenever the fit crosses PI.
       const oldTarget = (p.endAngle ?? 0) - (openCcw ? -1 : 1) * doneTurns * Math.PI * 2;
       let dA = oldTarget - holdOld;
       while (dA > Math.PI) dA -= Math.PI * 2;
       while (dA < -Math.PI) dA += Math.PI * 2;
-      holdOld += dA * 0.3;
+      holdOld += dA * 0.14;
     } else if (mirrorAmt > 0.006) {
       // Unwinding. Depth back to the rim and arc back to the start point.
       lastFill += (0 - lastFill) * 0.10;
@@ -1578,8 +1628,12 @@ function frame(now: number) {
     // is the bar for a line reading as smooth. The detector keeps two passes,
     // because there the rounding is the point: it is what separates a corner
     // that survives smoothing from jitter that does not.
+    // THREE passes, not one. One was chosen while the canvas still kept 20%
+    // of the previous frame, which smeared the line and hid its corners. The
+    // canvas clears now, so the polyline shows exactly the jaggedness it
+    // has: "Lines are too jagged". Three is what a hard-edged draw needs.
     const SP = stroke.length >= 3
-      ? smoothPath(stroke.map((q) => ({ x: mx(q.rx), y: my(q.ry) })), 1)
+      ? smoothPath(stroke.map((q) => ({ x: mx(q.rx), y: my(q.ry) })), 3)
       : null;
 
     // CURVES, NOT SEGMENTS. Each point becomes a control point and the path
