@@ -786,6 +786,14 @@ if [ -f "$SCRIPT_DIR/bin/brief-audio" ]; then
   ensure_local_bin_on_path
 fi
 
+# list-audit is pure stdlib python, no venv and no network, so it installs with
+# no dependency check at all.
+if [ -f "$SCRIPT_DIR/bin/list-audit" ]; then
+  link_tool list-audit
+  log "list-audit installed to ~/.local/bin/"
+  ensure_local_bin_on_path
+fi
+
 # The display: hud draws interfaces on top of everything on screen, hud-listen
 # turns what is said to it into a drawing, hud-context reports what is in front
 # of the person. All three go in together because hud calls the other two by
