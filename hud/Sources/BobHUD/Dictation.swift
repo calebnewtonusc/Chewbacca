@@ -178,6 +178,9 @@ extension AppDelegate {
         // The one thing here a person has to do by hand. The display already
         // holds Input Monitoring for the talk key; Accessibility is a separate
         // switch and the bubble is the first thing that needs it.
+        Self.bubbleLog.notice(
+            "bubble.bind refused reason=\(TextTarget.BindFailure.notTrusted.reason, privacy: .public)"
+        )
         model.setBubble(
             id, state: .unbound, note: TextTarget.BindFailure.notTrusted.reason)
         model.onEvent?(
@@ -192,6 +195,14 @@ extension AppDelegate {
     ) async {
         switch result {
         case .success(let target):
+            // `hud-bubble doctor` answers "is Accessibility on" by reading these
+            // two lines, so a bind that logs nothing leaves the one question
+            // this feature actually gets stuck on unanswerable. It stayed
+            // unanswerable for an hour on 2026-09-21 with the grant switched
+            // off, because both halves of the log contract were documented and
+            // neither was written.
+            Self.bubbleLog.notice(
+                "bubble.bind ok id=\(id, privacy: .public) app=\(target.appName, privacy: .public)")
             bubbleTargets[id] = target
             // Reset on every drop: the offset is from where they just put it.
             bubbleAnchors.removeValue(forKey: id)
@@ -204,6 +215,9 @@ extension AppDelegate {
             if thenTalk, state == .idle { await beginDictation(id) }
 
         case .failure(let why):
+            Self.bubbleLog.notice(
+                "bubble.bind refused id=\(id, privacy: .public) reason=\(why.reason, privacy: .public)"
+            )
             bubbleTargets.removeValue(forKey: id)
             bubbleAnchors.removeValue(forKey: id)
             // Stays where it was dropped, saying why, rather than springing

@@ -138,6 +138,19 @@ def main() -> int:
     except bubble.BubbleError as error:
         check("off with no id is refused", "which bubble" in str(error), str(error))
 
+    print("reading the grant off the log")
+    refused = "05:02 bubble.bind refused id=b1 reason=accessibility not granted"
+    granted = "05:41 bubble.bind ok id=b1 app=Messages"
+    check("a refusal on its own is a refusal", bubble.grant_from_log(refused) is False)
+    check("a bind on its own is the grant", bubble.grant_from_log(granted) is True)
+    check("the newest line wins, so switching it on is noticed",
+          bubble.grant_from_log(f"{refused}\n{granted}") is True,
+          repr(bubble.grant_from_log(f"{refused}\n{granted}")))
+    check("and switching it off again is noticed too",
+          bubble.grant_from_log(f"{granted}\n{refused}") is False)
+    check("no bind attempt is not a denial", bubble.grant_from_log("05:00 bubble.spawn id=b1") is None)
+    check("an empty window says nothing", bubble.grant_from_log("") is None)
+
     print("with no display")
     with tempfile.TemporaryDirectory() as home:
         module = load("hud_bubble_offline", TOOL)
