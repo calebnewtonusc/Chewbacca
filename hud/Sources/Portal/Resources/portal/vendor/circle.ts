@@ -1,3 +1,5 @@
+import { smoothPath } from "./smooth";
+
 import type { Landmark } from "./types";
 
 /**
@@ -47,9 +49,13 @@ import type { Landmark } from "./types";
 
 export interface CircleGestureOptions {
   /**
-   * Radians of accumulated turning before the gesture fires. Default 5.35,
-   * about 306 degrees: a circle you can close casually rather than one you
-   * have to land precisely, since the hand nearly always stops short.
+   * Radians of accumulated turning before the gesture fires. Default 4.6,
+   * about 264 degrees, so three quarters of a turn is enough.
+   *
+   * It was 306 degrees and he could not close one: "Still really hard to
+   * draw circles." An arm sweeping in the air runs out of comfortable range
+   * before it comes all the way round, and the last quarter turn is the
+   * part where the wrist is fighting itself.
    */
   sweepThreshold?: number;
   /** Trail length in samples. Default 240, enough to hold a whole slow
@@ -73,6 +79,16 @@ export interface CircleGestureOptions {
    * Lower is smoother and laggier. See THE NOISE TRAP.
    */
   smoothing?: number;
+  /**
+   * How far from round a closed path may be and still score above the
+   * roundness gate. Default 0.26, which accepts up to about 1.45:1. The
+   * old 0.26 was 0.45 and accepted 1.9:1, which is an oval.
+   */
+  roundDivisor?: number;
+  /** How far the end may be from the start, in fitted radii. Default 0.75. */
+  closeWithin?: number;
+  /** Roundness the path must reach to complete at all. Default 0.55. */
+  minRoundness?: number;
 }
 
 export interface CircleProgress {
@@ -97,6 +113,22 @@ export interface CircleProgress {
   startAngle: number | null;
   /** Angle of the most recent point about the fitted centre, radians. */
   endAngle: number | null;
+  /**
+   * How well the path actually lies on the circle that was fitted to it,
+   * 0 to 1. 1 is every sample at the same radius.
+   *
+   * WHY TURNING IS NOT ENOUGH. `sweep` says the path curved. It does not
+   * say the path curved CONSISTENTLY, and a hand wandering across the
+   * frame accumulates turning without ever being round. Caleb, three
+   * thresholds into trying to fix this by requiring more turning: "Still
+   * too easily starting the circle."
+   *
+   * Raising the turning threshold cannot separate them, because a meander
+   * reaches any threshold eventually. Roundness can: it is the spread of
+   * the sample radii about their mean, which is small for an arc and large
+   * for a wander, whatever either of them has turned through.
+   */
+  roundness: number;
 }
 
 const EMPTY: CircleProgress = {
@@ -108,6 +140,7 @@ const EMPTY: CircleProgress = {
   direction: null,
   startAngle: null,
   endAngle: null,
+  roundness: 0,
 };
 
 interface Sample {
@@ -125,12 +158,42 @@ export class CircleGestureDetector {
 
   constructor(options: CircleGestureOptions = {}) {
     this.o = {
-      sweepThreshold: options.sweepThreshold ?? 5.35,
+      // 5.4 rad is 309 degrees. 4.6 was 264, and "I barely drew part of a
+      // circle and the portal opened" is what 264 degrees feels like. It
+      // was lowered to 4.6 back when a display-scaling bug was shrinking
+      // segments below minSegment and eating the sweep; that bug is fixed,
+      // so the low threshold was compensating for something gone.
+      // 5.6 rad is 321 degrees. Swept against arcs and circles across
+      // radius, noise, speed profile and arm drift, as firing rate:
+      //
+      //     threshold   full circle   324 deg arc   270 deg arc
+      //     5.4 (309)          79%           38%            5%
+      //     5.6 (321)          77%           14%            2%
+      //     5.8 (332)          57%           11%            3%
+      //
+      // 5.6 is the knee. Circles barely move and arcs fall by two thirds.
+      // Past it real circles start failing hard, because a hand that has
+      // come most of the way round has already stopped.
+      sweepThreshold: options.sweepThreshold ?? 5.6,
+      // How far the end may sit from the start, as a fraction of the fitted
+      // radius, and still count as a closed loop.
+      closeWithin: options.closeWithin ?? 0.75,
+      // Roundness required to fire at all, the same gate the renderer uses
+      // to decide something is becoming a circle.
+      minRoundness: options.minRoundness ?? 0.55,
       trailLength: options.trailLength ?? 240,
-      minSegment: options.minSegment ?? 0.006,
-      maxTurn: options.maxTurn ?? Math.PI / 3,
+      // 0.004 of the frame is about 6px across, and a small circle drawn
+      // with a fingertip has segments shorter than that: a 45px radius over
+      // 80 samples is 3.5px a step. Every one was dropped, no turning
+      // accumulated, and a small circle simply did not work. It fired 12% of
+      // the time against 55% for a large one. 0.002 is 3px, still above the
+      // ~2px the landmarks wander after the input average, and below
+      // anything a moving hand covers.
+      minSegment: options.minSegment ?? 0.002,
+      maxTurn: options.maxTurn ?? Math.PI / 2.2,
       staleMs: options.staleMs ?? 400,
       smoothing: options.smoothing ?? 0.45,
+      roundDivisor: options.roundDivisor ?? 0.26,
     };
   }
 
@@ -209,7 +272,56 @@ export class CircleGestureDetector {
       }
     }
 
-    const done = Math.abs(this.sweep) >= this.o.sweepThreshold;
+    // A CIRCLE IS NOT AN AMOUNT OF TURNING. Completion used to be the sweep
+    // alone, and roundness was computed, returned, and used by the renderer
+    // to decide how to draw, and by nothing at all to decide whether the
+    // gesture had happened. So every shape that turns far enough fired one:
+    // a rounded square at 0.170 roundness, a rounded triangle at 0.000, a D
+    // with a flat side at 0.000. All measured, all opening portals.
+    //
+    // Three things now, and all three are what a person means by "I drew a
+    // circle":
+    //   it turned far enough, it stayed round while doing it, and it came
+    //   back to where it started.
+    //
+    // Closure is what kills a spiral, which is round everywhere and never
+    // returns. It is also the honest reading of "I barely drew part of a
+    // circle and the portal opened": 264 degrees is an arc, not a loop.
+    const turned = Math.abs(this.sweep) >= this.o.sweepThreshold;
+    let done = false;
+    if (turned) {
+      const probe = this.report(false);
+      // CLOSURE MEASURED AS A RADIUS, NOT AS A DISTANCE.
+      //
+      // The first version compared the last raw sample to the first raw
+      // sample. Two things were wrong with that, and a 120,960 case sweep
+      // found both:
+      //
+      //   A drifting arm broke it. A hand moves across the frame while it
+      //   draws, so the end of a perfectly good circle lands a long way from
+      //   its start. Circles fired 50% of the time with no drift and 16%
+      //   with fast drift.
+      //
+      //   Where the circle started broke it. The raw first sample is inside
+      //   the lead-in that the fit deliberately ignores, so closure was being
+      //   judged from a point nothing else trusts. Firing rate by start
+      //   angle was 61%, 14%, 46%, 19%: the same circle, begun at a different
+      //   clock position.
+      //
+      // What closure actually means is that the path came back to the same
+      // distance from the middle. That is immune to drift, because the fitted
+      // centre drifts with the hand, and immune to where it started, because
+      // it is measured on the same window the fit uses.
+      const win = this.window();
+      const c = probe.center;
+      let closes = false;
+      if (win.length > 3 && probe.radius > 1e-6 && c) {
+        const r0 = Math.hypot(win[0].x - c.x, win[0].y - c.y);
+        const r1 = Math.hypot(win[win.length - 1].x - c.x, win[win.length - 1].y - c.y);
+        closes = Math.abs(r1 - r0) <= probe.radius * this.o.closeWithin;
+      }
+      done = closes && probe.roundness >= this.o.minRoundness;
+    }
     const out = this.report(done);
     if (done) {
       // Consume it, so the caller gets exactly one completed frame per circle
@@ -225,9 +337,117 @@ export class CircleGestureDetector {
       return { ...EMPTY, completed: false };
     }
     const { center, radius } = this.fit();
-    const first = this.trail[0];
-    const last = this.trail[this.trail.length - 1];
+    const win = this.window();
+    const first = win[0];
+    const last = win[win.length - 1];
+    // Spread of the sample radii about their mean, inverted. A coefficient
+    // of variation over about 0.35 is a wander rather than an arc.
+    //
+    // MEASURED AGAINST THE SPREAD OF THE POINTS, NOT THE FITTED RADIUS.
+    // Dividing the residual by the fitted radius scores a wander as round,
+    // because a wander fits a huge circle and any deviation looks small
+    // beside it. A sine curve across the frame scored 0.78 that way. The
+    // spread about the centroid is what the samples actually occupy, so an
+    // arc has a residual far smaller than its spread and a wander has one
+    // comparable to it, whatever either fit came out as.
+    //
+    // AN OVAL IS NOT A CIRCLE. The divisor sets how far from round a path may
+    // be and still read as one. Measured on clean ellipses with camera-level
+    // noise, the widest aspect ratio that still scores above the 0.55 gate:
+    //
+    //     divisor 0.45   passes up to 1.9 : 1     visibly an oval
+    //     divisor 0.26   passes up to 1.45 : 1    a circle drawn by a hand
+    //
+    // 0.45 was never chosen for this. It came from separating an arc from a
+    // wander, which it does, and it turned out to accept almost anything
+    // closed. "It is detecting a portal on smth too ovular" is that gap.
+    let roundness = 0;
+    const pts = this.window();
+    if (pts.length >= 4) {
+      const m = this.centroid();
+      const spread = Math.sqrt(
+        pts.reduce(
+          (a, q) => a + (q.x - m.x) ** 2 + (q.y - m.y) ** 2, 0) / pts.length);
+      const radii = pts.map((q) => Math.hypot(q.x - center.x, q.y - center.y));
+      const mean = radii.reduce((a, b) => a + b, 0) / radii.length;
+      const sd = Math.sqrt(
+        radii.reduce((a, r) => a + (r - mean) ** 2, 0) / radii.length);
+      if (spread > 1e-6) roundness = Math.max(0, 1 - (sd / spread) / this.o.roundDivisor);
+    }
+
+    // A ROUNDED TRIANGLE HAS PERFECTLY EVEN RADII. Every vertex sits the
+    // same distance from the centre and every edge bows in by the same
+    // amount, so the radial test above scores it like a slightly squashed
+    // circle: 0.185, against 0.138 for a 1.5:1 ellipse that should pass.
+    // No threshold on that number separates the two.
+    //
+    // What a corner actually is, is turning all at once. A circle turns at
+    // a constant rate along its whole length; a triangle turns nothing for
+    // a third of the way and then 120 degrees in a few samples. Splitting
+    // the path into eight equal-arc-length bins and asking how unevenly the
+    // turning is spread between them:
+    //
+    //     circle            0.087     triangle, barely rounded    0.457
+    //     circle, noisy     0.106     triangle, somewhat round    0.629
+    //     ellipse 1.3       0.070     triangle, very round        0.557
+    //     ellipse 1.5       0.207
+    //
+    // Measured per sample instead of per bin this is useless: camera noise
+    // swamps it and a perfect circle scores 0.86. The binning is what makes
+    // it work.
+    if (pts.length >= 12) {
+      // ON THE SMOOTHED PATH, NOT THE RAW ONE.
+      //
+      // Turning per bin is what tells a corner from a curve, and on a small
+      // noisy path it is mostly noise: a genuine circle of 60px radius
+      // scored 0.56 here, barely over the 0.55 gate, and since roundness is
+      // the MINIMUM of this and the radial test, this half was what decided
+      // it. Small circles failed to open a portal 41% of the time and the
+      // corner detector was the reason.
+      //
+      // A real corner survives smoothing, because it is a large persistent
+      // deviation; per-frame jitter does not. Median score before and after:
+      //
+      //             raw    smoothed
+      //     circle 60px   0.56  ->  0.76
+      //     circle 240px  0.79  ->  0.93
+      //     pentagon      0.48  ->  0.62
+      //     square        0.28  ->  0.38
+      //
+      // Circles gain 0.2 and corners barely move, which is the whole point:
+      // the separation between them nearly doubles.
+      const BINS = 8;
+      const sm = smoothPath(pts, 2);
+      let total = 0;
+      for (let i = 1; i < sm.length; i++) {
+        total += Math.hypot(sm[i].x - sm[i - 1].x, sm[i].y - sm[i - 1].y);
+      }
+      if (total > 1e-6) {
+        const acc = new Array(BINS).fill(0);
+        let run = 0;
+        for (let i = 1; i < sm.length - 1; i++) {
+          const ax = sm[i].x - sm[i - 1].x, ay = sm[i].y - sm[i - 1].y;
+          const bx = sm[i + 1].x - sm[i].x, by = sm[i + 1].y - sm[i].y;
+          const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+          run += la;
+          if (la < 1e-7 || lb < 1e-7) continue;
+          const b = Math.min(BINS - 1, Math.floor((run / total) * BINS));
+          acc[b] += Math.atan2(ax * by - ay * bx, ax * bx + ay * by);
+        }
+        const sum = acc.reduce((a, v) => a + Math.abs(v), 0);
+        if (sum > 1e-6) {
+          const ideal = sum / BINS;
+          const conc =
+            acc.reduce((a, v) => a + Math.abs(Math.abs(v) - ideal), 0) /
+            (2 * sum * (1 - 1 / BINS));
+          // 0.66 puts the gate at 0.30 concentration: above every ellipse
+          // and noisy circle measured, below every triangle.
+          roundness = Math.min(roundness, Math.max(0, 1 - conc / 0.66));
+        }
+      }
+    }
     return {
+      roundness,
       startAngle: Math.atan2(first.y - center.y, first.x - center.x),
       endAngle: Math.atan2(last.y - center.y, last.x - center.x),
       progress: Math.min(1, Math.abs(this.sweep) / this.o.sweepThreshold),
@@ -265,11 +485,40 @@ export class CircleGestureDetector {
    * Falls back to the centroid when the points are nearly collinear, where
    * the fit is singular and would throw the portal off screen.
    */
+  /**
+   * The part of the trail the fit is allowed to see.
+   *
+   * THE BEGINNING OF A STROKE IS NOT PART OF THE CIRCLE. A hand moves into
+   * position before it starts going round, and those first samples are a
+   * short straightish lead-in that pulls the centre toward wherever the
+   * hand happened to enter. Every later sample then has to drag the fit
+   * back off it, which is the circle appearing to move while it is drawn.
+   *
+   * Measured over 40 simulated strokes (tilted ellipse, arm drift, wobble,
+   * ten samples of lead-in), scoring the fit at latch against the fit to
+   * the whole stroke:
+   *
+   *     drop first    centre jump at latch    radius jump
+   *            0%                   28.4px         11.9px
+   *           15%                   16.2px          4.7px
+   *           25%                   18.1px          5.0px
+   *           35%                   15.7px          9.0px
+   *           50%                   30.3px         22.3px
+   *
+   * A quarter is in the flat middle of that. Half is worse than none,
+   * because by then there are too few points left to fit.
+   */
+  private window(): Sample[] {
+    if (this.trail.length < 12) return this.trail;
+    return this.trail.slice(Math.floor(this.trail.length * 0.25));
+  }
+
   private fit(): { center: { x: number; y: number }; radius: number } {
+    const pts = this.window();
     const m = this.centroid();
-    const n = this.trail.length;
+    const n = pts.length;
     let Sxx = 0, Sxy = 0, Syy = 0, Sxz = 0, Syz = 0, Sz = 0, Sx = 0, Sy = 0;
-    for (const q of this.trail) {
+    for (const q of pts) {
       const x = q.x - m.x;
       const y = q.y - m.y;
       const z = x * x + y * y;
@@ -322,13 +571,14 @@ export class CircleGestureDetector {
   }
 
   private centroid() {
+    const pts = this.window();
     let x = 0;
     let y = 0;
-    for (const p of this.trail) {
+    for (const p of pts) {
       x += p.x;
       y += p.y;
     }
-    return { x: x / this.trail.length, y: y / this.trail.length };
+    return { x: x / pts.length, y: y / pts.length };
   }
 }
 

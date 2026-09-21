@@ -1,0 +1,19 @@
+{
+  "skill": "skill-training",
+  "cases": [
+    {
+      "prompt": "You got that wrong again, same mistake as last time",
+      "expect_tools": [
+        "skill-training"
+      ],
+      "why": "a repeated mistake is the loop this closes"
+    },
+    {
+      "prompt": "Remember that I never want em dashes in these",
+      "expect_tools": [
+        "skill-training"
+      ],
+      "why": "a stated preference has to land in the skill, not just this turn"
+    }
+  ]
+}

@@ -86,12 +86,90 @@ def score_in(path):
     return float(m.group(1)), out
 
 
+def cases_from(ledger_path):
+    """Which eval cases failed, from the newest row that recorded any.
+
+    Returns None when nothing in the ledger carries per-case results, which
+    is the honest answer for a run made before `fitness` learned to record
+    them, and is different from "nothing failed".
+    """
+    p = pathlib.Path(ledger_path)
+    if not p.exists():
+        return None
+    newest = None
+    for line in p.read_text().splitlines():
+        try:
+            e = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if e.get("failed_cases") is not None:
+            newest = e
+    if newest is None:
+        return None
+    return {c.get("id") for c in newest["failed_cases"] if c.get("id")}
+
+
+def gate(worktree, base, after):
+    """Should this change be allowed to land?
+
+    THE RETENTION STEP THIS TOOL HAS NEVER HAD. `evolve` proposes and
+    archives and never merges, which leaves variation with no selection: an
+    archive with no retention is a museum. This is the missing half, minus
+    the click, and it deliberately stops short of merging for the three
+    reasons at the top of this file.
+
+    WHY A RISING SCORE IS NOT ENOUGH ON ITS OWN. `fitness` measures coverage
+    and conformance, so a change can raise the number and make the kit
+    worse. The check that carries real weight is the second one: no eval
+    case that passed may now fail. That comparison was impossible until
+    2026-09-21, when `fitness` started recording WHICH cases failed instead
+    of how many, and it is the reason this gate can exist at all.
+
+    Returns (allowed, reasons).
+    """
+    reasons = []
+
+    if after is None:
+        return False, ["the change did not score, so there is nothing to judge"]
+    if after < base["structural_score"]:
+        reasons.append(
+            f"structural score fell {base['structural_score']:.2f} -> {after:.2f}")
+
+    # The suite, run in the worktree. No model calls, and a change that
+    # breaks a test is refused whatever it did to the score.
+    r = subprocess.run(["bash", str(worktree / "tests/run.sh")],
+                       capture_output=True, text=True, timeout=2400,
+                       cwd=str(worktree))
+    if r.returncode != 0:
+        tail = (r.stdout + r.stderr).strip().splitlines()[-3:]
+        reasons.append("the test suite failed: " + " / ".join(tail))
+
+    # Per-case regression, when both sides recorded cases.
+    before_ids = cases_from(pathlib.Path.home() / ".chewbacca" / "fitness.jsonl")
+    after_ids = cases_from(worktree / ".evolve-fitness.jsonl")
+    if before_ids is None or after_ids is None:
+        reasons.append(
+            "NOT CHECKED: no per-case results on one side, so a regression "
+            "from pass to fail cannot be ruled out. Run `fitness --run` on "
+            "both to make this gate mean something")
+    else:
+        newly_failing = sorted(after_ids - before_ids)
+        if newly_failing:
+            reasons.append("cases that passed and now fail: "
+                           + ", ".join(newly_failing[:8]))
+
+    hard = [x for x in reasons if not x.startswith("NOT CHECKED")]
+    return (not hard), reasons
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--patch"); ap.add_argument("--cmd")
     ap.add_argument("--note", default="")
     ap.add_argument("--archive", action="store_true")
+    ap.add_argument("--gate", action="store_true",
+                    help="judge the change against the merge gate; never merges")
     ap.add_argument("--show")
     a = ap.parse_args()
 
@@ -187,6 +265,21 @@ def main():
                 verdict = ("BETTER" if delta > 0 else
                            "WORSE" if delta < 0 else "NO MEASURABLE CHANGE")
                 print(f"  delta {delta:+g}   {verdict}")
+            if a.gate:
+                allowed, reasons = gate(wt, base, after)
+                print()
+                if allowed:
+                    print("  GATE: passes.")
+                    for why in reasons:
+                        print(f"    note: {why}")
+                    print(f"\n  Nothing has been merged. The diff is at:")
+                    print(f"    {dest / 'change.diff'}")
+                    print("  Read it, then apply it yourself:")
+                    print(f"    git apply {dest / 'change.diff'}")
+                else:
+                    print("  GATE: refused.")
+                    for why in reasons:
+                        print(f"    {why}")
     finally:
         # Remove only this worktree, by exact path.
         subprocess.run(["git", "-C", str(ROOT), "worktree", "remove",

@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""Ask whether a correction was already written down, and ignored anyway.
+
+WHY THIS IS THE QUESTION. The kit has 70 `feedback_*` memories, each one a
+lesson paid for by a real failure, and the same failures keep happening. So
+the interesting split is not "which corrections need a memory". It is:
+
+    ALREADY COVERED  a memory says this and it happened anyway.
+                     The lesson is written and does not fire. Writing
+                     another one is the least useful possible response.
+
+    UNCOVERED        nothing covers it. A memory is worth writing.
+
+Those are opposite problems and they were indistinguishable before this,
+which is why the answer to every correction has been "write it down" and
+why that answer has stopped working.
+
+WHAT IT DOES NOT DO. It does not edit a rule, a skill or a memory. It reads
+and it reports. A loop that rewrites its own policy from a keyword match
+would do damage faster than anyone could read it, and the gate that would
+have to stand in front of that does not exist yet.
+
+ATTRIBUTION IS DELIBERATELY WEAK, and says so. Vocabulary overlap is a
+proxy for "is this the same lesson", and it will miss a correction phrased
+in new words. A miss shows up as UNCOVERED, which costs somebody reading a
+memory that already exists. The opposite error, calling a genuinely new
+failure covered, is the expensive one, so the threshold leans toward
+UNCOVERED.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+from pathlib import Path
+
+ASKS = Path.home() / ".chewbacca" / "asks.jsonl"
+MEM = Path.home() / "second-brain" / "memory"
+STOP = {
+    "that", "this", "with", "from", "have", "what", "when", "your", "just",
+    "make", "need", "want", "like", "they", "them", "should", "would", "could",
+    "there", "where", "which", "about", "into", "isnt", "dont", "doesnt",
+    "bruh", "bro", "dawg", "lol", "the", "and", "you", "for", "not", "its",
+    "chewbacca", "claude", "thing", "stuff", "really", "still", "again",
+    "gonna", "wanna", "abt", "wtf", "rlly", "tho", "hv",
+}
+
+
+def terms(text):
+    return {w for w in re.findall(r"[a-z][a-z-]{3,}", (text or "").lower())
+            if w not in STOP}
+
+
+def memories():
+    out = []
+    if not MEM.is_dir():
+        return out
+    for p in sorted(MEM.glob("feedback_*.md")):
+        body = p.read_text(encoding="utf-8", errors="ignore")
+        desc = ""
+        m = re.search(r"^description:\s*(.+)$", body, re.M)
+        if m:
+            desc = m.group(1)
+        out.append({"path": p, "name": p.stem, "desc": desc,
+                    "terms": terms(desc + " " + body)})
+    return out
+
+
+def corrections():
+    """Repair pairs, reusing the detector in tools/mine_asks.py."""
+    import importlib.machinery
+    import importlib.util
+    here = Path(__file__).resolve().parent.parent / "tools" / "mine_asks.py"
+    loader = importlib.machinery.SourceFileLoader("mine_asks", str(here))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod.repairs(mod.load(ASKS))
+
+
+def match(correction, mems, floor):
+    t = terms(correction)
+    if len(t) < 2:
+        return []
+    scored = []
+    for m in mems:
+        shared = t & m["terms"]
+        if len(shared) >= floor:
+            scored.append((len(shared), m, sorted(shared)[:6]))
+    scored.sort(key=lambda x: -x[0])
+    return scored[:3]
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--floor", type=int, default=3,
+                    help="shared terms before a memory counts as covering it")
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args()
+
+    mems = memories()
+    reps = corrections()
+    covered, uncovered = [], []
+    for r in reps:
+        hits = match(r["then_said"], mems, a.floor)
+        row = {"at": r["at"], "said": r["then_said"], "after": r["asked"],
+               "matches": [{"memory": m["name"], "shared": sh, "n": n}
+                           for n, m, sh in hits]}
+        (covered if hits else uncovered).append(row)
+
+    if a.json:
+        print(json.dumps({"memories": len(mems), "corrections": len(reps),
+                          "covered": covered, "uncovered": uncovered},
+                         indent=2))
+        return 0
+
+    print(f"{len(reps)} corrections, against {len(mems)} feedback memories\n")
+    print(f"ALREADY WRITTEN DOWN, and it happened anyway: {len(covered)}")
+    print("The lesson exists and did not fire. Another memory is the least")
+    print("useful possible response to these.\n")
+    for c in covered:
+        print(f"  \"{c['said'][:72]}\"")
+        for m in c["matches"][:2]:
+            print(f"      {m['memory']}  ({', '.join(m['shared'][:4])})")
+        print()
+
+    print(f"\nNOT COVERED: {len(uncovered)}")
+    print("Nothing in memory speaks to these. Worth writing down.\n")
+    for c in uncovered:
+        print(f"  \"{c['said'][:72]}\"")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

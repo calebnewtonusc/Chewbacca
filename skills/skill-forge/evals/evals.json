@@ -1,0 +1,19 @@
+{
+  "skill": "skill-forge",
+  "cases": [
+    {
+      "prompt": "The deslop skill keeps getting ignored",
+      "expect_tools": [
+        "skill-forge"
+      ],
+      "why": "a skill not being obeyed is a description problem, which is this skill"
+    },
+    {
+      "prompt": "I do this same cleanup every week, make it reusable",
+      "expect_tools": [
+        "skill-forge"
+      ],
+      "why": "turning a repeated task into a skill"
+    }
+  ]
+}

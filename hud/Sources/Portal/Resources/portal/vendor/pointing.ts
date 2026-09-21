@@ -59,6 +59,35 @@ export interface ScreenModel {
 }
 
 /** Real-world sizes used as rangefinders. Millimetres. */
+/**
+ * How far in front of the face the hand must be before the ray is trusted.
+ *
+ * THE BUG THIS FIXES, 2026-09-21. Caleb: "The portal keeps randomly
+ * starting on random parts of the screen that totally have nothing to do
+ * with where my pinch is."
+ *
+ * The ray crosses the screen at t = eyeZ / (eyeZ - fingerZ), so as the hand
+ * approaches the plane of the face that denominator goes to zero and t
+ * explodes. With the eye at 600mm and the hand at 590mm, t is 60: a ten
+ * millimetre movement of the fingertip becomes six hundred millimetres on
+ * screen, twice the width of a 14 inch display. The maths is right and the
+ * answer is useless, which is the same shape as the circle fit that put a
+ * portal bigger than the screen on a small flick.
+ *
+ * Both depths are estimated from apparent size and both are noisy, so the
+ * hand's estimate wanders through that zone on its own. A guard against
+ * dividing by zero was not enough; the numbers were finite and absurd.
+ */
+export const MIN_SEPARATION_MM = 120;
+
+/**
+ * Largest extrapolation the ray is allowed. Past this the geometry is not
+ * trustworthy enough to place a portal, and the camera-relative point,
+ * which is wrong by a known parallax, beats an answer that is wrong by an
+ * unknown multiple.
+ */
+export const MAX_RAY_GAIN = 8;
+
 export interface Anthropometrics {
   /** Pupil to pupil. Adult mean is about 63mm, and the spread is small. */
   ipdMm: number;
@@ -67,6 +96,113 @@ export interface Anthropometrics {
 }
 
 export const DEFAULT_ANTHRO: Anthropometrics = { ipdMm: 63, palmMm: 97 };
+
+/**
+ * ROUGH DEPTHS, HELD STEADY. This is the whole difference between a cursor
+ * that tracks and one that wanders.
+ *
+ * Measuring both depths every frame from apparent size is the obvious
+ * build and it was wrong. Caleb, after two attempts at it: "it's still in
+ * such random places", then the fix: "Just the rough estimate of the
+ * position of the eyes to the finger to the place on screen a straight
+ * line has, the angle of the eye is not accurate enough."
+ *
+ * Measured with a perfectly still hand and realistic landmark jitter:
+ *
+ *     depth measured per frame     x 29px   y 117px
+ *     depth held roughly constant  x 31px   y  17px
+ *
+ * Seven times steadier vertically. The reason is leverage: the ray's gain
+ * is eyeZ / (eyeZ - fingerZ), so a small error in either depth swings the
+ * result hard, and both estimates come from a palm and a pupil gap
+ * measured in a noisy image.
+ *
+ * Being WRONG about a rough depth costs almost nothing by comparison. At
+ * eye 600 hand 350 the gain is 2.40; a hundred millimetres out in either
+ * direction moves it between 2.00 and 3.33. That is a small steady offset,
+ * which a person corrects for without noticing, and the thing they cannot
+ * correct for is an offset that changes every frame.
+ */
+export const ROUGH_EYE_MM = 600;
+export const ROUGH_HAND_MM = 350;
+
+/**
+ * How fast the rough depths may drift toward what the camera sees.
+ *
+ * Deliberately tiny. A person's distance from their laptop changes over
+ * seconds, not frames, so this tracks a posture change in a few seconds and
+ * ignores per-frame noise entirely. Setting it to 1 restores the old
+ * per-frame behaviour, which is how the comparison above was measured.
+ */
+export const DEPTH_ADAPT = 0.02;
+
+/**
+ * How much of the parallax correction to actually apply, 0 to 1.
+ *
+ * 0 is the raw camera point. 1 is the full eye-through-fingertip ray. The
+ * blend exists because the ray is geometrically right and practically
+ * aggressive: its gain is eyeZ / (eyeZ - fingerZ), about 2.4 at a normal
+ * sitting distance, so every offset from the centre of the frame is
+ * multiplied. A fingertip a third of the way to the edge lands most of the
+ * way there, and Caleb's report was "Most of it is still barely on screen."
+ *
+ * DEFAULT 0, which is no correction at all. Caleb, after a morning of it:
+ * "The portal was significantly better before we tried to do the eye stuff.
+ * It sucked but at least I could kinda navigate where it was gonna go."
+ *
+ * The measurement agreed and was taken before the ray shipped, which is the
+ * part worth remembering. A still hand with realistic landmark jitter:
+ *
+ *     no correction        x  6px of wander
+ *     ray, best tuning     x 31px   y 17px
+ *
+ * Predictable beats correct when a person is aiming. The parallax the ray
+ * removes is a fixed offset you learn in a minute without noticing; the
+ * noise it adds is different every frame and cannot be learned at all. A
+ * cursor you can aim badly is usable and one you cannot predict is not.
+ *
+ * The maths stays, tested, behind this number. Raise it if a depth sensor
+ * ever replaces the size estimate, because then the noise goes away and the
+ * correction is free.
+ */
+export const PARALLAX_STRENGTH = 0;
+
+/** Plausible human range, so a bad frame cannot drag the estimate anywhere. */
+export const EYE_RANGE_MM: [number, number] = [300, 1100];
+export const HAND_RANGE_MM: [number, number] = [150, 700];
+
+const clamp = (v: number, [lo, hi]: [number, number]) =>
+  Math.max(lo, Math.min(hi, v));
+
+/**
+ * Carries the slowly-adapting depths between frames.
+ *
+ * A caller that keeps one of these gets personalisation; a caller that
+ * passes nothing gets the rough constants, which is already most of the
+ * benefit.
+ */
+export class DepthTracker {
+  eyeMm = ROUGH_EYE_MM;
+  handMm = ROUGH_HAND_MM;
+
+  /** Feed the per-frame measurements; get the steady values back. */
+  update(measuredEye: number, measuredHand: number, adapt = DEPTH_ADAPT) {
+    if (isFinite(measuredEye)) {
+      const target = clamp(measuredEye, EYE_RANGE_MM);
+      this.eyeMm += (target - this.eyeMm) * adapt;
+    }
+    if (isFinite(measuredHand)) {
+      const target = clamp(measuredHand, HAND_RANGE_MM);
+      this.handMm += (target - this.handMm) * adapt;
+    }
+    return { eyeMm: this.eyeMm, handMm: this.handMm };
+  }
+
+  reset() {
+    this.eyeMm = ROUGH_EYE_MM;
+    this.handMm = ROUGH_HAND_MM;
+  }
+}
 
 /** A 14-inch MacBook Pro: 3024x1964 at 254ppi, camera centred in the notch. */
 export const MACBOOK_14: ScreenModel = {
@@ -146,12 +282,16 @@ export function rayToScreen(eye: Vec3, finger: Vec3, screen: ScreenModel): { x: 
   // nearer the screen than the eye or the ray never reaches it, which is
   // also true of a real arm.
   const dz = eye.z - finger.z;
-  if (!(dz > 1e-6)) {
-    // Degenerate: hand level with the face. Fall back to the finger's own
-    // position, which is the camera-relative answer and at least stable.
+  // Not just a guard against zero. See MIN_SEPARATION_MM: a hand a
+  // centimetre in front of the face produces a finite, enormous t, and the
+  // portal lands somewhere unrelated to the finger.
+  if (!(dz > MIN_SEPARATION_MM)) {
     return mmToPixels(finger.x, finger.y, screen);
   }
   const t = eye.z / dz;
+  if (!isFinite(t) || t > MAX_RAY_GAIN) {
+    return mmToPixels(finger.x, finger.y, screen);
+  }
   return mmToPixels(
     eye.x + (finger.x - eye.x) * t,
     eye.y + (finger.y - eye.y) * t,
@@ -165,6 +305,11 @@ export function mmToPixels(xMm: number, yMm: number, screen: ScreenModel): { x: 
     x: ((xMm + screen.cameraXMm) / screen.widthMm) * screen.widthPx,
     y: ((-yMm - screen.cameraYMm) / screen.heightMm) * screen.heightPx,
   };
+}
+
+export interface PointingOptions {
+  /** 0 to 1. See PARALLAX_STRENGTH. */
+  strength?: number;
 }
 
 export interface PointingInput {
@@ -190,6 +335,8 @@ export function pointingPoint(
   screen: ScreenModel = MACBOOK_14,
   cam: CameraModel = MAC_CAMERA,
   anthro: Anthropometrics = DEFAULT_ANTHRO,
+  depths?: DepthTracker,
+  options: PointingOptions = {},
 ): { x: number; y: number; eyeMm: number; fingerMm: number } | null {
   const { leftEye, rightEye, hand } = input;
   if (!hand || hand.length < 21) return null;
@@ -205,11 +352,29 @@ export function pointingPoint(
   const fingerDepth = depthFromApparentSize(anthro.palmMm, palmApparent, cam);
   if (!isFinite(fingerDepth)) return null;
 
-  const eyeMid = { x: (leftEye.x + rightEye.x) / 2, y: (leftEye.y + rightEye.y) / 2 };
-  const eye = cameraSpace(eyeMid.x, eyeMid.y, eyeDepth, cam);
-  const t = hand[input.tip ?? 8];
-  const finger = cameraSpace(t.x, t.y, fingerDepth, cam);
+  // The measurements go through the tracker, which barely moves. Without one
+  // the rough constants are used directly, which is most of the benefit for
+  // none of the bookkeeping. See ROUGH_EYE_MM for why this matters more than
+  // anything else in this file.
+  const steady = depths
+    ? depths.update(eyeDepth, fingerDepth)
+    : { eyeMm: ROUGH_EYE_MM, handMm: ROUGH_HAND_MM };
 
-  const p = rayToScreen(eye, finger, screen);
-  return { x: p.x, y: p.y, eyeMm: eyeDepth, fingerMm: fingerDepth };
+  const eyeMid = { x: (leftEye.x + rightEye.x) / 2, y: (leftEye.y + rightEye.y) / 2 };
+  const eye = cameraSpace(eyeMid.x, eyeMid.y, steady.eyeMm, cam);
+  const t = hand[input.tip ?? 8];
+  const finger = cameraSpace(t.x, t.y, steady.handMm, cam);
+
+  const ray = rayToScreen(eye, finger, screen);
+  // The uncorrected answer: the fingertip where the camera sees it. Blending
+  // toward the ray rather than replacing with it is what keeps the cursor on
+  // the display while still following the head.
+  const plain = mmToPixels(finger.x, finger.y, screen);
+  const k = Math.max(0, Math.min(1, options.strength ?? PARALLAX_STRENGTH));
+  return {
+    x: plain.x + (ray.x - plain.x) * k,
+    y: plain.y + (ray.y - plain.y) * k,
+    eyeMm: steady.eyeMm,
+    fingerMm: steady.handMm,
+  };
 }
