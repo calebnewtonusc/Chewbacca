@@ -54,7 +54,10 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
     /// the right value means moving a hand and watching, not restarting.
     private static let gainFile = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".chewbacca/portal-gain")
+    private static let sizeFile = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".chewbacca/portal-size")
     private var gain: Double?
+    private var size: Double?
 
     func applicationDidFinishLaunching(_: Notification) {
         // Bundle.main first, because that is where bundle-portal.sh puts the
@@ -128,10 +131,12 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         // stream for one path is more machinery than the problem deserves.
         readArm()
         readGain()
+        readSize()
         armTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
             Task { @MainActor in
                 self.readArm()
                 self.readGain()
+                self.readSize()
             }
         }
 
@@ -151,6 +156,9 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         applyArm()
         if let g = gain {
             web?.evaluateJavaScript("window.chewbaccaGain&&window.chewbaccaGain(\(g))")
+        }
+        if let sz = size {
+            web?.evaluateJavaScript("window.chewbaccaSize&&window.chewbaccaSize(\(sz))")
         }
     }
 
@@ -186,6 +194,15 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         gain = value
         guard ready, let web else { return }
         web.evaluateJavaScript("window.chewbaccaGain&&window.chewbaccaGain(\(value))")
+    }
+
+    private func readSize() {
+        let text = (try? String(contentsOf: Self.sizeFile, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let text, let value = Double(text), size != value else { return }
+        size = value
+        guard ready, let web else { return }
+        web.evaluateJavaScript("window.chewbaccaSize&&window.chewbaccaSize(\(value))")
     }
 
     private func applyArm() {

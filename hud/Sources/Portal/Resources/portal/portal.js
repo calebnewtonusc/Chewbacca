@@ -462,6 +462,7 @@
   var latestEyes = null;
   var depths = new DepthTracker();
   var parallaxStrength = PARALLAX_STRENGTH;
+  var sizeScale = 0.45;
   var lastSeen = 0;
   var armed = null;
   window.chewbaccaGain = (k) => {
@@ -469,6 +470,12 @@
       parallaxStrength = Math.max(0, Math.min(1, k));
     }
     return parallaxStrength;
+  };
+  window.chewbaccaSize = (k) => {
+    if (typeof k === "number" && isFinite(k)) {
+      sizeScale = Math.max(0.05, Math.min(3, k));
+    }
+    return sizeScale;
   };
   window.chewbaccaArm = (label) => {
     armed = label ? { label } : null;
@@ -500,9 +507,9 @@
     const mx = (nx) => (1 - nx) * W;
     const my = (ny) => ny * H;
     const RSCALE = (W + H) / 2;
-    const RMIN = 40;
+    const RMIN = 24;
     const RMAX = Math.min(W, H) * 0.42;
-    const clampR = (r) => Math.max(RMIN, Math.min(RMAX, r));
+    const clampR = (r) => Math.max(RMIN, Math.min(RMAX, r * sizeScale));
     const px = mx;
     const py = my;
     const arcPath = (cn, r, a0, a1, segs = 96, jitterPx = 0) => {
