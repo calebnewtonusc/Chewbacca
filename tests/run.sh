@@ -216,6 +216,7 @@ if group "tools"; then
   check  "counts --json is valid" bash -c "python3 '$ROOT/tools/counts.py' --json | python3 -m json.tool"
   check  "evals structure pass" python3 "$ROOT/tools/evals.py"
   check  "eval results carry which case failed, not a count" python3 "$ROOT/tests/test_eval_results.py"
+  check  "the evolve merge gate refuses a regression" python3 "$ROOT/tests/test_evolve_gate.py"
   check  "context cost --json is valid" bash -c "python3 '$ROOT/tools/context_cost.py' --json | python3 -m json.tool"
   # Not --check: every commit made after the last regeneration invalidates it,
   # so a --check here would fail on the commit that adds a test.
