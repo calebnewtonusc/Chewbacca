@@ -482,11 +482,35 @@ function frame(now: number) {
   // because by then the tail is the part already snapped onto the ring and
   // holding it there.
   if (stroke.length) {
-    // Shorter. "the line before the circle should go away quicker": a plain
-    // stroke is a pointer trail, not a drawing, so it should read as a few
-    // frames of motion behind the fingers.
-    const keep = p.progress > 0.4 && p.roundness > 0.55 ? 260 : 16;
-    while (stroke.length > keep) stroke.shift();
+    // MEASURED IN PIXELS, NOT IN FRAMES. A frame count is a duration, and a
+    // duration is the wrong unit for something whose whole job is to be a
+    // length on the glass. Sixteen frames is a stub when the hand is still
+    // and a stripe across the display when it is moving, which is exactly
+    // what "if I move across the screen quickly it shouldnt be a huge line
+    // across the screen" describes. Trimming to a distance instead makes
+    // the trail the same size whatever speed it is drawn at.
+    //
+    // 170px is about a finger's width of travel at arm's length: enough to
+    // read as motion behind the fingers, short enough that a fast sweep
+    // leaves a comet rather than a scribble. Once a circle is being
+    // recognised the whole path is kept, because by then the tail is the
+    // part already snapped onto the ring and holding it there.
+    const circling = p.progress > 0.4 && p.roundness > 0.55;
+    const maxPx = circling ? 4000 : 170;
+    let run = 0;
+    for (let i = stroke.length - 1; i > 0; i--) {
+      run += Math.hypot(
+        (stroke[i].rx - stroke[i - 1].rx) * W,
+        (stroke[i].ry - stroke[i - 1].ry) * H,
+      );
+      if (run > maxPx) {
+        stroke.splice(0, i);
+        break;
+      }
+    }
+    // A hard cap on points as well, because a slow hand can otherwise sit
+    // inside the distance budget forever and cost a frame to draw.
+    while (stroke.length > 260) stroke.shift();
   }
 
   const prevPhase = state.phase;

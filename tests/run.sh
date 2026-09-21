@@ -944,6 +944,7 @@ fi
 
 # Browser/backend tests replace transports with fixtures; no model quota is used.
 if group "reasoning backends"; then
+  check "circle detector accepts circles, not triangles" bash "$ROOT/tests/circle_shapes.sh"
   check "shared agent instructions are current" python3 "$ROOT/tools/agents_md.py" --check
   check "ChatGPT turn boundaries" python3 "$ROOT/tests/test_chatgpt_tab.py"
   check "gateway protocol and execution" python3 "$ROOT/tests/test_chatgpt_gateway.py"

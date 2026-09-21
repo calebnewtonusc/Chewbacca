@@ -77,6 +77,12 @@ export interface CircleGestureOptions {
    * Lower is smoother and laggier. See THE NOISE TRAP.
    */
   smoothing?: number;
+  /**
+   * How far from round a closed path may be and still score above the
+   * roundness gate. Default 0.26, which accepts up to about 1.45:1. The
+   * old 0.26 was 0.45 and accepted 1.9:1, which is an oval.
+   */
+  roundDivisor?: number;
 }
 
 export interface CircleProgress {
@@ -152,6 +158,7 @@ export class CircleGestureDetector {
       maxTurn: options.maxTurn ?? Math.PI / 2.2,
       staleMs: options.staleMs ?? 400,
       smoothing: options.smoothing ?? 0.45,
+      roundDivisor: options.roundDivisor ?? 0.26,
     };
   }
 
@@ -246,8 +253,9 @@ export class CircleGestureDetector {
       return { ...EMPTY, completed: false };
     }
     const { center, radius } = this.fit();
-    const first = this.trail[0];
-    const last = this.trail[this.trail.length - 1];
+    const win = this.window();
+    const first = win[0];
+    const last = win[win.length - 1];
     // Spread of the sample radii about their mean, inverted. A coefficient
     // of variation over about 0.35 is a wander rather than an arc.
     //
@@ -258,17 +266,80 @@ export class CircleGestureDetector {
     // spread about the centroid is what the samples actually occupy, so an
     // arc has a residual far smaller than its spread and a wander has one
     // comparable to it, whatever either fit came out as.
+    //
+    // AN OVAL IS NOT A CIRCLE. The divisor sets how far from round a path may
+    // be and still read as one. Measured on clean ellipses with camera-level
+    // noise, the widest aspect ratio that still scores above the 0.55 gate:
+    //
+    //     divisor 0.45   passes up to 1.9 : 1     visibly an oval
+    //     divisor 0.26   passes up to 1.45 : 1    a circle drawn by a hand
+    //
+    // 0.45 was never chosen for this. It came from separating an arc from a
+    // wander, which it does, and it turned out to accept almost anything
+    // closed. "It is detecting a portal on smth too ovular" is that gap.
     let roundness = 0;
-    if (this.trail.length >= 4) {
+    const pts = this.window();
+    if (pts.length >= 4) {
       const m = this.centroid();
       const spread = Math.sqrt(
-        this.trail.reduce(
-          (a, q) => a + (q.x - m.x) ** 2 + (q.y - m.y) ** 2, 0) / this.trail.length);
-      const radii = this.trail.map((q) => Math.hypot(q.x - center.x, q.y - center.y));
+        pts.reduce(
+          (a, q) => a + (q.x - m.x) ** 2 + (q.y - m.y) ** 2, 0) / pts.length);
+      const radii = pts.map((q) => Math.hypot(q.x - center.x, q.y - center.y));
       const mean = radii.reduce((a, b) => a + b, 0) / radii.length;
       const sd = Math.sqrt(
         radii.reduce((a, r) => a + (r - mean) ** 2, 0) / radii.length);
-      if (spread > 1e-6) roundness = Math.max(0, 1 - (sd / spread) / 0.45);
+      if (spread > 1e-6) roundness = Math.max(0, 1 - (sd / spread) / this.o.roundDivisor);
+    }
+
+    // A ROUNDED TRIANGLE HAS PERFECTLY EVEN RADII. Every vertex sits the
+    // same distance from the centre and every edge bows in by the same
+    // amount, so the radial test above scores it like a slightly squashed
+    // circle: 0.185, against 0.138 for a 1.5:1 ellipse that should pass.
+    // No threshold on that number separates the two.
+    //
+    // What a corner actually is, is turning all at once. A circle turns at
+    // a constant rate along its whole length; a triangle turns nothing for
+    // a third of the way and then 120 degrees in a few samples. Splitting
+    // the path into eight equal-arc-length bins and asking how unevenly the
+    // turning is spread between them:
+    //
+    //     circle            0.087     triangle, barely rounded    0.457
+    //     circle, noisy     0.106     triangle, somewhat round    0.629
+    //     ellipse 1.3       0.070     triangle, very round        0.557
+    //     ellipse 1.5       0.207
+    //
+    // Measured per sample instead of per bin this is useless: camera noise
+    // swamps it and a perfect circle scores 0.86. The binning is what makes
+    // it work.
+    if (pts.length >= 12) {
+      const BINS = 8;
+      let total = 0;
+      for (let i = 1; i < pts.length; i++) {
+        total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+      }
+      if (total > 1e-6) {
+        const acc = new Array(BINS).fill(0);
+        let run = 0;
+        for (let i = 1; i < pts.length - 1; i++) {
+          const ax = pts[i].x - pts[i - 1].x, ay = pts[i].y - pts[i - 1].y;
+          const bx = pts[i + 1].x - pts[i].x, by = pts[i + 1].y - pts[i].y;
+          const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+          run += la;
+          if (la < 1e-7 || lb < 1e-7) continue;
+          const b = Math.min(BINS - 1, Math.floor((run / total) * BINS));
+          acc[b] += Math.atan2(ax * by - ay * bx, ax * bx + ay * by);
+        }
+        const sum = acc.reduce((a, v) => a + Math.abs(v), 0);
+        if (sum > 1e-6) {
+          const ideal = sum / BINS;
+          const conc =
+            acc.reduce((a, v) => a + Math.abs(Math.abs(v) - ideal), 0) /
+            (2 * sum * (1 - 1 / BINS));
+          // 0.66 puts the gate at 0.30 concentration: above every ellipse
+          // and noisy circle measured, below every triangle.
+          roundness = Math.min(roundness, Math.max(0, 1 - conc / 0.66));
+        }
+      }
     }
     return {
       roundness,
@@ -309,11 +380,40 @@ export class CircleGestureDetector {
    * Falls back to the centroid when the points are nearly collinear, where
    * the fit is singular and would throw the portal off screen.
    */
+  /**
+   * The part of the trail the fit is allowed to see.
+   *
+   * THE BEGINNING OF A STROKE IS NOT PART OF THE CIRCLE. A hand moves into
+   * position before it starts going round, and those first samples are a
+   * short straightish lead-in that pulls the centre toward wherever the
+   * hand happened to enter. Every later sample then has to drag the fit
+   * back off it, which is the circle appearing to move while it is drawn.
+   *
+   * Measured over 40 simulated strokes (tilted ellipse, arm drift, wobble,
+   * ten samples of lead-in), scoring the fit at latch against the fit to
+   * the whole stroke:
+   *
+   *     drop first    centre jump at latch    radius jump
+   *            0%                   28.4px         11.9px
+   *           15%                   16.2px          4.7px
+   *           25%                   18.1px          5.0px
+   *           35%                   15.7px          9.0px
+   *           50%                   30.3px         22.3px
+   *
+   * A quarter is in the flat middle of that. Half is worse than none,
+   * because by then there are too few points left to fit.
+   */
+  private window(): Sample[] {
+    if (this.trail.length < 12) return this.trail;
+    return this.trail.slice(Math.floor(this.trail.length * 0.25));
+  }
+
   private fit(): { center: { x: number; y: number }; radius: number } {
+    const pts = this.window();
     const m = this.centroid();
-    const n = this.trail.length;
+    const n = pts.length;
     let Sxx = 0, Sxy = 0, Syy = 0, Sxz = 0, Syz = 0, Sz = 0, Sx = 0, Sy = 0;
-    for (const q of this.trail) {
+    for (const q of pts) {
       const x = q.x - m.x;
       const y = q.y - m.y;
       const z = x * x + y * y;
@@ -366,13 +466,14 @@ export class CircleGestureDetector {
   }
 
   private centroid() {
+    const pts = this.window();
     let x = 0;
     let y = 0;
-    for (const p of this.trail) {
+    for (const p of pts) {
       x += p.x;
       y += p.y;
     }
-    return { x: x / this.trail.length, y: y / this.trail.length };
+    return { x: x / pts.length, y: y / pts.length };
   }
 }
 
