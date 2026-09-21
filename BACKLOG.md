@@ -167,6 +167,11 @@ it.** Build the teaching half at the same time as the doing half, not after.
 | 44 | **The voice agent is much weaker than the chat agent** | open | Caleb, 2026-09-21: *"It's retarded and nowhere near as smart as you bruh."* The immediate cause was fixed by giving it a lookup table instead of a puzzle ([[../memory/feedback_never_make_an_agent_infer]]), but the general gap stands: the lean profile carries the brain and doctrine and a skill index, not the repo. Item 3 is the same blocker. Measure before rebuilding: 68 seconds of that answer was research it should never have started |
 | 45 | **Portal needs a plausibility test suite, not a correctness one** | open | Four visual bugs shipped at once with 47 tests green, and the detector fired 0/20 on a jittery circle while passing every perfect-circle test. `circle.noise.test.ts` and the ill-conditioned-fit tests are the pattern to extend: assert what must be TRUE ON SCREEN, a radius that fits the frame, a centre that stays on it. See [[../memory/feedback_the_screenshot_beat_the_code]] |
 
+| 46 | **The strategy doc he asked for twice** | open | "strategize all the upgrades fixes and refactoring and research and creative problem solving", then "a billion times better in EVERY way". Four research findings came back and live only in a transcript; they are written down in [docs/handoffs/2026-09-21-morning.md](docs/handoffs/2026-09-21-morning.md). The doc itself was never written |
+| 47 | **The behavioural pass has never run, still** | open | `fitness.jsonl` has 12 rows and **0** with per-case results. The credit-assignment path from item 0 has not executed once. Same shape as everything else built and never fired. Costs model calls; run `fitness --run` in the background |
+| 48 | **Voice prompt cache misses on the first turn** | open | Measured on "Good morning": `cache_creation 57,888, cache_read 0`, while the turn before it read 75,801. Cache ordering is worth 7% to 84% hit rate in production reports, so what sits ahead of the stable prefix is worth one measurement. Do not theorise first |
+| 49 | **Portal defaults are guesses** | open | reach 0.4, size 0.3, gain 0.2 are where tuning stopped when he left for class. All three are live (`portal reach`, `portal size`, `portal gain`). Whatever numbers feel right become the defaults |
+
 ## Done this session
 
 | Item | Where |
@@ -179,6 +184,14 @@ it.** Build the teaching half at the same time as the doing half, not after.
 | Operating doctrine from the three corpora, with the stop rule | `6e6e901` |
 | Prometheus targeting: 1.04M rows to 51,320 reachable | `calebnewtonusc/prometheus-targeting`, private |
 | Team context handoff | `a0fc155`, sent to the group chat |
+| Credit assignment: fitness records WHICH cases failed | item 0 step 1 |
+| `evolve --gate`, the retention step | 12 tests, refusals proved by firing them |
+| `bin/corpus`, the reward environment | 209 sessions, 35,611 assistant turns |
+| `handoff-guard`, `durable-guard` | 2 of the 4 top recurring corrections now enforced |
+| `bin/preflight` | what the installer does, before it does it |
+| `slop-guard` actually enforces | it was advisory and had never stopped a reply |
+| Greetings cost no model turn | 21.4s, of which 854 thinking tokens, for "Morning." |
+| Portal: rough depths, reach, size, gain | 117px of wander became 17px |
 | The Doctor Strange portal, browser and HUD | `calebnewtonusc/OpenVision` `/strange`, and `feat/portal-hud` here |
 | `cap record status` reported 14 dead recordings as live | item 42; Granola held mic and camera for 3.5 days |
 | Hand control turned off | `hud.handControl` false. Palm and point stay in the code, unwired |
