@@ -235,6 +235,15 @@
             "statusMessage": "Naming the process and the falsifier..."
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/ask-capture.sh",
+            "timeout": 5
+          }
+        ]
       }
     ]
   }

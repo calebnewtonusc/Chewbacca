@@ -140,6 +140,13 @@ it.** Build the teaching half at the same time as the doing half, not after.
 | 29 | `hud doctor` does not check Accessibility | open | It is the permission the whole voice path depends on and doctor is blind to it |
 | 30 | pre-commit's advice message is wrong | open | It says to name your paths, but the two-live-sessions gate inspects the index, which `git commit -- paths` does not change. Only `CHEWBACCA_PATHSPEC_COMMIT=1` clears it |
 
+| 30b | **Finish the interface and ship a beta** | open | Caleb's #3, and the only one of his original 22 that was never written down. `skills/interface` exists and the HUD is the surface. "Some sort of beta" needs a definition of what a beta means here: who installs it, what they are asked to do, and what counts as it working. Five testers were asked on 9/20 ([[../memory/project_chewbacca_tester_outreach]]) with no beta to give them |
+| 31 | **Ingest more of Scripture, NASB95** | open | Gavin, 9/21: "Make it NASB95. Most accurate translation." Proverbs is in (`8e47d04`) as a standing check per process. Which books earn a place, and on what test, is unanswered: `methods/proverbs.md` says a line only belongs if it names a failure it would have caught |
+| 32 | **Prompting that reads itself as self-learning** | open | Gavin, 9/21, and Caleb loved it: "Figure out a way we can just automate prompting where whatever I say automatically gets interpretted by the engine as self learning." The nearest existing pieces are `bin/scars`, `memory/` and `bin/evolve`. Nothing closes the loop from a sentence he says to a change in the kit |
+| 33 | **Reorganize and refactor the files** | open | Caleb, 9/21: "a bunch of them need reorganizing and refactoring." The audit so far found 3 orphan hooks, 5 undocumented commands and 57 dead links, all now fixed or recorded. The reorganize itself is untouched |
+| 34 | **Make it an actual graph engineer** | open | Caleb, 9/21: "I shouldn't hv to ever ask this question if chewbacca was truly an intelligent graph engineer." `skills/graph-engineering` holds both halves already and nothing routes to it. Same blocker as item 3 |
+| 35 | `superassistant` is not on PATH | open | The voice prompt references it and the module loads by path, but the CLI named in `CLAUDE.md` (`superassistant recent 10`) does not run |
+
 ## Done this session
 
 | Item | Where |

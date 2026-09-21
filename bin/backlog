@@ -5,6 +5,7 @@
     backlog all             every item
     backlog done            what shipped
     backlog dead            what was killed, and why
+    backlog inbox           what was asked and is not an item yet
     backlog <search>        matching rows
 
 Caleb, 2026-09-21: "how is chewbacca storing during session important context?
@@ -17,7 +18,7 @@ window and died with it.
 BACKLOG.md is the store and it sits in the repo rather than in ~/.chewbacca, so
 it survives a machine and is shared with everyone else building here.
 """
-import os, re, sys, pathlib
+import json, os, re, sys, pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 FILE = ROOT / "BACKLOG.md"
@@ -70,9 +71,64 @@ def show(title, lines, width=96):
     return len(got)
 
 
+def inbox(limit=40):
+    """Requests captured by the hook that no backlog row mentions yet.
+
+    Caleb, 2026-09-21: "bro were you ignoring all my texts in this chat??? ...
+    Things should NEVER be lost within a chat." Five requests that day were
+    answered and never recorded. ask-capture.sh writes every prompt here; this
+    is the part that says which ones never became work.
+
+    Matching is deliberately crude: a request counts as captured when the
+    backlog mentions enough of its distinctive words. It errs toward showing
+    something twice rather than dropping it, because a duplicate costs a glance
+    and a miss costs the thing itself.
+    """
+    store = pathlib.Path.home() / ".chewbacca" / "asks.jsonl"
+    if not store.is_file():
+        print("  nothing captured yet")
+        return 0
+    text = FILE.read_text(encoding="utf-8").lower() if FILE.is_file() else ""
+    stop = {"the","and","for","that","this","with","you","chewbacca","make",
+            "need","should","have","just","into","from","what","bro","also",
+            "can","how","its","it's","not","but","are","get","all","out"}
+    rows, seen = [], set()
+    for line in store.read_text(encoding="utf-8").splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        said = (row.get("said") or "").strip()
+        if len(said) < 12:
+            continue
+        key = said[:70].lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        words = [w for w in re.findall(r"[a-z][a-z0-9'-]{3,}", said.lower())
+                 if w not in stop]
+        if not words:
+            continue
+        hits = sum(1 for w in set(words) if w in text)
+        if hits / len(set(words)) < 0.45:
+            rows.append((row.get("at", "")[:16], said))
+    if not rows:
+        print("  every captured request is mentioned in the backlog")
+        return 0
+    print(f"\n  Asked and not yet an item ({len(rows)}):")
+    for at, said in rows[-limit:]:
+        one = " ".join(said.split())
+        print(f"    {at}  {one[:104]}")
+    print(f"\n  Triage into BACKLOG.md by hand. This is an inbox, not the list.\n")
+    return 0
+
+
 def main():
     arg = (sys.argv[1] if len(sys.argv) > 1 else "").lower()
     secs = sections()
+
+    if arg == "inbox":
+        return inbox()
 
     if not arg:
         n = 0
