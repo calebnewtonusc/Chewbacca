@@ -305,6 +305,9 @@ function loadLedger() {
   if (fs.existsSync(semesterFile)) {
     semester = read(semesterFile) || {};
   }
+  if (Number.isFinite(Number(semester.assume_done_after_days))) {
+    GRACE_DAYS = Number(semester.assume_done_after_days);
+  }
   const courses = [];
   const inline = Array.isArray(semester.courses) ? semester.courses : [];
   for (const course of inline) courses.push({ ...course, _file: semesterFile });
@@ -373,6 +376,25 @@ function iso(d) {
 
 // ── Model ────────────────────────────────────────────────────────────────────
 
+// Caleb's rule, set 2026-09-20: he either does a thing within two days of its
+// deadline or he does not do it at all. So a `todo` that is further past due
+// than GRACE_DAYS stops being an action item and is reported as `assumed-done`.
+// It is deliberately a separate word from `done`: `done` means somebody saw it
+// land, `assumed-done` means the window closed. Override per semester with
+// `assume_done_after_days` in semester.yml.
+let GRACE_DAYS = 2;
+
+function closeStatus(d, due) {
+  const status = (d.status || "todo").toLowerCase();
+  if (status !== "todo" || !due) return status;
+  return daysBetween(today(), due) < -GRACE_DAYS ? "assumed-done" : status;
+}
+
+// Anything that is no longer an action item, however it got that way.
+function isOpen(d) {
+  return d.status !== "done" && d.status !== "assumed-done";
+}
+
 function deliverables(courses) {
   const out = [];
   for (const course of courses) {
@@ -392,7 +414,7 @@ function deliverables(courses) {
         type: d.type || "assignment",
         weight:
           d.weight != null ? d.weight : d.points != null ? d.points : null,
-        status: (d.status || "todo").toLowerCase(),
+        status: closeStatus(d, due),
         notes: d.notes || null,
         file: course._file,
       });
@@ -459,7 +481,7 @@ function cmdDue(args) {
   const { courses } = loadLedger();
   const days = numFlag(args, "--days", 14);
   const now = today();
-  const all = deliverables(courses).filter((d) => d.status !== "done");
+  const all = deliverables(courses).filter(isOpen);
   const overdue = all.filter((d) => d.due && d.due < now);
   const upcoming = all.filter(
     (d) => d.due && d.due >= now && daysBetween(now, d.due) <= days,
@@ -506,7 +528,7 @@ function cmdToday(args) {
   const now = today();
   const classes = meetingsOn(courses, now);
   const due = deliverables(courses).filter(
-    (d) => d.status !== "done" && d.due && +d.due === +now,
+    (d) => isOpen(d) && d.due && +d.due === +now,
   );
   if (args.includes("--json")) {
     return say(JSON.stringify({ date: iso(now), classes, due }, null, 2));
@@ -536,7 +558,7 @@ function cmdWeek(args) {
   const { courses } = loadLedger();
   const now = today();
   const span = numFlag(args, "--days", 7);
-  const due = deliverables(courses).filter((d) => d.status !== "done");
+  const due = deliverables(courses).filter(isOpen);
   const out = [];
   for (let i = 0; i < span; i++) {
     const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
@@ -832,7 +854,10 @@ function cmdCheck() {
       if (!d.due) note(`${name}: "${d.name || "(unnamed)"}" has no due date`);
       else if (!parseDate(d.due))
         note(`${name}: "${d.name}" due "${d.due}" is not YYYY-MM-DD`);
-      else if (parseDate(d.due) < now && (d.status || "todo") === "todo") {
+      else if (
+        parseDate(d.due) < now &&
+        closeStatus(d, parseDate(d.due)) === "todo"
+      ) {
         note(
           `${name}: "${d.name}" was due ${fmt(parseDate(d.due))} and is still marked todo`,
         );

@@ -8,6 +8,9 @@ let package = Package(
     targets: [
         .target(name: "BobHUDKit"),
         .executableTarget(name: "BobHUD", dependencies: ["BobHUDKit"]),
+        // Doctor Strange skeleton overlay. A demo, not production.
+        // Run: swift run HandDemo
+        .executableTarget(name: "HandDemo"),
         .testTarget(name: "BobHUDKitTests", dependencies: ["BobHUDKit"]),
     ]
 )

@@ -91,7 +91,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         /// the bubble's words are cleared the moment it leaves `live`.
         let text: String
     }
+    // `voice` is internal, not private: the dictation fork in
+    // Dictation.swift drives the same listener, and it is one microphone.
     let voice = VoiceListener()
+    private let handTracker = HandTracker()
     /// The tone that says the press was heard. See `Earcon`.
     private let earcon = Earcon()
     private static let earconKey = "hud.earcon"
@@ -129,6 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setUpChat()
         setUpReticle()
         setUpBubbles()
+        setUpHands()
         setUpMenuBar()
         setUpKeys()
         observeScreenChanges()
@@ -186,6 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         server?.stop()
         voice.setMode(.off)
+        handTracker.stop()
         let monitors = [
             hotKeyMonitor, escMonitor, localEscMonitor, mouseMonitor,
             localMouseMonitor, clickMonitor, localClickMonitor, flagsMonitor,
@@ -732,6 +737,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             width: abs(to.x - from.x), height: abs(to.y - from.y))
     }
 
+    // MARK: Hand control
+
+    /// Whether hand control was last on, kept across launches.
+    private static let handControlKey = "hud.handControl"
+
+    /// Wire the two gestures to what they mean.
+    ///
+    /// Palm dismiss: the same semantic as the double-tap of the globe key.
+    /// Point: the same region event the reticle sends.
+    ///
+    /// Both are redundant with a keyboard path that remains primary. The
+    /// gestures have no discoverability, and nothing in the literature solves
+    /// that (Kinect, Leap, Pixel 4 all died on it), so the keyboard is the
+    /// thing people find and the camera is the thing people keep.
+    private func setUpHands() {
+        handTracker.onGesture = { [weak self] gesture in
+            guard let self else { return }
+            switch gesture {
+            case .palmDismiss:
+                self.leave()
+
+            case .point(let unitPoint):
+                guard let screen = OverlayWindow.active else { return }
+                let frame = screen.frame
+                // Unit coordinates (0-1, top-left origin) to screen points.
+                let rect = CGRect(
+                    x: unitPoint.x * frame.width,
+                    y: unitPoint.y * frame.height,
+                    width: 40, height: 40)
+                self.model.mark(
+                    id: "hand-point", rect: rect, label: "here", tone: nil, life: 4)
+                self.model.onEvent?(.region(rect))
+            }
+        }
+        if UserDefaults.standard.bool(forKey: Self.handControlKey) {
+            handTracker.start()
+        }
+    }
+
+    @objc private func toggleHandControl(_ sender: NSMenuItem) {
+        let on = !handTracker.isRunning
+        if on { handTracker.start() } else { handTracker.stop() }
+        UserDefaults.standard.set(on, forKey: Self.handControlKey)
+        sender.state = on ? .on : .off
+    }
+
     /// Tell the field where the hand is, so the band can part round it. A
     /// pointer on another display is nowhere the band can reach.
     private func trackPointer() {
@@ -882,6 +933,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         soundItem.target = self
         soundItem.state = Self.earconOn ? .on : .off
         menu.addItem(soundItem)
+
+        let handItem = NSMenuItem(
+            title: "Hand control (camera)", action: #selector(toggleHandControl(_:)), keyEquivalent: "")
+        handItem.target = self
+        handItem.state = handTracker.isRunning ? .on : .off
+        menu.addItem(handItem)
         menu.addItem(.separator())
 
         let socket = NSMenuItem(title: SocketServer.defaultPath, action: nil, keyEquivalent: "")
