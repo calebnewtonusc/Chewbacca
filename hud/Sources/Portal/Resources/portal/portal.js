@@ -630,7 +630,9 @@
     const c = 2 * Math.sqrt(k);
     const a = k * (1 - x) - c * v;
     const nv = v + a * dt;
-    return { x: Math.min(1, x + nv * dt), v: nv };
+    const nx = Math.min(1, x + nv * dt);
+    if (1 - nx < 0.01 && Math.abs(nv) < 0.35) return { x: 1, v: 0 };
+    return { x: nx, v: nv };
   };
   var stroke = [];
   var softFit = null;
