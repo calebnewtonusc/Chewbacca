@@ -456,14 +456,13 @@ function frame(now: number) {
       ? { x: last.x + (cursor.x - last.x) * 0.45, y: last.y + (cursor.y - last.y) * 0.45 }
       : cursor;
     stroke.push({ x: sm.x, y: sm.y, rx: sm.x, ry: sm.y });
-    // A LINE THAT IS NOT BECOMING A CIRCLE TRAILS OFF. "if it's just a line
-    // and not a circle, the end of the line should go after a little bit as
-    // your hand moves." Held at full length it accumulated into a scribble
-    // with no shape and nothing to read. Once a circle is being recognised
-    // the whole path is kept, because by then the tail is the part that has
-    // already snapped onto the ring and is holding it.
-    const keep = p.progress > 0.2 ? 260 : 34;
-    while (stroke.length > keep) stroke.shift();
+    // Hard cap only. The real trim happens after the detector has run,
+    // because it depends on this frame's progress and `p` does not exist
+    // yet here. Reading it from here threw a ReferenceError every frame,
+    // which killed the whole render loop and took the line with it: the
+    // symptom was "now I'm not seeing any line", with nothing in the
+    // drawing code wrong at all.
+    while (stroke.length > 260) stroke.shift();
   } else if (stroke.length) {
     stroke = [];
   }
@@ -474,6 +473,17 @@ function frame(now: number) {
   } else {
     detector.reset();
     p = IDLE_PROGRESS;
+  }
+
+  // A LINE THAT IS NOT BECOMING A CIRCLE TRAILS OFF. "if it's just a line
+  // and not a circle, the end of the line should go after a little bit as
+  // your hand moves." Held at full length it piled into a scribble with no
+  // shape. Once a circle is being recognised the whole path is kept,
+  // because by then the tail is the part already snapped onto the ring and
+  // holding it there.
+  if (stroke.length) {
+    const keep = p.progress > 0.2 ? 260 : 34;
+    while (stroke.length > keep) stroke.shift();
   }
 
   const prevPhase = state.phase;
