@@ -2034,6 +2034,27 @@ function frame(now: number) {
         : raw;
     }
     const fitC = drawing ?? softFit;
+
+    // THE ONE INITIATION POINT. Everything that says "a circle is happening
+    // now" starts here: the line bending onto the ring, and the other side
+    // beginning to show. They used to start at different thresholds, so on
+    // a big circle the reveal arrived before the arc did.
+    //
+    // "With a really big circle you don't have to do as much of a rotation
+    // to start this; smaller circle, you gotta damn near do a whole circle."
+    //
+    // How much of a turn is needed before we can pick a good centre and
+    // radius depends entirely on how big the thing is. A big circle has
+    // covered a lot of screen by a third of a turn and the fit is already
+    // sound; a small one has barely moved and a fit there is a guess.
+    //
+    //   radius 0.06 of the screen   initiates at 91% of a turn
+    //   radius 0.10                 at 83%
+    //   radius 0.15                 at 74%
+    //   radius 0.22                 at 60%
+    //   radius 0.30                 at 45%
+    //   radius 0.40                 at 35%
+    const initAt = Math.max(0.35, Math.min(0.95, 1.02 - 1.9 * (fitC ? fitC.r : 0)));
     // EARLY AND FAST. The pull starts at a tenth of a turn and is at full
     // strength by a third, because the correction is most of the effect and
     // arriving late made it look like a separate thing happening afterwards.
@@ -2074,7 +2095,15 @@ function frame(now: number) {
     // the portal opening at 309.
     // Full strength by 0.95, not 1.05, so the bend actually finishes
     // before the portal opens rather than being cut off mid-way.
-    const turned = Math.max(0, Math.min(1, (p.progress - LATCH_AT) / 0.15));
+    // Tied to the initiation point, not to LATCH_AT. "The arc shouldn't
+    // start appearing until the initiation point, when we're confident
+    // enough the person is making a circle and they've done enough circle
+    // already that we can choose a good location and size."
+    // The ramp is sized from whatever is LEFT after initiating, or a late
+    // initiation on a small circle would leave the bend unfinished when the
+    // portal opens: at 0.95, a fixed 0.15 wide ramp reaches full at 1.10.
+    const bendSpan = Math.max(0.05, (1 - initAt) * 0.7);
+    const turned = Math.max(0, Math.min(1, (p.progress - initAt) / bendSpan));
     const round = Math.max(0, Math.min(1, (p.roundness - 0.55) / 0.3));
     const conf = turned * round;
     const k = Math.pow(conf, 0.9);
@@ -2158,15 +2187,14 @@ function frame(now: number) {
     //   radius 0.08 of the screen   reveal starts at 66% of a turn
     //   radius 0.18                 at 55%
     //   radius 0.32 and up          at 42%
-    const rSeen = fitC ? fitC.r : 0;
-    const REVEAL_AT = Math.max(0.42, Math.min(0.75, 0.75 - 1.1 * rSeen));
+    const REVEAL_AT = initAt;
     // AND IT STARTS FROM NOTHING. A linear ramp from the threshold still
     // leaves a corner at the moment it begins, and the opacity below used
     // to add a 0.12 floor on top of that, so the other side appeared at
     // 12% instantly: "out of nowhere the animation starts". Smoothstepped,
     // so it leaves zero at zero speed, and the floor is gone.
     const reveal = (() => {
-      const span = Math.max(0.12, 1 - REVEAL_AT);
+      const span = Math.max(0.05, (1 - REVEAL_AT) * 0.85);
       const t = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / span));
       return t * t * (3 - 2 * t);
     })();
