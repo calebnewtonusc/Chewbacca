@@ -107,6 +107,7 @@ let openGap = 0, openGapFrom = 0, openCcw = false;
 // off would pop in and vanish; this follows it, so an abandoned circle takes
 // its portal away with it instead of the other dimension blinking out.
 let mirrorAmt = 0;
+let recognisedLatch = false;
 // How deep the mirror had eaten on the last recognised frame, held so the
 // fade-out and the opening both continue from it rather than jumping.
 let lastFill = 0;
@@ -136,7 +137,14 @@ const stepSpring = (x: number, v: number, k: number, dt: number) => {
   const c = 2 * Math.sqrt(k);            // critical damping, so it never overshoots
   const a = k * (1 - x) - c * v;
   const nv = v + a * dt;
-  return { x: Math.min(1, x + nv * dt), v: nv };
+  const nx = Math.min(1, x + nv * dt);
+  // IT HAS TO ARRIVE, NOT APPROACH. A spring is asymptotic, and everything
+  // that must vanish when a portal finishes is driven by these, so nothing
+  // ever reached zero: a second in there was still 4px of blur and a veil
+  // holding the mirror slightly transparent. Snapped a hundredth from the
+  // target, which is under a pixel of blur and invisible to cross.
+  if (1 - nx < 0.01 && Math.abs(nv) < 0.35) return { x: 1, v: 0 };
+  return { x: nx, v: nv };
 };
 // The raw path the pinch has taken this stroke, in screen-normalized space.
 // It is drawn as a line from the first frame and BENDS onto the fitted
@@ -1134,7 +1142,7 @@ function frame(now: number) {
     }
   }
   if (S.phase !== "drawing" && drawing) drawing = null;
-  if (!pinched) { softFit = null; trimmedAtLatch = false; announcedAtLatch = false; }
+  if (!pinched) { softFit = null; trimmedAtLatch = false; announcedAtLatch = false; recognisedLatch = false; }
   if (!portalUp) placedOk = false;
   if (!portalUp) { settleX = 0; settleV = 0; arcX = 0; arcV = 0; }
   if (portalUp) stroke = [];
@@ -1384,7 +1392,19 @@ function frame(now: number) {
     // It needs the same two things the ring needs: enough turning AND a path
     // that stayed round while turning. Roundness is what separates a circle
     // being drawn from a hand that merely moved.
-    const recognised = pinched && p.roundness >= 0.55 && p.progress >= REVEAL_AT;
+    // HYSTERESIS, OR THE BOUNDARY SWINGS. A bare threshold sits right where
+    // roundness lives on a real hand, and it crosses several times a second.
+    // Every frame it was true the gap was read fresh; every frame false the
+    // last one was held, so the unfilled sector alternated between two
+    // positions as fast as the gate flickered.
+    //
+    // It latches at the same 0.55 everything else uses and holds down to
+    // 0.44. Raising the ON threshold instead made circles hard to start,
+    // which is not what hysteresis is for.
+    if (!pinched || p.progress < REVEAL_AT - 0.05) recognisedLatch = false;
+    else if (p.roundness >= 0.55) recognisedLatch = true;
+    else if (p.roundness < 0.44) recognisedLatch = false;
+    const recognised = recognisedLatch && pinched && p.progress >= REVEAL_AT;
 
     // A CANCELLED CIRCLE UNWINDS, IT DOES NOT JUST FADE.
     //
@@ -1410,10 +1430,19 @@ function frame(now: number) {
 
     if (recognised) {
       const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
-      openGap = Math.max(0, 1 - doneTurns);
+      // Followed, not assigned. The fit moves a little every frame and the
+      // boundary is a big shape, so even a correct change reads as a jerk
+      // when it lands in one step.
+      openGap += (Math.max(0, 1 - doneTurns) - openGap) * 0.3;
       openCcw = p.sweep < 0;
-      lastFill = doneTurns;
-      holdOld = (p.endAngle ?? 0) - (openCcw ? -1 : 1) * doneTurns * Math.PI * 2;
+      lastFill += (doneTurns - lastFill) * 0.3;
+      // The angle takes the short way round, or the boundary sweeps the
+      // long way whenever the fit crosses PI.
+      const oldTarget = (p.endAngle ?? 0) - (openCcw ? -1 : 1) * doneTurns * Math.PI * 2;
+      let dA = oldTarget - holdOld;
+      while (dA > Math.PI) dA -= Math.PI * 2;
+      while (dA < -Math.PI) dA += Math.PI * 2;
+      holdOld += dA * 0.3;
     } else if (mirrorAmt > 0.006) {
       // Unwinding. Depth back to the rim and arc back to the start point.
       lastFill += (0 - lastFill) * 0.10;
@@ -1495,17 +1524,39 @@ function frame(now: number) {
     // TWO passes, not three. Three widths of additive stroke on a light
     // background paint the edges twice and leave the middle thin, which
     // reads as a hollow outline rather than a burning line.
-    ctx.shadowBlur = 10 + 22 * k;
-    ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
-    ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.18 + k * 0.45})`;
-    ctx.lineWidth = Math.max(2.5, rBase * RPX * 0.05);
-    path(); ctx.stroke();
+    // THE LINE NEVER CROSSES THE PORTAL. The stroke is the whole path the
+    // hand has taken, and a hand drawing a circle wanders inside it: the
+    // lead-in, the part before the fit settled, anything that cut a corner.
+    // All of it landed on the mirror.
+    //
+    // Clipped at the mirror's INNER edge, not at the rim. At the rim the
+    // line runs along the boundary, so small movements of the fit flipped
+    // whole segments in and out of the clip and the stroke broke apart.
+    // Capped at 0.88 R so the rim line is never touched.
+    const hideInside = fitC && mirrorAmt > 0.01;
+    if (hideInside) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, W, H);
+      const innerEdge = Math.min(0.88, 1 - Math.pow(lastFill, 2.5));
+      ctx.arc(mx(fitC.cx), my(fitC.cy),
+        Math.max(2, fitC.r * RPX * innerEdge), 0, Math.PI * 2);
+      ctx.clip("evenodd");
+    }
+    if (!portalUp) {
+      ctx.shadowBlur = 10 + 22 * k;
+      ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
+      ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.18 + k * 0.45})`;
+      ctx.lineWidth = Math.max(2.5, rBase * RPX * 0.05);
+      path(); ctx.stroke();
 
-    ctx.shadowBlur = 6 + 10 * k;
-    ctx.strokeStyle = `rgba(${CORE}, ${0.3 + k * 0.6})`;
-    ctx.lineWidth = Math.max(1, rBase * RPX * 0.016);
-    path(); ctx.stroke();
+      ctx.shadowBlur = 6 + 10 * k;
+      ctx.strokeStyle = `rgba(${CORE}, ${0.3 + k * 0.6})`;
+      ctx.lineWidth = Math.max(1, rBase * RPX * 0.016);
+      path(); ctx.stroke();
+    }
     ctx.shadowBlur = 0;
+    if (hideInside) ctx.restore();
 
     // BINDING IS A PROPORTION, NOT A SWITCH. A spark bound to the circle
     // is pulled onto it; an unbound one drifts and dies where it was born.
@@ -1525,7 +1576,10 @@ function frame(now: number) {
     const boundShare = Math.min(0.4, conf * conf * 0.45);
     const bindMaybe = () => Math.random() < boundShare;
 
-    if (fitC && conf > 0.05) {
+    // Nothing spawns onto the stroke while a portal is up. Hiding the line
+    // and leaving its sparks is the same mistake as switching off a
+    // correction without stopping the code that computes it.
+    if (fitC && conf > 0.05 && !portalUp) {
       // Sample fewer points early, so the pull shows up as a few strands
       // rather than the whole line lifting at once.
       const step = Math.max(4, Math.round(22 - conf * 18));
@@ -1551,7 +1605,7 @@ function frame(now: number) {
     let tx = hp.x - pp.x;
     let ty = hp.y - pp.y;
     const tm = Math.hypot(tx, ty) || 1;
-    const n = Math.round(1 + k * 9);
+    const n = portalUp ? 0 : Math.round(1 + k * 9);
     for (let i = 0; i < n; i++) {
       spawnAt(mx(head.rx), my(head.ry), tx / tm, ty / tm, 1,
         2.2 + k * 3.0, bindMaybe());
@@ -1813,6 +1867,18 @@ function frame(now: number) {
 
   // ── Sparks ───────────────────────────────────────────────────────────────
   ctx.globalCompositeOperation = "lighter";
+  // WHEREVER THE OTHER SIDE IS SHOWING, not only once a portal has opened.
+  // The mirror is visible from half a turn, long before anything opens, so
+  // gating this on portalUp meant it never ran in the frames that mattered.
+  const drawnFit = drawing ?? softFit;
+  const holeUp = portalUp || (!!drawnFit && mirrorAmt > 0.01);
+  const holeCx = portalUp ? px(geom.cx) : (drawnFit ? mx(drawnFit.cx) : 0);
+  const holeCy = portalUp ? py(geom.cy) : (drawnFit ? my(drawnFit.cy) : 0);
+  const holeR =
+    (portalUp ? rpxOf(clampRN(geom.r)) : (drawnFit ? drawnFit.r * RPX : 0)) * 0.97;
+  const insidePortal = (x: number, y: number) =>
+    (x - holeCx) ** 2 + (y - holeCy) ** 2 < holeR * holeR;
+
   const alive: Spark[] = [];
   for (const sp of sparks) {
     const c = Math.cos(0.035), sn = Math.sin(0.035);
@@ -1859,6 +1925,15 @@ function frame(now: number) {
     sp.life -= 0.004;
     if (sp.life <= 0) continue;
     alive.push(sp);
+
+    // NOTHING IS DRAWN INSIDE THE HOLE, WHATEVER SPAWNED IT. At the moment a
+    // circle completes, every spark seeded along the stroke is inside it and
+    // bound to the attractor, which flings them across the middle: 302 of
+    // them in one measured frame. Hundreds of short overlapping streaks at
+    // low alpha average into a smooth orange arc, which is why it never
+    // looked like sparks. They still integrate, so they reappear the moment
+    // they cross the rim.
+    if (holeUp && insidePortal(sp.x, sp.y)) continue;
 
     const speed = Math.hypot(sp.vx, sp.vy) || 1;
     // A ROUND CAP ON A SHORT STROKE IS A DOT. lineCap "round" adds a

@@ -616,6 +616,7 @@
   var openGapFrom = 0;
   var openCcw = false;
   var mirrorAmt = 0;
+  var recognisedLatch = false;
   var lastFill = 0;
   var holdOld = 0;
   var settleX = 0;
@@ -628,7 +629,9 @@
     const c = 2 * Math.sqrt(k);
     const a = k * (1 - x) - c * v;
     const nv = v + a * dt;
-    return { x: Math.min(1, x + nv * dt), v: nv };
+    const nx = Math.min(1, x + nv * dt);
+    if (1 - nx < 0.01 && Math.abs(nv) < 0.35) return { x: 1, v: 0 };
+    return { x: nx, v: nv };
   };
   var stroke = [];
   var softFit = null;
@@ -1066,6 +1069,7 @@
       softFit = null;
       trimmedAtLatch = false;
       announcedAtLatch = false;
+      recognisedLatch = false;
     }
     if (!portalUp) placedOk = false;
     if (!portalUp) {
@@ -1165,15 +1169,22 @@
       }
       const REVEAL_AT = 0.5;
       const reveal = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / (1 - REVEAL_AT)));
-      const recognised = pinched && p.roundness >= 0.55 && p.progress >= REVEAL_AT;
+      if (!pinched || p.progress < REVEAL_AT - 0.05) recognisedLatch = false;
+      else if (p.roundness >= 0.55) recognisedLatch = true;
+      else if (p.roundness < 0.44) recognisedLatch = false;
+      const recognised = recognisedLatch && pinched && p.progress >= REVEAL_AT;
       const want = !portalUp && fitC && recognised ? 0.12 + 0.88 * reveal : 0;
       mirrorAmt += (want - mirrorAmt) * (want > mirrorAmt ? 0.15 : 0.09);
       if (recognised) {
         const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
-        openGap = Math.max(0, 1 - doneTurns);
+        openGap += (Math.max(0, 1 - doneTurns) - openGap) * 0.3;
         openCcw = p.sweep < 0;
-        lastFill = doneTurns;
-        holdOld = (p.endAngle ?? 0) - (openCcw ? -1 : 1) * doneTurns * Math.PI * 2;
+        lastFill += (doneTurns - lastFill) * 0.3;
+        const oldTarget = (p.endAngle ?? 0) - (openCcw ? -1 : 1) * doneTurns * Math.PI * 2;
+        let dA = oldTarget - holdOld;
+        while (dA > Math.PI) dA -= Math.PI * 2;
+        while (dA < -Math.PI) dA += Math.PI * 2;
+        holdOld += dA * 0.3;
       } else if (mirrorAmt > 6e-3) {
         lastFill += (0 - lastFill) * 0.1;
         openGap += (1 - openGap) * 0.1;
@@ -1196,21 +1207,39 @@
         ctx.moveTo(SP[0].x, SP[0].y);
         for (let i = 1; i < SP.length; i++) ctx.lineTo(SP[i].x, SP[i].y);
       };
-      ctx.shadowBlur = 10 + 22 * k;
-      ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
-      ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.18 + k * 0.45})`;
-      ctx.lineWidth = Math.max(2.5, rBase * RPX * 0.05);
-      path();
-      ctx.stroke();
-      ctx.shadowBlur = 6 + 10 * k;
-      ctx.strokeStyle = `rgba(${CORE}, ${0.3 + k * 0.6})`;
-      ctx.lineWidth = Math.max(1, rBase * RPX * 0.016);
-      path();
-      ctx.stroke();
+      const hideInside = fitC && mirrorAmt > 0.01;
+      if (hideInside) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, W, H);
+        const innerEdge = Math.min(0.88, 1 - Math.pow(lastFill, 2.5));
+        ctx.arc(
+          mx(fitC.cx),
+          my(fitC.cy),
+          Math.max(2, fitC.r * RPX * innerEdge),
+          0,
+          Math.PI * 2
+        );
+        ctx.clip("evenodd");
+      }
+      if (!portalUp) {
+        ctx.shadowBlur = 10 + 22 * k;
+        ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
+        ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.18 + k * 0.45})`;
+        ctx.lineWidth = Math.max(2.5, rBase * RPX * 0.05);
+        path();
+        ctx.stroke();
+        ctx.shadowBlur = 6 + 10 * k;
+        ctx.strokeStyle = `rgba(${CORE}, ${0.3 + k * 0.6})`;
+        ctx.lineWidth = Math.max(1, rBase * RPX * 0.016);
+        path();
+        ctx.stroke();
+      }
       ctx.shadowBlur = 0;
+      if (hideInside) ctx.restore();
       const boundShare = Math.min(0.4, conf * conf * 0.45);
       const bindMaybe = () => Math.random() < boundShare;
-      if (fitC && conf > 0.05) {
+      if (fitC && conf > 0.05 && !portalUp) {
         const step = Math.max(4, Math.round(22 - conf * 18));
         for (let i = 0; i < stroke.length; i += step) {
           const q = stroke[i];
@@ -1234,7 +1263,7 @@
       let tx = hp.x - pp.x;
       let ty = hp.y - pp.y;
       const tm = Math.hypot(tx, ty) || 1;
-      const n = Math.round(1 + k * 9);
+      const n = portalUp ? 0 : Math.round(1 + k * 9);
       for (let i = 0; i < n; i++) {
         spawnAt(
           mx(head.rx),
@@ -1381,6 +1410,12 @@
       }
     }
     ctx.globalCompositeOperation = "lighter";
+    const drawnFit = drawing ?? softFit;
+    const holeUp = portalUp || !!drawnFit && mirrorAmt > 0.01;
+    const holeCx = portalUp ? px(geom.cx) : drawnFit ? mx(drawnFit.cx) : 0;
+    const holeCy = portalUp ? py(geom.cy) : drawnFit ? my(drawnFit.cy) : 0;
+    const holeR = (portalUp ? rpxOf(clampRN(geom.r)) : drawnFit ? drawnFit.r * RPX : 0) * 0.97;
+    const insidePortal = (x, y) => (x - holeCx) ** 2 + (y - holeCy) ** 2 < holeR * holeR;
     const alive = [];
     for (const sp of sparks) {
       const c = Math.cos(0.035), sn = Math.sin(0.035);
@@ -1421,6 +1456,7 @@
       sp.life -= 4e-3;
       if (sp.life <= 0) continue;
       alive.push(sp);
+      if (holeUp && insidePortal(sp.x, sp.y)) continue;
       const speed = Math.hypot(sp.vx, sp.vy) || 1;
       const len = Math.max(5, Math.min(20, speed * 2.4));
       const h = sp.heat * sp.life;
