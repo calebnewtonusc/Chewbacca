@@ -514,27 +514,41 @@
     const fit = (v) => Math.max(0.02, Math.min(0.98, 0.5 + (v - 0.5) * reachScale));
     const mx = (nx) => (1 - fit(nx)) * W;
     const my = (ny) => fit(ny) * H;
-    const RSCALE = (W + H) / 2;
     const RMIN = 24;
     const RMAX = Math.min(W, H) * 0.42;
-    const clampR = (r) => Math.max(RMIN, Math.min(RMAX, r * sizeScale * reachScale));
+    const clampRN = (rn) => {
+      const scaled = rn * sizeScale;
+      const minRN = RMIN / Math.min(W, H);
+      const maxRN = 0.46;
+      return Math.max(minRN, Math.min(maxRN, scaled));
+    };
     const px = mx;
     const py = my;
-    const arcPath = (cn, r, a0, a1, segs = 96, jitterPx = 0) => {
-      const cx0 = px(cn.x), cy0 = py(cn.y);
+    const arcPath = (cn, rn, a0, a1, segs = 96, jitterPx = 0) => {
       ctx.beginPath();
       for (let i = 0; i <= segs; i++) {
         const a = a0 + (a1 - a0) * i / segs;
-        const rr = jitterPx ? r + (Math.random() - 0.5) * jitterPx : r;
-        const qx = cx0 + Math.cos(a) * rr;
-        const qy = cy0 + Math.sin(a) * rr;
+        let qx = px(cn.x + Math.cos(a) * rn);
+        let qy = py(cn.y + Math.sin(a) * rn);
+        if (jitterPx) {
+          qx += (Math.random() - 0.5) * jitterPx;
+          qy += (Math.random() - 0.5) * jitterPx;
+        }
         if (i === 0) ctx.moveTo(qx, qy);
         else ctx.lineTo(qx, qy);
       }
     };
-    const disc = (cn, r) => {
+    const rpxOf = (cn, rn) => Math.hypot(px(cn.x + rn) - px(cn.x), 0) || 1;
+    const disc = (cn, rn) => {
       ctx.beginPath();
-      ctx.arc(px(cn.x), py(cn.y), r, 0, Math.PI * 2);
+      for (let i = 0; i <= 96; i++) {
+        const a = Math.PI * 2 * i / 96;
+        const qx = px(cn.x + Math.cos(a) * rn);
+        const qy = py(cn.y + Math.sin(a) * rn);
+        if (i === 0) ctx.moveTo(qx, qy);
+        else ctx.lineTo(qx, qy);
+      }
+      ctx.closePath();
     };
     const spawnAt = (x, y, tangentX, tangentY, count, speed, bind = false) => {
       for (let i = 0; i < count; i++) {
@@ -593,7 +607,7 @@
         completed: p.completed && !!p.center,
         progress: p.progress,
         center: p.center ? { x: mx(p.center.x), y: my(p.center.y) } : null,
-        radius: clampR(p.radius * RSCALE)
+        radius: rpxOf(p.center, clampRN(p.radius))
       },
       { igniteMs: IGNITE_MS, closeMs: CLOSE_MS, minOpenMs: MIN_OPEN_MS }
     );
@@ -601,23 +615,23 @@
     const portalUp = S.phase === "igniting" || S.phase === "open" || S.phase === "closing";
     if (S.phase === "igniting" && prevPhase !== "igniting") {
       if (p.center) {
-        const rn = clampR(p.radius * RSCALE) / RSCALE;
+        const rn = clampRN(p.radius);
         geom = {
           cx: Math.max(rn, Math.min(1 - rn, p.center.x)),
           cy: Math.max(rn, Math.min(1 - rn, p.center.y)),
           r: p.radius
         };
       }
-      attract = { cx: geom.cx, cy: geom.cy, r: clampR(geom.r * RSCALE) };
+      attract = { cx: geom.cx, cy: geom.cy, r: rpxOf({ x: geom.cx, y: geom.cy }, clampRN(geom.r)) };
       window.webkit?.messageHandlers?.portal?.postMessage({
         event: "opened",
         x: mx(geom.cx),
         y: my(geom.cy),
-        r: clampR(geom.r * RSCALE),
+        r: rpxOf({ x: geom.cx, y: geom.cy }, clampRN(geom.r)),
         armed: armed?.label ?? null
       });
       comet = [];
-      const gr = clampR(geom.r * RSCALE);
+      const gr = rpxOf({ x: geom.cx, y: geom.cy }, clampRN(geom.r));
       for (let i = 0; i < 700; i++) {
         const a = Math.random() * Math.PI * 2;
         spawnAt(
@@ -677,7 +691,8 @@
     }
     if (S.phase === "drawing" && p.center && p.startAngle !== null && p.progress > 0.16) {
       const cn = p.center;
-      const rpx = clampR(p.radius * RSCALE);
+      const rn = clampRN(p.radius);
+      const rpx = rpxOf(cn, rn);
       const swept = -Math.max(-Math.PI * 2, Math.min(Math.PI * 2, p.sweep));
       const a0 = mirrorAngle(p.startAngle);
       const a1 = a0 + swept;
@@ -688,22 +703,22 @@
       ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
       ctx.strokeStyle = `rgba(${SPARK_COLD}, ${0.04 + k * 0.34})`;
       ctx.lineWidth = Math.max(1.5, rpx * (0.02 + k * 0.06));
-      arcPath(cn, rpx, a0, a1, 96, 3);
+      arcPath(cn, rn, a0, a1, 96, 3);
       ctx.stroke();
       ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.07 + k * 0.6})`;
       ctx.lineWidth = Math.max(1.2, rpx * (0.01 + k * 0.03));
-      arcPath(cn, rpx, a0, a1, 96, 1.5);
+      arcPath(cn, rn, a0, a1, 96, 1.5);
       ctx.stroke();
       ctx.shadowBlur = 6 + 16 * k;
       ctx.strokeStyle = `rgba(${CORE}, ${0.06 + k * 0.72})`;
       ctx.lineWidth = Math.max(0.8, rpx * (4e-3 + k * 0.011));
-      arcPath(cn, rpx, a0, a1);
+      arcPath(cn, rn, a0, a1);
       ctx.stroke();
       const headSpan = Math.sign(swept) * Math.min(Math.abs(swept), 0.55);
       ctx.shadowBlur = 14 + 50 * k;
       ctx.strokeStyle = `rgba(${CORE}, ${0.35 + k * 0.6})`;
       ctx.lineWidth = Math.max(1.4, rpx * (0.012 + k * 0.042));
-      arcPath(cn, rpx, a1 - headSpan, a1, 24);
+      arcPath(cn, rn, a1 - headSpan, a1, 24);
       ctx.stroke();
       ctx.shadowBlur = 0;
       const hx = px(cn.x) + Math.cos(a1) * rpx;
@@ -733,7 +748,8 @@
       const shut = collapseAmount(S, now, CLOSE_MS);
       const e = ease(ignite);
       const cn = { x: geom.cx, y: geom.cy };
-      const rpx = clampR(geom.r * RSCALE) * (1 - ease(shut));
+      const rn = clampRN(geom.r) * (1 - ease(shut));
+      const rpx = rpxOf(cn, rn);
       const vis = e * (1 - shut);
       const age = (now - S.born) / 1e3;
       if (S.phase === "open") attract = { cx: cn.x, cy: cn.y, r: rpx };
@@ -742,7 +758,7 @@
         if (armed) {
           ctx.globalCompositeOperation = "destination-out";
           ctx.globalAlpha = 1;
-          disc(cn, rpx * 0.985);
+          disc(cn, rn * 0.985);
           ctx.fill();
           ctx.globalCompositeOperation = "source-over";
           ctx.globalAlpha = vis * 0.9;
@@ -750,7 +766,7 @@
           lip.addColorStop(0, "rgba(0,0,0,0)");
           lip.addColorStop(1, "rgba(120, 48, 12, 0.6)");
           ctx.fillStyle = lip;
-          disc(cn, rpx);
+          disc(cn, rn);
           ctx.fill();
           ctx.globalAlpha = 1;
         } else {
@@ -762,7 +778,7 @@
           inner.addColorStop(0.95, "rgba(46, 18, 5, 1)");
           inner.addColorStop(1, "rgba(120, 48, 12, 0.85)");
           ctx.fillStyle = inner;
-          disc(cn, rpx);
+          disc(cn, rn);
           ctx.fill();
           ctx.globalAlpha = 1;
         }
@@ -771,12 +787,12 @@
         bloom.addColorStop(0, `rgba(${SPARK_MID}, ${0.16 * vis})`);
         bloom.addColorStop(1, "rgba(0,0,0,0)");
         ctx.fillStyle = bloom;
-        disc(cn, rpx * 1.22);
+        disc(cn, rn * 1.22);
         ctx.fill();
         if (ignite < 1) {
           ctx.strokeStyle = `rgba(${CORE}, ${(1 - e) * 0.5})`;
           ctx.lineWidth = (1 - e) * 9 + 1;
-          arcPath(cn, rpx * (1 + e * 0.85), 0, Math.PI * 2);
+          arcPath(cn, rn * (1 + e * 0.85), 0, Math.PI * 2);
           ctx.stroke();
         }
         const flicker = 0.82 + Math.sin(now / 55) * 0.1 + Math.random() * 0.08;
@@ -786,22 +802,22 @@
         ctx.shadowBlur = 30 * heat;
         ctx.strokeStyle = `rgba(${SPARK_COLD}, ${0.3 * vis})`;
         ctx.lineWidth = Math.max(4, rpx * 0.1) * heat;
-        arcPath(cn, rpx, 0, Math.PI * 2, 120, 4);
+        arcPath(cn, rn, 0, Math.PI * 2, 120, 4);
         ctx.stroke();
         ctx.shadowBlur = 24 * heat;
         ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.5 * vis})`;
         ctx.lineWidth = Math.max(2.5, rpx * 0.045) * heat;
-        arcPath(cn, rpx, 0, Math.PI * 2, 120, 2.5);
+        arcPath(cn, rn, 0, Math.PI * 2, 120, 2.5);
         ctx.stroke();
         ctx.shadowBlur = 18 * heat;
         ctx.strokeStyle = `rgba(${SPARK_HOT}, ${0.7 * vis})`;
         ctx.lineWidth = Math.max(1.6, rpx * 0.018) * heat;
-        arcPath(cn, rpx, 0, Math.PI * 2, 120, 1.2);
+        arcPath(cn, rn, 0, Math.PI * 2, 120, 1.2);
         ctx.stroke();
         ctx.shadowBlur = 10;
         ctx.strokeStyle = `rgba(${CORE}, ${Math.min(1, flicker * vis * 0.8)})`;
         ctx.lineWidth = Math.max(1, rpx * 7e-3);
-        arcPath(cn, rpx, 0, Math.PI * 2, 120);
+        arcPath(cn, rn, 0, Math.PI * 2, 120);
         ctx.stroke();
         ctx.shadowBlur = 0;
         const emit = S.phase === "igniting" ? 90 : S.phase === "closing" ? 55 : age < 0.6 ? 46 : 26;
