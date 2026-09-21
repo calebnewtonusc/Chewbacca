@@ -57,5 +57,23 @@ HIGH="$(printf '%s' "$OUT" | grep -c '^HIGH' || true)"
   echo "say why in one line and move on; do not silently ignore it."
   echo
   echo "Pick a design system first next time: ux-pick \"<the brief>\""
+
+  # Name the preset for whatever this file actually is. systems/ covers the
+  # look and cannot describe behaviour, so a blocked file usually needs the
+  # behaviour spec more than it needs a different palette.
+  PRESET=""
+  case "$(tr "[:upper:]" "[:lower:]" < "$FILE" | head -200)" in
+    *"<table"*|*datagrid*|*"data-table"*|*columndef*) PRESET=table ;;
+    *"<form"*|*onsubmit*|*"<input"*|*validation*)     PRESET=form ;;
+    *dialog*|*modal*|*drawer*|*"<sheet"*)             PRESET=dialog ;;
+    *toast*|*snackbar*|*notification*)                PRESET=toast ;;
+    *cmdk*|*"command palette"*|*commandpalette*)      PRESET=command-palette ;;
+  esac
+  if [ -n "$PRESET" ]; then
+    echo "And this looks like a $PRESET, so load its behaviour spec:"
+    echo "  ux-preset $PRESET"
+    echo "systems/ was extracted from marketing sites and documents no states,"
+    echo "no keyboard and no validation. The preset does."
+  fi
 } >&2
 exit 2
