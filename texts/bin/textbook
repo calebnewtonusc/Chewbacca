@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""Search a textbook without loading it.
+
+A course textbook is half a million words. Nothing here prints more than a
+window of one: search returns the matching passage with its chapter, printed
+page and character offset, and `show` prints one window around that offset.
+
+  textbook books                                  what is ingested
+  textbook toc anth-2351-perspectives             chapters and page spans
+  textbook search "participant observation"       ranked passages
+  textbook search "kula" --chapter 6              one chapter
+  textbook show 06-economics --at 48210
+  textbook glossary affinal                       defined terms only
+
+Every hit carries `p. N`, the page printed in the book. Cite that, not the
+PDF page: the course grades on chapters and a claim nobody can look up is a
+claim the user has to take on faith.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(os.environ.get("COURSEWORK_DIR", Path.home() / "coursework")) / "texts"
+
+# A hit is shown with this much text either side. Wide enough that a claim keeps
+# the sentence that qualifies it, narrow enough that twenty hits still fit in a
+# reply. Borrowed from `asa`, where 700 was measured against real transcripts.
+WINDOW = 700
+
+PAGE_MARK = re.compile(r"<!-- p\. (\d+) -->")
+
+
+def books() -> list[Path]:
+    if not ROOT.exists():
+        sys.exit(f"no corpus directory: {ROOT}")
+    return sorted(p for p in ROOT.iterdir() if (p / "book.json").exists())
+
+
+def resolve(name: str | None) -> Path:
+    found = books()
+    if not found:
+        sys.exit(f"no books ingested under {ROOT}")
+    if name is None:
+        if len(found) == 1:
+            return found[0]
+        sys.exit("more than one book; pass --book " + ", ".join(p.name for p in found))
+    matches = [p for p in found if name.lower() in p.name.lower()]
+    if not matches:
+        sys.exit(f"no book matching {name!r}; have: " + ", ".join(p.name for p in found))
+    return matches[0]
+
+
+def meta(book: Path) -> dict:
+    return json.loads((book / "book.json").read_text())
+
+
+def chapters(book: Path, only: str | None) -> list[Path]:
+    paths = sorted((book / "chapters").glob("*.md"))
+    if not only:
+        return paths
+    if only.isdigit():
+        return [p for p in paths if p.name.startswith(f"{int(only):02d}-")]
+    needle = only.lower()
+    return [p for p in paths if needle in p.stem.lower()]
+
+
+def page_at(text: str, offset: int) -> str:
+    """The last printed page number marked at or before this offset."""
+    last = None
+    for match in PAGE_MARK.finditer(text, 0, offset + 1):
+        last = match.group(1)
+    return f"p. {last}" if last else "p. ?"
+
+
+def title_of(text: str, fallback: str) -> str:
+    match = re.search(r'^title: "?(.*?)"?$', text, re.M)
+    return match.group(1) if match else fallback
+
+
+def cmd_books(args: argparse.Namespace) -> int:
+    for path in books():
+        info = meta(path)
+        numbered = [c for c in info["chapters"] if c.get("number")]
+        words = sum(c["words"] for c in info["chapters"])
+        print(f"{path.name}\n  {info['title']}")
+        print(f"  {len(numbered)} chapters, {words:,} words, from {info['pages']}-page PDF")
+    return 0
+
+
+def cmd_toc(args: argparse.Namespace) -> int:
+    book = resolve(args.book)
+    info = meta(book)
+    print(f"{info['title']}\n")
+    for chapter in info["chapters"]:
+        number = f"{chapter['number']:>2}." if chapter.get("number") else "  -"
+        print(f"  {number} {chapter['title'][:56]:<56} {chapter['words']:>7,} words  "
+              f"[{chapter['slug']}]")
+    return 0
+
+
+def cmd_search(args: argparse.Namespace) -> int:
+    book = resolve(args.book)
+    try:
+        pattern = re.compile(args.query if args.regex else re.escape(args.query), re.I)
+    except re.error as exc:
+        sys.exit(f"bad pattern: {exc}")
+
+    paths = chapters(book, args.chapter)
+    if not paths:
+        sys.exit(f"no chapter matching {args.chapter!r}; try `textbook toc`")
+
+    hits = 0
+    for path in paths:
+        text = path.read_text()
+        title = title_of(text, path.stem)
+        for match in pattern.finditer(text):
+            if hits >= args.limit:
+                print(f"\nstopped at {args.limit} hits; narrow with --chapter or raise --limit")
+                return 0
+            hits += 1
+            start = max(0, match.start() - WINDOW // 2)
+            passage = PAGE_MARK.sub("", text[start:match.start() + WINDOW // 2])
+            passage = " ".join(passage.split())
+            print(f"\n{title}  ({page_at(text, match.start())})")
+            print(f"  {path.stem}  --at {match.start()}")
+            print(f"  ...{passage}...")
+    print("\nno matches" if not hits else f"\n{hits} hits")
+    return 0
+
+
+def cmd_show(args: argparse.Namespace) -> int:
+    book = resolve(args.book)
+    paths = chapters(book, args.chapter)
+    if not paths:
+        sys.exit(f"no chapter matching {args.chapter!r}; try `textbook toc`")
+    path = paths[0]
+    text = path.read_text()
+    start = max(0, args.at - args.chars // 2)
+    print(f"{title_of(text, path.stem)}  ({page_at(text, start)})")
+    print(f"offset {start} to {min(len(text), start + args.chars)} of {len(text)}\n")
+    print(text[start:start + args.chars])
+    return 0
+
+
+def cmd_glossary(args: argparse.Namespace) -> int:
+    book = resolve(args.book)
+    path = book / "GLOSSARY.md"
+    if not path.exists():
+        sys.exit(f"no glossary in {book.name}")
+    lines = path.read_text().splitlines()
+    if not args.term:
+        print("\n".join(lines))
+        return 0
+    pattern = re.compile(re.escape(args.term), re.I)
+    chapter = ""
+    hits = 0
+    for line in lines:
+        if line.startswith("## "):
+            chapter = line[3:]
+        elif line.startswith("- ") and pattern.search(line):
+            hits += 1
+            print(f"\n{chapter}\n  {line[2:]}")
+    print("\nno matches" if not hits else f"\n{hits} entries")
+    return 0
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(prog="textbook", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--book", help="substring of the corpus directory name")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("books", help="list ingested books").set_defaults(func=cmd_books)
+    sub.add_parser("toc", help="chapters, page spans and lengths").set_defaults(func=cmd_toc)
+
+    s = sub.add_parser("search", help="find passages")
+    s.add_argument("query")
+    s.add_argument("--chapter", help="chapter number or a word from its title")
+    s.add_argument("--limit", type=int, default=20)
+    s.add_argument("--regex", action="store_true")
+    s.set_defaults(func=cmd_search)
+
+    w = sub.add_parser("show", help="print a window of one chapter")
+    w.add_argument("chapter")
+    w.add_argument("--at", type=int, default=0)
+    w.add_argument("--chars", type=int, default=4000)
+    w.set_defaults(func=cmd_show)
+
+    g = sub.add_parser("glossary", help="look up a defined term")
+    g.add_argument("term", nargs="?")
+    g.set_defaults(func=cmd_glossary)
+
+    args = ap.parse_args()
+    sys.exit(args.func(args))
+
+
+if __name__ == "__main__":
+    main()
