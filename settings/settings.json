@@ -212,6 +212,16 @@
         "hooks": [
           {
             "type": "command",
+            "command": "$HOME/.claude/hooks/skill-route.sh",
+            "timeout": 8,
+            "statusMessage": "Checking whether a skill already covers this..."
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
             "command": "$HOME/.claude/hooks/coursework-context.sh",
             "timeout": 10
           }
