@@ -2027,9 +2027,9 @@ void main() {
         } : raw;
       }
       const fitC = drawing ?? softFit;
-      const initAt = Math.max(0.35, Math.min(0.95, 1.02 - 1.9 * (fitC ? fitC.r : 0)));
+      const initAt = Math.max(0.1, Math.min(0.42, 0.42 - 0.85 * (fitC ? fitC.r : 0)));
       const bendSpan = Math.max(0.05, (1 - initAt) * 0.7);
-      const turned = Math.max(0, Math.min(1, (p.progress - initAt) / bendSpan));
+      const turned = recognisedLatch ? Math.max(0, Math.min(1, (p.progress - initAt) / bendSpan)) : 0;
       const round = Math.max(0, Math.min(1, (p.roundness - 0.55) / 0.3));
       const conf = turned * round;
       const k = Math.pow(conf, 0.9);
