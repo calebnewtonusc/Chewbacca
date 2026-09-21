@@ -163,6 +163,17 @@ const mirror = new Image();
 let mirrorReady = false;
 mirror.onload = () => {
   mirrorReady = true;
+  // Does this engine actually honour ctx.filter? Setting it and reading it
+  // back is the only way to know: an unsupported filter is ignored silently,
+  // and a blur that never happens looks exactly like a blur set too low.
+  try {
+    const probe = document.createElement("canvas").getContext("2d");
+    if (probe) {
+      probe.filter = "blur(5px)";
+      window.webkit?.messageHandlers?.portal?.postMessage({
+        event: "log", text: `ctx.filter reads back as "${probe.filter}"` });
+    }
+  } catch (e) { /* nothing to report */ }
   window.webkit?.messageHandlers?.portal?.postMessage({
     event: "log", text: `mirror loaded ${mirror.width}x${mirror.height}` });
 };
@@ -602,54 +613,68 @@ function frame(now: number) {
       // blur, and the fill itself is a gradient rather than flat black, so
       // the boundary has depth instead of an outline.
       ctx.filter = `blur(${Math.max(7, Rp * 0.17).toFixed(1)}px)`;
-      // Build the whole region as one closed ring of points first, then
-      // round it, then fill it.
-      const ring: { x: number; y: number }[] = [];
-      // The inner edge of the opening, old end to leading edge: the spiral.
-      for (let i = 0; i <= STEPS; i++) {
-        const u = i / STEPS;
-        const th = aOld + dir * u * drawnAng;
-        const rr = Rp * (1 - depthAt(u));
-        ring.push({ x: cxp + Math.cos(th) * rr, y: cyp + Math.sin(th) * rr });
-      }
-      // Out to the rim at the leading edge, round the part not yet reached,
-      // and back in where the circle began.
-      if (gapAng > 0.001) {
+      // Build the region as a closed ring of points, at an EROSION: `off` is
+      // how far the boundary is pulled in from its true position.
+      const ringAt = (off: number) => {
+        const out: { x: number; y: number }[] = [];
         for (let i = 0; i <= STEPS; i++) {
-          const th = aNew + dir * (i / STEPS) * gapAng;
-          ring.push({ x: cxp + Math.cos(th) * Rp, y: cyp + Math.sin(th) * Rp });
+          const u = i / STEPS;
+          const th = aOld + dir * u * drawnAng;
+          const rr = Math.max(0, Rp * (1 - depthAt(u)) - off);
+          out.push({ x: cxp + Math.cos(th) * rr, y: cyp + Math.sin(th) * rr });
         }
-      }
-
-      // ROUND THE CORNERS, HEAVILY.
-      //
-      // Where the spiral runs out to the rim at each end of the drawn arc it
-      // meets it at a corner, and a corner on a thing made of weather is
-      // wrong however much the fill is blurred. Twelve cyclic passes of a
-      // [1,2,1] kernel over the closed ring rounds every corner at once, and
-      // the ones that are already curves barely move, because smoothing a
-      // circle returns a circle.
-      //
-      // Cyclic, not the shared smoother: that one pins its ends, which is
-      // right for a line with two ends and wrong for a loop, where the pinned
-      // point would be the one corner left sharp.
-      let ring2 = ring;
-      for (let pass = 0; pass < 12; pass++) {
-        const out = ring2.slice();
-        const n = ring2.length;
-        for (let i = 0; i < n; i++) {
-          const a = ring2[(i - 1 + n) % n], c = ring2[i], b = ring2[(i + 1) % n];
-          out[i] = { x: (a.x + c.x * 2 + b.x) / 4, y: (a.y + c.y * 2 + b.y) / 4 };
+        if (gapAng > 0.001) {
+          const gr = Math.max(0, Rp - off);
+          for (let i = 0; i <= STEPS; i++) {
+            const th = aNew + dir * (i / STEPS) * gapAng;
+            out.push({ x: cxp + Math.cos(th) * gr, y: cyp + Math.sin(th) * gr });
+          }
         }
-        ring2 = out;
-      }
+        // Round every corner. Where the spiral runs out to the rim at each
+        // end of the drawn arc it meets it at a corner, and a corner on a
+        // thing made of weather is wrong. Cyclic, because this is a loop:
+        // the shared smoother pins its ends, and a pinned end here would be
+        // the one corner left sharp. A circle of radius 100 comes back 0.7px
+        // smaller after twelve passes, so the arcs keep their shape and only
+        // the joins give.
+        let r = out;
+        for (let pass = 0; pass < 6; pass++) {
+          const o = r.slice(), n = r.length;
+          for (let i = 0; i < n; i++) {
+            const a = r[(i - 1 + n) % n], c = r[i], b = r[(i + 1) % n];
+            o[i] = { x: (a.x + c.x * 2 + b.x) / 4, y: (a.y + c.y * 2 + b.y) / 4 };
+          }
+          r = o;
+        }
+        return r;
+      };
 
-      ctx.beginPath();
-      ctx.moveTo(ring2[0].x, ring2[0].y);
-      for (let i = 1; i < ring2.length; i++) ctx.lineTo(ring2[i].x, ring2[i].y);
-      ctx.closePath();
-      ctx.fillStyle = "rgba(0,0,0,0.93)";
-      ctx.fill();
+      // A SOFT EDGE WITHOUT ctx.filter.
+      //
+      // "why is there no fade on the middle edge". The blur has been set here
+      // for several commits and never did anything: ctx.filter reads back as
+      // `blur(5px)` on this engine, so it is supported, and WebKit ignores it
+      // under destination-out. A filter that is accepted and dropped looks
+      // exactly like a filter set too low, which is why this survived so long.
+      //
+      // So the ramp is built out of geometry instead. The region is filled
+      // several times, each one eroded a little further in, at partial alpha.
+      // The deep middle is covered by every layer and goes fully; the outer
+      // band is covered by one and barely goes; in between is a gradient as
+      // wide as the erosion. Nothing about it depends on a filter working.
+      const LAYERS = 9;
+      const band = Math.max(8, Rp * 0.22);
+      for (let j = 0; j < LAYERS; j++) {
+        const r = ringAt((j / (LAYERS - 1)) * band);
+        ctx.globalAlpha = 0.30;
+        ctx.fillStyle = "rgb(0,0,0)";
+        ctx.beginPath();
+        ctx.moveTo(r[0].x, r[0].y);
+        for (let i = 1; i < r.length; i++) ctx.lineTo(r[i].x, r[i].y);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
 
       // Weather along the boundary, drifting on a slow clock so it breathes
       // rather than flickers.
