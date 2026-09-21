@@ -156,6 +156,8 @@ it.** Build the teaching half at the same time as the doing half, not after.
 
 | 41 | **OpenVision is his, and it was never opened** | open | Caleb sent `github.com/calebnewtonusc/OpenVision` on 9/20 at 22:20 and again on 9/21 with *"Bro ru stupid and not listening?"*, and this kit rebuilt hand tracking from scratch in Swift both times. The repo is public, live at `openvision.vercel.app`, and holds a documented zero-dependency toolkit: gesture classifier with tests, pinch detector with tests, WebGazer eye tracking, dwell-to-click, glass panels, and the portal. **The open item is not the port, it is the pattern.** Tenth instance of [[../memory/feedback_built_but_never_fires]] this session, and the first where the existing capability was in a different repo of his own. Nothing in the kit looks at his other repos before building |
 
+| 42 | **`cap record status` reports dead recordings as live** | open | 2026-09-21, 03:10. Caleb: *"Bruh how do I make it stop recording me lol"*. `cap record status` listed **14 active recordings**; all 14 pids were dead. `cap record stop` answered `recording process exited without finalizing the recording` and left the row in place, so the registry only ever grows. A tool that says it is recording you when it is not is worse than one that crashes, because the user cannot tell it apart from the real thing. Fix: reap `~/.cap/sessions/*.json` whose pid is gone, on every `status`. The 14 stale rows are archived at `~/.cap/sessions-stale-20260921/`. **The actual recorder was Granola**, holding `audio.mojom.AudioService` and `video_capture.mojom.VideoCaptureService` for 3 days 15 hours |
+
 ## Done this session
 
 | Item | Where |
