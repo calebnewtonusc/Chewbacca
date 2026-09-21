@@ -1595,7 +1595,12 @@ function frame(now: number) {
     const boundShare = Math.min(0.4, conf * conf * 0.45);
     const bindMaybe = () => Math.random() < boundShare;
 
-    if (fitC && conf > 0.05) {
+    // NOTHING SPAWNS ONTO THE STROKE WHILE A PORTAL IS UP. The line itself
+    // was hidden last commit and everything that rides it was not, so the
+    // binding strands and the head burst carried on throwing sparks at a
+    // hand that is inside an open portal. That is the orange arc and the
+    // glow sitting on the city.
+    if (fitC && conf > 0.05 && !portalUp) {
       // Sample fewer points early, so the pull shows up as a few strands
       // rather than the whole line lifting at once.
       const step = Math.max(4, Math.round(22 - conf * 18));
@@ -1621,7 +1626,7 @@ function frame(now: number) {
     let tx = hp.x - pp.x;
     let ty = hp.y - pp.y;
     const tm = Math.hypot(tx, ty) || 1;
-    const n = Math.round(1 + k * 9);
+    const n = portalUp ? 0 : Math.round(1 + k * 9);
     for (let i = 0; i < n; i++) {
       spawnAt(mx(head.rx), my(head.ry), tx / tm, ty / tm, 1,
         2.2 + k * 3.0, bindMaybe());
