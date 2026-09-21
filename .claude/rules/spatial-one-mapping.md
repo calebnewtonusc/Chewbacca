@@ -1,3 +1,15 @@
+---
+paths:
+  - "**/*.swift"
+  - "**/portal/**/*.{ts,js,html}"
+  - "**/*.{metal,glsl}"
+  - "**/*{hand,gaze,landmark,tracker,overlay,canvas}*.{swift,ts,js,py}"
+---
+
+<!-- This frontmatter is what defers the rule. Without it the file is
+     always-on however its first paragraph reads, which is what
+     `tests/run.sh` checks and what this file failed on arrival. -->
+
 # Spatial input: one mapping, applied once, at the door
 
 Loads when the work touches hand tracking, gaze, a HUD overlay, a canvas
