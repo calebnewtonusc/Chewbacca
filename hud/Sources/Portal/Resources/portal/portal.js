@@ -580,9 +580,10 @@
   var SPARK_MID = "255, 141, 44";
   var SPARK_COLD = "214, 74, 16";
   var IGNITE_MS = 1150;
-  var CLOSE_MS = 380;
+  var CLOSE_MS = 620;
   var MIN_OPEN_MS = 600;
   var ease = (t) => 1 - Math.pow(1 - t, 3);
+  var easeShut = (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   var IDLE_PROGRESS = {
     progress: 0,
     sweep: 0,
@@ -618,6 +619,8 @@
   var mirrorAmt = 0;
   var recognisedLatch = false;
   var lastFill = 0;
+  var drawnMax = 0;
+  var cancelling = false;
   var holdOld = 0;
   var settleX = 0;
   var settleV = 0;
@@ -625,6 +628,8 @@
   var arcV = 0;
   var lastFrameMs = 0;
   var lastMaskCheck = 0;
+  var lastInsideCheck = 0;
+  var strokeDrawnThisFrame = false;
   var stepSpring = (x, v, k, dt) => {
     const c = 2 * Math.sqrt(k);
     const a = k * (1 - x) - c * v;
@@ -724,9 +729,6 @@
     return trailPx;
   };
   var placedOk = false;
-  window.chewbaccaPlaced = (ok) => {
-    placedOk = !!ok;
-  };
   var camW = 352;
   var camH = 288;
   window.chewbaccaCamera = (w, h) => {
@@ -734,6 +736,9 @@
       camW = w;
       camH = h;
     }
+  };
+  window.chewbaccaPlaced = (ok) => {
+    placedOk = !!ok;
   };
   var demoUntil = 0;
   var demoT = 0;
@@ -905,7 +910,7 @@
     const maskCtx = maskCv.getContext("2d");
     const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw, cloud, fill, spiral) => {
       if (!mirrorReady || !maskCtx || strength <= 4e-3 || Rp < 3) return;
-      const blurPx = cloud > 2e-3 ? Math.max(Rp * 0.17, Rp * 0.45 * cloud) : 0;
+      const blurPx = cloud > 2e-3 ? Math.max(Rp * 0.09, Rp * 0.16 * cloud) : 0;
       const pad = Math.max(16, blurPx * 2.6);
       const size = Math.ceil(2 * Rp + pad * 2);
       if (maskCv.width !== size || maskCv.height !== size) {
@@ -927,7 +932,8 @@
       const lead = Math.pow(f, 2.5);
       const depthAt = (u) => {
         const wind = 1 + 1.6 * Math.pow(1 - u, 1.6) * spiral;
-        const rough = 1 + 0.045 * Math.sin(u * 9.1) + 0.028 * Math.sin(u * 15.7);
+        const thAbs = aOld + dir * u * drawnAng;
+        const rough = 1 + 0.045 * Math.sin(thAbs * 9.1) + 0.028 * Math.sin(thAbs * 15.7);
         return Math.max(0, Math.min(1, Math.pow(lead, wind))) * rough;
       };
       m.save();
@@ -941,24 +947,71 @@
         m.shadowBlur = blurPx;
         m.shadowOffsetX = OFF;
       }
+      const ptAt = (u, r) => {
+        const th = aOld + dir * u * drawnAng;
+        return { x: mx0 + Math.cos(th) * r - OFF, y: my0 + Math.sin(th) * r };
+      };
+      const capTo = (from, to, out) => {
+        const cx2 = (from.x + to.x) / 2, cy2 = (from.y + to.y) / 2;
+        const rad = Math.hypot(to.x - from.x, to.y - from.y) / 2;
+        if (rad < 0.5) {
+          m.lineTo(to.x, to.y);
+          return;
+        }
+        const a0c = Math.atan2(from.y - cy2, from.x - cx2);
+        for (let k = 1; k <= 14; k++) {
+          const a = a0c + out * (k / 14) * Math.PI;
+          m.lineTo(cx2 + Math.cos(a) * rad, cy2 + Math.sin(a) * rad);
+        }
+      };
       m.fillStyle = "#fff";
       m.beginPath();
       for (let i = 0; i <= STEPS; i++) {
-        const th = aOld + dir * (i / STEPS) * drawnAng;
-        const x = mx0 + Math.cos(th) * Rp - OFF, y = my0 + Math.sin(th) * Rp;
-        if (i) m.lineTo(x, y);
-        else m.moveTo(x, y);
+        const q = ptAt(i / STEPS, Rp);
+        if (i) m.lineTo(q.x, q.y);
+        else m.moveTo(q.x, q.y);
       }
+      capTo(ptAt(1, Rp), ptAt(1, Math.max(0, Rp * (1 - depthAt(1)))), dir);
       for (let i = STEPS; i >= 0; i--) {
         const u = i / STEPS;
-        const th = aOld + dir * u * drawnAng;
-        const rr = Math.max(0, Rp * (1 - depthAt(u)));
-        m.lineTo(mx0 + Math.cos(th) * rr - OFF, my0 + Math.sin(th) * rr);
+        const q = ptAt(u, Math.max(0, Rp * (1 - depthAt(u))));
+        m.lineTo(q.x, q.y);
       }
+      capTo(ptAt(0, Math.max(0, Rp * (1 - depthAt(0)))), ptAt(0, Rp), -dir);
       m.closePath();
       m.fill();
       m.shadowBlur = 0;
       m.shadowOffsetX = 0;
+      const dissolve = (u, _spanR, strength2, seedI) => {
+        const inner = Math.max(0, Rp * (1 - depthAt(u)));
+        const midR = (Rp + inner) / 2;
+        const th = aOld + dir * u * drawnAng;
+        const bx = mx0 + Math.cos(th) * midR, by = my0 + Math.sin(th) * midR;
+        const rad = Math.max(6, (Rp - inner) / 2);
+        m.globalCompositeOperation = "destination-out";
+        for (let j = 0; j < 3; j++) {
+          const t = drawnAng * 1.7 + seedI * 2.3 + j * 1.9;
+          const jx = bx + Math.cos(t) * rad * 0.2;
+          const jy = by + Math.sin(t * 1.3) * rad * 0.2;
+          const rr = rad * (0.6 + 0.2 * ((Math.cos(t * 0.8) + 1) / 2));
+          const g4 = m.createRadialGradient(jx, jy, 0, jx, jy, rr);
+          g4.addColorStop(0, `rgba(0,0,0,${strength2})`);
+          g4.addColorStop(0.3, `rgba(0,0,0,${strength2 * 0.72})`);
+          g4.addColorStop(0.6, `rgba(0,0,0,${strength2 * 0.38})`);
+          g4.addColorStop(0.82, `rgba(0,0,0,${strength2 * 0.14})`);
+          g4.addColorStop(1, "rgba(0,0,0,0)");
+          m.fillStyle = g4;
+          m.beginPath();
+          m.arc(jx, jy, rr, 0, Math.PI * 2);
+          m.fill();
+        }
+        m.globalCompositeOperation = "source-over";
+      };
+      if (cloud > 0.01 && gapSize > 2e-3) {
+        const leadThick = Rp * depthAt(1);
+        dissolve(1, Math.max(Rp * 0.14, leadThick * 0.8), 0.38, 0);
+        dissolve(0, Math.max(Rp * 0.1, Rp * depthAt(0) * 0.8), 0.26, 5);
+      }
       m.restore();
       const veil = (1 - f) * 0.75;
       if (veil > 4e-3) {
@@ -1065,7 +1118,17 @@
       stroke.push({ x: sm.x, y: sm.y, rx: sm.x, ry: sm.y, t: now });
       while (stroke.length > 260) stroke.shift();
     } else if (stroke.length) {
-      stroke = [];
+      cancelling = true;
+      const eat = Math.ceil(stroke.length * 0.1);
+      stroke.length = Math.max(0, stroke.length - eat);
+      if (stroke.length < 3) {
+        stroke = [];
+        cancelling = false;
+        softFit = null;
+      }
+    } else if (cancelling) {
+      cancelling = false;
+      softFit = null;
     }
     let p;
     if (cursor) {
@@ -1163,11 +1226,12 @@
     }
     if (S.phase !== "drawing" && drawing) drawing = null;
     if (!pinched) {
-      softFit = null;
       trimmedAtLatch = false;
       announcedAtLatch = false;
       recognisedLatch = false;
+      drawnMax = 0;
     }
+    if (!pinched && !cancelling) softFit = null;
     if (!portalUp) placedOk = false;
     if (!portalUp) {
       settleX = 0;
@@ -1204,6 +1268,25 @@
         ctx.fill();
       }
       ctx.shadowBlur = 0;
+      if (pinched && pinch?.center) {
+        const q = toScreen(pinch.center, hub);
+        const cx0 = mx(q.x);
+        const cy0 = my(q.y);
+        const k = Math.max(0, Math.min(1, p.progress));
+        ctx.strokeStyle = `rgba(${SPARK_MID}, 0.25)`;
+        ctx.lineWidth = 2;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.arc(cx0, cy0, 16, 0, Math.PI * 2);
+        ctx.stroke();
+        if (k > 0.01) {
+          ctx.strokeStyle = `rgba(${CORE}, 0.95)`;
+          ctx.lineWidth = 2.8;
+          ctx.beginPath();
+          ctx.arc(cx0, cy0, 16, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2);
+          ctx.stroke();
+        }
+      }
     }
     if (!portalUp && pinched && pinch?.center && p.progress < 0.1) {
       attract = null;
@@ -1213,7 +1296,7 @@
         spawnAt(mx(q.x), my(q.y), Math.cos(a), Math.sin(a), 1, 0.7, false);
       }
     }
-    if (!portalUp && pinched && stroke.length > 2) {
+    if (!portalUp && (pinched || cancelling) && stroke.length > 2) {
       const raw = drawing ?? (p.center ? { cx: p.center.x, cy: p.center.y, r: p.radius } : null);
       if (raw) {
         softFit = softFit ? {
@@ -1248,21 +1331,23 @@
       const REVEAL_AT = 0.5;
       const reveal = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / (1 - REVEAL_AT)));
       if (!pinched || p.progress < REVEAL_AT - 0.05) recognisedLatch = false;
-      else if (p.roundness >= 0.55) recognisedLatch = true;
+      else if (p.roundness >= 0.58) recognisedLatch = true;
       else if (p.roundness < 0.44) recognisedLatch = false;
       const recognised = recognisedLatch && pinched && p.progress >= REVEAL_AT;
       const want = !portalUp && fitC && recognised ? 0.12 + 0.88 * reveal : 0;
       mirrorAmt += (want - mirrorAmt) * (want > mirrorAmt ? 0.15 : 0.09);
       if (recognised) {
-        const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
-        openGap += (Math.max(0, 1 - doneTurns) - openGap) * 0.14;
+        drawnMax = Math.max(drawnMax, Math.min(1, Math.abs(p.sweep) / (Math.PI * 2)));
+        const doneTurns = drawnMax;
+        const gapTarget = Math.max(0, 1 - doneTurns);
+        openGap += (gapTarget - openGap) * 0.3;
         openCcw = p.sweep < 0;
-        lastFill += (doneTurns - lastFill) * 0.14;
+        lastFill += (doneTurns - lastFill) * 0.3;
         const oldTarget = (p.endAngle ?? 0) - (openCcw ? -1 : 1) * doneTurns * Math.PI * 2;
-        let dA = oldTarget - holdOld;
-        while (dA > Math.PI) dA -= Math.PI * 2;
-        while (dA < -Math.PI) dA += Math.PI * 2;
-        holdOld += dA * 0.14;
+        let d = oldTarget - holdOld;
+        while (d > Math.PI) d -= Math.PI * 2;
+        while (d < -Math.PI) d += Math.PI * 2;
+        holdOld += d * 0.3;
       } else if (mirrorAmt > 6e-3) {
         lastFill += (0 - lastFill) * 0.1;
         openGap += (1 - openGap) * 0.1;
@@ -1278,26 +1363,20 @@
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       const rBase = fitC ? fitC.r : 0.05;
-      const SP = stroke.length >= 3 ? smoothPath(stroke.map((q) => ({ x: mx(q.rx), y: my(q.ry) })), 3) : null;
+      const SP = stroke.length >= 3 ? smoothPath(stroke.map((q) => ({ x: mx(q.rx), y: my(q.ry) })), 1) : null;
       const path = () => {
         ctx.beginPath();
         if (!SP) return;
         ctx.moveTo(SP[0].x, SP[0].y);
         for (let i = 1; i < SP.length; i++) ctx.lineTo(SP[i].x, SP[i].y);
       };
+      strokeDrawnThisFrame = !portalUp;
       const hideInside = fitC && mirrorAmt > 0.01;
       if (hideInside) {
         ctx.save();
         ctx.beginPath();
         ctx.rect(0, 0, W, H);
-        const innerEdge = Math.min(0.88, 1 - Math.pow(lastFill, 2.5));
-        ctx.arc(
-          mx(fitC.cx),
-          my(fitC.cy),
-          Math.max(2, fitC.r * RPX * innerEdge),
-          0,
-          Math.PI * 2
-        );
+        ctx.arc(mx(fitC.cx), my(fitC.cy), Math.max(2, fitC.r * RPX * 0.99), 0, Math.PI * 2);
         ctx.clip("evenodd");
       }
       if (!portalUp) {
@@ -1353,7 +1432,7 @@
           bindMaybe()
         );
       }
-      if (SP && SP.length > 4) {
+      if (SP && SP.length > 4 && !portalUp) {
         const heat = Math.min(1, p.progress / 0.85);
         const per = 8 + Math.round(30 * heat);
         const halfBand = Math.max(2.5, (fitC ? fitC.r * RPX : 120) * 0.045);
@@ -1394,7 +1473,7 @@
       const shut = collapseAmount(S, now, CLOSE_MS);
       const e = ease(ignite);
       const cn = { x: geom.cx, y: geom.cy };
-      const rn = clampRN(geom.r) * (1 - ease(shut));
+      const rn = clampRN(geom.r) * (1 - easeShut(shut));
       const rpx = rpxOf(rn);
       const vis = e * (1 - shut);
       const age = (now - S.born) / 1e3;
@@ -1408,7 +1487,7 @@
           ctx.fill();
           ctx.globalCompositeOperation = "source-over";
         } else {
-          const shut2 = ease(shut);
+          const shut2 = easeShut(shut);
           const a1 = stepSpring(settleX, settleV, 26, frameDt);
           settleX = a1.x;
           settleV = a1.v;
@@ -1447,7 +1526,7 @@
           ctx.stroke();
         }
         const flicker = 0.82 + Math.sin(now / 55) * 0.1 + Math.random() * 0.08;
-        const heat = 1 + (1 - e) * 1.6 + ease(shut) * 2.6;
+        const heat = 1 + (1 - e) * 1.6 + easeShut(shut) * 2.6;
         ctx.lineCap = "round";
         ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
         ctx.shadowBlur = 30 * heat;
@@ -1494,6 +1573,7 @@
     const holeCy = portalUp ? py(geom.cy) : drawnFit ? my(drawnFit.cy) : 0;
     const holeR = (portalUp ? rpxOf(clampRN(geom.r)) : drawnFit ? drawnFit.r * RPX : 0) * 0.97;
     const insidePortal = (x, y) => (x - holeCx) ** 2 + (y - holeCy) ** 2 < holeR * holeR;
+    let sparksInHole = 0;
     const alive = [];
     for (const sp of sparks) {
       const c = Math.cos(0.035), sn = Math.sin(0.035);
@@ -1534,7 +1614,10 @@
       sp.life -= 4e-3;
       if (sp.life <= 0) continue;
       alive.push(sp);
-      if (holeUp && insidePortal(sp.x, sp.y)) continue;
+      if (holeUp && insidePortal(sp.x, sp.y)) {
+        sparksInHole++;
+        continue;
+      }
       const speed = Math.hypot(sp.vx, sp.vy) || 1;
       const len = Math.max(5, Math.min(20, speed * 2.4));
       const h = sp.heat * sp.life;
@@ -1546,6 +1629,13 @@
       ctx.moveTo(sp.x, sp.y);
       ctx.lineTo(sp.x - sp.vx / speed * len, sp.y - sp.vy / speed * len);
       ctx.stroke();
+    }
+    if (pinched && p.progress > 0.75 && now - lastInsideCheck > 700) {
+      lastInsideCheck = now;
+      window.webkit?.messageHandlers?.portal?.postMessage({
+        event: "log",
+        text: `phase=${S.phase} progress=${p.progress.toFixed(2)} sweep=${Math.abs(p.sweep).toFixed(2)}/5.40 round=${p.roundness.toFixed(2)}/0.55 r=${p.radius.toFixed(3)} sparksInHole=${sparksInHole}`
+      });
     }
     sparks = alive.length > 1400 ? alive.slice(-1400) : alive;
   }
