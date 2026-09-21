@@ -188,6 +188,9 @@ for pair in \
   event="${pair##*:}"
   f="$CLAUDE_DIR/hooks/$h.sh"
   if [ -f "$f" ] && [ ! -x "$f" ]; then
+    # Mechanical, idempotent, and the file is already ours. A checker that
+    # names a one-command repair and hands it back is doing half a job.
+    fixable "made $h.sh executable" chmod +x "$f" ||
     bad "hook not executable: $h.sh" "chmod +x $f"
   elif [ -x "$f" ]; then
     ok "hook installed: $h.sh"
@@ -552,6 +555,8 @@ else
     BROKEN=$(find "$CLAUDE_DIR/skills" -maxdepth 1 -type l ! -exec test -e {} \; -print 2>/dev/null | wc -l | tr -d ' ')
     [ "$BROKEN" -eq 0 ] &&
       ok "no dangling skill links" ||
+      fixable "removed $BROKEN dangling skill link(s)" \
+        bash -c 'find "'"$CLAUDE_DIR"'/skills" -maxdepth 1 -type l ! -exec test -e {} \; -delete' ||
       bad "$BROKEN dangling skill links in ~/.claude/skills" \
         "find ~/.claude/skills -maxdepth 1 -type l ! -exec test -e {} \\; -print"
   else
@@ -788,6 +793,14 @@ if [ -d "$SK_SRC" ]; then
     fi
   done
   if [ -n "$SK_MISS" ]; then
+    # Re-link rather than copy. A copy goes stale the moment the repo moves,
+    # which is the failure the SK_COPY branch below exists to report.
+    fixable "re-linked $(echo $SK_MISS | wc -w | tr -d ' ') missing skill(s)" \
+      bash -c 'for n in '"$SK_MISS"'; do
+                 [ -d "'"$REPO_DIR"'/skills/$n" ] || continue
+                 rm -rf "'"$SK_DST"'/$n"
+                 ln -s "'"$REPO_DIR"'/skills/$n" "'"$SK_DST"'/$n"
+               done' ||
     bad "$(echo $SK_MISS | wc -w | tr -d ' ') of $SK_WANT skills are not installed, so they can never fire" \
         "chewbacca setup" major
     [ "$QUIET" -eq 1 ] || echo "          missing:$SK_MISS"
