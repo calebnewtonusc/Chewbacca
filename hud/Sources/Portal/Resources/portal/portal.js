@@ -333,6 +333,7 @@
   var ROUGH_EYE_MM = 600;
   var ROUGH_HAND_MM = 350;
   var DEPTH_ADAPT = 0.02;
+  var PARALLAX_STRENGTH = 0.25;
   var EYE_RANGE_MM = [300, 1100];
   var HAND_RANGE_MM = [150, 700];
   var clamp = (v, [lo, hi]) => Math.max(lo, Math.min(hi, v));
@@ -403,7 +404,7 @@
       y: (-yMm - screen.cameraYMm) / screen.heightMm * screen.heightPx
     };
   }
-  function pointingPoint(input, screen = MACBOOK_14, cam = MAC_CAMERA, anthro = DEFAULT_ANTHRO, depths2) {
+  function pointingPoint(input, screen = MACBOOK_14, cam = MAC_CAMERA, anthro = DEFAULT_ANTHRO, depths2, options = {}) {
     const { leftEye, rightEye, hand } = input;
     if (!hand || hand.length < 21) return null;
     const ipdApparent = Math.hypot(rightEye.x - leftEye.x, (rightEye.y - leftEye.y) / cam.aspect);
@@ -417,8 +418,15 @@
     const eye = cameraSpace(eyeMid.x, eyeMid.y, steady.eyeMm, cam);
     const t = hand[input.tip ?? 8];
     const finger = cameraSpace(t.x, t.y, steady.handMm, cam);
-    const p = rayToScreen(eye, finger, screen);
-    return { x: p.x, y: p.y, eyeMm: steady.eyeMm, fingerMm: steady.handMm };
+    const ray = rayToScreen(eye, finger, screen);
+    const plain = mmToPixels(finger.x, finger.y, screen);
+    const k = Math.max(0, Math.min(1, options.strength ?? PARALLAX_STRENGTH));
+    return {
+      x: plain.x + (ray.x - plain.x) * k,
+      y: plain.y + (ray.y - plain.y) * k,
+      eyeMm: steady.eyeMm,
+      fingerMm: steady.handMm
+    };
   }
 
   // portal.entry.ts
@@ -453,8 +461,15 @@
   var latest = null;
   var latestEyes = null;
   var depths = new DepthTracker();
+  var parallaxStrength = PARALLAX_STRENGTH;
   var lastSeen = 0;
   var armed = null;
+  window.chewbaccaGain = (k) => {
+    if (typeof k === "number" && isFinite(k)) {
+      parallaxStrength = Math.max(0, Math.min(1, k));
+    }
+    return parallaxStrength;
+  };
   window.chewbaccaArm = (label) => {
     armed = label ? { label } : null;
   };
@@ -538,7 +553,8 @@
           screen,
           void 0,
           void 0,
-          depths
+          depths,
+          { strength: parallaxStrength }
         );
         if (r) {
           return { x: 1 - r.x / window.innerWidth, y: r.y / window.innerHeight };

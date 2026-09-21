@@ -6,6 +6,7 @@
 #   portal open --app Notes      an app by name
 #   portal open --url <url>      a page; the portal frames that window
 #   portal open                  a plain portal, opening onto nothing
+#   portal gain 0.4              how much the portal follows your head, 0 to 1
 #   portal close                 disarm and quit
 #   portal status                is it running, and what is it armed with
 #
@@ -23,6 +24,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="$ROOT/hud/build/Portal.app"
 TARGET="$HOME/.chewbacca/portal-target"
+GAIN="$HOME/.chewbacca/portal-gain"
 mkdir -p "$(dirname "$TARGET")"
 
 running() { pgrep -f "Portal.app/Contents/MacOS/Portal" >/dev/null 2>&1; }
@@ -108,6 +110,18 @@ case "${1:-status}" in
     else
       echo "Portal open. Pinch and draw a circle."
     fi
+    ;;
+  gain)
+    # 0 puts the portal exactly where the camera sees your fingers. 1 casts
+    # the full eye-through-fingertip ray, whose gain is about 2.4, which
+    # pushes it off the edges of the screen. The default is deliberately low;
+    # raise it until it feels right.
+    if [ -z "${2:-}" ]; then
+      echo "gain: $(cat "$GAIN" 2>/dev/null || echo 0.25)"
+      exit 0
+    fi
+    printf '%s' "$2" > "$GAIN"
+    echo "Parallax gain set to $2. It takes effect within a quarter second."
     ;;
   close)
     : > "$TARGET"
