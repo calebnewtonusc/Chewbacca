@@ -597,7 +597,9 @@
       return pinch.center;
     })();
     if (cursor) {
-      stroke.push({ x: cursor.x, y: cursor.y, rx: cursor.x, ry: cursor.y });
+      const last = stroke[stroke.length - 1];
+      const sm = last ? { x: last.x + (cursor.x - last.x) * 0.45, y: last.y + (cursor.y - last.y) * 0.45 } : cursor;
+      stroke.push({ x: sm.x, y: sm.y, rx: sm.x, ry: sm.y });
       if (stroke.length > 220) stroke.shift();
     } else if (stroke.length) {
       stroke = [];
@@ -708,6 +710,14 @@
         }
       }
     }
+    if (!portalUp && pinched && pinch?.center && p.progress < 0.1) {
+      attract = null;
+      if (Math.random() < 0.25) {
+        const a = Math.random() * Math.PI * 2;
+        const q = toScreen(pinch.center, lm ? lm[9] : void 0);
+        spawnAt(mx(q.x), my(q.y), Math.cos(a), Math.sin(a), 1, 0.7, false);
+      }
+    }
     if (!portalUp && pinched && stroke.length > 2) {
       const fitC = drawing ?? (p.center ? { cx: p.center.x, cy: p.center.y, r: p.radius } : null);
       const conf = Math.max(0, Math.min(1, (p.progress - 0.1) / 0.23));
@@ -728,24 +738,36 @@
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       const rBase = fitC ? fitC.r : 0.05;
-      for (const [width, colour, alpha, blur] of [
-        [0.055, SPARK_COLD, 0.05 + k * 0.3, 8 + 26 * k],
-        [0.03, SPARK_MID, 0.08 + k * 0.5, 6 + 16 * k],
-        [0.012, CORE, 0.07 + k * 0.6, 5 + 12 * k]
-      ]) {
-        ctx.shadowBlur = blur;
-        ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
-        ctx.strokeStyle = `rgba(${colour}, ${alpha})`;
-        ctx.lineWidth = Math.max(1, rBase * RPX * width);
+      const path = () => {
         ctx.beginPath();
-        stroke.forEach((q, i) => {
-          const qx = mx(q.rx), qy = my(q.ry);
-          if (i === 0) ctx.moveTo(qx, qy);
-          else ctx.lineTo(qx, qy);
-        });
-        ctx.stroke();
-      }
+        if (stroke.length < 3) return;
+        ctx.moveTo(mx(stroke[0].rx), my(stroke[0].ry));
+        for (let i = 1; i < stroke.length - 1; i++) {
+          const a = stroke[i], b = stroke[i + 1];
+          ctx.quadraticCurveTo(
+            mx(a.rx),
+            my(a.ry),
+            mx((a.rx + b.rx) / 2),
+            my((a.ry + b.ry) / 2)
+          );
+        }
+        const e = stroke[stroke.length - 1];
+        ctx.lineTo(mx(e.rx), my(e.ry));
+      };
+      ctx.shadowBlur = 10 + 22 * k;
+      ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
+      ctx.strokeStyle = `rgba(${SPARK_MID}, ${0.18 + k * 0.45})`;
+      ctx.lineWidth = Math.max(2.5, rBase * RPX * 0.05);
+      path();
+      ctx.stroke();
+      ctx.shadowBlur = 6 + 10 * k;
+      ctx.strokeStyle = `rgba(${CORE}, ${0.3 + k * 0.6})`;
+      ctx.lineWidth = Math.max(1, rBase * RPX * 0.016);
+      path();
+      ctx.stroke();
       ctx.shadowBlur = 0;
+      const boundShare = Math.min(0.85, conf * 1.1);
+      const bindMaybe = () => Math.random() < boundShare;
       if (fitC && conf > 0.05) {
         for (let i = 0; i < stroke.length; i += 6) {
           const q = stroke[i];
@@ -758,7 +780,7 @@
             (my(q.y) - my(q.ry)) / gap,
             1,
             1.2,
-            true
+            bindMaybe()
           );
         }
       }
@@ -767,16 +789,19 @@
       let tx = mx(head.rx) - mx(prev.rx);
       let ty = my(head.ry) - my(prev.ry);
       const tm = Math.hypot(tx, ty) || 1;
-      spawnAt(
-        mx(head.rx),
-        my(head.ry),
-        tx / tm,
-        ty / tm,
-        Math.round(1 + k * 9),
-        2.2 + k * 3,
-        true
-      );
-      if (fitC) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
+      const n = Math.round(1 + k * 9);
+      for (let i = 0; i < n; i++) {
+        spawnAt(
+          mx(head.rx),
+          my(head.ry),
+          tx / tm,
+          ty / tm,
+          1,
+          2.2 + k * 3,
+          bindMaybe()
+        );
+      }
+      if (fitC && conf > 0.08) attract = { cx: fitC.cx, cy: fitC.cy, r: fitC.r * RPX };
     }
     if (S.phase === "drawing" && p.center && p.startAngle !== null && p.progress > 0.16) {
       const LATCH_AT = 0.45;
