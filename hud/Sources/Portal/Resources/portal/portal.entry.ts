@@ -1782,8 +1782,23 @@ function frame(now: number) {
     if (sp.bind && attract) {
       const Cx = mx(attract.cx), Cy = my(attract.cy), R = attract.r || 1;
       const dx = sp.x - Cx, dy = sp.y - Cy;
-      const dl = Math.hypot(dx, dy) || 1;
-      const nx = dx / dl, ny = dy / dl;
+      let dl = Math.hypot(dx, dy);
+      // A SPARK AT THE EXACT CENTRE CANNOT LEAVE. `hypot(0,0) || 1` gave a
+      // length of 1 with a direction of (0,0), so the outward push was zero,
+      // the tangential spin was zero, and the spark sat in the middle of the
+      // portal being redrawn forever: "the animation never ends in the middle
+      // there's still a organe spot at the center."
+      //
+      // Nothing else can reach dead centre, so this is the one place the
+      // guard has to hold. Nudged onto a real direction instead, and it flies
+      // out like any other.
+      let nx: number, ny: number;
+      if (dl < 0.5) {
+        const a = Math.random() * Math.PI * 2;
+        nx = Math.cos(a); ny = Math.sin(a); dl = 0.5;
+      } else {
+        nx = dx / dl; ny = dy / dl;
+      }
       // Push out hard inside the rim, fly free once past it, spin throughout.
       // Inside plus tangential is the catherine wheel; outside with no brake
       // is the corona. Anything that slows a spark shortens its streak.
@@ -1796,6 +1811,10 @@ function frame(now: number) {
 
     sp.x += sp.vx; sp.y += sp.vy;
     sp.life -= sp.decay;
+    // A floor on the decay as well. The lowest roll is 0.02, which is 50
+    // frames, and anything that somehow stops moving should still go. A
+    // spark is an animation, and an animation that does not end is a stain.
+    sp.life -= 0.004;
     if (sp.life <= 0) continue;
     alive.push(sp);
 
