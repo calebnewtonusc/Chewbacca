@@ -133,12 +133,27 @@ hud_doctor() {
     # keeps running the binary it was built from, so merging a feature and
     # never rebuilding leaves you looking for a border that is not in the
     # code you are running. CFBundleVersion is the commit count at build.
+    #
+    # Counted at the last commit that touched the HUD, never at HEAD. BUILD
+    # is the whole repo's commit count, so comparing it to HEAD called the
+    # display stale after any commit at all: on 2026-09-21 a spec document
+    # in docs/ moved the repo 675 -> 676 and doctor demanded a rebuild of
+    # Swift that had not changed. That is worse than a wasted minute.
+    # Rebuilding writes a new bundle, the signature changes, and macOS drops
+    # the Accessibility grant the globe key needs, so a false alarm here
+    # costs the voice key. A bundle is current when its number is at least
+    # the count at the newest commit under hud/.
     built="$(defaults read "$app/Contents/Info.plist" CFBundleVersion 2>/dev/null || echo 0)"
-    head="$(git -C "$repo" rev-list --count HEAD 2>/dev/null || echo 0)"
+    hudrev="$(git -C "$repo" log -1 --format=%H -- hud 2>/dev/null || true)"
+    if [ -n "$hudrev" ]; then
+      head="$(git -C "$repo" rev-list --count "$hudrev" 2>/dev/null || echo 0)"
+    else
+      head="$(git -C "$repo" rev-list --count HEAD 2>/dev/null || echo 0)"
+    fi
     case "$built" in ''|*[!0-9]*) built=0 ;; esac
     case "$head" in ''|*[!0-9]*) head=0 ;; esac
     if [ "$head" -gt 0 ] && [ "$built" -lt "$head" ]; then
-      fail_ "the installed display is build $built and the repo is at $head, so anything merged since is not running" \
+      fail_ "the installed display is build $built and the HUD moved at $head, so Swift merged since is not running" \
         "cd $repo/hud && ./scripts/bundle.sh && cp -r build/BobHUD.app /Applications/ && killall BobHUD; open -a BobHUD"
     elif [ "$built" -gt 0 ]; then
       pass_ "build $built matches the repo"
