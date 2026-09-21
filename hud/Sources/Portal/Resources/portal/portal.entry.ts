@@ -478,6 +478,23 @@ function frame(now: number) {
     ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
     ctx.clip();
 
+    // A DARK BACKING UNDER THE IMAGE.
+    //
+    // The mirror was drawn straight onto the glass at partial alpha, so the
+    // desktop showed through it. Over a bright window that is a wash: the
+    // image reads as a smudge and the part not yet filled reads as a white
+    // blob, which is a soap bubble and not a hole. "Bro wtf", twice.
+    //
+    // Somewhere else has to OCCLUDE here. The backing goes down first at the
+    // same strength, so the filled part is opaque as far as it has got and
+    // the light behind it stops leaking through the city.
+    ctx.globalAlpha = strength;
+    ctx.fillStyle = "rgb(9, 12, 18)";
+    ctx.beginPath();
+    ctx.arc(cxp, cyp, Rp, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
     drawMirror(strength);
 
     // IT FILLS INWARD FROM THE RIM, it does not open outward from the middle.
@@ -508,7 +525,10 @@ function frame(now: number) {
     const innerR = Rp * (1 - Math.max(0, Math.min(1, fill)));
     if (innerR > 0.5 && cloud > 0.002) {
       ctx.globalCompositeOperation = "destination-out";
-      const feather = Rp * (0.08 + 0.2 * cloud);
+      // 0.28 R of feather was most of the way to the middle, so the inner
+      // boundary was a gradient across the whole opening rather than an edge
+      // with weather on it.
+      const feather = Rp * (0.05 + 0.09 * cloud);
       const outer = Math.max(2, innerR + feather);
       const g = ctx.createRadialGradient(cxp, cyp, 0, cxp, cyp, outer);
       const hold = Math.max(0, Math.min(0.95, (innerR - feather * 0.4) / outer));
