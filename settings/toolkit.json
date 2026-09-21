@@ -3,12 +3,17 @@
   "skills": {
     "vendored": [
       "agent-setup",
+      "audio-brief",
       "coursework",
+      "debugging",
       "demo",
       "graph-engineering",
+      "hud",
+      "interface",
       "kit-builder",
       "life-context",
       "life-ops",
+      "list-audit",
       "mac-act",
       "mac-apps",
       "mac-brief",
@@ -18,10 +23,17 @@
       "mac-permissions",
       "mac-runtime",
       "mac-see",
+      "people",
+      "repo-health",
+      "reviewing-changes",
       "second-brain",
       "setup",
+      "shipping",
       "stack-rules",
-      "study-system"
+      "study-guide",
+      "study-system",
+      "texts",
+      "your-data"
     ],
     "upstream": [
       {
