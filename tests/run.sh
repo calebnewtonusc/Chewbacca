@@ -371,6 +371,12 @@ if group "installer"; then
   check  "the terminal guard installs once and fires on the right shells" \
     bash "$ROOT/tests/terminal_guard.sh" "$ROOT"
 
+  # Layer 6. The routing table named no command for a browser, so a form the
+  # user had open got driven by screenshots and coordinate clicks. Prose fixed
+  # that the same day; this is the gate, because prose had already failed once.
+  check  "the browser gate refuses pixels on a browser until the DOM is tried" \
+    bash "$ROOT/tests/browser_ux_guard.sh" "$ROOT"
+
   check  "committed checksums describe the committed tree" \
     python3 "$ROOT/tools/committed_checksums.py"
 
