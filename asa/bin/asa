@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""Search the A2A course corpus.
+
+The corpus is 1.3 million words, so nothing here loads it into a session.
+Search returns the matching passage with its module, lesson and a character
+offset, and `show` prints one window around that offset. An agent reads a
+few hundred words, not a transcript.
+
+  asa search "cold email sequence"          # ranked passages
+  asa search "agent" --module week-3        # one module
+  asa show 09-week-3-ai-sales-department/01-workshop.md --at 48210
+  asa modules                               # what exists
+"""
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+TRANSCRIPTS = ROOT / "transcripts"
+
+# A hit is shown with this much text either side. Wide enough that a claim
+# keeps the sentence that qualifies it, narrow enough that twenty hits still
+# fit in a reply.
+WINDOW = 700
+
+
+def front(text: str) -> dict[str, str]:
+    match = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+    meta: dict[str, str] = {}
+    if match:
+        for line in match.group(1).splitlines():
+            if ":" in line:
+                k, v = line.split(":", 1)
+                meta[k.strip()] = v.strip()
+    return meta
+
+
+def files(module: str | None) -> list[Path]:
+    paths = sorted(TRANSCRIPTS.rglob("*.md"))
+    if module:
+        needle = module.lower()
+        paths = [p for p in paths if needle in str(p.relative_to(TRANSCRIPTS)).lower()]
+    return paths
+
+
+def cmd_search(args: argparse.Namespace) -> int:
+    try:
+        pattern = re.compile(args.query if args.regex else re.escape(args.query), re.I)
+    except re.error as exc:
+        sys.exit(f"bad pattern: {exc}")
+
+    hits = 0
+    for path in files(args.module):
+        text = path.read_text()
+        meta = front(text)
+        for match in pattern.finditer(text):
+            if hits >= args.limit:
+                print(f"\nstopped at {args.limit} hits; narrow with --module or raise --limit")
+                return 0
+            hits += 1
+            start = max(0, match.start() - WINDOW // 2)
+            passage = " ".join(text[start:match.start() + WINDOW // 2].split())
+            rel = path.relative_to(TRANSCRIPTS)
+            print(f"\n{meta.get('module', '')} / {meta.get('lesson', path.stem)}")
+            print(f"  {rel}  --at {match.start()}")
+            print(f"  ...{passage}...")
+    if not hits:
+        print("no matches")
+    else:
+        print(f"\n{hits} hits")
+    return 0
+
+
+def cmd_show(args: argparse.Namespace) -> int:
+    path = TRANSCRIPTS / args.path
+    if not path.exists():
+        sys.exit(f"no such transcript: {args.path}")
+    text = path.read_text()
+    meta = front(text)
+    start = max(0, args.at - args.chars // 2)
+    print(f"{meta.get('module','')} / {meta.get('lesson', path.stem)}  "
+          f"({meta.get('minutes','?')} min, {meta.get('words','?')} words)")
+    print(f"offset {start} to {start + args.chars} of {len(text)}\n")
+    print(text[start:start + args.chars])
+    return 0
+
+
+def cmd_modules(args: argparse.Namespace) -> int:
+    seen: dict[str, list[tuple[str, int]]] = {}
+    for path in files(None):
+        meta = front(path.read_text())
+        seen.setdefault(path.parent.name, []).append(
+            (meta.get("lesson", path.stem), int(meta.get("words", 0)))
+        )
+    for module in sorted(seen):
+        items = seen[module]
+        print(f"{module}  ({len(items)} sessions, {sum(w for _, w in items):,} words)")
+        for lesson, words in items:
+            print(f"    {lesson}  ({words:,} words)")
+    return 0
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(prog="asa", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("search", help="find passages")
+    s.add_argument("query")
+    s.add_argument("--module", help="substring of the module directory")
+    s.add_argument("--limit", type=int, default=20)
+    s.add_argument("--regex", action="store_true")
+    s.set_defaults(func=cmd_search)
+
+    w = sub.add_parser("show", help="print a window of one transcript")
+    w.add_argument("path")
+    w.add_argument("--at", type=int, default=0)
+    w.add_argument("--chars", type=int, default=4000)
+    w.set_defaults(func=cmd_show)
+
+    m = sub.add_parser("modules", help="list modules and sessions")
+    m.set_defaults(func=cmd_modules)
+
+    args = ap.parse_args()
+    sys.exit(args.func(args))
+
+
+if __name__ == "__main__":
+    main()
