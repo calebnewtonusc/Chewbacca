@@ -578,7 +578,7 @@
   var SPARK_HOT = "255, 196, 94";
   var SPARK_MID = "255, 141, 44";
   var SPARK_COLD = "214, 74, 16";
-  var IGNITE_MS = 520;
+  var IGNITE_MS = 820;
   var CLOSE_MS = 380;
   var MIN_OPEN_MS = 600;
   var ease = (t) => 1 - Math.pow(1 - t, 3);
@@ -1038,6 +1038,9 @@
       const cn = { x: geom.cx, y: geom.cy };
       const rn = clampRN(geom.r) * (1 - ease(shut));
       const rpx = rpxOf(rn);
+      const grow = ignite * ignite * (3 - 2 * ignite);
+      const rnHole = rn * grow;
+      const rpxHole = rpx * grow;
       const vis = e * (1 - shut);
       const age = (now - S.born) / 1e3;
       if (S.phase === "open") attract = { cx: cn.x, cy: cn.y, r: rpx };
@@ -1046,27 +1049,34 @@
         if (armed) {
           ctx.globalCompositeOperation = "destination-out";
           ctx.globalAlpha = 1;
-          disc(cn, rn * 0.985);
+          disc(cn, rnHole * 0.985);
           ctx.fill();
           ctx.globalCompositeOperation = "source-over";
           ctx.globalAlpha = vis * 0.9;
-          const lip = ctx.createRadialGradient(cx0, cy0, rpx * 0.88, cx0, cy0, rpx);
+          const lip = ctx.createRadialGradient(
+            cx0,
+            cy0,
+            Math.max(1, rpxHole * 0.88),
+            cx0,
+            cy0,
+            Math.max(2, rpxHole)
+          );
           lip.addColorStop(0, "rgba(0,0,0,0)");
           lip.addColorStop(1, "rgba(120, 48, 12, 0.6)");
           ctx.fillStyle = lip;
-          disc(cn, rn);
+          disc(cn, rnHole);
           ctx.fill();
           ctx.globalAlpha = 1;
         } else {
           ctx.globalCompositeOperation = "source-over";
           ctx.globalAlpha = vis;
-          const inner = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, rpx);
+          const inner = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, Math.max(2, rpxHole));
           inner.addColorStop(0, "rgba(3, 2, 1, 1)");
           inner.addColorStop(0.82, "rgba(10, 5, 2, 1)");
           inner.addColorStop(0.95, "rgba(46, 18, 5, 1)");
           inner.addColorStop(1, "rgba(120, 48, 12, 0.85)");
           ctx.fillStyle = inner;
-          disc(cn, rn);
+          disc(cn, rnHole);
           ctx.fill();
           ctx.globalAlpha = 1;
         }
