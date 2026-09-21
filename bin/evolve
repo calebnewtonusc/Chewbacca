@@ -1,0 +1,202 @@
+#!/usr/bin/env python3
+"""Try a change somewhere safe, score it, and keep the evidence either way.
+
+    evolve --patch fix.diff          apply in isolation, score, report
+    evolve --cmd "python3 x.py"      run a mutator in isolation, score, report
+    evolve --archive                 every attempt ever made, kept or not
+    evolve --show <id>               the diff and the score for one attempt
+
+WHY IT NEVER COMMITS. The Darwin Godel Machine (Zhang et al., ICLR 2026,
+arXiv 2505.22954) self-modifies and validates each change on a benchmark, and
+the part people skip when they retell it is the ARCHIVE: it keeps every
+variant, not only the winners, because open-ended exploration beats greedy
+selection and stops the system stagnating in a local optimum.
+
+So this proposes and measures. It does not merge. Three reasons, in order of
+how much they cost when ignored:
+
+  1. bin/fitness scores COVERAGE AND CONFORMANCE, not quality. A change that
+     raises the number can still make the kit worse, and auto-merging on a
+     proxy metric is how a system optimises itself into something nobody
+     wanted.
+  2. This repo has had two sessions running in it on the same day, and one
+     commit already absorbed another's staged files. A loop that commits by
+     itself in that environment is a data-loss machine.
+  3. A losing attempt is evidence. Deleting it throws away the only record of
+     what was tried, which is the archive DGM says you need.
+
+ISOLATION IS A GIT WORKTREE. The change is applied to a detached worktree
+under .worktrees/evolve-<id>, scored there, and the worktree is removed by
+exact path. Nothing touches the working tree you are sitting in.
+"""
+import argparse
+import hashlib
+import json
+import pathlib
+import shutil
+import subprocess
+import sys
+import time
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+ARCHIVE = pathlib.Path.home() / ".chewbacca" / "evolve"
+LEDGER = ARCHIVE / "archive.jsonl"
+
+
+def git(*args, cwd=None, check=False):
+    r = subprocess.run(["git", "-C", str(cwd or ROOT), *args],
+                       capture_output=True, text=True)
+    if check and r.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)}: {r.stderr.strip()[:200]}")
+    return r.stdout.strip()
+
+
+def baseline():
+    """The last recorded full (unsampled) score, or None."""
+    p = pathlib.Path.home() / ".chewbacca" / "fitness.jsonl"
+    if not p.exists():
+        return None
+    rows = []
+    for line in p.read_text().splitlines():
+        try:
+            e = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not e.get("sampled"):
+            rows.append(e)
+    return rows[-1] if rows else None
+
+
+def score_in(path):
+    r = subprocess.run([sys.executable, str(path / "bin/fitness"),
+                        "--no-tests"], capture_output=True, text=True,
+                       timeout=900, cwd=str(path))
+    out = r.stdout + r.stderr
+    import re
+    m = re.search(r"structural\s+([\d.]+)", out)
+    if not m:
+        return None, out[-400:]
+    return float(m.group(1)), out
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--patch"); ap.add_argument("--cmd")
+    ap.add_argument("--note", default="")
+    ap.add_argument("--archive", action="store_true")
+    ap.add_argument("--show")
+    a = ap.parse_args()
+
+    ARCHIVE.mkdir(parents=True, exist_ok=True)
+
+    if a.archive:
+        if not LEDGER.exists():
+            print("no attempts yet.")
+            return 0
+        print(f"{'ID':<10} {'WHEN':<17} {'BASE':>7} {'AFTER':>7} {'DELTA':>7}  NOTE")
+        for line in LEDGER.read_text().splitlines():
+            try:
+                e = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            # Every column is stringified BEFORE it is padded. A failed
+            # attempt has after=None and delta=None, and a numeric format
+            # spec on None raises, which crashed --archive the first time a
+            # patch failed to apply. The archive exists to hold failures, so
+            # the one row it must never choke on is a failure.
+            def cell(v, fmt="{:.2f}"):
+                return "-" if v is None else fmt.format(v)
+            d = e.get("delta")
+            print(f"{e['id']:<10} "
+                  f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(e['at'])):<17} "
+                  f"{cell(e.get('base')):>7} {cell(e.get('after')):>7} "
+                  f"{cell(d, '{:+g}'):>7}  {e.get('note','')[:34]}")
+        print("\nLosing attempts are kept on purpose. An archive of what failed "
+              "is the record\nof what was tried, and DGM keeps variants "
+              "precisely to avoid stagnating.")
+        return 0
+
+    if a.show:
+        d = ARCHIVE / a.show
+        if not d.is_dir():
+            print(f"no attempt {a.show}", file=sys.stderr)
+            return 1
+        for f in ("note.txt", "change.diff", "score.txt"):
+            p = d / f
+            if p.exists():
+                print(f"----- {f} -----")
+                print(p.read_text()[:3000])
+        return 0
+
+    if not a.patch and not a.cmd:
+        print("give it something to try: --patch <file> or --cmd '<command>'",
+              file=sys.stderr)
+        return 2
+
+    base = baseline()
+    if not base:
+        print("no baseline score. Run `fitness` first, or there is nothing to "
+              "compare against.", file=sys.stderr)
+        return 1
+
+    aid = hashlib.sha1(f"{time.time()}{a.patch}{a.cmd}".encode()).hexdigest()[:8]
+    wt = ROOT / ".worktrees" / f"evolve-{aid}"
+    dest = ARCHIVE / aid
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "note.txt").write_text(a.note or "(no note)")
+
+    print(f"attempt {aid}, isolated in {wt}")
+    try:
+        git("worktree", "add", "--detach", "-q", str(wt), "HEAD", check=True)
+    except RuntimeError as e:
+        print(f"could not create worktree: {e}", file=sys.stderr)
+        return 1
+
+    ok, detail = True, ""
+    try:
+        if a.patch:
+            r = subprocess.run(["git", "-C", str(wt), "apply",
+                                str(pathlib.Path(a.patch).resolve())],
+                               capture_output=True, text=True)
+            ok, detail = r.returncode == 0, r.stderr[-400:]
+        else:
+            r = subprocess.run(a.cmd, shell=True, cwd=str(wt),
+                               capture_output=True, text=True, timeout=1800)
+            ok, detail = r.returncode == 0, (r.stderr or r.stdout)[-400:]
+
+        if not ok:
+            print(f"  the change did not apply/run:\n  {detail}")
+            after, delta = None, None
+        else:
+            (dest / "change.diff").write_text(git("diff", cwd=wt))
+            after, out = score_in(wt)
+            (dest / "score.txt").write_text(out or "")
+            delta = (round(after - base["structural_score"], 2)
+                     if after is not None else None)
+            print(f"  base  {base['structural_score']:.2f}  ({base['sha']})")
+            print(f"  after {after if after is None else f'{after:.2f}'}")
+            if delta is not None:
+                verdict = ("BETTER" if delta > 0 else
+                           "WORSE" if delta < 0 else "NO MEASURABLE CHANGE")
+                print(f"  delta {delta:+g}   {verdict}")
+    finally:
+        # Remove only this worktree, by exact path.
+        subprocess.run(["git", "-C", str(ROOT), "worktree", "remove",
+                        "--force", str(wt)], capture_output=True)
+
+    with LEDGER.open("a") as fh:
+        fh.write(json.dumps({
+            "id": aid, "at": time.time(), "applied": ok,
+            "base": base["structural_score"], "base_sha": base["sha"],
+            "after": after, "delta": delta, "note": a.note,
+        }) + "\n")
+
+    print(f"\narchived: {dest}")
+    print("NOT MERGED. The score is coverage and conformance, not quality, so "
+          "a rise\ncan still be a worse kit. Read the diff and decide.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
