@@ -18,6 +18,11 @@ import Foundation
 ///     q <n>                              how many requests are waiting
 ///     m <id> <x> <y> <w> <h> [label=]    mark a region of the screen
 ///     u [<id>]                           unmark one, or all of them
+///     b [<id>]                           a dictation bubble, beside the pill
+///     b <id> <x> <y> [state=] [app=] [note=]       move one, there
+///     b <id> insert <json string>        put this text in that bubble's field
+///     b <id> off                         take that bubble down
+///     b clear                            take them all down
 ///
 /// Declare the root early rather than last. Children that arrive after it still
 /// land, so a stream cut off halfway has drawn something rather than nothing.
@@ -267,6 +272,62 @@ public enum LineParser {
 
         case "u":
             return .unmark(id: tokens.count >= 2 ? tokens[1] : "")
+
+        case "b":
+            // `b <id> <x> <y> [state=idle] [app="Messages"] [note="..."]`, and
+            // `b <id> off` to take it down.
+            //
+            // The centre rather than a rectangle, because the size is the
+            // display's to decide: a bubble is a fixed circle and a sender that
+            // could set its bounds would eventually send one the size of a
+            // window. Positioning it is the bridge's job while it follows a
+            // field; everything else about it is not.
+            // `b` on its own, or with a name, spawns one where the display
+            // decides. Coordinates are for whatever is following a field.
+            guard tokens.count >= 2 else { return .spawnBubble(id: nil) }
+            if tokens[1] == "clear" { return .unbubble(id: "") }
+            if tokens.count == 2 { return .spawnBubble(id: tokens[1]) }
+            if tokens[2] == "off" { return .unbubble(id: tokens[1]) }
+            if tokens[2] == "insert" {
+                // A quoted JSON string, like `s`, because a dictated sentence
+                // has spaces in it and splitting on whitespace would deliver
+                // the first word. Read off the raw line rather than from the
+                // tokens, so an escaped quote inside it survives.
+                guard let mark = trimmed.range(of: " insert ") else {
+                    throw LineParseError.malformed("`b insert` needs text", line: trimmed)
+                }
+                let rest = String(trimmed[mark.upperBound...])
+                    .trimmingCharacters(in: .whitespaces)
+                if case .string(let text)? = JSONDecoding.parse(rest) {
+                    return .bubbleInsert(id: tokens[1], text: text)
+                }
+                return .bubbleInsert(
+                    id: tokens[1],
+                    text: rest.trimmingCharacters(in: CharacterSet(charactersIn: "\"")))
+            }
+            guard tokens.count >= 4,
+                  let x = Double(tokens[2]), let y = Double(tokens[3])
+            else {
+                throw LineParseError.malformed(
+                    "`b` takes an id, or an id and a centre point, or `off`",
+                    line: trimmed)
+            }
+            var state: BubbleState?
+            var app: String?
+            var note: String?
+            for token in tokens.dropFirst(4) {
+                guard let (key, raw) = splitPair(token) else { continue }
+                let value = raw.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                switch key {
+                case "state": state = BubbleState(rawValue: value)
+                case "app": app = value
+                case "note": note = value
+                default: break
+                }
+            }
+            return .bubble(
+                id: tokens[1], center: CGPoint(x: x, y: y),
+                state: state, app: app, note: note)
 
         case "p":
             // `p thinking`, `p hearing amp=0.4`, `p dormant`.

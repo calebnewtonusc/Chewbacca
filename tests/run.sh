@@ -813,6 +813,7 @@ if group "hud"; then
   # and what each player is told. Every player is a stub, so no sound and
   # no network.
   check  "hud-music reads the words and drives the players" python3 "$ROOT/tests/test_hud_music.py"
+  check  "hud-bubble reads the words and never needs the router" python3 "$ROOT/tests/test_hud_bubble.py"
   check  "superassistant parses" python3 -m py_compile "$ROOT/bin/superassistant"
   # The voice's memory both ways: the brain digest it is given, and the log
   # of what it was asked. Hermetic: a temp brain and a temp log.

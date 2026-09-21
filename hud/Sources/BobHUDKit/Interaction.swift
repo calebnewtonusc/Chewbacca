@@ -15,6 +15,9 @@ import Foundation
 ///     g <x> <y> <w> <h>                            a region was pointed at
 ///     ! <json string>                              something you sent was wrong
 ///     v! <json string>                             the display's version
+///     b <id> <state> [app="..."] [note="..."]      a bubble changed state
+///     b <id> said <json string>                    a bubble heard a sentence
+///     b <id> clean <json string>                   tidy this up, quickly
 ///
 /// Values echo the same encoding as inbound props, so `label="Send it"` means
 /// the same thing in both directions.
@@ -50,6 +53,29 @@ public enum OutboundEvent: Sendable, Equatable {
     /// keeps talking over me when I try to speak" (2026-09-20). A listener
     /// that does not know the line ignores it.
     case talkKey(down: Bool)
+    /// A dictation bubble moved through a state: dropped on a field, refused,
+    /// orphaned, listening. The bridge speaks the ones worth hearing and
+    /// ignores the rest, which is why the state travels rather than a
+    /// pre-written sentence.
+    case bubble(id: String, state: BubbleState, app: String?, note: String?)
+    /// A sentence dictated into a bubble, already inserted into the field.
+    ///
+    /// The display does the inserting, so this is a notification and not a
+    /// request: the bridge logs it and can offer to clean up the wording, and a
+    /// bridge that ignores the line loses nothing. It travels separately from
+    /// `heard` on purpose, because `heard` is a thing to act on and this is a
+    /// thing that has already happened.
+    case dictated(id: String, text: String)
+    /// A raw transcript, and a request to send back a tidied version.
+    ///
+    /// The bubble inserts something either way: a fallback lands after
+    /// `cleanupBudget` whatever the bridge does, and an answer that arrives
+    /// after that is dropped. So this is a request the bridge may ignore, may
+    /// answer late, or may not be there for at all, and the words still go in
+    /// the box. It exists because a spoken sentence and a written one differ in
+    /// more than punctuation, and the punctuation is the only part a rule can
+    /// do.
+    case clean(id: String, text: String)
 
     public var line: String {
         switch self {
@@ -68,6 +94,18 @@ public enum OutboundEvent: Sendable, Equatable {
 
         case .talkKey(let down):
             return down ? "k down" : "k up"
+
+        case .bubble(let id, let state, let app, let note):
+            var line = "b \(id) \(state.rawValue)"
+            if let app { line += " app=\(OutboundEvent.jsonString(app))" }
+            if let note { line += " note=\(OutboundEvent.jsonString(note))" }
+            return line
+
+        case .dictated(let id, let text):
+            return "b \(id) said \(OutboundEvent.jsonString(text))"
+
+        case .clean(let id, let text):
+            return "b \(id) clean \(OutboundEvent.jsonString(text))"
 
         case .heard(let text):
             return "h \(OutboundEvent.jsonString(text))"
