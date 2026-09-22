@@ -54,6 +54,10 @@ public final class VoiceListener {
     }
 
     public var onSignal: ((Signal) -> Void)?
+    /// Set before a press to keep that turn's audio, for the Whisper pass
+    /// after a dictation. Cleared when the turn closes, so the assistant's own
+    /// turns are never recorded.
+    public var recorder: AudioRecorder?
     public private(set) var mode: Mode = .off
 
     /// Words that mean "I am talking to you".
@@ -395,6 +399,7 @@ public final class VoiceListener {
 
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
+        let recorder = self.recorder
         // `@Sendable`, for the same reason as the two closures in `authorize`,
         // and it matters most here: this one runs on the realtime audio thread,
         // once per 1024-frame buffer. Inheriting this class's main-actor
@@ -403,6 +408,7 @@ public final class VoiceListener {
         input.installTap(onBus: 0, bufferSize: 1024, format: format) {
             @Sendable [weak self] buffer, _ in
             request.append(buffer)
+            recorder?.append(buffer)
             guard let level = Self.level(of: buffer) else { return }
             Task { @MainActor in self?.onSignal?(.level(level)) }
         }
@@ -588,6 +594,7 @@ public final class VoiceListener {
         turn += 1
         latestPartial = ""
         releasedAt = nil
+        recorder = nil
         silenceTimer?.invalidate()
         silenceTimer = nil
         commitTimer?.invalidate()

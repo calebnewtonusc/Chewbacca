@@ -48,6 +48,10 @@ extension AppDelegate {
     // MARK: Gesture
 
     func setUpBubbles() {
+        // Loaded now rather than on the first Control-dictation, because the
+        // model takes a second or two to load and the first sentence's
+        // correction would otherwise find nothing listening.
+        Task { await Whisper.shared.warm() }
         // A bubble takes clicks and never the keyboard: the keyboard belongs to
         // the field the words are going into.
         overlay?.refusesKey = { [weak self] in
@@ -407,6 +411,7 @@ extension AppDelegate {
     /// puts the fork outside it, where push-to-talk cannot be reached by
     /// anything the bubble does.
     func dictationSignal(_ signal: VoiceListener.Signal) -> Bool {
+        if keyDictationSignal(signal) { return true }
         guard let id = dictating else { return false }
         switch signal {
         case .partial(let text):
