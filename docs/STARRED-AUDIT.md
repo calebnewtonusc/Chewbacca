@@ -3,7 +3,7 @@
 Every repo starred by the author, checked against what `setup.sh` installs.
 This exists so the question does not have to be asked twice.
 
-Scanned 115 repos. Seventeen are installed. The rest have a reason,
+Scanned 115 repos. Eighteen are installed. The rest have a reason,
 and the reason is not "it looked unrelated".
 
 | Repo                                                                                                                                    | Verdict   | Why                                                                                                                                                          |
@@ -41,7 +41,7 @@ and the reason is not "it looked unrelated".
 | [Infatoshi/x-cli](https://github.com/Infatoshi/x-cli)                                                                                   | Skipped   | Needs an account, API key, or running service the installer cannot create.                                                                                   |
 | [googleworkspace/cli](https://github.com/googleworkspace/cli)                                                                           | Skipped   | Google's own Workspace CLI. Worth reconsidering: it may avoid the Cloud Console ceremony that got gogcli faded.                                              |
 | [NeuroTechX/awesome-bci](https://github.com/NeuroTechX/awesome-bci)                                                                     | Skipped   | An awesome-list. Reading material, not something an installer can wire.                                                                                      |
-| [VoltAgent/awesome-design-md](https://github.com/VoltAgent/awesome-design-md)                                                           | Skipped   | An awesome-list. Reading material, not something an installer can wire.                                                                                      |
+| [VoltAgent/awesome-design-md](https://github.com/VoltAgent/awesome-design-md)                                                           | Installed | Wrong on 2026-09-20. All 74 systems are vendored in ux-engine `systems/`, indexed in `data/systems.json`, and read by `ux-pick` and `ux-lint`.               |
 | [0xarchit/github-profile-analyzer](https://github.com/0xarchit/github-profile-analyzer)                                                 | Skipped   | Course or learning material.                                                                                                                                 |
 | [alicej06/echo](https://github.com/alicej06/echo)                                                                                       | Skipped   | Real, but too narrow to install for everyone.                                                                                                                |
 | [remorses/unframer](https://github.com/remorses/unframer)                                                                               | Skipped   | Real, but too narrow to install for everyone.                                                                                                                |
