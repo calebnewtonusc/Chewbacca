@@ -101,7 +101,7 @@ struct MarkerView: View {
             // arriving reads as switching on rather than appearing. Losing this
             // costs a flourish, not the mark.
             try? await Task.sleep(for: .milliseconds(60))
-            withAnimation(.easeOut(duration: 0.35)) { arrived = true }
+            withAnimation(Motion.fade(0.35, reduced: Motion.systemReduced)) { arrived = true }
         }
         .allowsHitTesting(false)
         // Announced, not hidden.

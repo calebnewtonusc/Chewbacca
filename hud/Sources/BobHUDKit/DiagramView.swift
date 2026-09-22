@@ -59,7 +59,7 @@ struct DiagramView: View {
             // sharpest Reduce Motion offender in the whole project. With the
             // setting on it cuts instead, which is what the setting asks for.
             .animation(
-                Motion.spring(0.34, reduced: reduceMotion),
+                Motion.smooth(reduced: reduceMotion),
                 value: AnimatableVector(parts.prefix(Self.limit)
                     .compactMap(Primitive.init).flatMap(\.channels)))
     }

@@ -146,6 +146,7 @@ public struct OverlayView: View {
                     surface: surface,
                     onDismiss: { model.close(surface.id) },
                     onDrag: { model.move(surface.id, by: $0) },
+                    onSettle: { model.settle(surface.id, at: $0) },
                     onGrab: { model.raise(surface.id) })
                     .frame(width: surface.width)
                     .background {
@@ -172,7 +173,7 @@ public struct OverlayView: View {
                     .zIndex(Double(surface.depth))
             }
         }
-        .animation(Motion.spring(0.30, 0.80, reduced: reduceMotion), value: model.revision)
+        .animation(Motion.smooth(reduced: reduceMotion), value: model.revision)
         .environment(\.hudEnergy, model.presence.energy)
         .task {
             // The screen behind the pill, for its lens and its ink. Only
@@ -228,14 +229,18 @@ struct SurfaceCard: View {
     let surface: OverlaySurface
     let onDismiss: () -> Void
     let onDrag: (CGSize) -> Void
+    /// Where the hand let go, thrown on a little by its speed. The model
+    /// clamps it to the screen.
+    var onSettle: (CGSize) -> Void = { _ in }
     let onGrab: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
     @State private var lit = false
-    @State private var dragging = false
-    /// Where the drag stood when the current gesture began.
-    @State private var base: CGSize = .zero
+    /// Where the drag stood when the current gesture began: read from the
+    /// surface, not kept here, because a settle can move it after release
+    /// and a copy kept here made the next drag jump by the difference.
+    @State private var start: CGSize?
 
     var body: some View {
         // Never taller than the screen.
@@ -274,8 +279,7 @@ struct SurfaceCard: View {
             // that is not 1 resamples every glyph on the card: the text went
             // soft the moment a press moved four points (2026-09-22).
             .onHover { hovering = $0 }
-            .animation(Motion.fade(0.14, reduced: reduceMotion), value: hovering)
-            .animation(Motion.fade(0.12, reduced: reduceMotion), value: dragging)
+            .animation(Motion.hover(reduced: reduceMotion), value: hovering)
             // Drag to move. The gesture sits on the whole card and is
             // `simultaneous` so it does not swallow taps on the controls inside:
             // a HUD you can rearrange is worth much more than one you cannot,
@@ -283,19 +287,42 @@ struct SurfaceCard: View {
             .simultaneousGesture(
                 DragGesture(minimumDistance: 4, coordinateSpace: .global)
                     .onChanged { value in
-                        if !dragging {
-                            dragging = true
+                        let from = start ?? surface.drag
+                        if start == nil {
+                            start = from
                             onGrab()
                         }
-                        onDrag(CGSize(
-                            width: base.width + value.translation.width,
-                            height: base.height + value.translation.height))
+                        // One to one with the hand. Every move bumps the
+                        // model's revision, and the overlay springs every
+                        // revision, so without this the card trailed the
+                        // pointer by a 0.38 second spring: a panel on a
+                        // rubber band (found 2026-09-22). Direct manipulation
+                        // is never animated; only the release is.
+                        var instant = Transaction()
+                        instant.disablesAnimations = true
+                        withTransaction(instant) {
+                            onDrag(CGSize(
+                                width: from.width + value.translation.width,
+                                height: from.height + value.translation.height))
+                        }
                     }
                     .onEnded { value in
-                        dragging = false
-                        base = CGSize(
-                            width: base.width + value.translation.width,
-                            height: base.height + value.translation.height)
+                        let from = start ?? surface.drag
+                        start = nil
+                        // Carried a fifth of the way to where its speed was
+                        // taking it: enough that a flick feels thrown, not
+                        // so much that it flies off. Guessed, never measured.
+                        let carry = 0.2
+                        let thrown = CGSize(
+                            width: value.translation.width
+                                + (value.predictedEndTranslation.width - value.translation.width) * carry,
+                            height: value.translation.height
+                                + (value.predictedEndTranslation.height - value.translation.height) * carry)
+                        withAnimation(Motion.smooth(reduced: reduceMotion)) {
+                            onSettle(CGSize(
+                                width: from.width + thrown.width,
+                                height: from.height + thrown.height))
+                        }
                     })
             .task {
                 // The hairline strikes just after the card lands, so arriving
@@ -481,7 +508,7 @@ struct Brackets: View {
             .shadow(color: (tint ?? HUD.accent).opacity(0.65), radius: 5)
         }
         .padding(-6)
-        .animation(.easeOut(duration: 0.5), value: lit)
+        .animation(Motion.fade(0.5, reduced: reduceMotion), value: lit)
     }
 }
 

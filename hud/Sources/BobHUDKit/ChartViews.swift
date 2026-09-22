@@ -74,7 +74,7 @@ struct Sparkline: View {
                 }
             }
             .frame(height: 34)
-            .animation(Motion.fade(0.45, reduced: reduceMotion), value: points)
+            .animation(Motion.gentle(reduced: reduceMotion), value: points)
         }
         // One element that says what the shape means.
         //
@@ -214,7 +214,7 @@ struct BarsView: View {
         // changed is the common case and the first version animated none of it,
         // because the count had stayed the same.
         .animation(
-            Motion.spring(0.36, reduced: reduceMotion),
+            Motion.gentle(reduced: reduceMotion),
             value: parsed.map(\.value))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(caption.isEmpty ? "Comparison" : caption)
@@ -263,7 +263,7 @@ struct RingView: View {
                     .foregroundStyle(HUD.faint)
             }
         }
-        .animation(Motion.spring(0.6, 0.8, reduced: reduceMotion), value: clamped)
+        .animation(Motion.gentle(reduced: reduceMotion), value: clamped)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label.isEmpty ? "Proportion" : label)
         .accessibilityValue(caption.isEmpty

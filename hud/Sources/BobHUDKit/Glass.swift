@@ -148,7 +148,7 @@ struct GlassSlab<Base: View>: ViewModifier {
         // The spring lives here, on the glass alone. Placed on the whole
         // slab it also animated the words' shift, which is what must not
         // move smoothly.
-        .animation(Motion.spring(0.35, 0.75, reduced: reduceMotion), value: pointer)
+        .animation(Motion.snappy(reduced: reduceMotion), value: pointer)
     }
 
     /// Degrees about x and y. The side under the pointer dips, the way a
