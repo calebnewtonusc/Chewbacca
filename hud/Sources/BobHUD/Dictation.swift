@@ -48,6 +48,12 @@ extension AppDelegate {
     // MARK: Gesture
 
     func setUpBubbles() {
+        // A bubble takes clicks and never the keyboard: the keyboard belongs to
+        // the field the words are going into.
+        overlay?.refusesKey = { [weak self] in
+            guard let self, !self.model.bubbles.isEmpty else { return false }
+            return self.model.bubble(at: Self.flipped(NSEvent.mouseLocation)) != nil
+        }
         // Global and local, in pairs. A global monitor sees only what other
         // applications get, and the glass goes solid the moment the pointer is
         // over a bubble, at which point the events come here instead. Missing
