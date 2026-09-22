@@ -5,6 +5,7 @@ fe3e089e15005d5e68f1f414519f7256ff37f31a5fb4d9e4853cb83aaa095ab1  .claude/hooks/
 9e9d798aa6c593ee6993e5369df2de13c6162f7a927a3ca5830105bde3d784e2  .claude/hooks/durable-guard.sh
 3856d3932a4390ab147bc9d9c31db31c931834c902d588b78ee0b3cb8dba56de  .claude/hooks/env-guard.sh
 619a491c72de9cf72ede7105fc9366a7f3aac86f082fb830727410a1718aef25  .claude/hooks/format-and-sync.sh
+d135d5c6c077372c2cc3740ed05f05dfae5b020aa60bbb246f69a5fe13a07c06  .claude/hooks/fusion-guard.sh
 edc9cc9d67d8a05fce30fd49e56aded7be67efab08cba2ad5d83172bf275dbeb  .claude/hooks/handoff-guard.sh
 09c87a17adba101b77e5c45406c2889c48333e5f220a628d113dad72a80589c4  .claude/hooks/kit-autopush.sh
 d893050092dc083e7a5f5b8b09733466ffdf4040755a5870fa6ade197a2fb208  .claude/hooks/kit-debt.sh
@@ -21,6 +22,7 @@ db7eed7d9305d87ac474675a4b600d51059dd378a789cff4e5e13d66d2cd9014  .claude/hooks/
 3f3cfad70e0d0cb86db7824b7cbee449f5dac7e57c0afc1aeb184814005db0e9  .claude/hooks/submit-guard.sh
 4a95c5c590419c23989685b2b3122c54e09f8660237e8e03242cde51e022a03e  .claude/hooks/terminal-loop.sh
 a1403fdb87442604e8d9aecaadcff2b2de7f13bec444aeb7f69149ebb4b51723  .claude/hooks/ux-guard.sh
+2cda063657261154cbe19aaf10d5cb3a0e911cd55d7aab7f7b84eca17fc6c74e  .claude/hooks/vibe-guard.sh
 87e25255eb0c878c9b363948c7b4f8139597da5b4081621718fb873027479b04  .claude/hooks/write-log.sh
 dc4e7733cbe795305be8ee8f06ec7bd0e1c71680e367bb393ceedf2e5f774995  .claude/hooks/youtube-transcript-ready.sh
 e4b82810d5060fd9f2b34d9e84aaa208bed2264db51851e8c6e7a16d530e33c7  add-skill.sh
