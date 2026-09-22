@@ -113,6 +113,96 @@ skip stages 3 (ontology) or 8 (fusion), they are where real-world graphs fail.
 - [references/fusion-and-llm.md](references/fusion-and-llm.md): Knowledge fusion and
   KG × LLM integration (lectures 8-9). Read during stages 8-9.
 
+## The field, scanned 2026-09-21
+
+`github.com/topics/graph-engineering` returned 98 repositories. The survey at
+`DEEP-JLU/Awesome-Graph-Engineering` puts this file's subject inside a larger
+frame: six sub-disciplines, of which two are covered here.
+
+    prompt engineering     chain of thought, tree of thoughts, graph of thoughts
+    context engineering    RAG, Self-RAG, GraphRAG, retrieval compression
+    loop engineering       control flow, StateFlow, adaptive planning
+    harness engineering    runtime scaffolding, execution, safety
+    graph engineering      task DAGs, agent topologies          <- here
+    ontology engineering   the semantic layer, constraints      <- here
+
+### The three failure modes of a parallel fleet
+
+From `wilsonwu-ai/graph-engineering-kit`, and all three are things this repo
+has done:
+
+1. **Workspace collision.** Two agents write the same file. This kit's
+   `.githooks/pre-commit` exists because two sessions did exactly that and one
+   commit swallowed the other's work, three times in one day.
+2. **Fake verification.** The verifier reads the worker's own reasoning
+   instead of ground truth. On 2026-09-21 a fix was reported done three times
+   while the claim was checked against the code's arithmetic rather than the
+   running screen. `hooks/vibe-guard.sh` is the answer to this one.
+3. **Synthesis bottleneck.** Hundreds of findings into one prompt, so the
+   model reasons over a truncated middle while producing output that looks
+   complete. `hooks/list-guard.sh` exists because five investor lists were
+   called finished four times with 2,121 duplicate people in them.
+
+### Ten rules, same source
+
+1. **The fake edge test.** Does the next step read the previous step's output?
+   No, then cut the arrow. Most sequential work is sequential by habit.
+2. **The reverse fake edge test.** Two steps that look independent but share a
+   workspace have a hidden edge.
+3. **A verifier needs an anchor.** No ground truth to check against means
+   label it unverified. Never fake the check.
+4. **Budget the whole fleet**, not each agent.
+5. **Bound the fan-in.** Past about 50 records, layer the synthesis.
+6. **Tier the model per node.** Do not let a default decide.
+7. **Topology over prompts.** Make the unsafe thing unreachable rather than
+   forbidden. This is the same instruction as this kit's "enforce, do not
+   document", arrived at independently.
+8. **Freeze the rules an optimiser would weaken** to succeed.
+9. **Estimate the speedup before spawning.** See below.
+10. **Run the retro.** Five metrics after, then widen or narrow.
+
+### When not to bother, with this repo's own numbers
+
+Amdahl, where `p` is the genuinely independent fraction and `N` the workers:
+
+    S = 1 / ((1 - p) + p/N)          ceiling = 1 / (1 - p)
+
+Below `p = 0.7` the ceiling is under 3.3x and parallelising is not worth the
+complexity. Measured against this repo's test suite, which is the thing that
+prompted the question:
+
+    total sequential        ~600s
+    slowest single group      41s   (installer)
+    p                        0.932
+    ceiling                   14.6x
+    S at N=15                  7.7x  ->  about 78s
+
+So it is worth it here, and the answer is the group, not the check. Fanning
+out all 155 checks individually would raise N and not p, and p is what binds.
+
+### Exit codes decide, not the model
+
+`meganemura/headsign` states the rule this kit reached separately: when the
+agent asks whether the work can advance, the harness runs the phase's shell
+checks and **their exit codes determine the answer**, with the model's
+narrative ignored at that junction. Advance, retry with a cap, escalate to a
+human, done. That is what `bin/closeout` and the Stop guards are, and it is
+worth knowing the pattern has a name and other implementations.
+
+### Deterministic memory, for the retrieval problem here
+
+`DrDroidLab/open-index` stores typed entities with schemas and `related_to`
+edges carrying a `relationship_edge_meaning`, and ranks with per-field `boost`
+weights rather than embedding geometry. It has no decay or pruning either,
+which is worth noting before assuming that part is solved anywhere.
+
+### Durable state across context loss
+
+`levi-qiao/longgraph-skill`: one node is one prompt and one single-writer
+edge, progress lives in files rather than chat history, acceptance gates are
+rerun against real output rather than self-reported done, and a supervisor
+verifies from a separate context. Markdown, not a framework.
+
 ## Practitioners on this machine, and where they converge
 
 One graduate course is a curriculum, not a field. These are working
