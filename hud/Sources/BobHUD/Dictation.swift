@@ -544,8 +544,13 @@ extension AppDelegate {
 
         NSRunningApplication(processIdentifier: pid)?.activate(options: [])
         let front = await cameForward(pid)
-        let ok = front && postCommandV()
-        bubbleLog.notice("bubble.insert tier=paste ok=\(ok) front=\(front)")
+        // The glass is a panel that can take key without activating the
+        // display, and a click on the bubble can leave it holding the keyboard
+        // while Terminal still reads as frontmost. Logged so that is visible.
+        let glassKey = NSApp.keyWindow != nil
+        let ok = front && postCommandV(to: pid)
+        bubbleLog.notice(
+            "bubble.insert tier=paste ok=\(ok) front=\(front) glass_key=\(glassKey)")
 
         // Put the clipboard back, after the paste has had time to read it. A
         // clipboard that silently becomes whatever you last dictated is a
@@ -572,9 +577,18 @@ extension AppDelegate {
         return NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
     }
 
-    /// Post Command-V to the frontmost application. False when macOS would
-    /// drop the event, which it does silently without the Accessibility grant.
-    private static func postCommandV() -> Bool {
+    /// Post Command-V to the application that owns the field. False when
+    /// macOS would drop the event, which it does silently without the
+    /// Accessibility grant.
+    ///
+    /// Addressed to the pid, not the HID tap. On 2026-09-22 the HID-tap version
+    /// logged `ok=true front=true` on every turn into Terminal and nothing
+    /// appeared: an event posted there goes to whoever holds the keyboard,
+    /// and after a click on the bubble that can be the glass. The same
+    /// pid-addressed Command-V pasted into a frontmost TextEdit in a probe the
+    /// same day. It does nothing to a background app, which is why the
+    /// frontmost wait above still runs first.
+    private static func postCommandV(to pid: pid_t) -> Bool {
         guard CGPreflightPostEventAccess() else { return false }
         // Private state, so a modifier the person happens to be holding does
         // not ride along and turn the paste into something else.
@@ -585,8 +599,8 @@ extension AppDelegate {
         else { return false }
         down.flags = .maskCommand
         up.flags = .maskCommand
-        down.post(tap: .cghidEventTap)
-        up.post(tap: .cghidEventTap)
+        down.postToPid(pid)
+        up.postToPid(pid)
         return true
     }
 
