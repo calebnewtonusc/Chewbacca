@@ -52,6 +52,10 @@ struct GlassSlab<Base: View>: ViewModifier {
     /// How far the content shifts against the lean, in points at the edge.
     /// Snapped to whole pixels, so at 2x the steps are half a point.
     var lift: CGFloat = 1.5
+    /// A pointer that stands still, for a snapshot. ImageRenderer cannot
+    /// hover, and the one thing worth checking here is what hovering does
+    /// to the words.
+    var pinned: UnitPoint?
     @ViewBuilder let base: () -> Base
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -61,7 +65,8 @@ struct GlassSlab<Base: View>: ViewModifier {
     @Environment(\.displayScale) private var displayScale
     @State private var size: CGSize = .zero
     /// Where the pointer is over the slab, 0 to 1 each way. Nil when it is not.
-    @State private var pointer: UnitPoint?
+    @State private var hovered: UnitPoint?
+    private var pointer: UnitPoint? { pinned ?? hovered }
 
     /// Where the light sits when nobody is pointing: above and to the left,
     /// the direction every shadow on macOS already agrees on.
@@ -70,15 +75,23 @@ struct GlassSlab<Base: View>: ViewModifier {
     func body(content: Content) -> some View {
         let light = reduceMotion ? Self.restingLight : (pointer ?? Self.restingLight)
         return content
-            // The content floats: its own small shadow on the glass.
-            .shadow(color: .black.opacity(0.28 * thickness), radius: 1.2, y: 1.2 * thickness)
+            // No shadow on the content. One went on for a floating look on
+            // 2026-09-22 and a 1.2 point shadow under every glyph is a
+            // second, soft copy of its edge: it read as blur.
             // Clipped flat, so a fill inside it (the pill's progress) keeps
             // the glass's outline.
             .clipShape(shape)
-            // The parallax, in whole device pixels. A shift of a fraction
-            // of a pixel makes the renderer resample every glyph, and on
-            // 2026-09-22 that turned every panel soft under the pointer.
+            // The parallax, in whole device pixels and never animated. A
+            // shift of a fraction of a pixel resamples every glyph, and a
+            // spring on it is at a fraction of a pixel on every frame it is
+            // moving, which with a moving pointer is every frame: on
+            // 2026-09-22 that kept every panel soft for as long as the mouse
+            // was over it. So it steps, half a point at a time on Retina.
             .offset(shift)
+            // Scoped to the shift changing, so the card's hover fade and the
+            // pill's caption fade, which arrive through the same subtree,
+            // still animate.
+            .animation(nil, value: shift)
             // Only the glass tilts; the words never do. A 3D rotation
             // resamples whatever it is applied to, and text resampled is
             // text blurred, so the rotation stays on a layer with none.
@@ -92,12 +105,11 @@ struct GlassSlab<Base: View>: ViewModifier {
                 switch phase {
                 case .active(let at):
                     guard size.width > 0, size.height > 0 else { return }
-                    pointer = UnitPoint(x: at.x / size.width, y: at.y / size.height)
+                    hovered = UnitPoint(x: at.x / size.width, y: at.y / size.height)
                 case .ended:
-                    pointer = nil
+                    hovered = nil
                 }
             }
-            .animation(Motion.spring(0.35, 0.75, reduced: reduceMotion), value: pointer)
     }
 
     /// The glass on its own: body, light, edge and shadows, tilted.
@@ -133,6 +145,10 @@ struct GlassSlab<Base: View>: ViewModifier {
         .shadow(color: .black.opacity(0.30), radius: 22 * thickness, y: 12 * thickness)
         .rotation3DEffect(.degrees(lean.x), axis: (x: 1, y: 0, z: 0), perspective: 0.6)
         .rotation3DEffect(.degrees(lean.y), axis: (x: 0, y: 1, z: 0), perspective: 0.6)
+        // The spring lives here, on the glass alone. Placed on the whole
+        // slab it also animated the words' shift, which is what must not
+        // move smoothly.
+        .animation(Motion.spring(0.35, 0.75, reduced: reduceMotion), value: pointer)
     }
 
     /// Degrees about x and y. The side under the pointer dips, the way a
@@ -143,7 +159,7 @@ struct GlassSlab<Base: View>: ViewModifier {
     }
 
     /// The content's shift against the lean, snapped to the pixel grid.
-    private var shift: CGSize {
+    var shift: CGSize {
         guard let pointer, !reduceMotion else { return .zero }
         let snap = { (value: CGFloat) in (value * displayScale).rounded() / displayScale }
         return CGSize(
