@@ -17,31 +17,26 @@ who feels surprised by that will uninstall it and be right to.
 Say what each one gives them, not what it is technically. Let them pick any
 subset, in any order, and let them say no to anything.
 
-| Offer it like this    | It unlocks                                                       | Stays local |
-| --------------------- | ---------------------------------------------------------------- | ----------- |
-| "Your texts"          | who you are drifting from, and what people actually told you     | yes         |
-| "Your contacts"       | names on cards instead of phone numbers, and companies filled in | yes         |
-| "Your LinkedIn"       | where people work, who moved jobs, who asked to connect first    | yes         |
-| "Your email"          | what you owe people, and who is waiting on you                   | yes         |
-| "Your calendar"       | who you actually spend time with, versus who you mean to         | yes         |
-| "Your notes"          | things you wrote down once and never found again                 | yes         |
-| "Files and documents" | a place to look things up: leases, policies, records             | yes         |
+Offer only sources relevant to the person's goal: selected texts, contacts,
+calendar entries, notes, email, files or a LinkedIn export. They can use Chewbacca
+without importing any of these.
 
-**Nothing in that table leaves the machine.** Say so explicitly and without
-hedging, because it is the question they are actually asking. The one exception
-is a Clay key if they add one later, and that is opt-in and separate.
+Read `docs/PRIVACY.md` before describing a data flow. A local database does not
+mean local-only processing: content placed in a hosted agent's context goes to
+that provider. `people distill` sends selected message content through its model
+backend; connected APIs and MCP services receive their tool inputs. Explain the
+actual destination before enabling a new source or external enrichment step.
 
-**Start with one.** Somebody who says yes to everything at once will spend an
-hour on permissions and quit. Texts first: it is the richest, and it is the one
-that makes the rest worth having.
+Start with the smallest useful source they choose. Do not default to their whole
+message history, and do not treat agreement to one source as agreement to others.
 
 ## 2. Guide the permission, do not hand them a list
 
 Every one of these needs macOS to grant access, and the prompts are confusing.
 Say what will appear before it appears.
 
-- **Texts and contacts** need **Full Disk Access** for the terminal. System
-  Settings, Privacy and Security, Full Disk Access, add their terminal, then
+- **Texts and contacts** need **Full Disk Access** for the app actually executing the read (for example the editor, Codex, or terminal). System
+  Settings, Privacy and Security, Full Disk Access, add that host app, then
   quit and reopen it. **The reopen is the part everybody misses**, and without
   it the grant silently does nothing.
 - **Calendar, Reminders, Notes, Mail** each throw their own prompt the first
@@ -54,18 +49,21 @@ Run `mac doctor` and read it to them in plain language. Do not paste the table.
 
 ## 3. Then actually pull it in
 
-In this order, because each one makes the next more useful:
+Run only commands corresponding to the sources and processing the person has
+authorized. These are separate actions, not an automatic sequence:
 
-```bash
-people texts sync        # their whole message history
-people import --mac      # the contacts app
-people linkedin sync     # a LinkedIn export sitting in ~/Downloads
-people linkedin locate   # where those people live, needs a Clay key, costs nothing
-people distill           # turn conversations into what they know about people
+```sh
+people texts sync        # imports message history; broad scope, explain first
+people import --mac      # imports Contacts
+people linkedin sync     # imports the chosen LinkedIn export
+people linkedin locate   # external enrichment; requires separate service access
+people distill           # model processing of message content, potentially paid
 ```
 
-`people` prints the next step on its own when a store is thin, so follow that
-rather than reciting this list.
+Inspect the command's current help for scoping and preview options. If it cannot
+limit the import to what they authorized, stop and explain that limit. Do not run
+a broader import merely because it is the only command available. Pricing and
+provider retention depend on their accounts; never promise either is free.
 
 ### The LinkedIn export
 

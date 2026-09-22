@@ -40,6 +40,7 @@ COMMANDS=(
   "status|what is installed, what is on, what is stale"
   "version|version installed here and in the repo"
   "setup|full setup on this machine (asks nothing)"
+  "agent|plan, install, inspect or launch a runtime adapter"
   "update|pull the latest, show what changed, re-run setup"
   "changelog|what changed between versions"
   "skills|list, search, or show a skill"
@@ -62,7 +63,7 @@ COMMANDS=(
 )
 
 usage() {
-  echo "chewbacca: your Claude Code kit"
+  echo "chewbacca: shared context and tools for your coding agents"
   echo
   local name help
   for entry in "${COMMANDS[@]}"; do
@@ -70,7 +71,7 @@ usage() {
     printf '  chewbacca %-12s %s\n' "$name" "$help"
   done
   echo
-  echo "Claude Code is primary. Launch codex in the repo for the optional fallback agent."
+  echo "Runtime setup: chewbacca agent setup --runtime claude-code|codex|both"
   echo "ChatGPT Web: mac-use --provider chatgpt-web, or chatgpt-gateway --help."
 }
 
@@ -89,6 +90,10 @@ repo_version() { cat "$ROOT/VERSION" 2>/dev/null || echo "unknown"; }
 installed_version() { cat "$STATE/version" 2>/dev/null || echo "unrecorded"; }
 
 case "${1:-}" in
+agent)
+  shift
+  exec python3 "$ROOT/tools/agent_runtime.py" "$@"
+  ;;
 open)
   shift
   # A dashboard nobody can find is a file. This is the one verb that is worth

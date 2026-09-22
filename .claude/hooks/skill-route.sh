@@ -52,7 +52,11 @@ NOISE = ("SYSTEM NOTIFICATION", "task-notification", "<task-id>",
 if any(marker in prompt for marker in NOISE):
     raise SystemExit(0)
 
-ROOTS = [os.path.expanduser("~/.claude/skills")]
+ROOTS = [os.path.join(os.path.expanduser(os.environ.get("CHEWBACCA_HOME", "~/.chewbacca")), "skills"),
+         os.path.expanduser("~/.claude/skills"),
+         os.path.expanduser("~/.agents/skills")]
+if os.environ.get("CHEWBACCA_SKILLS_DIR"):
+    ROOTS.append(os.environ["CHEWBACCA_SKILLS_DIR"])
 here = payload.get("cwd") or os.getcwd()
 d = here
 for _ in range(5):

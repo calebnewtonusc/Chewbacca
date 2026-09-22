@@ -91,6 +91,11 @@ Required:
   --name <first name>          Becomes your private context repo name.
 
 Optional:
+  --runtime <name>             Install only the selected runtime adapter:
+                               claude-code, codex, both, or auto. No Mac bootstrap.
+                               Use --dry-run to preview; use agent export for other hosts.
+  --brain-dir <path>           With --runtime, choose the private context folder.
+  --json                      With --runtime, print machine-readable results.
   --github-user <login>        Defaults to the logged-in gh account.
   --repo-dir <path>            Where repos live. Default ~/dev
   --anthropic-key <key>        Written to settings.json env. Omit to leave unset.
@@ -144,14 +149,20 @@ TODOIST_TOKEN=""; COMPOSIO_URL=""; COMPOSIO_KEY=""; ANSWERS=""
 SESSION_OPENER="none"; BYPASS_PERMS="no"; ONLY=""; DRY_RUN=0
 PROFILE="developer"; NO_GITHUB=0; ONLY_PORTABLE=0
 FAST=0
+AGENT_RUNTIME=""
+AGENT_BRAIN=""; AGENT_JSON=0
 SKIP_SECTIONS=""
 declare -a SKIPPED=()
 # Only these reach settings.json, and only when passed here in this run.
 declare -a CREDS_WRITTEN=()
+REQUESTED_ARGS=("$@")
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --name) NAME="${2:-}"; shift 2 ;;
+    --runtime) AGENT_RUNTIME="${2:-}"; shift 2 ;;
+    --brain-dir) AGENT_BRAIN="${2:-}"; shift 2 ;;
+    --json) AGENT_JSON=1; shift ;;
     --github-user) GITHUB_USER="${2:-}"; shift 2 ;;
     --repo-dir) REPO_DIR="${2:-}"; shift 2 ;;
     --anthropic-key) ANTHROPIC_KEY="${2:-}"; shift 2 ;;
@@ -197,6 +208,30 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Runtime setup is independent of the historical Mac/Claude bootstrap. A fresh
+# Codex install must not need Claude credentials, Homebrew or a GitHub account.
+if [ -n "$AGENT_RUNTIME" ]; then
+  for ((arg_index=0; arg_index<${#REQUESTED_ARGS[@]}; arg_index++)); do
+    case "${REQUESTED_ARGS[$arg_index]}" in
+      --runtime|--name|--brain-dir) arg_index=$((arg_index + 1)) ;;
+      --dry-run|--json) ;;
+      *) err "Runtime setup does not accept ${REQUESTED_ARGS[$arg_index]}; use the full installer or native host settings for that option."
+         exit 2 ;;
+    esac
+  done
+  action=setup
+  [ "$DRY_RUN" -eq 1 ] && action=plan
+  runtime_args=("$action" --runtime "$AGENT_RUNTIME")
+  [ -n "$NAME" ] && runtime_args+=(--name "$NAME")
+  [ -n "$AGENT_BRAIN" ] && runtime_args+=(--brain-dir "$AGENT_BRAIN")
+  [ "$AGENT_JSON" -eq 1 ] && runtime_args+=(--json)
+  exec python3 "$SCRIPT_DIR/tools/agent_runtime.py" "${runtime_args[@]}"
+fi
+if [ -n "$AGENT_BRAIN" ] || [ "$AGENT_JSON" -eq 1 ]; then
+  err "--brain-dir and --json require --runtime"
+  exit 2
+fi
+
 # A profile is a set of defaults, not a separate code path. It decides what a
 # section does rather than whether the script runs, so every section stays
 # reachable with --only and the whole thing stays one file.
@@ -241,7 +276,7 @@ if [ -z "$NAME" ] && [ "${ONLY:-}" = "repos" ]; then
   exit 2
 fi
 
-if [ -z "$NAME" ] && [ -z "$ONLY" ]; then
+if [ -z "$NAME" ] && [ -z "$ONLY" ] && [ "$NO_GITHUB" -eq 0 ]; then
   err "--name is required (or --answers, or --only <section>)"
   echo
   usage
@@ -460,15 +495,14 @@ install_agent_instructions() {
   install_agent_neutral_rule
   python3 "$SCRIPT_DIR/tools/agents_md.py"
   initialize_personal_context
-  python3 "$SCRIPT_DIR/tools/codex_context.py" install --brain-dir "$PC_DIR" --both
-  python3 "$SCRIPT_DIR/tools/codex_hooks.py" install
+  python3 "$SCRIPT_DIR/tools/agent_runtime.py" setup --runtime both --brain-dir "$PC_DIR"
   if ! command -v jq >/dev/null 2>&1; then
     warn "jq is missing: context loading works, but shared file and reply checks require jq"
   fi
   if command -v codex >/dev/null 2>&1; then
-    log "Codex installed (optional secondary agent); AGENTS.md ready"
+    log "Codex installed; shared context and runtime configuration ready"
   else
-    log "Codex absent (optional); Claude Code remains primary"
+    log "Codex absent (optional); configuration ready for installation"
   fi
 }
 

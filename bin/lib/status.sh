@@ -71,7 +71,7 @@ printf '  %-22s %s\n' "subagents" "$AGENTS"
 echo
 echo -e "${BLD}Reasoning backends${NC}"
 printf '%s' "$BACKENDS" | python3 -c 'import json,sys; [print("  %-22s %s" % (k,v["state"])) for k,v in json.load(sys.stdin).items()]'
-echo "  Claude Code is primary; Codex is optional; ChatGPT Web is a browser backend."
+echo "  Choose Claude Code or Codex independently; ChatGPT Web uses the browser backend."
 echo
 echo -e "${BLD}Your data${NC}"
 printf '  %-22s %s\n' "people" "$PEOPLE"

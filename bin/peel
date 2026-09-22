@@ -632,14 +632,31 @@ if (cmd === "scan") {
   const bin = d.mainBin;
   if (!bin || !fs.existsSync(bin)) { console.error("no main binary found"); process.exit(1); }
   if (!hasSwiftMeta(bin)) { console.error(`${name} has no __swift5 metadata (not a Swift app)`); process.exit(1); }
-  let defined = "?";
-  try { defined = execFileSync("nm", ["-U", bin], { maxBuffer: 1 << 28, stdio: ["ignore","pipe","ignore"] })
-    .toString().trim().split("\n").filter(Boolean).length; } catch {}
+  // Total defined symbols is the misleading number. A binary can ship 124,918
+  // symbols that are all Objective-C selectors, which class-dump already gives
+  // you. Only mangled Swift symbols ($s) add method names on top of the type
+  // graph, and across 24 Swift apps here exactly one shipped them.
+  let defined = 0, swiftSyms = 0, objcSyms = 0;
+  try {
+    const lines = execFileSync("nm", ["-U", bin],
+      { maxBuffer: 1 << 28, stdio: ["ignore","pipe","ignore"] }).toString().split("\n");
+    for (const l of lines) {
+      if (!l) continue;
+      defined++;
+      if (l.includes(" _$s")) swiftSyms++;
+      else if (/ [-+]\[/.test(l)) objcSyms++;
+    }
+  } catch {}
   const r = swiftDump(bin, name);
   if (!r) { console.error("ipsw swift-dump failed (brew install ipsw)"); process.exit(1); }
   const out = rest[1] || path.join(process.cwd(), name + ".swift");
   fs.writeFileSync(out, r.text);
-  console.log(`${name}: ${defined} defined symbols in the binary, ${r.own.length} app-owned types recovered`);
+  const mas = fs.existsSync(path.join(app, "Contents", "_MASReceipt"));
+  console.log(`${name}: ${r.own.length} app-owned types recovered from __swift5 metadata`);
+  console.log(`  symbols: ${defined} defined, ${swiftSyms} Swift, ${objcSyms} ObjC${mas ? "  [Mac App Store]" : ""}`);
+  console.log(swiftSyms > 100
+    ? `  method names ARE available: nm -U | xcrun swift-demangle`
+    : `  method names are stripped; types and properties only, bodies are sub_ addresses`);
   console.log(`${r.text.split("\n").length} lines -> ${out}`);
   r.own.slice(0, 20).forEach(t => console.log("  " + t.replace(/\s*\{$/, "")));
   if (r.own.length > 20) console.log(`  ... ${r.own.length - 20} more`);

@@ -36,7 +36,9 @@ f="$(jq -r '.tool_input.file_path // .tool_response.filePath // empty' 2>/dev/nu
 
 # ── Make sure node is reachable ───────────────────────────────────────────────
 ensure_node() {
-  command -v node >/dev/null 2>&1 && return 0
+  # On 2026-09-21 Homebrew's node existed but dyld aborted because its
+  # llhttp library had moved. Presence did not mean it could run Prettier.
+  (node --version) >/dev/null 2>&1 && return 0
 
   # nvm: prefer the aliased default, else the highest installed version.
   local nvm_dir="${NVM_DIR:-$HOME/.nvm}"
@@ -44,20 +46,20 @@ ensure_node() {
     local alias_file="$nvm_dir/alias/default" target=""
     if [ -f "$alias_file" ]; then
       target="$(cat "$alias_file" 2>/dev/null)"
-      [ -n "$target" ] && [ -x "$nvm_dir/versions/node/$target/bin/node" ] && {
+      [ -n "$target" ] && ("$nvm_dir/versions/node/$target/bin/node" --version) >/dev/null 2>&1 && {
         PATH="$nvm_dir/versions/node/$target/bin:$PATH"; export PATH; return 0
       }
     fi
     local newest
     newest="$(ls -1 "$nvm_dir/versions/node" 2>/dev/null | sort -V | tail -1)"
-    [ -n "$newest" ] && [ -x "$nvm_dir/versions/node/$newest/bin/node" ] && {
+    [ -n "$newest" ] && ("$nvm_dir/versions/node/$newest/bin/node" --version) >/dev/null 2>&1 && {
       PATH="$nvm_dir/versions/node/$newest/bin:$PATH"; export PATH; return 0
     }
   fi
 
   local d
   for d in /opt/homebrew/bin /usr/local/bin /usr/bin; do
-    if [ -x "$d/node" ]; then PATH="$d:$PATH"; export PATH; return 0; fi
+    if ("$d/node" --version) >/dev/null 2>&1; then PATH="$d:$PATH"; export PATH; return 0; fi
   done
   return 1
 }
@@ -97,7 +99,10 @@ should_format() {
 if should_format; then
   if ensure_node; then
     if PRETTIER="$(find_prettier)"; then
-      "$PRETTIER" --write "$f" --log-level silent 2>/dev/null || true
+      if ! "$PRETTIER" --write "$f" --log-level silent; then
+        echo "Prettier failed; the file was not verified as formatted." >&2
+        exit 1
+      fi
     fi
     # NO npx FALLBACK. Measured 2026-09-20: this hook runs in 260ms when
     # prettier resolves, and doctor caught a p95 of 4761ms on 1 run in 20.
