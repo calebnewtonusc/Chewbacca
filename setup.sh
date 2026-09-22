@@ -1415,6 +1415,49 @@ _register("PreToolUse", hooks_dir + "/submit-guard.sh", timeout=10,
 _register("UserPromptSubmit", hooks_dir + "/method-guard.sh", timeout=8,
           status="Naming the process and the falsifier...")
 
+# FOUR HOOKS THAT WERE LIVE ON THE AUTHOR'S MACHINE AND REGISTERED NOWHERE.
+#
+# Found 2026-09-22 by diffing every .sh in .claude/hooks against every
+# _register call, after ux-guard turned out to have the same hole. The cp above
+# puts all of them on disk, so `command -v` and a file-exists check both say
+# installed, and on any machine but the one where they were hand-added to
+# settings.json they never ran once.
+#
+# skill-route is the expensive one. kit-route was fixed on 2026-09-21 after 105
+# skills sat unnamed while work started; skill-route is the half that routes to
+# the skills themselves and it still had no registration.
+_register("UserPromptSubmit", hooks_dir + "/skill-route.sh", timeout=8,
+          status="Checking whether a skill already covers this...")
+
+_register("UserPromptSubmit", hooks_dir + "/ask-capture.sh", timeout=5)
+
+_register("Stop", hooks_dir + "/kit-autopush.sh", timeout=30,
+          status="Pushing the kit...")
+
+# The global instructions say never WebFetch a YouTube URL, because it returns
+# no transcript. This hook makes that automatic instead of something to
+# remember, and it had never been registered on any machine at all.
+_register("UserPromptSubmit", hooks_dir + "/youtube-transcript-ready.sh", timeout=8)
+
+# The kit learns from the session or the session did not finish. Caleb asked
+# four times on 2026-09-20 whether Chewbacca had been updated with what a
+# session learned and then said "I shouldn't hv to keep asking this bruv", so
+# this was built to stop him having to ask. bin/kit-debt was installed and
+# tested; the hook that calls it was never registered, so the gate built to
+# answer that complaint has not fired once.
+_register("Stop", hooks_dir + "/kit-debt.sh", timeout=15,
+          status="Checking the kit learned something...")
+
+# The pull half. kit-autopush made the remote the default for work leaving this
+# machine; nothing made it the default for work arriving. `chewbacca update`
+# could always pull and always needed somebody to remember, which is the exact
+# sentence kit-autopush was written to retire.
+#
+# Fast-forward only, main only, origin only, and it refuses outright on a dirty
+# working tree, so it cannot cost uncommitted work. Throttled to once an hour.
+_register("SessionStart", hooks_dir + "/kit-autopull.sh", timeout=20,
+          status="Pulling the kit...")
+
 # The prose rules apply to files too, not only to replies. A draft that passes
 # every detector can still carry six kickers.
 _register("PostToolUse", hooks_dir + "/prose-guard.sh", timeout=20,
