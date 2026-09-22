@@ -881,6 +881,31 @@ if [ -d "$SCRIPT_DIR/crafts" ]; then
   log "seeded $(ls "$SCRIPT_DIR/crafts" | wc -l | tr -d ' ') craft notes"
 fi
 
+# ux-engine lives in its own repo, so its tools cannot go through link_tool,
+# which resolves against this repo's bin/. Link them when that repo is present,
+# from the same default ux-guard.sh reads.
+#
+# WHY THIS MATTERS AND IS NOT COSMETIC. ux-guard blocks a UI write and then
+# tells the agent what to do next: "Derive the constraints first: ux-constrain"
+# and "load the behaviour spec: ux-preset form". Neither was on PATH, so the
+# remediation was a dead end and the only move left after a refusal was to
+# guess again. A gate that refuses without a runnable next step trains people
+# to route around it.
+UX_ENGINE_DIR="${UX_ENGINE_DIR:-$HOME/Desktop/2026-Code/ux-engine}"
+if [ -d "$UX_ENGINE_DIR/bin" ]; then
+  mkdir -p "$HOME/.local/bin"
+  _ux_linked=""
+  for _ux in "$UX_ENGINE_DIR/bin/"*; do
+    [ -f "$_ux" ] || continue
+    ln -sfn "$_ux" "$HOME/.local/bin/$(basename "$_ux")"
+    chmod +x "$_ux"
+    _ux_linked="$_ux_linked $(basename "$_ux")"
+  done
+  [ -n "$_ux_linked" ] && log "ux-engine tools linked to ~/.local/bin/:$_ux_linked"
+  unset _ux _ux_linked
+  ensure_local_bin_on_path
+fi
+
 if [ -n "$_installed_scanners" ]; then
   if command -v node &>/dev/null; then
     log "Installed to ~/.local/bin/:$_installed_scanners"
@@ -1364,6 +1389,20 @@ _register("PreToolUse", hooks_dir + "/browser-ux-guard.sh", timeout=10,
 _register("PreToolUse", hooks_dir + "/fusion-guard.sh", timeout=15,
           matcher="Write|Edit|MultiEdit",
           status="Checking a name against the roster...")
+
+# The generated look is an empty deny list, so this refuses a UI write that
+# carries it. It blocks ONLY on findings that cite a standard this kit did not
+# write (WCAG, W3C, MDN), because a build-breaking gate made of house opinion
+# is roughly 3.4x over the false-positive rate where tools get switched off;
+# everything else prints and lets the write through.
+#
+# It was copied to ~/.claude/hooks by the block above and never registered
+# here, so it only ever fired on the one machine where it had been added to
+# settings.json by hand. That is the same class as hud.listening and
+# kit-route.sh: the capability was present, good, and wired to nothing.
+_register("PreToolUse", hooks_dir + "/ux-guard.sh", timeout=15,
+          matcher="Write|Edit",
+          status="Checking this UI is not the generated look...")
 
 # Coursework is never turned in without being asked. This was a rule in prose
 # that got broken twice in one night, so it became a gate.
