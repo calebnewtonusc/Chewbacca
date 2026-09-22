@@ -670,6 +670,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 leave()
                 return
             }
+            // The glass is what he is talking to, so the key brings it up
+            // rather than assuming it is already there. Held with the overlay
+            // hidden, this opened the microphone behind a blank screen and the
+            // only sign anything had happened was in the log. After the
+            // double-tap check, so leaving still leaves.
+            if let overlay, !overlay.isVisible { overlay.show() }
             // Up the socket before the microphone opens: the bridge stops
             // talking on this line, so the person is not talked over while
             // they speak.
