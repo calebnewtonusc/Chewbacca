@@ -226,13 +226,10 @@ def doctor(repair: bool = False) -> int:
             "it on a text box; macOS asks then."
         )
 
-    if subprocess.run(["which", "peekaboo"], capture_output=True).returncode == 0:
-        print("paste tier     peekaboo found (for fields that refuse a direct write)")
-    else:
-        print(
-            "paste tier     peekaboo missing. Native fields still work; Electron "
-            "apps will leave the text on the clipboard."
-        )
+    print(
+        "paste tier     built in: the display posts Command-V itself under the "
+        "same Accessibility grant"
+    )
     return 0 if ok else 1
 
 
