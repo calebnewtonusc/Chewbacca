@@ -1,6 +1,6 @@
 ---
 name: graph-engineering
-description: 'Teaches an agent graph engineering, both halves: knowledge graphs (ontology design, entity/relation/event extraction, fusion, GraphRAG/memory serving) and task graphs (agent orchestration, parallel fan-out, verifier separation, the stop rule, human gates). Use when asked to build a knowledge graph, extract entities or relations from text, design an ontology, dedupe or merge entities, add graph memory or GraphRAG to an agent, orchestrate multi-agent workflows as a graph, or LEARN graph engineering. ALSO use without being asked, whenever the WORK has the shape, because this is the routing that keeps failing: many independent jobs being run one at a time, a test suite or batch or loop that runs sequentially and is slow, anything that could fan out but does not, planning subagents with no verifier and no stop rule, deciding whether two records are the same person or company, a fuzzy or first-name match about to be written down as fact, duplicate entities across sources, backlinks and orphan notes and link integrity in a notes repo, multi-hop questions over linked records, or any moment the answer is slow because the structure of the work was never designed.'
+description: "Teaches an agent graph engineering, both halves: knowledge graphs (ontology design, entity/relation/event extraction, fusion, GraphRAG/memory serving) and task graphs (agent orchestration, parallel fan-out, verifier separation, the stop rule, human gates). Use when asked to build a knowledge graph, extract entities or relations from text, design an ontology, dedupe or merge entities, add graph memory or GraphRAG to an agent, orchestrate multi-agent workflows as a graph, or LEARN graph engineering. ALSO use without being asked, whenever the WORK has the shape, because this is the routing that keeps failing: many independent jobs being run one at a time, a test suite or batch or loop that runs sequentially and is slow, anything that could fan out but does not, planning subagents with no verifier and no stop rule, deciding whether two records are the same person or company, a fuzzy or first-name match about to be written down as fact, duplicate entities across sources, backlinks and orphan notes and link integrity in a notes repo, multi-hop questions over linked records, or any moment the answer is slow because the structure of the work was never designed."
 ---
 
 # Graph Engineering
@@ -122,9 +122,76 @@ frame: six sub-disciplines, of which two are covered here.
     prompt engineering     chain of thought, tree of thoughts, graph of thoughts
     context engineering    RAG, Self-RAG, GraphRAG, retrieval compression
     loop engineering       control flow, StateFlow, adaptive planning
-    harness engineering    runtime scaffolding, execution, safety
+    runtime engineering    scaffolding, execution, sandbox, safety
     graph engineering      task DAGs, agent topologies          <- here
     ontology engineering   the semantic layer, constraints      <- here
+
+### The other four, enough to reach for the right one
+
+This file teaches the bottom two rows. The other four are named above and
+then dropped, which is the gap a reader hits the moment the work is not
+graph-shaped. Each below is: what it is, the technique to reach for, the
+failure it prevents, and where this repo already does or fails it. Each is a
+map to the row, not a course in it.
+
+**Prompt engineering: chain, tree, graph of thoughts.** The unit is a single
+reasoning call and how much structure you impose inside it. Chain of thought
+is one linear trace. Tree of thoughts branches, scores the branches, and
+keeps the best, for a problem with dead ends worth abandoning. Graph of
+thoughts lets branches merge again, for a problem whose sub-results combine.
+The rule is to spend the cheapest one that works: a chain is one call, a tree
+is many, and reaching for a tree on a problem a chain solves is the
+prompt-level version of spawning a fleet for 40 seconds of work. The failure
+it prevents is a confident single trace down a path that had a fork in it.
+This kit's own instance: the vibe guard exists because a chain asserted "fixed"
+with no branch that checked the running screen.
+
+**Context engineering: what is in the window, and why.** Retrieval is the
+first half and is covered above (GraphRAG, stages 7-8). The half this file
+skips is management of the window itself: retrieval compression (summarise the
+retrieved chunks before they enter, so the model reasons over signal, not raw
+dumps), Self-RAG (the model decides whether to retrieve at all and grades what
+came back, rather than always stuffing k chunks), and the ordering problem,
+because a model reasons over a truncated middle when the window is full. This
+is the same failure as the synthesis bottleneck in the fleet rules, one level
+down: too much in, and the middle is lost. This kit does the crude version
+right (`bound the fan-in`, layer past ~50) and the fine version nowhere: the
+second brain retrieves by term overlap with no compression and no relevance
+grade.
+
+**Loop engineering: the control flow around the calls.** A single prompt is a
+node; loop engineering is the shape of the edges when the next call depends on
+the last. StateFlow models the agent as a state machine, so "planning",
+"acting", "verifying" are explicit states with defined transitions rather than
+one prompt asked to do all three and drifting between them. Adaptive planning
+re-plans when a step fails instead of running a plan written before the first
+result came back. The rule that binds it: a loop needs a bound and an exit
+that is not the model's opinion. This kit reached the same place from the other
+side, in `headsign` and `bin/closeout`: exit codes decide advance / retry with
+a cap / escalate / done, and the narrative is ignored at that junction. A loop
+without that cap is the indefinite-spinner failure the HUD's presence ring also
+forbids.
+
+**Runtime engineering: what the agent runs inside.** Everything that is not
+the model: the scaffolding that gives it tools, the sandbox that bounds
+what a tool can touch, the state that survives a context reset, and the safety
+that makes the dangerous thing unreachable rather than forbidden. This is rule
+7 above, `topology over prompts`, stated as a discipline: a permission a prompt
+asks the model not to use is weaker than a tool the runtime never exposes.
+Durable state is the other half, and `levi-qiao/longgraph-skill` is the shape:
+progress in files, not chat history, single-writer edges, gates rerun against
+real output. This kit is mostly runtime, `.githooks/pre-commit`, the Stop
+guards, `write-log.sh`, the sandbox in `mac-runtime`, and it is the row it
+covers best without having named it.
+
+**How to route between the six.** The question decides the row. A single hard
+reasoning step is prompt. A model that needs facts it does not have is context.
+A multi-step task that branches on results is loop. Anything about tools,
+sandboxes, durable state or safety is runtime. A structure of connected
+entities is graph. The meaning and constraints on that structure is ontology.
+Most real work touches three or four at once; the point of the split is to
+notice which one is failing, because the fix lives in that row and nowhere
+else.
 
 ### The three failure modes of a parallel fleet
 
@@ -183,7 +250,7 @@ out all 155 checks individually would raise N and not p, and p is what binds.
 ### Exit codes decide, not the model
 
 `meganemura/headsign` states the rule this kit reached separately: when the
-agent asks whether the work can advance, the harness runs the phase's shell
+agent asks whether the work can advance, the runtime runs the phase's shell
 checks and **their exit codes determine the answer**, with the model's
 narrative ignored at that junction. Advance, retry with a cap, escalate to a
 human, done. That is what `bin/closeout` and the Stop guards are, and it is
@@ -213,13 +280,13 @@ so whatever it cites gets reached too.
 **Aryaa SK** (Trinity College, Cambridge; building Zoral), 130 posts read in
 full 2026-09-20, distilled with attribution in
 [../../research/aryaa-memory-architecture.md](../../research/aryaa-memory-architecture.md).
-Caleb's own caveat on that file, which belongs here too: *"don't just assume he
-is the truth lol bro is smart but he's not Jesus."* Its section 9 marks where
+Caleb's own caveat on that file, which belongs here too: _"don't just assume he
+is the truth lol bro is smart but he's not Jesus."_ Its section 9 marks where
 he is contestable, one claim conflated and one number that does not check out.
 
 **Where he and the course agree, independently.** His build list item 3 asks
-for *"described edges between memories. Not term overlap. A link that says WHY
-two things are related, so a walk discovers what a search cannot."* Stage 3 of
+for _"described edges between memories. Not term overlap. A link that says WHY
+two things are related, so a walk discovers what a search cannot."_ Stage 3 of
 the pipeline above says every relation gets a precise verb name, `ACQUIRED`,
 never `RELATED_TO`. Two sources, different traditions, same instruction.
 
@@ -229,8 +296,8 @@ other". That is the word-cloud-with-arrows this file warns about in its own
 working rules. Retrieval over it has to fall back to term overlap, which is why
 `scars` ranks badly even with indexing fixed.
 
-**His item 1 is already here, arrived at without reading him:** *"where a rule
-keeps being violated, promote it to a hook that refuses."* That is
+**His item 1 is already here, arrived at without reading him:** _"where a rule
+keeps being violated, promote it to a hook that refuses."_ That is
 `hooks/vibe-guard.sh` and `hooks/fusion-guard.sh`, both written 2026-09-21
 after the same mistake happened twice. His items 2 and 4, decay and pruning of
 banks that only ever grow, and climbing past prompt text, are not done.
