@@ -96,12 +96,21 @@ function detect(appPath) {
   if (has(path.join(R, "main.jsbundle"))) stacks.push("react-native");
 
   // Tauri embeds its frontend in __RODATA of the main binary.
+  // Info.plist is often a BINARY plist (bplist00), so a regex silently reads nothing
+  // and the app falls through as "unknown". Ask the system to parse it.
   let mainBin = null;
   try {
-    const plist = fs.readFileSync(path.join(C, "Info.plist"), "utf8");
-    const m = plist.match(/<key>CFBundleExecutable<\/key>\s*<string>([^<]+)<\/string>/);
-    if (m) mainBin = path.join(C, "MacOS", m[1]);
+    const exe = execFileSync("/usr/libexec/PlistBuddy",
+      ["-c", "Print CFBundleExecutable", path.join(C, "Info.plist")],
+      { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    if (exe) mainBin = path.join(C, "MacOS", exe);
   } catch {}
+  if (!mainBin || !fs.existsSync(mainBin)) {
+    try {
+      const f = fs.readdirSync(path.join(C, "MacOS")).find(x => !x.startsWith("."));
+      if (f) mainBin = path.join(C, "MacOS", f);
+    } catch {}
+  }
   if (mainBin && has(mainBin)) {
     try {
       const b = fs.readFileSync(mainBin, { encoding: "latin1" }).slice(0, 40 << 20);
@@ -216,6 +225,152 @@ function swiftDump(bin, appName) {
   return { text, own };
 }
 
+// ---------- fidelity ontology ----------
+// One relation: App --[recoverable_at]--> Tier. The tier names what survives
+// shipping, not what a tool claims. Tier 0 is a real answer, not a failure.
+const TIER = {
+  5: "AUTHORED   the developer's own file, comments intact",
+  4: "EQUIVALENT recompilable, real names, comments gone",
+  3: "NAMED      real type/function names, bodies as pseudocode",
+  2: "SHAPED     module boundaries, names anonymised",
+  1: "MANIFEST   config, deps and assets; logic as pseudocode",
+  0: "MACHINE    full instruction graph, zero authoring",
+};
+// Every tier including 0 gives you 100% of the instructions that execute.
+// The tier measures recovered AUTHORING, never visibility of the running code.
+
+function hasSection(bin, sec) {
+  try {
+    return new RegExp(sec).test(execFileSync("otool", ["-l", bin],
+      { maxBuffer: 1 << 28, stdio: ["ignore","pipe","ignore"] }).toString());
+  } catch { return false; }
+}
+
+function grepBin(bin, needles, cap) {
+  try {
+    const b = fs.readFileSync(bin, { encoding: "latin1" }).slice(0, cap || (60 << 20));
+    return needles.filter(n => b.includes(n));
+  } catch { return []; }
+}
+
+function linkedLibs(bin) {
+  try { return execFileSync("otool", ["-L", bin],
+    { maxBuffer: 1 << 26, stdio: ["ignore","pipe","ignore"] }).toString(); } catch { return ""; }
+}
+
+// Structural markers only. Naive string grep gives false positives:
+// Perplexity contains "QtCore" and is pure Swift; Spotify contains "go1." and is not Go.
+function components(appPath) {
+  const dir = path.join(appPath, "Contents", "MacOS");
+  const out = [];
+  let files = [];
+  try { files = fs.readdirSync(dir).filter(f => !f.startsWith(".")); } catch { return out; }
+  for (const f of files.slice(0, 40)) {
+    const fp = path.join(dir, f);
+    try { if (!fs.statSync(fp).isFile()) continue; } catch { continue; }
+    let kind = null;
+    if (grepBin(fp, ["runtime.morestack", "go:buildid"], 40 << 20).length) kind = "go";
+    else if (hasSection(fp, "__swift5_types")) kind = "swift";
+    if (kind) out.push({ bin: f, kind });
+  }
+  return out;
+}
+
+function classify(appPath) {
+  const name = path.basename(appPath, ".app");
+  const C = path.join(appPath, "Contents");
+  const R = path.join(C, "Resources");
+  const F = path.join(C, "Frameworks");
+  const ex = fs.existsSync;
+  const d = detect(appPath);
+  const bin = d.mainBin;
+  let _comp = null;
+  const comps = () => (_comp || (_comp = components(appPath)));
+  const T = (stack, tier, how, cmd, ev) => {
+    const c = comps().filter(x => x.kind !== stack);
+    return { app: name, stack, tier, how, cmd, ev: ev || [],
+             components: [...new Set(c.map(x => x.kind))],
+             componentBins: c.map(x => `${x.bin}:${x.kind}`) };
+  };
+
+  const count = (dir, pat, depth) => {
+    if (!ex(dir)) return 0;
+    try { return execFileSync("/bin/sh", ["-c",
+      `find ${JSON.stringify(dir)} -maxdepth ${depth||4} -name ${JSON.stringify(pat)} 2>/dev/null | head -4000 | wc -l`],
+      { stdio: ["ignore","pipe","ignore"] }).toString().trim() | 0; } catch { return 0; }
+  };
+
+  // --- iOS wrapper: classify the inner bundle ---
+  if (ex(path.join(appPath, "WrappedBundle"))) {
+    const w = path.join(appPath, "Wrapper");
+    let ib = null; try { ib = fs.readdirSync(w).find(x => x.endsWith(".app")); } catch {}
+    if (ib) {
+      const ifw = path.join(w, ib, "Frameworks");
+      const assets = count(path.join(w, ib), "pubspec.yaml", 3);
+      if (ex(path.join(ifw, "Flutter.framework")))
+        return T("ios/flutter", 2, "flutter_assets ship pubspec.yaml verbatim; Dart AOT has no decompiler",
+                 `strings App.framework/App | grep '^package:'`, assets ? ["pubspec.yaml present"] : []);
+      return T("ios-on-mac", 1, "frameworks unencrypted, main exe FairPlay", `peel info ${name}`);
+    }
+  }
+
+  // --- Electron (structural: the framework, or a real asar) ---
+  if (ex(path.join(F, "Electron Framework.framework")) || findAsars(appPath).length) {
+    const a = analyzeMaps(appPath);
+    if (a.recoveredFiles > 0)
+      return T("electron", 5, "source maps embed sourcesContent", `peel extract ${name}`,
+               [`${a.recoveredFiles} source files`]);
+    if (a.firstPartyMaps > 0)
+      return T("electron", 2, "maps carry filenames only, no sourcesContent", `peel extract ${name}`,
+               [`${a.firstPartyMaps} first-party maps`]);
+    return T("electron", 2, "minified bundles; unbundle then LLM-rename", "wakaru | humanify",
+             [`${a.totalFiles} files`]);
+  }
+
+  if (!bin || !ex(bin)) return T("unknown", 0, "no main binary", "-");
+  const libs = linkedLibs(bin);
+
+  // --- runtimes that MUST carry metadata to run ---
+  if (hasSection(bin, "__swift5_types"))
+    return T("swift", 3, "runtime reads __swift5 at launch, so strip cannot remove it",
+             `peel swift ${name}`, ["__swift5_types"]);
+
+  if (/libjvm\.dylib/.test(libs) || count(C, "*.jar", 8) > 0)
+    return T("java/kotlin", 4, "JVM needs the type system for reflection; near-lossless",
+             "cfr / vineflower", [`${count(C, "*.jar", 8)} jars`]);
+
+  if (/hostfxr|libcoreclr/.test(libs) || count(C, "*.runtimeconfig.json", 4) > 0)
+    return T("dotnet", 4, "IL carries full metadata for reflection; ~95% recompilable", "ilspycmd");
+
+  if (ex(path.join(F, "Python.framework")) || count(R, "*.pyc", 4) > 0 || count(R, "*.py", 4) > 0) {
+    const src = count(R, "*.py", 4), pyc = count(R, "*.pyc", 4);
+    if (src > pyc && src > 0)
+      return T("python", 5, "ships .py as source, nothing to recover", `open ${R}`, [`${src} .py files`]);
+    return T("python/pyc", 3, "3.11+ decompilers are dead; pycdas disassembly always works",
+             "pylingual.io / pycdas", [`${pyc} .pyc files`]);
+  }
+
+  // Go: runtime needs pclntab for panics.
+  const goMark = grepBin(bin, ["runtime.morestack", "go:buildid"], 80 << 20);
+  if (goMark.length)
+    return T("go", 3, "pclntab keeps names + line numbers for panics; survives -s -w",
+             "redress / GoReSym", goMark);
+
+  // Tauri: frontend is brotli in __RODATA
+  if (grepBin(bin, ["__TAURI_INTERNALS__"], 80 << 20).length)
+    return T("tauri", 2, "frontend is per-asset brotli in __RODATA; Rust backend opaque",
+             "tauri-dumper", ["__TAURI_INTERNALS__"]);
+
+  if (/Qt[A-Z][A-Za-z]*\.framework/.test(libs))
+    return T("qt/c++", 0, "C++ needs no runtime metadata; RTTI only if not stripped",
+             "ghidra + QtREAnalyzer");
+
+  if (hasSection(bin, "__objc_classlist"))
+    return T("objc", 3, "objc runtime metadata survives strip", `ipsw class-dump`, ["__objc_classlist"]);
+
+  return T("native/stripped", 0, "no metadata layer exists", "ghidra (bodies only)");
+}
+
 // ---------- cli ----------
 const APPS = "/Applications";
 const listApps = () => fs.readdirSync(APPS).filter(f => f.endsWith(".app")).map(f => path.join(APPS, f));
@@ -283,6 +438,66 @@ if (cmd === "scan") {
   const a = analyzeMaps(app);
   console.log(`maps:     ${a.maps} total, ${a.firstPartyMaps} first-party, ${a.mapsWithSource} with source`);
   if (a.samples.length) { console.log("sample sources:"); a.samples.forEach(s => console.log("  " + s)); }
+} else if (cmd === "map") {
+  const json = rest.includes("--json");
+  const rows = listApps().map(classify);
+  if (json) { console.log(JSON.stringify(rows, null, 2)); process.exit(0); }
+  console.log("tier  app".padEnd(30) + "stack".padEnd(18) + "how it is recovered");
+  console.log("=".repeat(104));
+  for (const r of rows.sort((a, b) => b.tier - a.tier || a.app.localeCompare(b.app))) {
+    const extra = r.components && r.components.length ? ` (+${r.components.join(",")})` : "";
+    console.log(`  ${r.tier}   ` + r.app.slice(0, 22).padEnd(24) +
+      (r.stack + extra).padEnd(22) + r.how);
+  }
+  console.log("=".repeat(104));
+  const by = {};
+  for (const r of rows) by[r.tier] = (by[r.tier] || 0) + 1;
+  for (const t of [5,4,3,2,1,0]) if (by[t]) console.log(`  tier ${t}  ${String(by[t]).padStart(3)} apps   ${TIER[t]}`);
+  const reach = rows.filter(r => r.tier >= 3).length;
+  console.log(`\n${reach}/${rows.length} apps (${(reach/rows.length*100).toFixed(0)}%) give up real names.`);
+  console.log(`${by[0] || 0} are opaque and always will be.`);
+} else if (cmd === "trace") {
+  // Static recovery answers "what did the author write". This answers the other
+  // question: what is this process executing RIGHT NOW. Works at every tier,
+  // including tier 0, because running code cannot hide from the sampler.
+  const target = rest[0];
+  if (!target) { console.error("usage: peel trace <AppName> [seconds]"); process.exit(1); }
+  const secs = rest[1] || "2";
+  let pid = null;
+  try {
+    pid = execFileSync("/bin/sh", ["-c",
+      `ps -Ao pid,comm | grep -F ${JSON.stringify("/" + target + ".app/Contents/MacOS/")} | grep -viE 'helper|renderer|gpu|crashpad' | awk '{print $1}' | head -1`],
+      { stdio: ["ignore","pipe","ignore"] }).toString().trim();
+  } catch {}
+  if (!pid) { console.error(`${target} is not running. Launch it, then: peel trace ${target}`); process.exit(1); }
+  console.log(`pid ${pid}, sampling ${secs}s\n`);
+  let out = "";
+  try {
+    out = execFileSync("sample", [pid, secs, "-mayDie"],
+      { maxBuffer: 1 << 28, stdio: ["ignore","pipe","ignore"] }).toString();
+  } catch (e) { console.error("sample failed (SIP may block this process)"); process.exit(1); }
+
+  // Which binaries is it actually executing inside, and how hot is each.
+  const hot = new Map();
+  for (const line of out.split("\n")) {
+    const m = line.match(/^\s*[+!:| ]*(\d+)\s+(.+?)\s+\(in ([^)]+)\)/);
+    if (!m) continue;
+    const [, n, fn, img] = m;
+    if (!hot.has(img)) hot.set(img, { samples: 0, fns: new Map() });
+    const h = hot.get(img);
+    h.samples = Math.max(h.samples, +n);
+    if (!/^\?\?\?$/.test(fn)) h.fns.set(fn, Math.max(h.fns.get(fn) || 0, +n));
+  }
+  const imgs = [...hot.entries()].sort((a, b) => b[1].samples - a[1].samples).slice(0, 12);
+  console.log("images it is executing inside:");
+  for (const [img, h] of imgs) console.log(`  ${String(h.samples).padStart(6)}  ${img}`);
+  console.log("\nnamed functions actually on the stack:");
+  const all = [];
+  for (const [img, h] of hot) for (const [fn, n] of h.fns) all.push([n, fn, img]);
+  all.sort((a, b) => b[0] - a[0]);
+  for (const [n, fn, img] of all.slice(0, 20)) console.log(`  ${String(n).padStart(6)}  ${fn}  [${img}]`);
+  const unresolved = (out.match(/\?\?\?/g) || []).length;
+  console.log(`\n${all.length} named frames, ${unresolved} unresolved (stripped, but still executing).`);
 } else if (cmd === "swift") {
   const target = rest[0];
   if (!target) { console.error("usage: peel swift <AppName> [outfile]"); process.exit(1); }
@@ -310,6 +525,8 @@ if (cmd === "scan") {
   peel info <App>           detect stack, list archives, show encryption state
   peel extract <App> [out]  rebuild the original source tree from shipped source maps
   peel swift <App> [out]    recover the Swift type graph from a stripped native binary
+  peel map [--json]         route every app to its recovery tier and extractor
+  peel trace <App> [secs]   sample a RUNNING app: what it is executing right now
 
 Reads only. Never writes into /Applications.`);
 }
