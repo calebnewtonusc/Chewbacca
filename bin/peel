@@ -174,6 +174,48 @@ function extract(appPath, outDir) {
   return { files: written.size, bytes };
 }
 
+// ---------- swift metadata ----------
+// __swift5_* lives in __TEXT because the runtime reads it at launch, so strip
+// cannot remove it. A fully stripped Swift binary still yields its type graph.
+function hasSwiftMeta(bin) {
+  try {
+    const o = execFileSync("otool", ["-l", bin], { maxBuffer: 1 << 28, stdio: ["ignore","pipe","ignore"] }).toString();
+    return /__swift5_types/.test(o);
+  } catch { return false; }
+}
+
+function demangleAll(text) {
+  const toks = [...new Set(text.match(/_\$s[A-Za-z0-9_$]+/g) || [])];
+  if (!toks.length) return text;
+  let out;
+  try {
+    out = execFileSync("xcrun", ["swift", "demangle", "--compact", ...toks],
+      { maxBuffer: 1 << 28, stdio: ["ignore","pipe","ignore"] }).toString().trim().split("\n");
+  } catch { return text; }
+  const map = new Map();
+  toks.forEach((t, i) => {
+    let d = (out[i] || t).trim();
+    d = d.replace(/^nominal type descriptor for\s+/, "")
+         .replace(/^type metadata (accessor )?for\s+/, "")
+         .replace(/^Swift\./, "");
+    if (d && d !== t) map.set(t, d);
+  });
+  return text.replace(/_\$s[A-Za-z0-9_$]+/g, (m) => map.get(m) || m);
+}
+
+function swiftDump(bin, appName) {
+  let raw;
+  try {
+    raw = execFileSync("ipsw", ["swift-dump", bin, "--arch", "arm64"],
+      { maxBuffer: 1 << 29, stdio: ["ignore","pipe","ignore"] }).toString();
+  } catch { return null; }
+  const text = demangleAll(raw);
+  const own = [];
+  const re = new RegExp("^(class|struct|enum|protocol) " + appName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\.", "gm");
+  for (const line of text.split("\n")) if (re.test(line + "\n")) own.push(line.trim());
+  return { text, own };
+}
+
 // ---------- cli ----------
 const APPS = "/Applications";
 const listApps = () => fs.readdirSync(APPS).filter(f => f.endsWith(".app")).map(f => path.join(APPS, f));
@@ -241,12 +283,33 @@ if (cmd === "scan") {
   const a = analyzeMaps(app);
   console.log(`maps:     ${a.maps} total, ${a.firstPartyMaps} first-party, ${a.mapsWithSource} with source`);
   if (a.samples.length) { console.log("sample sources:"); a.samples.forEach(s => console.log("  " + s)); }
+} else if (cmd === "swift") {
+  const target = rest[0];
+  if (!target) { console.error("usage: peel swift <AppName> [outfile]"); process.exit(1); }
+  const app = target.endsWith(".app") ? target : path.join(APPS, target + ".app");
+  const name = path.basename(app, ".app");
+  const d = detect(app);
+  const bin = d.mainBin;
+  if (!bin || !fs.existsSync(bin)) { console.error("no main binary found"); process.exit(1); }
+  if (!hasSwiftMeta(bin)) { console.error(`${name} has no __swift5 metadata (not a Swift app)`); process.exit(1); }
+  let defined = "?";
+  try { defined = execFileSync("nm", ["-U", bin], { maxBuffer: 1 << 28, stdio: ["ignore","pipe","ignore"] })
+    .toString().trim().split("\n").filter(Boolean).length; } catch {}
+  const r = swiftDump(bin, name);
+  if (!r) { console.error("ipsw swift-dump failed (brew install ipsw)"); process.exit(1); }
+  const out = rest[1] || path.join(process.cwd(), name + ".swift");
+  fs.writeFileSync(out, r.text);
+  console.log(`${name}: ${defined} defined symbols in the binary, ${r.own.length} app-owned types recovered`);
+  console.log(`${r.text.split("\n").length} lines -> ${out}`);
+  r.own.slice(0, 20).forEach(t => console.log("  " + t.replace(/\s*\{$/, "")));
+  if (r.own.length > 20) console.log(`  ... ${r.own.length - 20} more`);
 } else {
   console.log(`peel - recover whatever source an installed app shipped
 
   peel scan [--json]        classify every app in /Applications, report source-map leakage
   peel info <App>           detect stack, list archives, show encryption state
   peel extract <App> [out]  rebuild the original source tree from shipped source maps
+  peel swift <App> [out]    recover the Swift type graph from a stripped native binary
 
 Reads only. Never writes into /Applications.`);
 }
