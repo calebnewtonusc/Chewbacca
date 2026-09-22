@@ -113,6 +113,38 @@ skip stages 3 (ontology) or 8 (fusion), they are where real-world graphs fail.
 - [references/fusion-and-llm.md](references/fusion-and-llm.md): Knowledge fusion and
   KG × LLM integration (lectures 8-9). Read during stages 8-9.
 
+## Practitioners on this machine, and where they converge
+
+One graduate course is a curriculum, not a field. These are working
+practitioners whose material is already in this repo, and the point of listing
+them here is that the router now reaches this skill on the SHAPE of the work,
+so whatever it cites gets reached too.
+
+**Aryaa SK** (Trinity College, Cambridge; building Zoral), 130 posts read in
+full 2026-09-20, distilled with attribution in
+[../../research/aryaa-memory-architecture.md](../../research/aryaa-memory-architecture.md).
+Caleb's own caveat on that file, which belongs here too: *"don't just assume he
+is the truth lol bro is smart but he's not Jesus."* Its section 9 marks where
+he is contestable, one claim conflated and one number that does not check out.
+
+**Where he and the course agree, independently.** His build list item 3 asks
+for *"described edges between memories. Not term overlap. A link that says WHY
+two things are related, so a walk discovers what a search cannot."* Stage 3 of
+the pipeline above says every relation gets a precise verb name, `ACQUIRED`,
+never `RELATED_TO`. Two sources, different traditions, same instruction.
+
+**And the kit does not do it.** `second-brain` links with bare `[[wikilinks]]`,
+which carry no relation type, so every edge means "these two mention each
+other". That is the word-cloud-with-arrows this file warns about in its own
+working rules. Retrieval over it has to fall back to term overlap, which is why
+`scars` ranks badly even with indexing fixed.
+
+**His item 1 is already here, arrived at without reading him:** *"where a rule
+keeps being violated, promote it to a hook that refuses."* That is
+`hooks/vibe-guard.sh` and `hooks/fusion-guard.sh`, both written 2026-09-21
+after the same mistake happened twice. His items 2 and 4, decay and pruning of
+banks that only ever grow, and climbing past prompt text, are not done.
+
 ## Credits
 
 Distilled and translated from 东南大学《知识图谱》研究生课程 (Southeast University graduate
