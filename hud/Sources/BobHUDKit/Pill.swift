@@ -238,7 +238,7 @@ struct PillView: View {
         // darkens where a lens thickens; the slab adds the bevel, gloss,
         // light and shadows every surface shares. 0.10 and 0.14 are guessed
         // against the eye on 2026-09-19, never measured.
-        .modifier(GlassSlab(shape: shape, glow: presence.tint, tilt: 5, clear: true) {
+        .modifier(GlassSlab(shape: shape, glow: presence.tint, clear: true) {
             ZStack {
                 // The screen behind, bent through the capsule, once Screen
                 // Recording allows it. Drawn past the edge by the bleed so

@@ -20,25 +20,20 @@ import SwiftUI
 ///
 /// - dispersion: a faint blue and red split along the edge, the way glass
 ///   separates white light;
-/// - the content floating a point above it, with its own small shadow and a
-///   shift against the lean, so the glass reads as a layer behind the words.
+/// - the content floating a point above it, with its own small shadow, so the
+///   glass reads as a layer behind the words.
 ///
 /// The light in it follows the assistant (`hudEnergy`), and the thickness
 /// follows urgency (`Urgency.thickness`): the glass says how awake and how
 /// loud before a word on it is read.
 ///
-/// Under the pointer it tilts a few degrees toward it. The tilt and the light
-/// are functions of where the pointer is and nothing else: hold still and
-/// nothing moves.
+/// Under the pointer the specular point follows it. The light is a function
+/// of where the pointer is and nothing else: hold still and nothing moves.
 struct GlassSlab<Base: View>: ViewModifier {
     let shape: RoundedRectangle
     /// The colour of the caustic. The pill passes the presence tint, so the
     /// glass carries the state the ring is in.
     var glow: Color = HUD.accent
-    /// How far it leans toward the pointer, in degrees at the edge. The pill
-    /// is small enough to take more than a card, which at 400 points wide
-    /// swings its far edge visibly at the same angle.
-    var tilt: Double = 3
     /// Scales the rim. The pill is clear and needs all of it; a frosted card
     /// already has an edge from its own wash and takes about three quarters.
     var rim: Double = 1
@@ -46,10 +41,6 @@ struct GlassSlab<Base: View>: ViewModifier {
     /// it floats at, so an ambient card is a thin sheet and a critical one
     /// a block. One number rather than four so the cues cannot disagree.
     var thickness: Double = 1
-    /// How far the content floats above the glass, in points at full lean.
-    /// It shifts against the tilt, which is the parallax that makes the
-    /// glass read as a separate layer behind it.
-    var lift: CGFloat = 1.5
     /// The clear variant of Liquid Glass where the OS has it.
     var clear = false
     @ViewBuilder let base: () -> Base
@@ -69,11 +60,8 @@ struct GlassSlab<Base: View>: ViewModifier {
     func body(content: Content) -> some View {
         let light = reduceMotion ? Self.restingLight : (pointer ?? Self.restingLight)
         return content
-            // The content floats: its own small shadow on the glass, and a
-            // shift against the lean. Before the background, so the glass
-            // stays where it was laid out and only the content moves.
+            // The content floats: its own small shadow on the glass.
             .shadow(color: .black.opacity(0.28 * thickness), radius: 1.2, y: 1.2 * thickness)
-            .offset(x: -lean.y / max(tilt, 0.01) * lift, y: lean.x / max(tilt, 0.01) * lift)
             .background {
                 ZStack {
                     base()
@@ -119,8 +107,11 @@ struct GlassSlab<Base: View>: ViewModifier {
                     pointer = nil
                 }
             }
-            .rotation3DEffect(.degrees(lean.x), axis: (x: 1, y: 0, z: 0), perspective: 0.6)
-            .rotation3DEffect(.degrees(lean.y), axis: (x: 0, y: 1, z: 0), perspective: 0.6)
+            // No tilt and no parallax. Both shipped on 2026-09-22 and came
+            // off the same day: a 3D rotation and a sub-point offset make
+            // the renderer resample the text, and every panel went soft the
+            // moment the pointer touched it ("its making the boxes blurry").
+            // The light following the pointer is what survives of it.
             .animation(Motion.spring(0.35, 0.75, reduced: reduceMotion), value: pointer)
     }
 
@@ -184,13 +175,6 @@ struct GlassSlab<Base: View>: ViewModifier {
             // the rim alone vanishes; this is what keeps the outline.
             shape.inset(by: -0.5).stroke(.black.opacity(0.25), lineWidth: 0.5)
         }
-    }
-
-    /// Degrees about x and y. The near edge dips toward the pointer, the way
-    /// a pane pressed on at that spot would.
-    private var lean: (x: Double, y: Double) {
-        guard let pointer, !reduceMotion else { return (0, 0) }
-        return ((pointer.y - 0.5) * tilt * 2, (pointer.x - 0.5) * tilt * 2)
     }
 }
 
