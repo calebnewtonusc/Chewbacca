@@ -1,5 +1,21 @@
 # Roadmap
 
+> **If you just pulled this, start at section 1 and fix something.**
+>
+> Not section 3. Section 1 is a list of things that are actually broken right
+> now, each with the evidence that found it and where it came from. Every one
+> of them was hit by a person, not imagined. Building on top of a known defect
+> is how a list like this gets to twelve items.
+>
+> `bin/closeout` will tell you what is failing today without you reading
+> anything. Run it, fix what it names, and push.
+>
+> Then read the newest file in [`sessions/`](sessions/). Each one is a
+> full day written down: what was built, what broke, what was said, and
+> what it cost to learn. Reading the last one is the cheapest way to
+> avoid repeating it.
+
+
 Everything between this kit and being worth running for any person in any role.
 Written 2026-09-21 so the answer stops living in one person's scrollback.
 
