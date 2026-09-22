@@ -585,7 +585,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // that bubble and to nothing else: the words go in the field
                 // they pointed at, and the pill, the presence band and the
                 // socket all stay out of it. See `Dictation.swift`.
-                if self.dictating != nil, self.dictationSignal(signal) { return }
+                if self.dictating != nil || Self.keyDictation.listening,
+                   self.dictationSignal(signal) { return }
                 switch signal {
                 case .listening(let on):
                     // Voice.swift sends `.heard` and then `.listening(false)`,
@@ -699,6 +700,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // trace at all and there was no way to know which.
         Self.keys.notice("voice.key down=\(down) mode=\(self.voice.mode.rawValue, privacy: .public)")
         guard voice.mode == .pushToTalk else { return }
+        // Control held with it: type what is said at the caret instead.
+        if dictationKey(down: down) { return }
         if down {
             // The same key twice, quickly, is out rather than in.
             if taps.press() {
