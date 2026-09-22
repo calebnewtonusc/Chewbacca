@@ -91,6 +91,11 @@ Required:
   --name <first name>          Becomes your private context repo name.
 
 Optional:
+  --runtime <name>             Install only the selected runtime adapter:
+                               claude-code, codex, both, or auto. No Mac bootstrap.
+                               Use --dry-run to preview; use agent export for other hosts.
+  --brain-dir <path>           With --runtime, choose the private context folder.
+  --json                      With --runtime, print machine-readable results.
   --github-user <login>        Defaults to the logged-in gh account.
   --repo-dir <path>            Where repos live. Default ~/dev
   --anthropic-key <key>        Written to settings.json env. Omit to leave unset.
@@ -144,14 +149,20 @@ TODOIST_TOKEN=""; COMPOSIO_URL=""; COMPOSIO_KEY=""; ANSWERS=""
 SESSION_OPENER="none"; BYPASS_PERMS="no"; ONLY=""; DRY_RUN=0
 PROFILE="developer"; NO_GITHUB=0; ONLY_PORTABLE=0
 FAST=0
+AGENT_RUNTIME=""
+AGENT_BRAIN=""; AGENT_JSON=0
 SKIP_SECTIONS=""
 declare -a SKIPPED=()
 # Only these reach settings.json, and only when passed here in this run.
 declare -a CREDS_WRITTEN=()
+REQUESTED_ARGS=("$@")
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --name) NAME="${2:-}"; shift 2 ;;
+    --runtime) AGENT_RUNTIME="${2:-}"; shift 2 ;;
+    --brain-dir) AGENT_BRAIN="${2:-}"; shift 2 ;;
+    --json) AGENT_JSON=1; shift ;;
     --github-user) GITHUB_USER="${2:-}"; shift 2 ;;
     --repo-dir) REPO_DIR="${2:-}"; shift 2 ;;
     --anthropic-key) ANTHROPIC_KEY="${2:-}"; shift 2 ;;
@@ -197,6 +208,30 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Runtime setup is independent of the historical Mac/Claude bootstrap. A fresh
+# Codex install must not need Claude credentials, Homebrew or a GitHub account.
+if [ -n "$AGENT_RUNTIME" ]; then
+  for ((arg_index=0; arg_index<${#REQUESTED_ARGS[@]}; arg_index++)); do
+    case "${REQUESTED_ARGS[$arg_index]}" in
+      --runtime|--name|--brain-dir) arg_index=$((arg_index + 1)) ;;
+      --dry-run|--json) ;;
+      *) err "Runtime setup does not accept ${REQUESTED_ARGS[$arg_index]}; use the full installer or native host settings for that option."
+         exit 2 ;;
+    esac
+  done
+  action=setup
+  [ "$DRY_RUN" -eq 1 ] && action=plan
+  runtime_args=("$action" --runtime "$AGENT_RUNTIME")
+  [ -n "$NAME" ] && runtime_args+=(--name "$NAME")
+  [ -n "$AGENT_BRAIN" ] && runtime_args+=(--brain-dir "$AGENT_BRAIN")
+  [ "$AGENT_JSON" -eq 1 ] && runtime_args+=(--json)
+  exec python3 "$SCRIPT_DIR/tools/agent_runtime.py" "${runtime_args[@]}"
+fi
+if [ -n "$AGENT_BRAIN" ] || [ "$AGENT_JSON" -eq 1 ]; then
+  err "--brain-dir and --json require --runtime"
+  exit 2
+fi
+
 # A profile is a set of defaults, not a separate code path. It decides what a
 # section does rather than whether the script runs, so every section stays
 # reachable with --only and the whole thing stays one file.
@@ -241,7 +276,7 @@ if [ -z "$NAME" ] && [ "${ONLY:-}" = "repos" ]; then
   exit 2
 fi
 
-if [ -z "$NAME" ] && [ -z "$ONLY" ]; then
+if [ -z "$NAME" ] && [ -z "$ONLY" ] && [ "$NO_GITHUB" -eq 0 ]; then
   err "--name is required (or --answers, or --only <section>)"
   echo
   usage
@@ -268,7 +303,20 @@ fi
 # --only runs one section. Everything here is written to be safe to repeat, so
 # a run that died halfway, or a tool that arrived after the first run, is one
 # flag away rather than a hand-copied block from this file.
-SECTIONS="prereq repos settings editor desktop mcp rules skills plugins tools agents plynn verify manifest"
+# PLYNN IS OUT OF THE DEFAULT INSTALL, 2026-09-21.
+#
+# Dictation moved into the HUD, which draws its own pill. Plynn kept running as
+# a separate app drawing the legacy indicator, so two overlapping systems were
+# live at once and the one people saw was the retired one: "Secure field,
+# dictation paused", from PlynnKit/IndicatorView.swift.
+#
+# The source stays in plynn/ and the installer still works if asked for by
+# name, because the parts worth folding into the HUD are listed in
+# plynn/SALVAGE.md. It just no longer installs and auto-starts behind a second
+# indicator nobody asked for.
+#
+#     ./setup.sh --only plynn     still installs it
+SECTIONS="prereq repos settings editor desktop mcp rules skills plugins tools agents verify manifest"
 if [ -n "$ONLY" ]; then
   case " $SECTIONS " in
     *" $ONLY "*) ;;
@@ -447,15 +495,14 @@ install_agent_instructions() {
   install_agent_neutral_rule
   python3 "$SCRIPT_DIR/tools/agents_md.py"
   initialize_personal_context
-  python3 "$SCRIPT_DIR/tools/codex_context.py" install --brain-dir "$PC_DIR" --both
-  python3 "$SCRIPT_DIR/tools/codex_hooks.py" install
+  python3 "$SCRIPT_DIR/tools/agent_runtime.py" setup --runtime both --brain-dir "$PC_DIR"
   if ! command -v jq >/dev/null 2>&1; then
     warn "jq is missing: context loading works, but shared file and reply checks require jq"
   fi
   if command -v codex >/dev/null 2>&1; then
-    log "Codex installed (optional secondary agent); AGENTS.md ready"
+    log "Codex installed; shared context and runtime configuration ready"
   else
-    log "Codex absent (optional); Claude Code remains primary"
+    log "Codex absent (optional); configuration ready for installation"
   fi
 }
 
@@ -832,6 +879,31 @@ if [ -d "$SCRIPT_DIR/crafts" ]; then
   mkdir -p "$HOME/.chewbacca/craft"
   cp "$SCRIPT_DIR/crafts/"*.md "$HOME/.chewbacca/craft/" 2>/dev/null || true
   log "seeded $(ls "$SCRIPT_DIR/crafts" | wc -l | tr -d ' ') craft notes"
+fi
+
+# ux-engine lives in its own repo, so its tools cannot go through link_tool,
+# which resolves against this repo's bin/. Link them when that repo is present,
+# from the same default ux-guard.sh reads.
+#
+# WHY THIS MATTERS AND IS NOT COSMETIC. ux-guard blocks a UI write and then
+# tells the agent what to do next: "Derive the constraints first: ux-constrain"
+# and "load the behaviour spec: ux-preset form". Neither was on PATH, so the
+# remediation was a dead end and the only move left after a refusal was to
+# guess again. A gate that refuses without a runnable next step trains people
+# to route around it.
+UX_ENGINE_DIR="${UX_ENGINE_DIR:-$HOME/Desktop/2026-Code/ux-engine}"
+if [ -d "$UX_ENGINE_DIR/bin" ]; then
+  mkdir -p "$HOME/.local/bin"
+  _ux_linked=""
+  for _ux in "$UX_ENGINE_DIR/bin/"*; do
+    [ -f "$_ux" ] || continue
+    ln -sfn "$_ux" "$HOME/.local/bin/$(basename "$_ux")"
+    chmod +x "$_ux"
+    _ux_linked="$_ux_linked $(basename "$_ux")"
+  done
+  [ -n "$_ux_linked" ] && log "ux-engine tools linked to ~/.local/bin/:$_ux_linked"
+  unset _ux _ux_linked
+  ensure_local_bin_on_path
 fi
 
 if [ -n "$_installed_scanners" ]; then
@@ -1246,6 +1318,44 @@ h["Stop"] = [{"hooks": [{
     "command": hooks_dir + "/slop-guard.sh",
     "timeout": 15,
     "statusMessage": "Checking the reply against the writing rules...",
+}]}, {"hooks": [{
+    # A claim of a verified state needs evidence in the session, not
+    # confidence. On 2026-09-21 a fix was reported as done three times and the
+    # next screenshot showed the same bug, and several more "fixed" claims were
+    # made while the code path being described was not executing at all. This
+    # refuses a reply saying something is fixed, verified or passing unless a
+    # command RAN after the last file was written, and refuses "safe to close"
+    # without a passing closeout receipt for the current commits.
+    "type": "command",
+    "command": hooks_dir + "/vibe-guard.sh",
+    "timeout": 15,
+    "statusMessage": "Checking claims of doneness against evidence...",
+}]}, {"hooks": [{
+    # A closing message that hands over a command is a confession of stopping
+    # early. The shell was right there.
+    "type": "command",
+    "command": hooks_dir + "/handoff-guard.sh",
+    "timeout": 15,
+    "statusMessage": "Checking the reply does not hand you a command...",
+}]}, {"hooks": [{
+    # A correction that changes only the reply changes nothing. This checks
+    # that being corrected actually moved something in the kit.
+    "type": "command",
+    "command": hooks_dir + "/durable-guard.sh",
+    "timeout": 15,
+    "statusMessage": "Checking a correction actually changed the kit...",
+}]}, {"hooks": [{
+    # An outbound list reported as finished, unread. On 2026-09-20 five
+    # investor lists were called done four times running, and reading the
+    # OUTPUT each time found what the code review had missed: 2,121 people on
+    # more than one list, eleven partners at one fund, info@ mailboxes, and 843
+    # rows whose company name was the literal string "Company". It was written
+    # up as guidance in a skill and then never fired, which is the failure it
+    # exists to prevent, and it was registered nowhere at all until now.
+    "type": "command",
+    "command": hooks_dir + "/list-guard.sh",
+    "timeout": 20,
+    "statusMessage": "Checking an outbound list was actually read...",
 }]}]
 
 # Coursework context loads when a prompt mentions a class, so the ledger is in
@@ -1274,6 +1384,46 @@ h["PreToolUse"] = [{"matcher": "Write", "hooks": [{
 _register("PreToolUse", hooks_dir + "/browser-ux-guard.sh", timeout=10,
           matcher="Bash|mcp__peekaboo__.*",
           status="Checking this browser work is not being done through pixels...")
+
+# Stage 8 of graph-engineering, knowledge fusion, which the skill calls the #1
+# cause of useless graphs and which this machine kept skipping. On 2026-09-21 a
+# session wrote a paying client's name into the notes off a FIRST NAME match
+# and got the wrong person. Refuses a write that introduces "First Last" where
+# that first name is already on the roster under a different surname.
+_register("PreToolUse", hooks_dir + "/fusion-guard.sh", timeout=15,
+          matcher="Write|Edit|MultiEdit",
+          status="Checking a name against the roster...")
+
+# The generated look is an empty deny list, so this refuses a UI write that
+# carries it. It blocks ONLY on findings that cite a standard this kit did not
+# write (WCAG, W3C, MDN), because a build-breaking gate made of house opinion
+# is roughly 3.4x over the false-positive rate where tools get switched off;
+# everything else prints and lets the write through.
+#
+# It was copied to ~/.claude/hooks by the block above and never registered
+# here, so it only ever fired on the one machine where it had been added to
+# settings.json by hand. That is the same class as hud.listening and
+# kit-route.sh: the capability was present, good, and wired to nothing.
+_register("PreToolUse", hooks_dir + "/ux-guard.sh", timeout=15,
+          matcher="Write|Edit",
+          status="Checking this UI is not the generated look...")
+
+# Coursework is never turned in without being asked. This was a rule in prose
+# that got broken twice in one night, so it became a gate.
+_register("PreToolUse", hooks_dir + "/submit-guard.sh", timeout=10,
+          matcher="mcp__chrome-devtools__.*|Bash|mcp__peekaboo__.*",
+          status="Checking this is not a coursework submission...")
+
+# Say the ranking rule out loud before ranking, and name what would falsify
+# the answer. Running someone's list top to bottom is not a method.
+_register("UserPromptSubmit", hooks_dir + "/method-guard.sh", timeout=8,
+          status="Naming the process and the falsifier...")
+
+# The prose rules apply to files too, not only to replies. A draft that passes
+# every detector can still carry six kickers.
+_register("PostToolUse", hooks_dir + "/prose-guard.sh", timeout=20,
+          matcher="Write|Edit",
+          status="Checking the prose against the writing rules...")
 
 h["Notification"] = [{"hooks": [{
     "type": "command",

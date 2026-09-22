@@ -1,0 +1,676 @@
+#!/usr/bin/env node
+// peel - detect an app's build stack and recover whatever source it shipped.
+// Zero dependencies. Reads only; never writes into /Applications.
+"use strict";
+const fs = require("fs");
+const path = require("path");
+const { execFileSync } = require("child_process");
+
+// ---------- asar ----------
+// An asar is an index + concatenated bytes. No compression, no encryption.
+function readAsar(file) {
+  const fd = fs.openSync(file, "r");
+  try {
+    const head = Buffer.alloc(8);
+    if (fs.readSync(fd, head, 0, 8, 0) < 8) return null;
+    const headerSize = head.readUInt32LE(4);
+    if (headerSize <= 0 || headerSize > 1 << 28) return null;
+    const hb = Buffer.alloc(headerSize);
+    fs.readSync(fd, hb, 0, headerSize, 8);
+    // Pickle: [payloadSize][stringLen][json]. The second field is the one that matters.
+    const jsonLen = hb.readUInt32LE(4);
+    const header = JSON.parse(hb.toString("utf8", 8, 8 + jsonLen));
+    return { header, baseOffset: 8 + headerSize, file };
+  } catch { return null; }
+  finally { fs.closeSync(fd); }
+}
+
+function walkAsar(node, prefix, out) {
+  for (const [name, e] of Object.entries(node.files || {})) {
+    const p = prefix + "/" + name;
+    if (e.files) walkAsar(e, p, out);
+    else out.push({ path: p, size: e.size || 0, offset: e.offset, unpacked: !!e.unpacked });
+  }
+  return out;
+}
+
+function asarList(file) {
+  const a = readAsar(file);
+  return a ? walkAsar(a.header, "", []) : null;
+}
+
+function asarRead(file, entry) {
+  const a = readAsar(file);
+  if (!a || entry.offset === undefined) return null;
+  const fd = fs.openSync(file, "r");
+  try {
+    const buf = Buffer.alloc(entry.size);
+    fs.readSync(fd, buf, 0, entry.size, a.baseOffset + Number(entry.offset));
+    return buf;
+  } finally { fs.closeSync(fd); }
+}
+
+// ---------- classification ----------
+const VENDOR = /(^|\/)(node_modules|bower_components|vendor|\.yarn)\//;
+const isFirstParty = (p) => !VENDOR.test(p);
+
+function findAsars(appPath) {
+  const res = path.join(appPath, "Contents", "Resources");
+  if (!fs.existsSync(res)) return [];
+  const out = [];
+  const scan = (dir, depth) => {
+    if (depth > 2) return;
+    let ents = [];
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      const f = path.join(dir, e.name);
+      if (e.isDirectory()) scan(f, depth + 1);
+      else if (e.name.endsWith(".asar")) out.push(f);
+    }
+  };
+  scan(res, 0);
+  // Stub archives shadow the real one (Slack, Obsidian). Keep them all, biggest first.
+  return out.sort((a, b) => fs.statSync(b).size - fs.statSync(a).size);
+}
+
+function machoInfo(bin) {
+  try {
+    const out = execFileSync("otool", ["-l", bin], { maxBuffer: 1 << 28, stdio: ["ignore","pipe","ignore"] }).toString();
+    const m = out.match(/cryptid\s+(\d+)/);
+    const s = out.match(/cryptsize\s+(\d+)/);
+    return { cryptid: m ? +m[1] : null, cryptsize: s ? +s[1] : null };
+  } catch { return { cryptid: null, cryptsize: null }; }
+}
+
+function detect(appPath) {
+  const C = path.join(appPath, "Contents");
+  const R = path.join(C, "Resources");
+  const F = path.join(C, "Frameworks");
+  const has = (p) => fs.existsSync(p);
+  const stacks = [];
+
+  if (has(path.join(appPath, "WrappedBundle"))) stacks.push("ios-on-mac");
+  if (has(path.join(F, "Electron Framework.framework"))) stacks.push("electron");
+  else if (findAsars(appPath).length) stacks.push("electron");
+  if (has(path.join(F, "Flutter.framework"))) stacks.push("flutter");
+  if (has(path.join(R, "main.jsbundle"))) stacks.push("react-native");
+
+  // Tauri embeds its frontend in __RODATA of the main binary.
+  // Info.plist is often a BINARY plist (bplist00), so a regex silently reads nothing
+  // and the app falls through as "unknown". Ask the system to parse it.
+  let mainBin = null;
+  try {
+    const exe = execFileSync("/usr/libexec/PlistBuddy",
+      ["-c", "Print CFBundleExecutable", path.join(C, "Info.plist")],
+      { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    if (exe) mainBin = path.join(C, "MacOS", exe);
+  } catch {}
+  if (!mainBin || !fs.existsSync(mainBin)) {
+    try {
+      const f = fs.readdirSync(path.join(C, "MacOS")).find(x => !x.startsWith("."));
+      if (f) mainBin = path.join(C, "MacOS", f);
+    } catch {}
+  }
+  if (mainBin && has(mainBin)) {
+    try {
+      const b = fs.readFileSync(mainBin, { encoding: "latin1" }).slice(0, 40 << 20);
+      if (b.includes("tauri::") || b.includes("__TAURI__")) stacks.push("tauri");
+      if (b.includes("PyInstaller") || b.includes("pyi-")) stacks.push("pyinstaller");
+    } catch {}
+  }
+  if (has(path.join(R, "lib")) && fs.existsSync(path.join(R, "lib"))) {
+    try { if (fs.readdirSync(path.join(R, "lib")).some(d => /^python/.test(d))) stacks.push("python"); } catch {}
+  }
+  if (!stacks.length) stacks.push("native");
+  return { stacks: [...new Set(stacks)], mainBin };
+}
+
+// ---------- source map analysis ----------
+function analyzeMaps(appPath) {
+  const result = { archives: [], totalFiles: 0, maps: 0, firstPartyMaps: 0,
+                   mapsWithSource: 0, recoveredFiles: 0, recoveredBytes: 0, samples: [] };
+  // A file shared by two bundles appears in both maps. Count each source once.
+  const seen = new Map();
+  for (const arch of findAsars(appPath)) {
+    const list = asarList(arch);
+    if (!list) continue;
+    result.archives.push({ file: path.basename(arch), files: list.length });
+    result.totalFiles += list.length;
+    const maps = list.filter(e => e.path.endsWith(".map"));
+    result.maps += maps.length;
+    for (const m of maps.filter(e => isFirstParty(e.path))) {
+      result.firstPartyMaps++;
+      let j;
+      try { j = JSON.parse(asarRead(arch, m).toString("utf8")); } catch { continue; }
+      if (!j.sourcesContent) continue;
+      const own = (j.sources || []).map((s, i) => [s, j.sourcesContent[i]])
+        .filter(([s, c]) => c && c.length && isFirstParty(s));
+      if (!own.length) continue;
+      result.mapsWithSource++;
+      for (const [src, c] of own) if (!seen.has(src)) seen.set(src, c.length);
+      for (const [s] of own.slice(0, 3)) if (result.samples.length < 8) result.samples.push(s);
+    }
+  }
+  result.recoveredFiles = seen.size;
+  result.recoveredBytes = [...seen.values()].reduce((a, b) => a + b, 0);
+  return result;
+}
+
+function extract(appPath, outDir) {
+  let bytes = 0;
+  const written = new Set();
+  for (const arch of findAsars(appPath)) {
+    const list = asarList(arch);
+    if (!list) continue;
+    for (const m of list.filter(e => e.path.endsWith(".map") && isFirstParty(e.path))) {
+      let j;
+      try { j = JSON.parse(asarRead(arch, m).toString("utf8")); } catch { continue; }
+      if (!j.sourcesContent) continue;
+      j.sources.forEach((src, i) => {
+        const c = j.sourcesContent[i];
+        if (!c || !c.length || !isFirstParty(src)) return;
+        const clean = src.replace(/^(\.\.\/)+/, "").replace(/^\/+/, "")
+                         .replace(/^webpack:\/\/\/?/, "").replace(/\0/g, "");
+        if (!clean || clean.includes("..")) return;
+        if (written.has(clean)) return;
+        const dest = path.join(outDir, clean);
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, c);
+        written.add(clean); bytes += c.length;
+      });
+    }
+  }
+  return { files: written.size, bytes };
+}
+
+// ---------- swift metadata ----------
+// __swift5_* lives in __TEXT because the runtime reads it at launch, so strip
+// cannot remove it. A fully stripped Swift binary still yields its type graph.
+function hasSwiftMeta(bin) {
+  try {
+    const o = execFileSync("otool", ["-l", bin], { maxBuffer: 1 << 28, stdio: ["ignore","pipe","ignore"] }).toString();
+    return /__swift5_types/.test(o);
+  } catch { return false; }
+}
+
+function demangleAll(text) {
+  const toks = [...new Set(text.match(/_\$s[A-Za-z0-9_$]+/g) || [])];
+  if (!toks.length) return text;
+  let out;
+  try {
+    out = execFileSync("xcrun", ["swift", "demangle", "--compact", ...toks],
+      { maxBuffer: 1 << 28, stdio: ["ignore","pipe","ignore"] }).toString().trim().split("\n");
+  } catch { return text; }
+  const map = new Map();
+  toks.forEach((t, i) => {
+    let d = (out[i] || t).trim();
+    d = d.replace(/^nominal type descriptor for\s+/, "")
+         .replace(/^type metadata (accessor )?for\s+/, "")
+         .replace(/^Swift\./, "");
+    if (d && d !== t) map.set(t, d);
+  });
+  return text.replace(/_\$s[A-Za-z0-9_$]+/g, (m) => map.get(m) || m);
+}
+
+function swiftDump(bin, appName) {
+  let raw;
+  try {
+    raw = execFileSync("ipsw", ["swift-dump", bin, "--arch", "arm64"],
+      { maxBuffer: 1 << 29, stdio: ["ignore","pipe","ignore"] }).toString();
+  } catch { return null; }
+  const text = demangleAll(raw);
+  const own = [];
+  const re = new RegExp("^(class|struct|enum|protocol) " + appName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\.", "gm");
+  for (const line of text.split("\n")) if (re.test(line + "\n")) own.push(line.trim());
+  return { text, own };
+}
+
+// ---------- fidelity ontology ----------
+// One relation: App --[recoverable_at]--> Tier. The tier names what survives
+// shipping, not what a tool claims. Tier 0 is a real answer, not a failure.
+const TIER = {
+  5: "AUTHORED   the developer's own file, comments intact",
+  4: "EQUIVALENT recompilable, real names, comments gone",
+  3: "NAMED      real type/function names, bodies as pseudocode",
+  2: "SHAPED     module boundaries, names anonymised",
+  1: "MANIFEST   config, deps and assets; logic as pseudocode",
+  0: "MACHINE    full instruction graph, zero authoring",
+};
+// Every tier including 0 gives you 100% of the instructions that execute.
+// The tier measures recovered AUTHORING, never visibility of the running code.
+
+function hasSection(bin, sec) {
+  try {
+    return new RegExp(sec).test(execFileSync("otool", ["-l", bin],
+      { maxBuffer: 1 << 28, stdio: ["ignore","pipe","ignore"] }).toString());
+  } catch { return false; }
+}
+
+function grepBin(bin, needles, cap) {
+  try {
+    const b = fs.readFileSync(bin, { encoding: "latin1" }).slice(0, cap || (60 << 20));
+    return needles.filter(n => b.includes(n));
+  } catch { return []; }
+}
+
+// No shell anywhere in this file. JSON.stringify emits double quotes, and inside
+// double quotes $(...) and backticks still expand, so any path under an
+// attacker-named directory was executable. Walk with fs instead.
+function countFiles(dir, pattern, maxDepth, cap) {
+  cap = cap || 4000;
+  const suffix = pattern.startsWith("*") ? pattern.slice(1) : null;
+  let n = 0;
+  const walk = (d, depth) => {
+    if (depth > maxDepth || n >= cap) return;
+    let ents;
+    try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      if (n >= cap) return;
+      if (e.isSymbolicLink()) continue;
+      const fp = path.join(d, e.name);
+      if (e.isDirectory()) walk(fp, depth + 1);
+      else if (suffix ? e.name.endsWith(suffix) : e.name === pattern) n++;
+    }
+  };
+  walk(dir, 1);
+  return n;
+}
+
+function linkedLibs(bin) {
+  try { return execFileSync("otool", ["-L", bin],
+    { maxBuffer: 1 << 26, stdio: ["ignore","pipe","ignore"] }).toString(); } catch { return ""; }
+}
+
+// Structural markers only. Naive string grep gives false positives:
+// Perplexity contains "QtCore" and is pure Swift; Spotify contains "go1." and is not Go.
+function components(appPath) {
+  const dir = path.join(appPath, "Contents", "MacOS");
+  const out = [];
+  let files = [];
+  try { files = fs.readdirSync(dir).filter(f => !f.startsWith(".")); } catch { return out; }
+  for (const f of files.slice(0, 40)) {
+    const fp = path.join(dir, f);
+    try { if (!fs.statSync(fp).isFile()) continue; } catch { continue; }
+    let kind = null;
+    if (grepBin(fp, ["runtime.morestack", "go:buildid"], 40 << 20).length) kind = "go";
+    else if (hasSection(fp, "__swift5_types")) kind = "swift";
+    if (kind) out.push({ bin: f, kind });
+  }
+  return out;
+}
+
+function classify(appPath) {
+  const name = path.basename(appPath, ".app");
+  const C = path.join(appPath, "Contents");
+  const R = path.join(C, "Resources");
+  const F = path.join(C, "Frameworks");
+  const ex = fs.existsSync;
+  const d = detect(appPath);
+  const bin = d.mainBin;
+  let _comp = null;
+  const comps = () => (_comp || (_comp = components(appPath)));
+  const T = (stack, tier, how, cmd, ev) => {
+    const c = comps().filter(x => x.kind !== stack);
+    return { app: name, stack, tier, how, cmd, ev: ev || [],
+             components: [...new Set(c.map(x => x.kind))],
+             componentBins: c.map(x => `${x.bin}:${x.kind}`) };
+  };
+
+  const count = (dir, pat, depth) => countFiles(dir, pat, depth || 4);
+
+  // --- iOS wrapper: classify the inner bundle ---
+  if (ex(path.join(appPath, "WrappedBundle"))) {
+    const w = path.join(appPath, "Wrapper");
+    let ib = null; try { ib = fs.readdirSync(w).find(x => x.endsWith(".app")); } catch {}
+    if (ib) {
+      const ifw = path.join(w, ib, "Frameworks");
+      const assets = count(path.join(w, ib), "pubspec.yaml", 3);
+      if (ex(path.join(ifw, "Flutter.framework")))
+        return T("ios/flutter", 2, "flutter_assets ship pubspec.yaml verbatim; Dart AOT has no decompiler",
+                 `strings App.framework/App | grep '^package:'`, assets ? ["pubspec.yaml present"] : []);
+      return T("ios-on-mac", 1, "frameworks unencrypted, main exe FairPlay", `peel info ${name}`);
+    }
+  }
+
+  // --- Electron (structural: the framework, or a real asar) ---
+  if (ex(path.join(F, "Electron Framework.framework")) || findAsars(appPath).length) {
+    const a = analyzeMaps(appPath);
+    if (a.recoveredFiles > 0)
+      return T("electron", 5, "source maps embed sourcesContent", `peel extract ${name}`,
+               [`${a.recoveredFiles} source files`]);
+    if (a.firstPartyMaps > 0)
+      return T("electron", 2, "maps carry filenames only, no sourcesContent", `peel extract ${name}`,
+               [`${a.firstPartyMaps} first-party maps`]);
+    return T("electron", 2, "minified bundles; unbundle then LLM-rename", "wakaru | humanify",
+             [`${a.totalFiles} files`]);
+  }
+
+  if (!bin || !ex(bin)) return T("unknown", 0, "no main binary", "-");
+  const libs = linkedLibs(bin);
+
+  // --- runtimes that MUST carry metadata to run ---
+  if (hasSection(bin, "__swift5_types"))
+    return T("swift", 3, "runtime reads __swift5 at launch, so strip cannot remove it",
+             `peel swift ${name}`, ["__swift5_types"]);
+
+  if (/libjvm\.dylib/.test(libs) || count(C, "*.jar", 8) > 0)
+    return T("java/kotlin", 4, "JVM needs the type system for reflection; near-lossless",
+             "cfr / vineflower", [`${count(C, "*.jar", 8)} jars`]);
+
+  if (/hostfxr|libcoreclr/.test(libs) || count(C, "*.runtimeconfig.json", 4) > 0)
+    return T("dotnet", 4, "IL carries full metadata for reflection; ~95% recompilable", "ilspycmd");
+
+  if (ex(path.join(F, "Python.framework")) || count(R, "*.pyc", 4) > 0 || count(R, "*.py", 4) > 0) {
+    const src = count(R, "*.py", 4), pyc = count(R, "*.pyc", 4);
+    if (src > pyc && src > 0)
+      return T("python", 5, "ships .py as source, nothing to recover", `open ${R}`, [`${src} .py files`]);
+    return T("python/pyc", 3, "3.11+ decompilers are dead; pycdas disassembly always works",
+             "pylingual.io / pycdas", [`${pyc} .pyc files`]);
+  }
+
+  // Go: runtime needs pclntab for panics.
+  const goMark = grepBin(bin, ["runtime.morestack", "go:buildid"], 80 << 20);
+  if (goMark.length)
+    return T("go", 3, "pclntab keeps names + line numbers for panics; survives -s -w",
+             "redress / GoReSym", goMark);
+
+  // Tauri: frontend is brotli in __RODATA
+  if (grepBin(bin, ["__TAURI_INTERNALS__"], 80 << 20).length)
+    return T("tauri", 2, "frontend is per-asset brotli in __RODATA; Rust backend opaque",
+             "tauri-dumper", ["__TAURI_INTERNALS__"]);
+
+  if (/Qt[A-Z][A-Za-z]*\.framework/.test(libs))
+    return T("qt/c++", 0, "C++ needs no runtime metadata; RTTI only if not stripped",
+             "ghidra + QtREAnalyzer");
+
+  if (hasSection(bin, "__objc_classlist"))
+    return T("objc", 3, "objc runtime metadata survives strip", `ipsw class-dump`, ["__objc_classlist"]);
+
+  return T("native/stripped", 0, "no metadata layer exists", "ghidra (bodies only)");
+}
+
+// ---------- cli ----------
+const APPS = "/Applications";
+const listApps = () => fs.readdirSync(APPS).filter(f => f.endsWith(".app")).map(f => path.join(APPS, f));
+const mb = (b) => (b / 1048576).toFixed(2) + " MB";
+
+const [, , cmd, ...rest] = process.argv;
+
+if (cmd === "scan") {
+  const json = rest.includes("--json");
+  const rows = [];
+  for (const app of listApps()) {
+    const name = path.basename(app, ".app");
+    const d = detect(app);
+    const a = analyzeMaps(app);
+    rows.push({ app: name, stacks: d.stacks, ...a });
+  }
+  if (json) { console.log(JSON.stringify(rows, null, 2)); process.exit(0); }
+  const electron = rows.filter(r => r.stacks.includes("electron"));
+  const hits = rows.filter(r => r.recoveredFiles > 0);
+  console.log("app".padEnd(24) + "stack".padEnd(22) + "files".padStart(8) +
+              "maps".padStart(7) + "1st".padStart(6) + "src".padStart(6) + "  recovered");
+  console.log("-".repeat(96));
+  for (const r of rows.sort((a, b) => b.recoveredFiles - a.recoveredFiles)) {
+    if (!r.totalFiles && r.stacks.join() === "native") continue;
+    console.log(r.app.slice(0, 23).padEnd(24) + r.stacks.join(",").slice(0, 21).padEnd(22) +
+      String(r.totalFiles).padStart(8) + String(r.maps).padStart(7) +
+      String(r.firstPartyMaps).padStart(6) + String(r.mapsWithSource).padStart(6) +
+      (r.recoveredFiles ? `  ${r.recoveredFiles} files / ${mb(r.recoveredBytes)}` : ""));
+  }
+  console.log("-".repeat(96));
+  console.log(`apps scanned          ${rows.length}`);
+  console.log(`electron apps         ${electron.length}`);
+  console.log(`ship any .map         ${rows.filter(r => r.maps > 0).length}`);
+  console.log(`ship first-party .map ${rows.filter(r => r.firstPartyMaps > 0).length}`);
+  console.log(`LEAK first-party SRC  ${hits.length}  (${(hits.length / electron.length * 100).toFixed(1)}% of electron)`);
+  console.log(`total source files    ${hits.reduce((a, r) => a + r.recoveredFiles, 0)}`);
+} else if (cmd === "extract") {
+  const target = rest[0];
+  if (!target) { console.error("usage: peel extract <AppName> [outdir]"); process.exit(1); }
+  const app = target.endsWith(".app") ? target : path.join(APPS, target + ".app");
+  if (!fs.existsSync(app)) { console.error(`no such app: ${app}`); process.exit(1); }
+  const out = rest[1] || path.join(process.cwd(), path.basename(app, ".app") + "-source");
+  const r = extract(app, out);
+  console.log(`${r.files} files, ${mb(r.bytes)} -> ${out}`);
+  if (!r.files) console.log("no first-party source maps. try: peel info " + path.basename(app, ".app"));
+} else if (cmd === "info") {
+  const target = rest[0];
+  const app = target.endsWith(".app") ? target : path.join(APPS, target + ".app");
+  const d = detect(app);
+  console.log("stack:    " + d.stacks.join(", "));
+  for (const a of findAsars(app)) {
+    const l = asarList(a);
+    console.log(`archive:  ${path.basename(a)}  ${l ? l.length : "?"} files  ${mb(fs.statSync(a).size)}`);
+  }
+  if (d.stacks.includes("ios-on-mac") || d.stacks.includes("flutter")) {
+    const fw = path.join(app, "Wrapper", path.basename(app, ".app") + " Mobile.app", "Frameworks");
+    const dir = fs.existsSync(fw) ? fw : path.join(app, "Contents", "Frameworks");
+    if (fs.existsSync(dir)) for (const f of fs.readdirSync(dir).filter(x => x.endsWith(".framework"))) {
+      const bin = path.join(dir, f, path.basename(f, ".framework"));
+      if (!fs.existsSync(bin)) continue;
+      const i = machoInfo(bin);
+      if (i.cryptid !== null) console.log(`  ${f.padEnd(34)} cryptid=${i.cryptid} ${i.cryptid === 0 ? "READABLE" : "encrypted"} (${mb(fs.statSync(bin).size)})`);
+    }
+  }
+  const a = analyzeMaps(app);
+  console.log(`maps:     ${a.maps} total, ${a.firstPartyMaps} first-party, ${a.mapsWithSource} with source`);
+  if (a.samples.length) { console.log("sample sources:"); a.samples.forEach(s => console.log("  " + s)); }
+} else if (cmd === "map") {
+  const json = rest.includes("--json");
+  const rows = listApps().map(classify);
+  if (json) { console.log(JSON.stringify(rows, null, 2)); process.exit(0); }
+  console.log("tier  app".padEnd(30) + "stack".padEnd(18) + "how it is recovered");
+  console.log("=".repeat(104));
+  for (const r of rows.sort((a, b) => b.tier - a.tier || a.app.localeCompare(b.app))) {
+    const extra = r.components && r.components.length ? ` (+${r.components.join(",")})` : "";
+    console.log(`  ${r.tier}   ` + r.app.slice(0, 22).padEnd(24) +
+      (r.stack + extra).padEnd(22) + r.how);
+  }
+  console.log("=".repeat(104));
+  const by = {};
+  for (const r of rows) by[r.tier] = (by[r.tier] || 0) + 1;
+  for (const t of [5,4,3,2,1,0]) if (by[t]) console.log(`  tier ${t}  ${String(by[t]).padStart(3)} apps   ${TIER[t]}`);
+  const reach = rows.filter(r => r.tier >= 3).length;
+  console.log(`\n${reach}/${rows.length} apps (${(reach/rows.length*100).toFixed(0)}%) give up real names.`);
+  console.log(`${by[0] || 0} are opaque and always will be.`);
+} else if (cmd === "tauri") {
+  // Tauri embeds its frontend as [path][compressed bytes] in __RODATA.
+  // Data for record N is the gap between path N's end and path N+1's start.
+  // Brotli will "decompress" arbitrary bytes into noise, so a decode only counts
+  // when the result is actually text. Without that gate this reported 635
+  // successes and wrote 296 files of binary junk.
+  const zlib = require("zlib");
+  const target = rest[0];
+  if (!target) { console.error("usage: peel tauri <AppName> [outdir]"); process.exit(1); }
+  const app = target.endsWith(".app") ? target : path.join(APPS, target + ".app");
+  const d = detect(app);
+  if (!d.mainBin || !fs.existsSync(d.mainBin)) { console.error("no main binary"); process.exit(1); }
+  const out = rest[1] || path.join(process.cwd(), path.basename(app, ".app") + "-frontend");
+  const b = fs.readFileSync(d.mainBin);
+  const txt = b.toString("latin1");
+  const re = /\/(?:assets|_build|_app)[\x20-\x7e]{0,180}?\.(?:js|css|html|json|svg)(?:\.(?:gz|br))?/g;
+  const recs = []; let m;
+  while ((m = re.exec(txt)) !== null) recs.push({ p: m[0], s: m.index, e: m.index + m[0].length });
+  if (!recs.length) { console.error(`${path.basename(app,".app")} has no Tauri asset table`); process.exit(1); }
+  const looksLikeText = (buf) => {
+    if (buf.length < 32) return false;
+    const n = Math.min(buf.length, 4096); let pr = 0;
+    for (let i = 0; i < n; i++) { const c = buf[i];
+      if ((c >= 0x20 && c < 0x7f) || c === 9 || c === 10 || c === 13) pr++; }
+    return pr / n > 0.92;
+  };
+  let ok = 0, rej = 0, bytes = 0;
+  for (let i = 0; i < recs.length; i++) {
+    const st = recs[i].e;
+    const en = (i + 1 < recs.length) ? recs[i + 1].s : Math.min(st + (8 << 20), b.length);
+    if (en - st < 16) { rej++; continue; }
+    const blob = b.subarray(st, en);
+    let data = null;
+    for (let off = 0; off < Math.min(64, blob.length) && !data; off++) {
+      const sl = blob.subarray(off);
+      if (sl[0] === 0x1f && sl[1] === 0x8b) {
+        try { const x = zlib.gunzipSync(sl, { finishFlush: zlib.constants.Z_SYNC_FLUSH });
+              if (looksLikeText(x)) data = x; } catch {}
+      }
+      if (!data) { try { const x = zlib.brotliDecompressSync(sl); if (looksLikeText(x)) data = x; } catch {} }
+    }
+    if (!data) { rej++; continue; }
+    const clean = recs[i].p.replace(/^\/+/, "").replace(/\.(gz|br)$/, "");
+    if (clean.includes("..")) { rej++; continue; }
+    const dest = path.join(out, clean);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, data);
+    ok++; bytes += data.length;
+  }
+  console.log(`${recs.length} asset paths, ${ok} recovered as text, ${rej} rejected`);
+  console.log(`${mb(bytes)} -> ${out}`);
+} else if (cmd === "java") {
+  // The JVM needs a full type system for reflection, so decompilation is close
+  // to lossless. The work is in NOT decompiling the vendored half: Transporter
+  // ships 25 jars and 13 are public on Maven, where the source already exists.
+  const target = rest[0];
+  if (!target) { console.error("usage: peel java <AppName> [outdir] [--all]"); process.exit(1); }
+  const app = target.endsWith(".app") ? target : path.join(APPS, target + ".app");
+  if (!fs.existsSync(app)) { console.error(`no such app: ${app}`); process.exit(1); }
+  const all = rest.includes("--all");
+  const out = rest.find(r => r !== target && !r.startsWith("--")) ||
+              path.join(process.cwd(), path.basename(app, ".app") + "-java");
+
+  const jars = [];
+  const walk = (d, depth) => {
+    if (depth > 8) return;
+    let ents; try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      const f = path.join(d, e.name);
+      if (e.isSymbolicLink()) continue;
+      if (e.isDirectory()) walk(f, depth + 1);
+      else if (e.name.endsWith(".jar")) jars.push(f);
+    }
+  };
+  walk(app, 0);
+  if (!jars.length) { console.error("no jars found"); process.exit(1); }
+
+  const VENDORED = /^(org\.apache|org\.eclipse|org\.osgi|com\.fasterxml|com\.google|org\.slf4j|jrt-fs)/;
+  const pick = jars.filter(j => all || !VENDORED.test(path.basename(j)));
+  console.log(`${jars.length} jars, ${jars.length - pick.length} vendored (already public), ${pick.length} to decompile`);
+
+  const cfr = path.join(process.env.HOME, ".cache", "peel", "cfr.jar");
+  if (!fs.existsSync(cfr)) {
+    fs.mkdirSync(path.dirname(cfr), { recursive: true });
+    console.log("fetching CFR...");
+    try {
+      execFileSync("curl", ["-sL", "--max-time", "180", "-o", cfr,
+        "https://github.com/leibnitz27/cfr/releases/download/0.152/cfr-0.152.jar"],
+        { stdio: ["ignore", "ignore", "ignore"] });
+    } catch { console.error("could not fetch CFR"); process.exit(1); }
+  }
+  let total = 0;
+  for (const j of pick) {
+    const name = path.basename(j, ".jar");
+    const dir = path.join(out, name);
+    try { execFileSync("java", ["-jar", cfr, j, "--outputdir", dir],
+      { stdio: ["ignore", "ignore", "ignore"], maxBuffer: 1 << 26 }); } catch {}
+    total += countFiles(dir, "*.java", 12);
+  }
+  console.log(`${total} .java files -> ${out}`);
+} else if (cmd === "trace") {
+  // Static recovery answers "what did the author write". This answers the other
+  // question: what is this process executing RIGHT NOW. Works at every tier,
+  // including tier 0, because running code cannot hide from the sampler.
+  const target = rest[0];
+  if (!target) { console.error("usage: peel trace <AppName> [seconds]"); process.exit(1); }
+  const secs = rest[1] || "2";
+  let pid = null;
+  try {
+    // argv, never a shell string: `target` is raw user input.
+    const needle = `/${target}.app/Contents/MacOS/`;
+    const ps = execFileSync("ps", ["-Ao", "pid,comm"],
+      { maxBuffer: 1 << 24, stdio: ["ignore", "pipe", "ignore"] }).toString();
+    for (const line of ps.split("\n")) {
+      if (!line.includes(needle)) continue;
+      if (/helper|renderer|gpu|crashpad/i.test(line)) continue;
+      const m = line.trim().match(/^(\d+)\s/);
+      if (m) { pid = m[1]; break; }
+    }
+  } catch {}
+  if (!pid) { console.error(`${target} is not running. Launch it, then: peel trace ${target}`); process.exit(1); }
+  console.log(`pid ${pid}, sampling ${secs}s\n`);
+  let out = "";
+  try {
+    out = execFileSync("sample", [pid, secs, "-mayDie"],
+      { maxBuffer: 1 << 28, stdio: ["ignore","pipe","ignore"] }).toString();
+  } catch (e) { console.error("sample failed (SIP may block this process)"); process.exit(1); }
+
+  // Which binaries is it actually executing inside, and how hot is each.
+  const hot = new Map();
+  for (const line of out.split("\n")) {
+    const m = line.match(/^\s*[+!:| ]*(\d+)\s+(.+?)\s+\(in ([^)]+)\)/);
+    if (!m) continue;
+    const [, n, fn, img] = m;
+    if (!hot.has(img)) hot.set(img, { samples: 0, fns: new Map() });
+    const h = hot.get(img);
+    h.samples = Math.max(h.samples, +n);
+    if (!/^\?\?\?$/.test(fn)) h.fns.set(fn, Math.max(h.fns.get(fn) || 0, +n));
+  }
+  const imgs = [...hot.entries()].sort((a, b) => b[1].samples - a[1].samples).slice(0, 12);
+  console.log("images it is executing inside:");
+  for (const [img, h] of imgs) console.log(`  ${String(h.samples).padStart(6)}  ${img}`);
+  console.log("\nnamed functions actually on the stack:");
+  const all = [];
+  for (const [img, h] of hot) for (const [fn, n] of h.fns) all.push([n, fn, img]);
+  all.sort((a, b) => b[0] - a[0]);
+  for (const [n, fn, img] of all.slice(0, 20)) console.log(`  ${String(n).padStart(6)}  ${fn}  [${img}]`);
+  const unresolved = (out.match(/\?\?\?/g) || []).length;
+  console.log(`\n${all.length} named frames, ${unresolved} unresolved (stripped, but still executing).`);
+} else if (cmd === "swift") {
+  const target = rest[0];
+  if (!target) { console.error("usage: peel swift <AppName> [outfile]"); process.exit(1); }
+  const app = target.endsWith(".app") ? target : path.join(APPS, target + ".app");
+  const name = path.basename(app, ".app");
+  const d = detect(app);
+  const bin = d.mainBin;
+  if (!bin || !fs.existsSync(bin)) { console.error("no main binary found"); process.exit(1); }
+  if (!hasSwiftMeta(bin)) { console.error(`${name} has no __swift5 metadata (not a Swift app)`); process.exit(1); }
+  // Total defined symbols is the misleading number. A binary can ship 124,918
+  // symbols that are all Objective-C selectors, which class-dump already gives
+  // you. Only mangled Swift symbols ($s) add method names on top of the type
+  // graph, and across 24 Swift apps here exactly one shipped them.
+  let defined = 0, swiftSyms = 0, objcSyms = 0;
+  try {
+    const lines = execFileSync("nm", ["-U", bin],
+      { maxBuffer: 1 << 28, stdio: ["ignore","pipe","ignore"] }).toString().split("\n");
+    for (const l of lines) {
+      if (!l) continue;
+      defined++;
+      if (l.includes(" _$s")) swiftSyms++;
+      else if (/ [-+]\[/.test(l)) objcSyms++;
+    }
+  } catch {}
+  const r = swiftDump(bin, name);
+  if (!r) { console.error("ipsw swift-dump failed (brew install ipsw)"); process.exit(1); }
+  const out = rest[1] || path.join(process.cwd(), name + ".swift");
+  fs.writeFileSync(out, r.text);
+  const mas = fs.existsSync(path.join(app, "Contents", "_MASReceipt"));
+  console.log(`${name}: ${r.own.length} app-owned types recovered from __swift5 metadata`);
+  console.log(`  symbols: ${defined} defined, ${swiftSyms} Swift, ${objcSyms} ObjC${mas ? "  [Mac App Store]" : ""}`);
+  console.log(swiftSyms > 100
+    ? `  method names ARE available: nm -U | xcrun swift-demangle`
+    : `  method names are stripped; types and properties only, bodies are sub_ addresses`);
+  console.log(`${r.text.split("\n").length} lines -> ${out}`);
+  r.own.slice(0, 20).forEach(t => console.log("  " + t.replace(/\s*\{$/, "")));
+  if (r.own.length > 20) console.log(`  ... ${r.own.length - 20} more`);
+} else {
+  console.log(`peel - recover whatever source an installed app shipped
+
+  peel scan [--json]        classify every app in /Applications, report source-map leakage
+  peel info <App>           detect stack, list archives, show encryption state
+  peel extract <App> [out]  rebuild the original source tree from shipped source maps
+  peel swift <App> [out]    recover the Swift type graph from a stripped native binary
+  peel map [--json]         route every app to its recovery tier and extractor
+  peel trace <App> [secs]   sample a RUNNING app: what it is executing right now
+  peel tauri <App> [out]    recover a Tauri app's frontend from its Rust binary
+  peel java <App> [out]     decompile an app's first-party jars (--all for vendored too)
+
+Reads only. Never writes into /Applications.`);
+}

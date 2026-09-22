@@ -1,0 +1,317 @@
+#!/usr/bin/env python3
+"""Answer "is it safe to close this tab" from evidence, never from confidence.
+
+WHY THIS EXISTS. On 2026-09-21, after a ten hour session, the question was
+asked directly: "We good to close this tab? Don't answer that based on vibes."
+
+It was the right question, because for most of that session the answer would
+have come from feel. Three separate times a fix was reported as done and the
+next screenshot showed the same bug; once, several rounds of "fixed" were
+claimed while the code path in question was not even running, because a
+texture upload had failed silently and the old path had taken over.
+
+A closing question has a factual answer. Every condition below is something a
+command can decide, so none of them need an opinion:
+
+    is anything uncommitted          git status
+    is anything unpushed             git rev-list
+    do the gates pass                run them
+    was the lesson written down      git log on the notes
+    is debug scaffolding still in    git grep
+
+Prints every check with the evidence that decided it, and exits non-zero on
+the first thing that is not true. On a full pass it writes a receipt naming
+the exact commits it passed against, so a claim made afterwards can be tied
+to a specific verified state rather than to a memory of having run it.
+
+    closeout            check, print, write a receipt on success
+    closeout --quiet    receipt only, for hooks
+"""
+
+from __future__ import annotations
+
+import concurrent.futures as cf
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+KIT = Path(__file__).resolve().parent.parent
+BRAIN = Path.home() / "second-brain"
+RECEIPT = Path.home() / ".chewbacca" / "closeout-receipt.json"
+
+# How long a receipt is worth anything. Long enough to write a closing
+# message, short enough that it cannot be reused tomorrow.
+RECEIPT_TTL_S = 900
+
+
+def run(args: list[str], cwd: Path, timeout: int = 60) -> tuple[int, str]:
+    """A git query is quick; the gates are not. See the `gates` check, which
+    asks for its own budget. 180 seconds was the first guess and the full
+    suite blew straight through it, which reports as a failure and is really
+    an unknown. An unknown answer is exactly the thing this command exists to
+    refuse to give."""
+    try:
+        p = subprocess.run(
+            args, cwd=cwd, capture_output=True, text=True, timeout=timeout
+        )
+        return p.returncode, (p.stdout + p.stderr).strip()
+    except FileNotFoundError:
+        return 127, "not found: " + args[0]
+    except subprocess.TimeoutExpired:
+        return 124, "timed out, so this check has no answer rather than a pass"
+
+
+def head(repo: Path) -> str:
+    code, out = run(["git", "rev-parse", "HEAD"], repo)
+    return out[:12] if code == 0 else "?"
+
+
+class Checks:
+    def __init__(self) -> None:
+        self.failures: list[str] = []
+        self.lines: list[str] = []
+
+    def record(self, ok: bool, name: str, evidence: str) -> None:
+        self.lines.append(("  PASS  " if ok else "  FAIL  ") + name)
+        if evidence:
+            for line in evidence.splitlines()[:6]:
+                self.lines.append("          " + line)
+        if not ok:
+            self.failures.append(name)
+
+    # ── the checks ───────────────────────────────────────────────────────
+
+    def clean(self, repo: Path, label: str) -> None:
+        if not (repo / ".git").exists():
+            self.record(True, f"{label}: not a repo, skipped", "")
+            return
+        # Tracked changes only. An untracked file is often scratch, and a
+        # workspace full of other projects reports hundreds of them; that
+        # noise is what made the old stop hook ignorable.
+        code, out = run(["git", "status", "--porcelain"], repo)
+        dirty = [ln for ln in out.splitlines() if ln and not ln.startswith("??")]
+        self.record(
+            not dirty,
+            f"{label}: no uncommitted tracked changes",
+            "\n".join(dirty) if dirty else "git status --porcelain: clean",
+        )
+
+    def pushed(self, repo: Path, label: str) -> None:
+        if not (repo / ".git").exists():
+            return
+        code, _ = run(
+            ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], repo
+        )
+        if code != 0:
+            self.record(False, f"{label}: branch has no upstream", "nothing tracked")
+            return
+        _, out = run(["git", "rev-list", "--count", "@{u}..HEAD"], repo)
+        ahead = out.strip() or "?"
+        self.record(
+            ahead == "0",
+            f"{label}: nothing unpushed",
+            f"git rev-list @{{u}}..HEAD: {ahead} commit(s) ahead",
+        )
+
+    def gates(self, quiet: bool = False) -> None:
+        """Run the gates, fanned out across the groups.
+
+        "Nothing should ever take that long bruh, you have graph engineering
+        and the ability to intelligently split things up."
+
+        Correct, and this was the clearest case of it in the repo. The suite is
+        155 checks with no edges between them, run strictly one after another,
+        and the whole of closeout was ten minutes of waiting for that. A set of
+        independent nodes run sequentially is the exact anti-pattern the task
+        graph half of skills/graph-engineering exists to name.
+
+        The groups are the natural partition: run.sh already accepts one as an
+        argument, so no restructuring of the 155 checks is needed to fan them
+        out. Wall clock becomes the slowest group rather than the sum of all
+        of them, which on this machine is `installer` at about 40 seconds
+        against a sequential total over ten minutes.
+        """
+        suite = KIT / "tests" / "run.sh"
+        if not suite.exists():
+            self.record(True, "gates: no suite present, skipped", "")
+            return
+
+        groups = self._groups(suite)
+        if not groups:
+            code, out = run(["bash", str(suite)], KIT, timeout=900)
+            self.record(code == 0, "gates: tests/run.sh passes",
+                        "\n".join(out.splitlines()[-4:]) or f"exit {code}")
+            return
+
+        started = time.time()
+        failed: list[str] = []
+        detail: list[str] = []
+        # Bounded. More workers than cores turns a fan-out into contention,
+        # and several of these groups shell out heavily.
+        workers = min(len(groups), max(2, (os.cpu_count() or 4)))
+        with cf.ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(run, ["bash", str(suite), g], KIT, 600): g
+                for g in groups
+            }
+            done_n = 0
+            for fut in cf.as_completed(futures):
+                g = futures[fut]
+                code, out = fut.result()
+                done_n += 1
+                if code != 0:
+                    failed.append(g)
+                    for line in out.splitlines():
+                        if line.strip().startswith("- "):
+                            detail.append(f"{g}: {line.strip()[2:]}")
+                # SAY SO AS IT LANDS. "Closeout taking too long bruh, break it
+                # up into more steps." Ten minutes of silence and then one
+                # verdict is the same information delivered in the worst
+                # possible shape: nothing to act on until all of it is done,
+                # and no way to tell a slow run from a hung one.
+                if not quiet:
+                    mark = "ok  " if code == 0 else "FAIL"
+                    print(f"  {mark}  [{done_n}/{len(groups)}] {g}"
+                          f"  {time.time() - started:.0f}s", flush=True)
+        secs = time.time() - started
+        self.record(
+            not failed,
+            f"gates: {len(groups)} groups in parallel, {secs:.0f}s",
+            "\n".join(detail[:5]) if detail else f"all {len(groups)} groups green",
+        )
+
+    @staticmethod
+    def _groups(suite: Path) -> list[str]:
+        """Group names, read from the suite rather than hardcoded here.
+
+        Hardcoding them would mean a group added later silently never runs,
+        which is the same shape as a hook that ships without being registered.
+        """
+        try:
+            text = suite.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return []
+        found = re.findall(r'^\s*group\s+"([^"]+)"', text, re.M)
+        seen, out = set(), []
+        for g in found:
+            if g not in seen:
+                seen.add(g)
+                out.append(g)
+        return out
+
+    def lesson_written(self) -> None:
+        """Code changed today means a lesson was written down today.
+
+        The standing rule is that a session does not close until what it
+        learned is in the kit. That is checkable: if the kit has commits from
+        today, something under the notes or the rules should have one too.
+        """
+        _, kit_today = run(
+            ["git", "log", "--since=midnight", "--oneline"], KIT
+        )
+        if not kit_today.strip():
+            self.record(True, "lesson: no code committed today, nothing owed", "")
+            return
+        found = []
+        for repo, paths in ((BRAIN, ["memory"]), (KIT, [".claude/rules", "skills"])):
+            if not (repo / ".git").exists():
+                continue
+            _, out = run(
+                ["git", "log", "--since=midnight", "--oneline", "--"] + paths, repo
+            )
+            if out.strip():
+                found.append(f"{repo.name}: {len(out.splitlines())} commit(s)")
+        self.record(
+            bool(found),
+            "lesson: today's learning is written down",
+            "; ".join(found) if found else
+            f"{len(kit_today.splitlines())} kit commits today, none touching "
+            "memory/ or rules/",
+        )
+
+    def no_scaffolding(self) -> None:
+        """Debug scaffolding left in tracked source is not a finished session."""
+        markers = ["PROBE:", "XXX-debug", "console.warn('dbg"]
+        hits: list[str] = []
+        for m in markers:
+            _, out = run(["git", "grep", "-n", "--", m], KIT)
+            hits += [ln for ln in out.splitlines() if ln.strip()]
+        # This file names the markers in its own docstring; do not count that.
+        hits = [h for h in hits if not h.startswith("bin/closeout:")]
+        self.record(
+            not hits,
+            "source: no debug scaffolding committed",
+            "\n".join(hits) if hits else "git grep: none of " + ", ".join(markers),
+        )
+
+
+def main() -> int:
+    quiet = "--quiet" in sys.argv
+    c = Checks()
+
+    c.clean(KIT, "kit")
+    c.pushed(KIT, "kit")
+    c.clean(BRAIN, "brain")
+    c.pushed(BRAIN, "brain")
+    c.gates(quiet)
+    c.lesson_written()
+    c.no_scaffolding()
+
+    if not quiet:
+        print("closeout: is it safe to close this tab")
+        print()
+        print("\n".join(c.lines))
+        print()
+
+    if c.failures:
+        if not quiet:
+            print("NOT SAFE TO CLOSE. " + str(len(c.failures)) + " check(s) failed:")
+            for f in c.failures:
+                print("  - " + f)
+        RECEIPT.unlink(missing_ok=True)
+        return 1
+
+    RECEIPT.parent.mkdir(parents=True, exist_ok=True)
+    RECEIPT.write_text(
+        json.dumps(
+            {
+                "at": time.time(),
+                "kit": head(KIT),
+                "brain": head(BRAIN),
+                "checks": len(c.lines),
+            }
+        )
+    )
+    if not quiet:
+        print("SAFE TO CLOSE. Receipt written to " + str(RECEIPT))
+        print("  kit   " + head(KIT))
+        print("  brain " + head(BRAIN))
+    return 0
+
+
+def receipt_valid() -> tuple[bool, str]:
+    """Used by the Stop hook. A receipt is only worth the state it names."""
+    try:
+        d = json.loads(RECEIPT.read_text())
+    except Exception:
+        return False, "no closeout receipt exists"
+    age = time.time() - float(d.get("at", 0))
+    if age > RECEIPT_TTL_S:
+        return False, f"the closeout receipt is {int(age / 60)} minutes old"
+    if d.get("kit") != head(KIT):
+        return False, "the kit has moved since closeout ran"
+    if (BRAIN / ".git").exists() and d.get("brain") != head(BRAIN):
+        return False, "the brain has moved since closeout ran"
+    return True, "receipt matches the current commits"
+
+
+if __name__ == "__main__":
+    if "--check-receipt" in sys.argv:
+        ok, why = receipt_valid()
+        print(why)
+        sys.exit(0 if ok else 1)
+    sys.exit(main())

@@ -11,32 +11,25 @@ expensive thing you can hand a person. They stall, write three careful
 sentences that sound like a LinkedIn bio, and you learn nothing you could not
 have guessed.
 
-Everything below is a way around that. They are ordered by how much work the
-person has to do, and **you always start at the top**. Most of what you need is
-already on the machine and does not require them to do anything at all.
+Start with what the person wants help with today. Use context they have already
+shared or authorized you to read. If a source is needed, name it and explain why;
+existing access alone does not authorize a scan.
 
-Never present this list. Pick the next one and do it.
+## First-session boundaries
 
----
+Do not automatically read contacts, calendar, notes, messages, app inventories or
+open windows to personalize a greeting. Ask one useful question instead. Never
+infer identity from the computer account, or treat the kit author's preferences
+as the new person's preferences.
 
-## Tier 0: they do nothing, you just look
+If the person has authorized a source, inspect only the relevant portion and use
+the result immediately. Read `skills/your-data/SKILL.md` before an import. Relevant
+content passed to a hosted model can leave the machine even when its original
+store is local. Do not promise otherwise.
 
-Do this in the first session without asking. It costs them nothing and it is
-usually enough to stop sounding like a stranger.
-
-```bash
-mac contacts find --json | head -50     # who is in their life
-mac calendar list --json --days 14      # what their weeks look like
-ls /Applications                        # what they use
-mac notes list --json 2>/dev/null       # what they write down
-```
-
-Read it, then say one true, specific thing back. "You have four things on
-Thursday and two of them overlap" is worth more than any question you could
-have asked.
-
-**Write what you learn to their second brain as you go.** Names that recur,
-what their week is shaped like, what they seem to be working on.
+Record useful facts in their shared brain within the authorized scope. Distinguish
+the person's words from your inference, and preserve their chosen language and
+communication preferences. They can skip personal setup and use the tools alone.
 
 ---
 

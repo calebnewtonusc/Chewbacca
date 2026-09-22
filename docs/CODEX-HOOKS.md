@@ -5,7 +5,7 @@
 in place. The first install preserves a `hooks.json.before-chewbacca` backup.
 The regular setup also installs these definitions.
 
-For an existing checkout, `bash setup.sh --only agents` installs the shared
+For an existing checkout, `bash setup.sh --runtime codex` installs the shared
 context instructions and native hooks without installing Mac tools or changing
 model selection. It discovers the registered second brain or existing Claude
 context. Set `CHEWBACCA_BRAIN_DIR` to choose a different folder. Reruns preserve
@@ -18,10 +18,10 @@ the fallback. Do not edit trust databases or bypass hook trust to activate them.
 | Event            | Behavior                                                                         |
 | ---------------- | -------------------------------------------------------------------------------- |
 | SessionStart     | Fresh shared briefing and second-brain health check, including after compaction  |
-| UserPromptSubmit | Existing literal opener preference, coursework context and kit routing           |
-| PreToolUse       | Environment-file warning for every affected patch path                           |
+| UserPromptSubmit | Shared opener preference, coursework context, skill, kit and method routing      |
+| PreToolUse       | Shell submission guards, write attribution and proposed-file checks              |
 | PostToolUse      | Installed Prettier, application draft checks and prose checks for affected files |
-| Stop             | Reply lint with one corrective continuation; working-tree reminder               |
+| Stop             | Reply lint, handoff and evidence checks; working-tree reminder                   |
 
 Codex passes patches through `tool_input.command`, while the shared Claude file
 checks consume `tool_input.file_path`. The adapter expands additions, updates,

@@ -26,7 +26,7 @@ class IntegrationTests(unittest.TestCase):
         self.assertIn((ROOT / 'instructions/agent-neutral.md').read_text(), text)
         for forbidden in ('FIRST WORDS', 'Stop hook runs', 'CLAUDE_CODE_MAX_', '\n@', '\npaths:'):
             self.assertNotIn(forbidden, text)
-        self.assertIn('Claude Code is the primary', text)
+        self.assertIn('The user chooses the model and host', text)
         self.assertIn('private', text)
 
     def test_export_freshness_detects_drift(self):

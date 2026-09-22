@@ -22,6 +22,22 @@ cases = [
      {"uid": "1_51", "url": f"https://{LMS}.usc.edu/d2l/lms/dropbox/user/folder_" + "submit_files.d2l"}, 2),
     ("curl post to LMS", "Bash",
      {"command": f"curl -X POST https://{LMS}.usc.edu/d2l/le/dropbox -F file=@a.docx"}, 2),
+    ("curl -T put to LMS", "Bash",
+     {"command": f"curl -T a.docx https://{LMS}.usc.edu/d2l/le/x"}, 2),
+    ("curl --" + "upload-file to LMS", "Bash",
+     {"command": f"curl --{UP}-file a.docx https://{LMS}.usc.edu/d2l/le/x"}, 2),
+
+    # Regression, 2026-09-21. The guard matched " -f " against a LOWERCASED
+    # copy of the command, so it could not tell curl's -F (form) from -f
+    # (--fail) or from a plain "[ -f path ]" file test. It blocked a GET that
+    # was downloading lecture slides. These three must stay allowed.
+    ("file test then GET download", "Bash",
+     {"command": f"[ -f ~/D/x.pdf ] || curl -s https://{LMS}.usc.edu/d2l/le/content/299120/topics/files/down"
+                 f"load/1/DirectFileTopicDownload -o ~/D/x.pdf -L"}, 0),
+    ("curl -f is --fail, not --form", "Bash",
+     {"command": f"curl -f -s https://{LMS}.usc.edu/d2l/api/le/1.99/299120/content/root/"}, 0),
+    ("bash file test, no http at all", "Bash",
+     {"command": "[ -f ~/D/x.pdf ] && echo have it"}, 0),
 ]
 
 ok = True

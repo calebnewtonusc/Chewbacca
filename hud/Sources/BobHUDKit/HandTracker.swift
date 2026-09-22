@@ -26,6 +26,9 @@ import os
 /// the Neural Engine.
 @MainActor
 public final class HandTracker {
+    /// The camera frame size, as delivered. Set once on the first frame.
+    nonisolated(unsafe) public static var frameSize: CGSize?
+
     /// What the tracker tells the app.
     public enum Gesture: Sendable, Equatable {
         /// An open palm held steady for three frames. Dismiss everything.
@@ -133,6 +136,14 @@ public final class HandTracker {
         let wantsEyesFlag = self.wantsEyes
         let handler = SessionHandler { [weak self] buffer in
             guard let pixelBuffer = CMSampleBufferGetImageBuffer(buffer) else { return }
+            // Vision normalises each landmark axis to THIS frame, so anything
+            // mapping landmarks onto a display has to know its shape or a
+            // round hand motion arrives as an oval. Published once.
+            if HandTracker.frameSize == nil {
+                HandTracker.frameSize = CGSize(
+                    width: CVPixelBufferGetWidth(pixelBuffer),
+                    height: CVPixelBufferGetHeight(pixelBuffer))
+            }
             let imageHandler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
             // The face pass is OPT IN. Vision runs it on every frame if it is
             // in the array, and the portal stopped using eyes on 2026-09-21

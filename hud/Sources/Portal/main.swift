@@ -62,11 +62,18 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         .appendingPathComponent(".chewbacca/portal-hand")
     private static let trailFile = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".chewbacca/portal-trail")
+    // Writing seconds here replays a circle with no hand, so the result can
+    // be screenshotted and looked at instead of described.
+    private static let demoFile = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".chewbacca/portal-demo")
     private var gain: Double?
     private var size: Double?
     private var reach: Double?
     private var hand: Double?
     private var trail: Double?
+    private var demoSeen: Double?
+    private var demoStamp: Int?
+    private var sentCameraSize = false
 
     func applicationDidFinishLaunching(_: Notification) {
         // Bundle.main first, because that is where bundle-portal.sh puts the
@@ -151,6 +158,7 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
                 self.readReach()
                 self.readHand()
             self.readTrail()
+            self.readDemo()
             }
         }
 
@@ -255,6 +263,29 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         web.evaluateJavaScript("window.chewbaccaTrail&&window.chewbaccaTrail(\(value))")
     }
 
+    private func readDemo() {
+        let text = (try? String(contentsOf: Self.demoFile, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // "secs" or "secs turns radius shape name". A script drives the
+        // whole battery through this, so the shape has to come from outside.
+        guard let text, !text.isEmpty else { return }
+        let parts = text.split(separator: " ").map(String.init)
+        guard let value = Double(parts.first ?? ""), value > 0 else { return }
+        let stamp = text.hashValue
+        guard demoStamp != stamp else { return }
+        demoStamp = stamp
+        demoSeen = value
+        guard ready, let web else { return }
+        try? "".write(to: Self.demoFile, atomically: true, encoding: .utf8)
+        let turns = parts.count > 1 ? (Double(parts[1]) ?? 1.15) : 1.15
+        let radius = parts.count > 2 ? (Double(parts[2]) ?? 0.3) : 0.3
+        let shape = parts.count > 3 ? parts[3] : "circle"
+        let name = parts.count > 4 ? parts[4] : shape
+        web.evaluateJavaScript(
+            "window.chewbaccaDemo&&window.chewbaccaDemo(\(value),\(turns),\(radius),'\(shape)','\(name)')")
+        FileHandle.standardError.write(Data("portal: replay \(name) \(shape) r=\(radius) turns=\(turns)\n".utf8))
+    }
+
     private func applyArm() {
         guard ready, let web else { return }
         let arg = armed.map { "\"\($0.replacingOccurrences(of: "\"", with: ""))\"" } ?? "null"
@@ -342,6 +373,15 @@ final class PortalController: NSObject, NSApplicationDelegate, WKNavigationDeleg
         }
         web.evaluateJavaScript(
             "window.chewbaccaHands&&window.chewbaccaHands(\(arg),\(eyesArg))")
+        // The page corrects for the camera's aspect, so it needs the real
+        // frame size rather than the preset's nominal one. Sent once.
+        if !sentCameraSize, let sz = HandTracker.frameSize {
+            sentCameraSize = true
+            web.evaluateJavaScript(
+                "window.chewbaccaCamera&&window.chewbaccaCamera(\(Int(sz.width)),\(Int(sz.height)))")
+            FileHandle.standardError.write(Data(
+                "portal: camera frame \(Int(sz.width))x\(Int(sz.height))\n".utf8))
+        }
     }
 
     func applicationWillTerminate(_: Notification) {

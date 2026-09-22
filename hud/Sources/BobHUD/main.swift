@@ -185,6 +185,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             presentFatal(error)
         }
+
+        // Start the listener at launch rather than on the first keypress.
+        //
+        // `prime()` inside it opens the model session and has the prompt read
+        // before its socket is even open, so starting it lazily means the
+        // first hold of the talk key waits for a Python start, a 70KB prompt
+        // build and a whole model round trip with the person standing there.
+        // Login is not a moment anybody is waiting on, so it is free here.
+        //
+        // Two seconds of grace first: a listener left from a previous run may
+        // still be reconnecting, and two of them on one socket both answer.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self, weak server] in
+            guard let self, let server, !server.hasSubscribers else { return }
+            _ = self.startListener()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -448,15 +463,92 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Say that the request went nowhere.
+    /// Start the listener rather than asking for it to be started.
+    ///
+    /// "Bro this should never happen, activating the fn key should by default
+    /// mean it is listening."
+    ///
+    /// He is right, and the old behaviour broke the kit's own first rule: it
+    /// printed "Run: hud listen" at him. Handing somebody a command is the
+    /// single most common way an agent turns finished work into unfinished
+    /// work, and a front door that answers a keypress with homework is the
+    /// same failure wearing a UI.
+    ///
+    /// Pressing the key IS the request to listen. So the socket having nobody
+    /// on the other end is not a thing to report, it is a thing to fix: spawn
+    /// the listener, detached, and let the next event go through.
+    ///
+    /// Spawned at most once every few seconds. Without that, a listener that
+    /// crashes on launch would be respawned on every keystroke, which is a
+    /// fork bomb driven by a person's typing.
+    private static var lastSpawn = Date.distantPast
+    private static let spawnCooldown: TimeInterval = 4
+
+    private func startListener() -> Bool {
+        guard Date().timeIntervalSince(Self.lastSpawn) > Self.spawnCooldown else {
+            return false
+        }
+        // Where the installer puts it, then the PATH, so this works on a
+        // machine that laid the kit down somewhere else.
+        let candidates = [
+            FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".local/bin/hud-listen").path,
+            "/usr/local/bin/hud-listen",
+            "/opt/homebrew/bin/hud-listen",
+        ]
+        guard let exe = candidates.first(where: {
+            FileManager.default.isExecutableFile(atPath: $0)
+        }) else { return false }
+
+        Self.lastSpawn = Date()
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: exe)
+        // Detached, and with its output kept. It used to go to nullDevice on
+        // the grounds that this is a daemon rather than a command run for an
+        // answer, which is true and still cost hours on 2026-09-21: speech was
+        // reaching the microphone, transcribing correctly and then vanishing,
+        // and there was no record anywhere of the listener's side of it
+        // because this is where it was being thrown away. A daemon with no log
+        // is a daemon you cannot debug.
+        let logDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".chewbacca/logs")
+        try? FileManager.default.createDirectory(
+            at: logDir, withIntermediateDirectories: true)
+        let logURL = logDir.appendingPathComponent("hud-listen.log")
+        if !FileManager.default.fileExists(atPath: logURL.path) {
+            FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        }
+        if let handle = try? FileHandle(forWritingTo: logURL) {
+            // Append rather than truncate: the run before the one that broke
+            // is often the one that explains it.
+            try? handle.seekToEnd()
+            p.standardOutput = handle
+            p.standardError = handle
+        } else {
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+        }
+        do { try p.run() } catch { return false }
+        return true
+    }
+
+    /// Say that the request went nowhere, once starting it has been tried.
     ///
     /// Drawn by the display itself, which is the only thing in this system that
     /// can still speak when the other end is gone. It expires on its own,
     /// because the pill is a notice rather than something to dismiss, and the
     /// ring stays red after it.
     private func reportNobodyListening() {
+        if startListener() {
+            // Starting takes a moment, and the event that triggered this is
+            // already gone. Say what is happening rather than nothing, and do
+            // not colour the ring red for a state that is being resolved.
+            model.setPresence(.thinking, amplitude: 0)
+            model.fail("Starting the listener, say that again", hold: Self.nobodyHold)
+            return
+        }
         model.setPresence(.failed, amplitude: 0)
-        model.fail("Nothing is listening. Run: hud listen", hold: Self.nobodyHold)
+        model.fail("The listener will not start", hold: Self.nobodyHold)
     }
 
     /// Give the app back the focus the bar took.
@@ -614,6 +706,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 leave()
                 return
             }
+            // The glass is what he is talking to, so the key brings it up
+            // rather than assuming it is already there. Held with the overlay
+            // hidden, this opened the microphone behind a blank screen and the
+            // only sign anything had happened was in the log. After the
+            // double-tap check, so leaving still leaves.
+            if let overlay, !overlay.isVisible { overlay.show() }
             // Up the socket before the microphone opens: the bridge stops
             // talking on this line, so the person is not talked over while
             // they speak.
