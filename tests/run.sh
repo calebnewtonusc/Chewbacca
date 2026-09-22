@@ -181,6 +181,7 @@ fi
 
 # ── doctor ────────────────────────────────────────────────────────────────────
 if group "doctor"; then
+  check "guard refusals are not hook failures" python3 "$ROOT/tests/test_doctor_hook_health.py"
   check  "--help works" bash "$ROOT/doctor.sh" --help
   exits  "an unknown flag exits 2" 2 bash "$ROOT/doctor.sh" --nonsense
   check  "--json is valid JSON" bash -c "bash '$ROOT/doctor.sh' --json | python3 -m json.tool"
@@ -434,18 +435,11 @@ if group "installer"; then
   # were checking the wording of a report that has no reason to be the same
   # on two operating systems.
   #
-  # What the row is for is narrower: each of these spellings is recognised as
-  # --full-send rather than shrugged at. The exit code cannot say that any
-  # more, because every flag now exits 0 and an unknown one only warns, so the
-  # row below would pass on --nonsense too. The warning is the signal: grep
-  # exits 1 when it is absent, which is what a recognised flag looks like, on
-  # a Mac and on the Linux runner alike.
+  # Permission-changing flags require their exact documented spelling.
   for _flag in --fullsend --full_send -full-send --FULL-SEND --yolo; do
-    exits "start.sh survives $_flag" 1 bash -c \
-      "bash '$ROOT/start.sh' '$_flag' --dry-run 2>&1 | grep -q 'ignoring unrecognized'"
+    exits "start.sh refuses ambiguous $_flag" 2 bash "$ROOT/start.sh" "$_flag" --dry-run
   done
-  expect "an unknown flag warns instead of aborting" "ignoring unrecognized option" \
-    bash "$ROOT/start.sh" --nonsense --dry-run
+  exits "an unknown flag stops before installation" 2 bash "$ROOT/start.sh" --nonsense --dry-run
   # --version used to silently mean "pin to this tag", so it ate the next
   # argument and never printed a version.
   check  "start.sh --version prints a version" bash -c "
@@ -663,6 +657,7 @@ fi
 
 # ── hooks ─────────────────────────────────────────────────────────────────────
 if group "hooks"; then
+  check "formatter handles a broken Node runtime" python3 "$ROOT/tests/test_formatter_runtime.py"
   check  "lib.sh parses" bash -n "$ROOT/.claude/hooks/lib.sh"
   # A hook must never fail the session, whatever it is handed.
   for h in "$ROOT"/.claude/hooks/*.sh; do
@@ -976,6 +971,10 @@ if group "reasoning backends"; then
   check "circle detector accepts circles, not triangles" bash "$ROOT/tests/circle_shapes.sh"
   check "no drawn line is ever jagged" bash "$ROOT/tests/path_smoothness.sh"
   check "portals open and close" bash "$ROOT/tests/portal_state.sh"
+  check "the drawn extent never walks backwards" bash "$ROOT/tests/sweep_monotonic.sh"
+  check "the vibe guard refuses claims with no evidence" bash "$ROOT/tests/vibe_guard.sh"
+  check "stage 8 is enforced: a first-name collision is refused" bash "$ROOT/tests/fusion_guard.sh"
+  check "the installer ships everything it registers" bash "$ROOT/tests/setup_ships_what_it_registers.sh"
   check "shared agent instructions are current" python3 "$ROOT/tools/agents_md.py" --check
   check "ChatGPT turn boundaries" python3 "$ROOT/tests/test_chatgpt_tab.py"
   check "gateway protocol and execution" python3 "$ROOT/tests/test_chatgpt_gateway.py"
@@ -983,6 +982,10 @@ if group "reasoning backends"; then
   check "Codex shared instructions and optional health" python3 "$ROOT/tests/test_codex.py"
   check "Codex personal context startup" python3 "$ROOT/tests/test_codex_context.py"
   check "Codex native lifecycle hooks" python3 "$ROOT/tests/test_codex_hooks.py"
+  check "newcomer setup preserves identity and privacy choices" python3 "$ROOT/tests/test_onboarding.py"
+  check "runtime adapters work independently in fresh homes" python3 "$ROOT/tests/test_agent_runtime.py"
+  check "Codex shares skills without replacing personal entries" python3 "$ROOT/tests/test_codex_skills.py"
+  check "Codex imports only selected integrations" python3 "$ROOT/tests/test_codex_integrations.py"
   _model_python="${MACOS_USE_HOME:-$HOME/Projects/macOS-use}/.venv/bin/python"
   [ -x "$_model_python" ] || _model_python=python3
   if "$_model_python" -c 'import langchain_core, pydantic' >/dev/null 2>&1; then

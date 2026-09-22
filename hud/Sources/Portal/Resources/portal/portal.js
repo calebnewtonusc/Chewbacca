@@ -19,6 +19,559 @@
     return pts;
   }
 
+  // vendor/mirror-gl.ts
+  var VERT = `#version 300 es
+in vec2 aPos;
+out vec2 vPix;
+uniform vec2 uSize;
+void main() {
+  vPix = (aPos * 0.5 + 0.5) * uSize;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}`;
+  var FRAG = `#version 300 es
+precision highp float;
+in vec2 vPix;
+out vec4 outColor;
+
+uniform vec2  uC;
+uniform float uR;
+uniform float uAStart, uASpan, uDir;
+uniform float uLead, uSpiral, uFog, uVeil, uStrength, uInset, uWet;
+uniform vec4  uImg;
+uniform sampler2D uTex;
+
+const float TAU = 6.283185307179586;
+
+// CLOUD IS NOT A BENT EDGE, IT IS AN EDGE THAT BREAKS UP.
+//
+// "The dynamics of the edges are still sharp, super far from water/clouds
+// fading into each other."
+//
+// Everything before this moved the boundary: lobes on the inner edge, a
+// ragged reach on the ends. But the falloff across it stayed a single clean
+// smoothstep, and a clean ramp reads as a clean ramp however you bend its
+// centreline. What makes something look like cloud is the edge dissolving
+// into patches at several sizes at once, so there is no one line to find.
+//
+// Four octaves of value noise. The coarse ones tear the front into lobes
+// the size of a fist, the fine ones fray those into wisps, and because it
+// is sampled in screen position it does not swim when the circle grows.
+float hash21(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+float vnoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash21(i), hash21(i + vec2(1.0, 0.0)), f.x),
+             mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+float fbm(vec2 p) {
+  float v = 0.0, amp = 0.5;
+  for (int k = 0; k < 4; k++) { v += amp * vnoise(p); p *= 2.03; amp *= 0.5; }
+  return v;
+}
+
+// The inner edge, as a fraction of the radius consumed, at position u along
+// the arc. u 0 is where the line joined the circle, u 1 is the leading edge.
+//
+// wind makes it a spiral: shallow where the circle began, deepest at the
+// leading edge. It relaxes as the fill completes, so the two ends converge
+// and what is left at the end is a disc in the middle rather than a crescent
+// lying against the rim.
+float depthAt(float u) {
+  // A GREAT DIFFERENCE BETWEEN THE TWO ENDS, CONVERGING LATE.
+  //
+  // "There's supposed to be a great difference between the length of the
+  // starting radii to the ending radii from the outside, and they
+  // exponentially reach the same distance of hitting the middle at the end."
+  //
+  // Two knobs, both measured rather than felt. The coefficient sets how far
+  // apart the ends get, and the exponent on the convergence sets how long
+  // they stay apart before meeting. Gap between the two ends, as a fraction
+  // of the radius, at fills of 0.3 / 0.5 / 0.7 / 0.85 / 0.95 / 1.0:
+  //
+  //   1.6, linear      5  16  23  13   2  0     peak 23% at 0.70
+  //   6.0, ^0.55       5  18  40  49  19  0     peak 49% at 0.85
+  //
+  // The first was a lean; the second is a spiral that is still visibly a
+  // spiral at 85% drawn and then closes up fast. Both still arrive at
+  // exactly zero, so the two ends hit the middle together.
+  float wind = 1.0 + 6.0 * pow(max(0.0, 1.0 - u), 1.6)
+                   * uSpiral * pow(max(0.0, 1.0 - uLead), 0.55);
+  return clamp(pow(max(uLead, 1e-5), wind), 0.0, 1.0);
+}
+
+void main() {
+  vec2 d = vPix - uC;
+  float r = length(d);
+
+  // Position along the arc. Taken the way the hand went, so it is 0 at the
+  // start and grows to 1 at the leading edge, and anything past 1 is the
+  // wedge that has not been drawn.
+  float rel = mod((atan(d.y, d.x) - uAStart) * uDir + TAU, TAU);
+  float span = max(uASpan, 1e-4);
+  float u = rel / span;
+
+  // THE WEDGE TAKES THE DEPTH OF THE END IT IS NEAR.
+  //
+  // "There's this weird ledge at the starting radii that is sharp and
+  // sticks out towards the middle."
+  //
+  // clamp(u, 0, 1) hands every pixel in the undrawn wedge the depth of the
+  // LEADING edge, which is the deepest point of the spiral. That includes
+  // the pixels sitting right beside where the circle STARTED, where the
+  // spiral is at its shallowest. So the inner edge jumped from shallow to
+  // deepest across that boundary, and a jump in the inner edge is a ledge
+  // pointing at the middle. It is worst exactly when the spiral is widest,
+  // which is now.
+  //
+  // Each half of the wedge belongs to the end it is nearer, so the depth
+  // carries on continuously round both sides instead of stepping.
+  // THE TWO ENDS RUN INTO EACH OTHER ACROSS THE GAP.
+  //
+  // "The second radii has a hard firm radii too. What happened to making it
+  // like 2 cloudy liquid ends that combine into each other? Not just lego
+  // pieces that stack."
+  //
+  // Killing the earlier ledge, each half of the undrawn gap was given the
+  // depth of whichever end it was nearer. That removed the step at the
+  // start of the arc and put a new one exactly halfway round the gap, where
+  // the depth flipped from the leading end's to the start's in one pixel.
+  // It did not show while the gap was empty. It shows now, because the
+  // spill reaches into the gap, and a discontinuity inside something
+  // visible is a hard radial line: two ends stacked rather than merged.
+  //
+  // Interpolated across the gap instead. The depth leaves the leading edge
+  // at its deepest, eases round through the empty part, and arrives at the
+  // start's shallow depth, so the two ends are one continuous surface
+  // meeting itself. Smoothstepped, so there is no corner where the blend
+  // starts or finishes either.
+  float gapAng = max(TAU - span, 1e-4);
+  float across = clamp((rel - span) / gapAng, 0.0, 1.0);
+  float uSafe = rel <= span ? u : mix(1.0, 0.0, smoothstep(0.0, 1.0, across));
+  float depth = depthAt(uSafe);
+  float inner = uR * (1.0 - depth);
+
+  // LIQUID, NOT A COMPASS ARC. "It should feel like liquid on a table,
+  // expanding to fill the canvas and dissolving into each other."
+  //
+  // A few sines of different periods around the angle put slow lobes in the
+  // front, so it spreads unevenly the way a spill does instead of advancing
+  // as a perfect circle. It is a field, so where two lobes meet they simply
+  // add up and there is no join: dissolving into each other is not arranged
+  // here, it is what adding smooth functions does.
+  //
+  // Faded out by the fill, so the front is at its most liquid while it is
+  // spreading and is exactly circular by the time it arrives. Nothing
+  // survives completion.
+  float a2 = atan(d.y, d.x);
+  float lobes = sin(a2 * 3.0 + 1.7) * 0.55
+              + sin(a2 * 5.0 - 0.9) * 0.30
+              + sin(a2 * 8.0 + 2.3) * 0.15;
+  // Heavier, so the front reads as something spreading rather than a curve
+  // being swept. Still faded out by the fill, so it is gone by the end.
+  inner *= 1.0 + 0.16 * lobes * uWet;
+  inner = max(inner, 0.0);
+
+  // THE BAND IS A FRACTION OF THE HOLE, NOT OF THE REVEALED RIBBON.
+  //
+  // "It looks like a really hard spiral now."
+  //
+  // This was (uR - inner) * uFog, the thickness of what had ALREADY been
+  // revealed. Early in a fill that ribbon is a sliver: at 30% filled it is
+  // 1.9% of the radius, so the soft band came out about 5px and the spiral
+  // had a hard edge exactly when it is most visible.
+  //
+  // Measured against the hole the front is moving INTO instead, held at a
+  // constant width so the softness does not change as it advances, and
+  // capped by the hole itself so it cannot reach past the middle and is
+  // squeezed to nothing as the hole closes.
+  //
+  //   fill   hole    band was   band now
+  //   0.30   95.1%      1.9%      18.0%
+  //   0.60   72.1%     10.6%      18.0%
+  //   0.90   23.2%     29.2%      18.0%
+  //   0.97    7.3%     35.2%       7.3%
+  //   1.00    0.0%     38.0%       0.0%
+  // A FLOOR, OR THE ROUNDING VANISHES EXACTLY WHEN THE WEDGE IS BIGGEST.
+  //
+  // Capping the band by the remaining hole keeps the fog from reaching past
+  // the middle, which is right for the RADIAL side. But it also shrinks the
+  // band to nothing as the circle finishes, and the band is what rounds the
+  // ends. So the last wedge before completion, the most visible thing on
+  // screen, got knife edges: still a pie, after being told it was a pie.
+  //
+  //   fill 0.80   hole 42.8% of R   band 18.0%
+  //   fill 0.90   hole 23.2%        band 18.0%
+  //   fill 0.95   hole 12.0%        band 12.0%
+  //   fill 0.98   hole  4.9%        band  4.9%   <- knife
+  //
+  // Floored at a tenth of the radius. The radial side cannot overshoot
+  // anyway, because the distance into the hole is at most the hole itself,
+  // so a wider band there just means the last scrap dissolves rather than
+  // being cut out.
+  // BLURRED, THEN PROGRESSIVELY SHARP. "We're not having the edges blur and
+  // then progressively unblur."
+  //
+  // The band is a fraction of the hole, so it is at its widest while the
+  // hole is, and narrows with it: soft at the start, crisp by the end, with
+  // nothing to switch off. A floor of a tenth of the radius was holding it
+  // soft to the last frame, which is what stopped it ever sharpening. The
+  // floor was there to keep the ends rounded once the hole got small, and
+  // it is not needed any more: the spill's over-reach closes the gap before
+  // the hole is small enough to matter, so there is no wedge left to round.
+  float band = max(1.0, min(uR * uFog, inner));
+
+  // ONE DISTANCE, NOT TWO FADES MULTIPLIED. THIS IS WHAT STOPS IT BEING A
+  // PIE.
+  //
+  // "It is a pie bruh. What happened to all the stuff we did?"
+  //
+  // Fair. The move to a shader carried over the spiral and the fog and quietly
+  // dropped the two things that had killed the pie in the first place: the
+  // rounded end caps and the dissolve at the ends. What replaced them was a
+  // radial fade times an angular fade, and multiplying two separable fades
+  // gives a SQUARE corner. The end of the ribbon was still a straight cut
+  // from the rim down to the spiral, feathered a little. A feathered wedge
+  // is a wedge.
+  //
+  // Measured as a distance instead. For a pixel outside the revealed sector,
+  // take how far outside it is along the arc and how far inside the inner
+  // edge it is, in pixels, and take the length of that pair. One falloff on
+  // that distance rounds every corner by construction, which is the same
+  // trick a rounded rectangle uses, and it is exactly what the hand built
+  // caps were faking.
+  //
+  // Three things fall out of it for free:
+  //
+  //   The ends are round, so there is no wedge and no cap to draw.
+  //   The corner where the end meets the spiral is one falloff rather than
+  //   two meeting, so "the two things go into each other seamlessly".
+  //   At a full turn nothing is ever outside the sector, so the angular term
+  //   is zero everywhere and the seam cannot exist. The special case that
+  //   used to blend it away is gone.
+  // THE SPILL KEEPS SPREADING AFTER THE HAND PASSES.
+  //
+  // "It should feel like liquid on a table, expanding to fill the canvas and
+  // dissolving into each other", and, on the sector that is left, "it is a
+  // pie bruh."
+  //
+  // Softening the ends was never going to be enough. While any of the arc is
+  // undrawn there is a sector with two straight sides, and feathering 26px
+  // of a 261px radius still reads as a slice. The shape is the problem, not
+  // its edges.
+  //
+  // Liquid does not stop where the hand stopped. It runs on, and the two
+  // ends of a ring of liquid reach toward each other and merge before the
+  // circle is mechanically closed. So the revealed sector over-reaches its
+  // own ends by a distance that grows as the fill completes: early it is
+  // almost nothing and the reveal tracks the hand honestly, late the two
+  // ends run together and the gap closes itself instead of being cut.
+  //
+  // Squared, so the reaching is late and sudden rather than a steady
+  // widening that would just look like the arc leading the finger.
+  // THE ARC'S EDGE IS THE BOUNDARY. "Make the edge of the arc the boundary,
+  // like a mask revealing the layer below."
+  //
+  // This used to run the reveal AHEAD of the line by up to 0.76 of the
+  // radius, so the other side arrived somewhere the hand had not been yet.
+  // It was put there to close the wedge at the end, and it is not needed
+  // for that any more: the reveal is scaled to the 309 degrees that
+  // actually opens a portal, so the sector is already a full turn by then
+  // and there is no wedge left to fake shut.
+  //
+  // What remains is a few pixels of softness at the head, not a lead. The
+  // mask now ends where the line is, which is the whole point of a mask.
+  float reach = uR * 0.04;
+  // THE ENDS ARE CLOUDY, NOT STRAIGHT RADII. "The starting radii and ending
+  // radii have super sharp edges bruh theyre legos."
+  //
+  // Softening them was never going to fix it, because the problem was the
+  // shape and not the gradient. Computed across the leading end at three
+  // different radii, the old alpha profile was:
+  //
+  //   r=55% of R   1.00  1.00  0.94  0.30  0.00
+  //   r=75% of R   1.00  1.00  0.94  0.30  0.00
+  //   r=92% of R   1.00  1.00  0.94  0.30  0.00
+  //
+  // Identical at every radius, which is the definition of a straight line.
+  // A perfectly straight edge reads as a cut however soft it is, and two of
+  // them meeting a curve is a lego brick. The lobes above only ever
+  // perturbed the INNER boundary; the ends had nothing.
+  //
+  // So the end wanders along its own length. The waves are in r, so how far
+  // the spill has reached changes as you travel out from the centre, and
+  // the front is ragged rather than radial:
+  //
+  //   r=55% of R   1.00  1.00  0.89  0.54  0.17  0.00
+  //   r=75% of R   1.00  1.00  0.97  0.68  0.29  0.02
+  //   r=92% of R   1.00  1.00  1.00  0.83  0.45  0.10
+  //
+  // Faded out by the fill like everything else, so a finished portal has
+  // no ends to be ragged. The 0.55 widens the angular falloff against the
+  // same band, taking the fade from about 10 degrees to about 20.
+  float endWave = sin(r * 0.055 + 2.1) * 0.55
+                + sin(r * 0.033 - 0.9) * 0.30
+                + sin(r * 0.019 + 1.7) * 0.15;
+  float reachHere = reach + uR * 0.13 * endWave * uWet;
+  // THE TWO ENDS COMBINE INTO EACH OTHER, THEY DO NOT MEET. "What happened
+  // to clouds/liquid that combine INTO each other not just next to each
+  // other."
+  //
+  // This was min() of the distance to each end, and a plain minimum is the
+  // operator for "whichever shape you are nearer to". Each end therefore
+  // terminated on its own terms and the two of them met along the line
+  // halfway between, which is precisely two things next to each other.
+  // Rounding the corners and fraying the edges made them prettier and kept
+  // them separate.
+  //
+  // Liquid merges because the fields ADD. As two droplets approach, each
+  // one's surface is pulled toward the other and they fuse with a neck
+  // rather than touching. The operator for that is a smooth minimum, which
+  // is what a metaball is, and it is one line:
+  //
+  //   smin(a, b) = -log(exp(-ka) + exp(-kb)) / k
+  //
+  // Far apart it is the plain minimum and nothing changes. Close together
+  // it dips below both, so the surface reaches out toward the other end and
+  // the gap closes early and smoothly. With the blend radius at 0.22 R:
+  //
+  //   ends 400px apart   min 200px   smin 160px
+  //   ends 240px apart   min 120px   smin  80px
+  //   ends 140px apart   min  70px   smin  30px
+  //   ends  80px apart   min  40px   smin   0px   <- fused
+  //
+  // The 40px it pulls by is the neck. That is the "into".
+  float dAng;
+  if (rel <= span) {
+    dAng = 0.0;
+  } else {
+    float dA1 = (rel - span) * uR;
+    float dA2 = (TAU - rel) * uR;
+    float k = 1.0 / max(uR * 0.22, 1.0);
+    float sm = -log(exp(-k * dA1) + exp(-k * dA2)) / k;
+    dAng = max(sm - reachHere, 0.0) * 0.55;
+  }
+  float dRad = max(inner - r, 0.0);
+  float dist = length(vec2(dAng, dRad));
+  // The distance as a fraction of the band: 0 solid, 1 gone. Expressed this
+  // way so the noise below is in the same units whatever the band is doing.
+  float edge = dist / max(band, 1.0);
+
+  // Two scales of the same field. The coarse one decides which parts of the
+  // front have run ahead and which have lagged; the fine one frays those
+  // into wisps. Together they make the boundary a region rather than a line.
+  //
+  // Faded out by the fill, like every other irregularity here, so a
+  // finished portal has a clean rim and nothing survives completion.
+  // THE LAST QUARTER IS STILL LIQUID. "The last 90 degrees still need to be
+  // the smooth liquid/cloud animation, INTO each other, not next to."
+  //
+  // Every irregularity here used to fade on 1 - uLead, the depth. By the
+  // ignition the depth is full, so uLead is 1 and the lobes, the ragged
+  // ends and the noise in the falloff were all switched off exactly when
+  // the two ends were closing on each other. The one moment they most need
+  // to look like liquid merging was the one moment they were a clean arc
+  // meeting a clean arc.
+  //
+  // Driven by what is still OPEN instead, so the treatment survives the
+  // handover into the ignition and only leaves when there is no gap left.
+  float wispy = uWet;
+  float nCoarse = fbm(vPix * (2.6 / uR) + vec2(11.3, 7.9));
+  float nFine   = fbm(vPix * (9.0 / uR) + vec2(31.7, 2.4));
+  float wisp = ((nCoarse - 0.5) * 1.15 + (nFine - 0.5) * 0.45) * wispy;
+
+  float fBody = 1.0 - smoothstep(0.0, 1.0, edge + wisp);
+
+  // AND IT FADES OUT OVER A REAL DISTANCE, NOT TWO PIXELS. "Bro there's
+  // still a rough edge."
+  //
+  // That edge was always there. Until the inset went in, the image ran all
+  // the way to the rim and the ring's own stroke sat on top of exactly
+  // those pixels, so the cut was hidden under the fire rather than absent.
+  // Holding the image inside the ring exposed it, with 2.5px of softness
+  // against a 261px radius, which is a cut with a hint of anti-aliasing.
+  //
+  // AND IT IS WIDE AT THE START AND CLOSED BY THE END. "It should start
+  // with this gap/cloud on the outside, but as the circle closes it
+  // progresses and it fades in, liquid expands to fill the circle."
+  //
+  // Making this independent of the fill was wrong in the other direction:
+  // a finished portal kept a permanent cloudy vignette inside its own ring,
+  // which is what the screenshot showed. The cloud belongs at the
+  // BEGINNING, when the other side is only just bleeding through the rim,
+  // and the liquid should push it out as it spreads.
+  //
+  //   fill 0.00   the image fades over 18% of the radius, all cloud
+  //   fill 0.50   over 11%
+  //   fill 1.00   over 2%, just enough not to alias
+  //
+  // Still fading inward from the ring's inner edge, so however wide it
+  // gets it never crosses the arc.
+  float outerEdge = uR - uInset;
+  float outerFade = max(2.0, uR * (0.02 + 0.16 * (1.0 - uLead)));
+  float fRim = smoothstep(outerEdge, outerEdge - outerFade, r);
+
+  // Fades toward the rim while the circle is still filling.
+  float veil = 1.0 - uVeil * mix(0.3, 1.0, clamp(r / uR, 0.0, 1.0));
+
+  float a = fBody * fRim * veil * uStrength;
+  if (a <= 0.002) discard;
+
+  vec3 col = texture(uTex, (vPix - uImg.xy) / uImg.zw).rgb;
+  // STRAIGHT ALPHA, NOT PREMULTIPLIED. "There's a shadow on the outside now
+  // that I don't like." drawImage reads this canvas as an ordinary image,
+  // which means straight alpha; handed premultiplied pixels it darkens
+  // everything the closer that pixel is to transparent, which draws a dirty
+  // ring exactly where the edge fades out.
+  outColor = vec4(col, a);
+}`;
+  function compile(gl, type, src) {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      throw new Error(gl.getShaderInfoLog(sh) || "shader failed");
+    }
+    return sh;
+  }
+  var MirrorGL = class {
+    constructor() {
+      __publicField(this, "canvas");
+      __publicField(this, "gl", null);
+      __publicField(this, "prog", null);
+      __publicField(this, "tex", null);
+      __publicField(this, "loc", {});
+      /** Set once the image is uploaded. */
+      __publicField(this, "uploaded", false);
+      /** Non-null once something has gone wrong; the caller falls back. */
+      __publicField(this, "error", null);
+      this.canvas = document.createElement("canvas");
+      try {
+        const gl = this.canvas.getContext("webgl2", {
+          alpha: true,
+          premultipliedAlpha: false,
+          antialias: false,
+          // TRUE, OR drawImage READS AN EMPTY CANVAS.
+          //
+          // This canvas is never displayed; it exists to be copied into the 2D
+          // canvas with drawImage. With preserveDrawingBuffer false the
+          // drawing buffer may be discarded as soon as the frame is
+          // composited, and a copy taken afterwards comes back blank. It
+          // rendered during the draw and vanished once the portal opened,
+          // which looked like a shader bug and was a lifetime bug.
+          preserveDrawingBuffer: true
+        });
+        if (!gl) throw new Error("no webgl2");
+        this.gl = gl;
+        const prog = gl.createProgram();
+        gl.attachShader(prog, compile(gl, gl.VERTEX_SHADER, VERT));
+        gl.attachShader(prog, compile(gl, gl.FRAGMENT_SHADER, FRAG));
+        gl.linkProgram(prog);
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+          throw new Error(gl.getProgramInfoLog(prog) || "link failed");
+        }
+        this.prog = prog;
+        gl.useProgram(prog);
+        const buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(
+          gl.ARRAY_BUFFER,
+          new Float32Array([-1, -1, 3, -1, -1, 3]),
+          gl.STATIC_DRAW
+        );
+        const aPos = gl.getAttribLocation(prog, "aPos");
+        gl.enableVertexAttribArray(aPos);
+        gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+        for (const n of [
+          "uSize",
+          "uC",
+          "uR",
+          "uAStart",
+          "uASpan",
+          "uDir",
+          "uLead",
+          "uSpiral",
+          "uFog",
+          "uVeil",
+          "uStrength",
+          "uInset",
+          "uWet",
+          "uImg",
+          "uTex"
+        ]) {
+          this.loc[n] = gl.getUniformLocation(prog, n);
+        }
+        this.tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, this.tex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      } catch (e) {
+        this.error = String(e);
+        this.gl = null;
+      }
+    }
+    /** Upload the other side. Once; the image never changes. */
+    setImage(img) {
+      const gl = this.gl;
+      if (!gl || !this.tex) return;
+      try {
+        gl.bindTexture(gl.TEXTURE_2D, this.tex);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+        this.uploaded = true;
+      } catch (e) {
+        this.error = "texture upload: " + String(e);
+        this.uploaded = false;
+      }
+    }
+    get ready() {
+      return !!this.gl && this.uploaded;
+    }
+    /** Draw one frame. Returns the canvas to composite, or null. */
+    render(f) {
+      const gl = this.gl;
+      if (!gl || !this.prog || !this.uploaded) return null;
+      if (this.canvas.width !== f.size || this.canvas.height !== f.size) {
+        this.canvas.width = f.size;
+        this.canvas.height = f.size;
+      }
+      gl.viewport(0, 0, f.size, f.size);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.useProgram(this.prog);
+      gl.uniform2f(this.loc.uSize, f.size, f.size);
+      gl.uniform2f(this.loc.uC, f.cx, f.size - f.cy);
+      gl.uniform1f(this.loc.uR, f.R);
+      gl.uniform1f(this.loc.uAStart, -f.aStart);
+      gl.uniform1f(this.loc.uASpan, f.aSpan);
+      gl.uniform1f(this.loc.uDir, -f.dir);
+      gl.uniform1f(this.loc.uLead, f.lead);
+      gl.uniform1f(this.loc.uSpiral, f.spiral);
+      gl.uniform1f(this.loc.uFog, f.fog);
+      gl.uniform1f(this.loc.uVeil, f.veil);
+      gl.uniform1f(this.loc.uStrength, f.strength);
+      gl.uniform1f(this.loc.uInset, f.inset);
+      gl.uniform1f(this.loc.uWet, f.wet);
+      gl.uniform4f(
+        this.loc.uImg,
+        f.img.x,
+        f.size - f.img.y - f.img.h,
+        f.img.w,
+        f.img.h
+      );
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.tex);
+      gl.uniform1i(this.loc.uTex, 0);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      return this.canvas;
+    }
+  };
+
   // vendor/circle.ts
   var EMPTY = {
     progress: 0,
@@ -73,7 +626,20 @@
         closeWithin: options.closeWithin ?? 0.75,
         // Roundness required to fire at all, the same gate the renderer uses
         // to decide something is becoming a circle.
-        minRoundness: options.minRoundness ?? 0.55,
+        // 0.45, NOT 0.55. "Did you make it so u hv to do a perfect circle wtf."
+        //
+        // A circle drawn in the air with a fingertip is not round. Measured on
+        // synthetic paths with realistic deformation: a 1.2:1 oval scores
+        // 0.81, a 1.4:1 oval 0.61, and a circle with 8% radial wobble 0.56.
+        // A real hand lands in that band, which put the bar right in the
+        // middle of ordinary human input: some circles opened and some did
+        // not, and nothing about the hand told you which.
+        //
+        // Swept the threshold against the shapes that must be refused. At
+        // 0.45 every real circle still opens and nothing bad gets through; at
+        // 0.38 a 1.6:1 oval does. So the bar sits at 0.45 with the evidence
+        // for it rather than at a number that felt safe.
+        minRoundness: options.minRoundness ?? 0.5,
         trailLength: options.trailLength ?? 240,
         // 0.004 of the frame is about 6px across, and a small circle drawn
         // with a fingertip has segments shorter than that: a 45px radius over
@@ -580,9 +1146,10 @@
   var SPARK_MID = "255, 141, 44";
   var SPARK_COLD = "214, 74, 16";
   var IGNITE_MS = 1150;
-  var CLOSE_MS = 380;
+  var CLOSE_MS = 620;
   var MIN_OPEN_MS = 600;
   var ease = (t) => 1 - Math.pow(1 - t, 3);
+  var easeShut = (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   var IDLE_PROGRESS = {
     progress: 0,
     sweep: 0,
@@ -596,7 +1163,7 @@
   };
   var canvas = document.getElementById("c");
   var ctx = canvas.getContext("2d");
-  var detector = new CircleGestureDetector();
+  var detector = new CircleGestureDetector({ sweepThreshold: 1e6 });
   var pinchL = new PinchDetector();
   var state = initialPortalState();
   var sparks = [];
@@ -616,7 +1183,25 @@
   var openGapFrom = 0;
   var openCcw = false;
   var mirrorAmt = 0;
+  var recognisedLatch = false;
   var lastFill = 0;
+  var drawnMax = 0;
+  var cancelling = false;
+  var ccwLatch = null;
+  var lastPinchAt = 0;
+  var heldCursor = null;
+  var handRate = 0;
+  var rateAt = 0;
+  var rateSpan = 0;
+  var igniteGap = 0;
+  var breaking = false;
+  var formingLast = false;
+  var fitRRef = 0;
+  var fitJumpAt = 0;
+  var arcStart = null;
+  var arcSpan = 0;
+  var cancelEat = 0;
+  var CANCEL_FRAMES = 37;
   var holdOld = 0;
   var settleX = 0;
   var settleV = 0;
@@ -630,7 +1215,9 @@
     const c = 2 * Math.sqrt(k);
     const a = k * (1 - x) - c * v;
     const nv = v + a * dt;
-    return { x: Math.min(1, x + nv * dt), v: nv };
+    const nx = Math.min(1, x + nv * dt);
+    if (1 - nx < 0.01 && Math.abs(nv) < 0.35) return { x: 1, v: 0 };
+    return { x: nx, v: nv };
   };
   var stroke = [];
   var softFit = null;
@@ -677,9 +1264,38 @@
       }
     } catch (e) {
     }
+    mirrorGL.setImage(mirror);
+    if (!mirrorGL.ready) {
+      fetch("mirror.jpg").then((r) => r.blob()).then((b) => createImageBitmap(b)).then((bmp) => {
+        mirrorGL.setImage(bmp);
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "log",
+          text: `mirror-gl bitmap upload: ${mirrorGL.ready ? "ok" : "still no"}`
+        });
+      }).catch((e) => {
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "log",
+          text: `mirror-gl bitmap failed: ${e}`
+        });
+      });
+    }
+    if (!mirrorGL.ready) {
+      fetch("mirror.jpg").then((r) => r.blob()).then((b) => createImageBitmap(b)).then((bmp) => {
+        mirrorGL.setImage(bmp);
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "log",
+          text: `mirror-gl via bitmap: ${mirrorGL.ready ? "ok" : "still no"}`
+        });
+      }).catch((e) => {
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "log",
+          text: `mirror-gl bitmap failed: ${e}`
+        });
+      });
+    }
     window.webkit?.messageHandlers?.portal?.postMessage({
       event: "log",
-      text: `mirror loaded ${mirror.width}x${mirror.height}`
+      text: `mirror loaded ${mirror.width}x${mirror.height} gl=${mirrorGL.ready ? "yes" : "NO"}`
     });
   };
   mirror.onerror = () => {
@@ -688,8 +1304,18 @@
       text: "mirror FAILED to load"
     });
   };
-  mirror.src = "mirror.jpg";
+  mirror.src = window.__mirrorDataURL || "mirror.jpg";
+  var mirrorGL = new MirrorGL();
+  if (mirrorGL.error) {
+    window.webkit?.messageHandlers?.portal?.postMessage({
+      event: "log",
+      text: `mirror-gl unavailable, using canvas: ${mirrorGL.error}`
+    });
+  }
   var LATCH_AT = 0.8;
+  var SWEEP_TO_RECOGNISE = 5.4;
+  var SWEEP_TO_OPEN = Math.PI * 1.5;
+  var PINCH_GRACE_MS = 200;
   var lastSeen = 0;
   var armed = null;
   window.chewbaccaGain = (k) => {
@@ -723,13 +1349,90 @@
     return trailPx;
   };
   var placedOk = false;
+  var camW = 352;
+  var camH = 288;
+  window.chewbaccaCamera = (w, h) => {
+    if (w > 0 && h > 0) {
+      camW = w;
+      camH = h;
+    }
+  };
   window.chewbaccaPlaced = (ok) => {
     placedOk = !!ok;
   };
+  var demoUntil = 0;
+  var demoT = 0;
+  var demoTurns = 1.15;
+  var demoR = 0.3;
+  var demoLog = 0;
+  var demoShape = "circle";
+  var demoFired = false;
+  var demoName = "";
+  var demoPushing = 0;
+  var lastProgress = IDLE_PROGRESS;
+  var lastPinched = false;
+  window.chewbaccaDemo = (secs, turns, r, shape, name) => {
+    demoUntil = performance.now() + (secs || 3) * 1e3;
+    demoT = 0;
+    demoTurns = turns || 1.15;
+    demoR = r || 0.3;
+    demoShape = shape || "circle";
+    demoName = name || demoShape;
+    demoFired = false;
+    detector.reset();
+  };
+  function demoPath(shape, t) {
+    const a = t * Math.PI * 2;
+    switch (shape) {
+      case "oval14":
+        return [Math.cos(a) * 1.4, Math.sin(a)];
+      case "oval25":
+        return [Math.cos(a) * 2.5, Math.sin(a)];
+      case "line":
+        return [-1 + 2 * t, 0];
+      case "zigzag":
+        return [-1 + 2 * t, Math.floor(t * 8) % 2 ? 0.4 : -0.4];
+      case "scurve":
+        return [-1 + 2 * t, Math.sin(a) * 0.5];
+      case "arc70":
+        return [Math.cos(a * 0.7), Math.sin(a * 0.7)];
+      case "arc90":
+        return [Math.cos(a * 0.9), Math.sin(a * 0.9)];
+      case "square":
+      case "triangle": {
+        const n = shape === "square" ? 4 : 3;
+        const f = (t % 1 + 1) % 1 * n, k = Math.floor(f), u = f - k;
+        const vx = (i) => Math.cos(2 * Math.PI * i / n - Math.PI / 2);
+        const vy = (i) => Math.sin(2 * Math.PI * i / n - Math.PI / 2);
+        return [vx(k) + (vx(k + 1) - vx(k)) * u, vy(k) + (vy(k + 1) - vy(k)) * u];
+      }
+      default:
+        return [Math.cos(a), Math.sin(a)];
+    }
+  }
+  function demoHand(px, py) {
+    const S = 0.1;
+    const lm = [];
+    lm[0] = { x: px - 0.02, y: py + S * 1.5, z: 0 };
+    for (let i = 1; i <= 3; i++) lm[i] = { x: px - 0.01 + i * 2e-3, y: py + S * (1 - i * 0.25), z: 0 };
+    lm[4] = { x: px, y: py, z: 0 };
+    lm[5] = { x: px + 0.01, y: py + S * 0.7, z: 0 };
+    lm[6] = { x: px + 8e-3, y: py + S * 0.45, z: 0 };
+    lm[7] = { x: px + 4e-3, y: py + S * 0.2, z: 0 };
+    lm[8] = { x: px + 15e-4, y: py + 1e-3, z: 0 };
+    lm[9] = { x: px + 0.02, y: py + S * 0.75, z: 0 };
+    for (let i = 10; i <= 12; i++) lm[i] = { x: px + 0.022, y: py + S * (0.75 - (i - 9) * 0.22), z: 0 };
+    lm[13] = { x: px + 0.035, y: py + S * 0.8, z: 0 };
+    for (let i = 14; i <= 16; i++) lm[i] = { x: px + 0.037, y: py + S * (0.8 - (i - 13) * 0.2), z: 0 };
+    lm[17] = { x: px + 0.05, y: py + S * 0.9, z: 0 };
+    for (let i = 18; i <= 20; i++) lm[i] = { x: px + 0.052, y: py + S * (0.9 - (i - 17) * 0.18), z: 0 };
+    return lm;
+  }
   window.chewbaccaArm = (label) => {
     armed = label ? { label } : null;
   };
   window.chewbaccaHands = (pts, eyes) => {
+    if (demoPushing === 0 && performance.now() < demoUntil) return;
     latest = pts && pts.length === 21 ? pts : null;
     latestEyes = eyes ?? null;
     if (latest) lastSeen = performance.now();
@@ -747,19 +1450,48 @@
   window.addEventListener("resize", resize);
   function frame(now) {
     requestAnimationFrame(frame);
+    if (now < demoUntil) {
+      demoT += 1 / 30;
+      const u = demoT / 3 * demoTurns;
+      const wob = 1 + 0.03 * Math.sin(demoT * 7);
+      const [pxu, pyu] = demoPath(demoShape, u);
+      const sq = camH / camW;
+      demoPushing = 1;
+      window.chewbaccaHands(
+        demoHand(0.5 + pxu * demoR * sq * wob, 0.5 + pyu * demoR * wob)
+      );
+      demoPushing = 0;
+      if (state.phase === "igniting" || state.phase === "open") demoFired = true;
+      if (now - demoLog > 250) {
+        demoLog = now;
+        window.webkit?.messageHandlers?.portal?.postMessage({
+          event: "log",
+          text: `demo ${demoName} t=${demoT.toFixed(1)} phase=${state.phase} lm=${latest ? "yes" : "NO"} pinch=${lastPinched ? "yes" : "NO"} sweep=${Math.abs(lastProgress.sweep).toFixed(2)}/5.40 round=${lastProgress.roundness.toFixed(2)}`
+        });
+      }
+    } else if (demoName) {
+      window.webkit?.messageHandlers?.portal?.postMessage({
+        event: "log",
+        text: `RESULT ${demoName} ${demoFired ? "OPENED" : "refused"}`
+      });
+      demoName = "";
+    }
     const frameDt = Math.min(0.05, Math.max(1e-3, (now - lastFrameMs) / 1e3));
     lastFrameMs = now;
     const W = window.innerWidth;
     const H = window.innerHeight;
     ctx.globalCompositeOperation = "destination-out";
-    ctx.fillStyle = "rgba(0, 0, 0, 0.20)";
+    ctx.fillStyle = "rgba(0, 0, 0, 1)";
     ctx.fillRect(0, 0, W, H);
     const lm = now - lastSeen < 300 ? latest : null;
-    const fit = (v) => Math.max(0.02, Math.min(0.98, 0.5 + (v - 0.5) * reachScale));
+    const camK = H / camH / (W / camW);
+    const ax = Math.sqrt(camK);
+    const ay = 1 / Math.sqrt(camK);
+    const fit = (v, a) => Math.max(-0.3, Math.min(1.3, 0.5 + (v - 0.5) * reachScale * a));
     const toScreen = (p2, hub) => {
       const sx = hub ? hub.x + (p2.x - hub.x) * handScale : p2.x;
       const sy = hub ? hub.y + (p2.y - hub.y) * handScale : p2.y;
-      return { x: fit(1 - sx), y: fit(sy) };
+      return { x: fit(1 - sx, ax), y: fit(sy, ay) };
     };
     const mx = (nx) => nx * W;
     const my = (ny) => ny * H;
@@ -798,7 +1530,75 @@
     const maskCtx = maskCv.getContext("2d");
     const paintMirror = (cxp, cyp, Rp, strength, gapFrom, gapSize, ccw, cloud, fill, spiral) => {
       if (!mirrorReady || !maskCtx || strength <= 4e-3 || Rp < 3) return;
-      const blurPx = Rp * 0.16 * cloud;
+      if (mirrorGL.ready) {
+        const gpad = 2;
+        const gsize = Math.ceil(2 * Rp + gpad * 2);
+        const gox = cxp - Rp - gpad, goy = cyp - Rp - gpad;
+        const gdir = ccw ? -1 : 1;
+        const gspan = Math.min(Math.PI * 2, (1 - gapSize) * Math.PI * 2);
+        const gf = Math.max(0, Math.min(1, fill));
+        const gsc = Math.max(W / mirror.width, H / mirror.height);
+        const gdw = mirror.width * gsc, gdh = mirror.height * gsc;
+        const out = mirrorGL.render({
+          size: gsize,
+          cx: Rp + gpad,
+          cy: Rp + gpad,
+          R: Rp,
+          aStart: gapFrom - gdir * gspan,
+          aSpan: gspan,
+          dir: gdir,
+          // SPREAD ACROSS THE DRAW. "More of the progress has to happen
+          // throughout the process." At ^2.5 the depth was 2% arrived a
+          // fifth of the way round and 10% at two fifths, so almost all of
+          // it landed in the last third. At ^1.35 it is 11% and 29%.
+          //
+          //   round    ^2.5    ^1.35
+          //     20%      2%      11%
+          //     40%     10%      29%
+          //     60%     28%      50%
+          //     80%     57%      74%
+          lead: Math.pow(gf, 1.35),
+          spiral,
+          // A fraction of the hole, so it cannot touch the middle early and
+          // cannot outlive completion.
+          fog: 0.3,
+          // THE IMAGE NEVER OVERLAPS THE ARC. The other side used to be
+          // painted right out to the rim, which is where the ring's own
+          // stroke sits, so the two shared those pixels and the city showed
+          // through the fire. Held inside the ring's inner edge instead: the
+          // widest ring pass is about a tenth of the radius wide and centred
+          // on the rim, so half of that plus a little is clear of it.
+          inset: Math.max(3, Rp * 0.075),
+          // HOW LIQUID THE BOUNDARY STILL IS. The larger of what is left to
+          // fill and what is left to close, so the treatment survives into
+          // the ignition, where the depth is already full but a quarter turn
+          // of arc is still running shut. It reaches zero only when both do.
+          wet: Math.max(
+            1 - Math.pow(gf, 1.35),
+            Math.min(1, gapSize * 4)
+          ),
+          veil: (1 - gf) * 0.75,
+          strength,
+          img: {
+            x: (W - gdw) / 2 - gox,
+            y: (H - gdh) / 2 - goy,
+            w: gdw,
+            h: gdh
+          }
+        });
+        if (out) {
+          const pOp = ctx.globalCompositeOperation;
+          const pA = ctx.globalAlpha;
+          ctx.globalCompositeOperation = "source-over";
+          ctx.globalAlpha = 1;
+          ctx.drawImage(out, gox, goy);
+          ctx.globalCompositeOperation = pOp;
+          ctx.globalAlpha = pA;
+          return;
+        }
+      }
+      const hole = Math.max(0, 1 - Math.pow(Math.max(0, Math.min(1, fill)), 2.5));
+      const blurPx = cloud > 2e-3 ? Math.max(1, Rp * hole * 0.14 * cloud) : 0;
       const pad = Math.max(16, blurPx * 2.6);
       const size = Math.ceil(2 * Rp + pad * 2);
       if (maskCv.width !== size || maskCv.height !== size) {
@@ -817,10 +1617,12 @@
       const aOld = aNew - dir * drawnAng;
       const f = Math.max(0, Math.min(1, fill));
       const STEPS = 72;
-      const lead = Math.pow(f, 2.5);
+      const lead = Math.pow(f, 1.35);
       const depthAt = (u) => {
-        const wind = 1 + 1.6 * Math.pow(1 - u, 1.6) * spiral;
-        const rough = 1 + 0.045 * Math.sin(u * 9.1 + now / 950) + 0.028 * Math.sin(u * 15.7 - now / 1500);
+        const wind = 1 + 1.6 * Math.pow(1 - u, 1.6) * spiral * (1 - lead);
+        const thAbs = aOld + dir * u * drawnAng;
+        const wob = 1 - lead;
+        const rough = 1 + (0.045 * Math.sin(thAbs * 9.1) + 0.028 * Math.sin(thAbs * 15.7)) * wob;
         return Math.max(0, Math.min(1, Math.pow(lead, wind))) * rough;
       };
       m.save();
@@ -851,22 +1653,43 @@
           m.lineTo(cx2 + Math.cos(a) * rad, cy2 + Math.sin(a) * rad);
         }
       };
+      const innerAt = (u, reach) => Math.max(0, Rp * (1 - depthAt(u)) * (1 - reach));
+      const ribbon = (reach, trim) => {
+        const u0 = trim, uSpan = Math.max(0.02, 1 - 2 * trim);
+        const uAt = (i) => u0 + i / STEPS * uSpan;
+        m.beginPath();
+        for (let i = 0; i <= STEPS; i++) {
+          const q = ptAt(uAt(i), Rp);
+          if (i) m.lineTo(q.x, q.y);
+          else m.moveTo(q.x, q.y);
+        }
+        const uEnd = uAt(STEPS), uBeg = uAt(0);
+        capTo(ptAt(uEnd, Rp), ptAt(uEnd, innerAt(uEnd, reach)), dir);
+        for (let i = STEPS; i >= 0; i--) {
+          const u = uAt(i);
+          const q = ptAt(u, innerAt(u, reach));
+          m.lineTo(q.x, q.y);
+        }
+        capTo(ptAt(uBeg, innerAt(uBeg, reach)), ptAt(uBeg, Rp), -dir);
+        m.closePath();
+        m.fill();
+      };
       m.fillStyle = "#fff";
-      m.beginPath();
-      for (let i = 0; i <= STEPS; i++) {
-        const q = ptAt(i / STEPS, Rp);
-        if (i) m.lineTo(q.x, q.y);
-        else m.moveTo(q.x, q.y);
+      const endBand = Math.min(0.42, 0.38 * hole / Math.max(0.2, drawnAng));
+      const FOG_STAMPS = 24;
+      let covered = 0;
+      for (let j = FOG_STAMPS; j >= 1; j--) {
+        const t = j / FOG_STAMPS;
+        const target = 1 - t;
+        const a = (target - covered) / (1 - covered);
+        if (a > 2e-3) {
+          m.globalAlpha = Math.min(1, a);
+          ribbon(t * 0.38, t * endBand);
+          covered = target;
+        }
       }
-      capTo(ptAt(1, Rp), ptAt(1, Math.max(0, Rp * (1 - depthAt(1)))), dir);
-      for (let i = STEPS; i >= 0; i--) {
-        const u = i / STEPS;
-        const q = ptAt(u, Math.max(0, Rp * (1 - depthAt(u))));
-        m.lineTo(q.x, q.y);
-      }
-      capTo(ptAt(0, Math.max(0, Rp * (1 - depthAt(0)))), ptAt(0, Rp), -dir);
-      m.closePath();
-      m.fill();
+      m.globalAlpha = 1;
+      ribbon(0, 0);
       m.shadowBlur = 0;
       m.shadowOffsetX = 0;
       const dissolve = (u, _spanR, strength2, seedI) => {
@@ -877,13 +1700,15 @@
         const rad = Math.max(6, (Rp - inner) / 2);
         m.globalCompositeOperation = "destination-out";
         for (let j = 0; j < 3; j++) {
-          const t = now / 2600 + seedI * 2.3 + j * 1.9;
+          const t = drawnAng * 1.7 + seedI * 2.3 + j * 1.9;
           const jx = bx + Math.cos(t) * rad * 0.2;
           const jy = by + Math.sin(t * 1.3) * rad * 0.2;
           const rr = rad * (0.6 + 0.2 * ((Math.cos(t * 0.8) + 1) / 2));
           const g4 = m.createRadialGradient(jx, jy, 0, jx, jy, rr);
           g4.addColorStop(0, `rgba(0,0,0,${strength2})`);
-          g4.addColorStop(0.55, `rgba(0,0,0,${strength2 * 0.45})`);
+          g4.addColorStop(0.3, `rgba(0,0,0,${strength2 * 0.72})`);
+          g4.addColorStop(0.6, `rgba(0,0,0,${strength2 * 0.38})`);
+          g4.addColorStop(0.82, `rgba(0,0,0,${strength2 * 0.14})`);
           g4.addColorStop(1, "rgba(0,0,0,0)");
           m.fillStyle = g4;
           m.beginPath();
@@ -894,8 +1719,8 @@
       };
       if (cloud > 0.01 && gapSize > 2e-3) {
         const leadThick = Rp * depthAt(1);
-        dissolve(1, Math.max(Rp * 0.14, leadThick * 0.8), 0.9, 0);
-        dissolve(0, Math.max(Rp * 0.1, Rp * depthAt(0) * 0.8), 0.7, 5);
+        dissolve(1, Math.max(Rp * 0.14, leadThick * 0.8), 0.38, 0);
+        dissolve(0, Math.max(Rp * 0.1, Rp * depthAt(0) * 0.8), 0.26, 5);
       }
       m.restore();
       const veil = (1 - f) * 0.75;
@@ -973,8 +1798,10 @@
       }
     };
     const pinch = lm ? pinchL.update(lm, now) : (pinchL.update(null, now), null);
-    const pinched = !!(pinch && pinch.isPinched && pinch.center);
-    const cursor = (() => {
+    const pinchRaw = !!(pinch && pinch.isPinched && pinch.center);
+    if (pinchRaw) lastPinchAt = now;
+    const pinched = pinchRaw || stroke.length > 2 && now - lastPinchAt < PINCH_GRACE_MS;
+    const cursorRaw = (() => {
       if (!pinched || !pinch?.center) return null;
       if (parallaxStrength <= 0) return toScreen(pinch.center, lm ? lm[9] : void 0);
       if (latestEyes && lm) {
@@ -997,24 +1824,56 @@
       }
       return pinch.center;
     })();
-    if (cursor) {
+    if (cursorRaw) heldCursor = cursorRaw;
+    else if (!pinched) heldCursor = null;
+    const cursor = cursorRaw ?? heldCursor;
+    if (formingLast && !recognisedLatch && stroke.length > 2) breaking = true;
+    formingLast = recognisedLatch;
+    if (cursor && !breaking) {
       const last = stroke[stroke.length - 1];
       const sm = last ? { x: last.x + (cursor.x - last.x) * 0.45, y: last.y + (cursor.y - last.y) * 0.45 } : cursor;
       stroke.push({ x: sm.x, y: sm.y, rx: sm.x, ry: sm.y, t: now });
       while (stroke.length > 260) stroke.shift();
     } else if (stroke.length) {
-      stroke = [];
+      if (!cancelling) cancelEat = Math.max(1, Math.ceil(stroke.length / CANCEL_FRAMES));
+      cancelling = true;
+      stroke.length = Math.max(0, stroke.length - cancelEat);
+      if (stroke.length < 3) {
+        stroke = [];
+        cancelling = false;
+        softFit = null;
+        arcStart = null;
+        arcSpan = 0;
+        if (breaking) {
+          breaking = false;
+          detector.reset();
+          drawnMax = 0;
+          ccwLatch = null;
+        }
+      }
+    } else if (cancelling) {
+      cancelling = false;
+      softFit = null;
+      arcStart = null;
+      arcSpan = 0;
     }
     let p;
     if (cursor) {
       const raw = detector.push(cursor.x * W / RPX, cursor.y * H / RPX, now);
-      p = raw.center ? { ...raw, center: { x: raw.center.x * RPX / W, y: raw.center.y * RPX / H } } : raw;
+      const prog = Math.min(1, Math.abs(raw.sweep) / SWEEP_TO_RECOGNISE);
+      p = raw.center ? {
+        ...raw,
+        progress: prog,
+        center: { x: raw.center.x * RPX / W, y: raw.center.y * RPX / H }
+      } : { ...raw, progress: prog };
     } else {
       detector.reset();
       p = IDLE_PROGRESS;
     }
+    lastProgress = p;
+    lastPinched = pinched;
     if (stroke.length) {
-      const circling = p.progress > 0.4 && p.roundness > 0.55;
+      const circling = recognisedLatch || p.progress > 0.3 && p.roundness > 0.42;
       const LIFE_BASE = 650, LIFE_REF = 400, LIFE_MIN = 180, LIFE_MAX = 800;
       if (!circling && stroke.length > 3) {
         const k = Math.max(0, stroke.length - 6);
@@ -1051,7 +1910,12 @@
       {
         now,
         pinched,
-        completed: p.completed && !!p.center,
+        // A FULL TURN SINCE INITIATION, not the detector's own threshold.
+        // arcSpan is measured from the angle recorded when the circle was
+        // recognised, so this is exactly "another 360 degrees from there".
+        // Roundness is still required at the moment of opening, so a circle
+        // that degenerates after a good start does not get through.
+        completed: arcStart !== null && arcSpan >= SWEEP_TO_OPEN && p.roundness >= 0.5 && !!p.center,
         progress: p.progress,
         center: p.center ? { x: mx(p.center.x), y: my(p.center.y) } : null,
         radius: rpxOf(clampRN(p.radius))
@@ -1099,10 +1963,18 @@
     }
     if (S.phase !== "drawing" && drawing) drawing = null;
     if (!pinched) {
-      softFit = null;
       trimmedAtLatch = false;
       announcedAtLatch = false;
+      recognisedLatch = false;
+      drawnMax = 0;
     }
+    if (!pinched && !cancelling) arcStart = null;
+    if (!pinched && !cancelling) ccwLatch = null;
+    if (!pinched && !cancelling) {
+      fitRRef = 0;
+      fitJumpAt = 0;
+    }
+    if (!pinched && !cancelling) softFit = null;
     if (!portalUp) placedOk = false;
     if (!portalUp) {
       settleX = 0;
@@ -1111,10 +1983,21 @@
       arcV = 0;
     }
     if (portalUp) stroke = [];
+    if (portalUp && prevPhase !== "igniting" && prevPhase !== "open" && prevPhase !== "closing") {
+      igniteGap = openGap;
+    }
+    if (portalUp && igniteGap > 0) {
+      const rate = Math.max(1.2, Math.abs(handRate));
+      igniteGap = Math.max(0, igniteGap - rate * frameDt / (Math.PI * 2));
+    }
     if (!portalUp && prevPhase === "closing") {
       detector.reset();
       comet = [];
       attract = null;
+      arcStart = null;
+      arcSpan = 0;
+      drawnMax = 0;
+      ccwLatch = null;
       window.webkit?.messageHandlers?.portal?.postMessage({ event: "closed" });
     }
     if (lm && !portalUp) {
@@ -1167,7 +2050,7 @@
         spawnAt(mx(q.x), my(q.y), Math.cos(a), Math.sin(a), 1, 0.7, false);
       }
     }
-    if (!portalUp && pinched && stroke.length > 2) {
+    if (!portalUp && (pinched || cancelling) && stroke.length > 2) {
       const raw = drawing ?? (p.center ? { cx: p.center.x, cy: p.center.y, r: p.radius } : null);
       if (raw) {
         softFit = softFit ? {
@@ -1177,7 +2060,9 @@
         } : raw;
       }
       const fitC = drawing ?? softFit;
-      const turned = Math.max(0, Math.min(1, (p.progress - LATCH_AT) / 0.15));
+      const initAt = Math.max(0.1, Math.min(0.42, 0.42 - 0.85 * (fitC ? fitC.r : 0)));
+      const bendSpan = Math.max(0.05, (1 - initAt) * 0.7);
+      const turned = recognisedLatch ? Math.max(0, Math.min(1, (p.progress - initAt) / bendSpan)) : 0;
       const round = Math.max(0, Math.min(1, (p.roundness - 0.55) / 0.3));
       const conf = turned * round;
       const k = Math.pow(conf, 0.9);
@@ -1199,26 +2084,67 @@
           q.ry = ny / H;
         }
       }
-      const REVEAL_AT = 0.5;
-      const reveal = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / (1 - REVEAL_AT)));
-      const recognised = pinched && p.roundness >= 0.55 && p.progress >= REVEAL_AT;
-      const want = !portalUp && fitC && recognised ? 0.12 + 0.88 * reveal : 0;
-      mirrorAmt += (want - mirrorAmt) * (want > mirrorAmt ? 0.15 : 0.09);
+      const REVEAL_AT = initAt;
+      const reveal = (() => {
+        const span = Math.max(0.05, (1 - REVEAL_AT) * 0.85);
+        const t = Math.max(0, Math.min(1, (p.progress - REVEAL_AT) / span));
+        return t * t * (3 - 2 * t);
+      })();
+      if (!pinched || p.progress < REVEAL_AT - 0.05) recognisedLatch = false;
+      const rNow = fitC ? fitC.r : 0;
+      const sweepNow = Math.abs(p.sweep);
+      if (fitRRef <= 0 || Math.abs(rNow - fitRRef) / Math.max(rNow, 1e-4) > 0.12) {
+        fitRRef = rNow;
+        fitJumpAt = sweepNow;
+      }
+      const fitSettled = sweepNow - fitJumpAt > 0.6;
+      if (!fitSettled) recognisedLatch = false;
+      else if (p.roundness >= 0.42) recognisedLatch = true;
+      else if (p.roundness < 0.34) recognisedLatch = false;
+      const recognised = recognisedLatch && pinched && p.progress >= REVEAL_AT;
+      const want = !portalUp && fitC && recognised ? reveal : 0;
+      mirrorAmt = want > mirrorAmt ? want : mirrorAmt + (want - mirrorAmt) * 0.09;
       if (recognised) {
-        const doneTurns = Math.min(1, Math.abs(p.sweep) / (Math.PI * 2));
-        openGap = Math.max(0, 1 - doneTurns);
-        openCcw = p.sweep < 0;
+        if (ccwLatch === null && p.direction) ccwLatch = p.direction === "ccw";
+        openCcw = ccwLatch ?? p.sweep < 0;
+        const dirS = openCcw ? -1 : 1;
+        const headAng = p.endAngle ?? 0;
+        if (arcStart === null && fitC && stroke.length > 2) {
+          const o = stroke[0];
+          arcStart = Math.atan2(my(o.ry) - my(fitC.cy), mx(o.rx) - mx(fitC.cx));
+          arcSpan = 0;
+        }
+        if (arcStart !== null) {
+          let raw2 = (headAng - arcStart) * dirS;
+          while (raw2 < 0) raw2 += Math.PI * 2;
+          const laps = Math.floor(arcSpan / (Math.PI * 2));
+          const cand = raw2 + laps * Math.PI * 2;
+          arcSpan = Math.max(
+            arcSpan,
+            cand < arcSpan - Math.PI ? cand + Math.PI * 2 : cand
+          );
+        }
+        drawnMax = Math.max(drawnMax, Math.min(1, arcSpan / SWEEP_TO_OPEN));
+        const doneTurns = drawnMax;
+        const drawnArc = Math.min(1, arcSpan / (Math.PI * 2));
+        if (now - rateAt > 250) {
+          if (rateAt > 0) handRate = (arcSpan - rateSpan) / ((now - rateAt) / 1e3);
+          rateAt = now;
+          rateSpan = arcSpan;
+        }
+        openGap = Math.max(0, 1 - drawnArc);
         lastFill = doneTurns;
-        holdOld = (p.endAngle ?? 0) - (openCcw ? -1 : 1) * doneTurns * Math.PI * 2;
+        holdOld = arcStart ?? headAng - dirS * doneTurns * Math.PI * 2;
       } else if (mirrorAmt > 6e-3) {
-        lastFill += (0 - lastFill) * 0.1;
-        openGap += (1 - openGap) * 0.1;
+        openGap = Math.min(1, openGap + 1 / CANCEL_FRAMES);
+        lastFill = Math.max(0, 1 - openGap);
       }
       if (fitC && !portalUp && mirrorAmt > 6e-3) {
         const cvx = mx(fitC.cx), cvy = my(fitC.cy);
         const Rv = Math.max(4, fitC.r * RPX);
         const drawnNow = (1 - openGap) * Math.PI * 2;
         const leadNow = holdOld + (openCcw ? -1 : 1) * drawnNow;
+        openGapFrom = leadNow;
         paintMirror(cvx, cvy, Rv, mirrorAmt, leadNow, openGap, openCcw, 1, lastFill, 1);
       }
       ctx.globalCompositeOperation = "lighter";
@@ -1233,6 +2159,14 @@
         for (let i = 1; i < SP.length; i++) ctx.lineTo(SP[i].x, SP[i].y);
       };
       strokeDrawnThisFrame = !portalUp;
+      const hideInside = fitC && mirrorAmt > 0.01;
+      if (hideInside) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, W, H);
+        ctx.arc(mx(fitC.cx), my(fitC.cy), Math.max(2, fitC.r * RPX * 0.99), 0, Math.PI * 2);
+        ctx.clip("evenodd");
+      }
       if (!portalUp) {
         ctx.shadowBlur = 10 + 22 * k;
         ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
@@ -1247,6 +2181,7 @@
         ctx.stroke();
       }
       ctx.shadowBlur = 0;
+      if (hideInside) ctx.restore();
       const boundShare = Math.min(0.4, conf * conf * 0.45);
       const bindMaybe = () => Math.random() < boundShare;
       if (fitC && conf > 0.05 && !portalUp) {
@@ -1326,7 +2261,7 @@
       const shut = collapseAmount(S, now, CLOSE_MS);
       const e = ease(ignite);
       const cn = { x: geom.cx, y: geom.cy };
-      const rn = clampRN(geom.r) * (1 - ease(shut));
+      const rn = clampRN(geom.r) * (1 - easeShut(shut));
       const rpx = rpxOf(rn);
       const vis = e * (1 - shut);
       const age = (now - S.born) / 1e3;
@@ -1340,7 +2275,7 @@
           ctx.fill();
           ctx.globalCompositeOperation = "source-over";
         } else {
-          const shut2 = ease(shut);
+          const shut2 = easeShut(shut);
           const a1 = stepSpring(settleX, settleV, 26, frameDt);
           settleX = a1.x;
           settleV = a1.v;
@@ -1355,8 +2290,9 @@
             cy0,
             rpx,
             1 - shut2,
+            // The hand's own rate, not a spring. See igniteGap.
             openGapFrom,
-            openGap * (1 - arcClose),
+            igniteGap,
             openCcw,
             1 - clearing,
             lastFill + (1 - lastFill) * closing,
@@ -1364,8 +2300,10 @@
           );
         }
         ctx.globalCompositeOperation = "lighter";
-        const bloom = ctx.createRadialGradient(cx0, cy0, rpx * 0.9, cx0, cy0, rpx * 1.22);
-        bloom.addColorStop(0, `rgba(${SPARK_MID}, ${0.16 * vis})`);
+        const bloom = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, rpx * 1.22);
+        bloom.addColorStop(0, "rgba(0,0,0,0)");
+        bloom.addColorStop(0.9 / 1.22, "rgba(0,0,0,0)");
+        bloom.addColorStop(1 / 1.22, `rgba(${SPARK_MID}, ${0.16 * vis})`);
         bloom.addColorStop(1, "rgba(0,0,0,0)");
         ctx.fillStyle = bloom;
         disc(cn, rn * 1.22);
@@ -1377,7 +2315,7 @@
           ctx.stroke();
         }
         const flicker = 0.82 + Math.sin(now / 55) * 0.1 + Math.random() * 0.08;
-        const heat = 1 + (1 - e) * 1.6 + ease(shut) * 2.6;
+        const heat = 1 + (1 - e) * 1.6 + easeShut(shut) * 2.6;
         ctx.lineCap = "round";
         ctx.shadowColor = `rgba(${SPARK_MID}, 1)`;
         ctx.shadowBlur = 30 * heat;
@@ -1418,8 +2356,11 @@
       }
     }
     ctx.globalCompositeOperation = "lighter";
-    const holeCx = px(geom.cx), holeCy = py(geom.cy);
-    const holeR = rpxOf(clampRN(geom.r)) * 0.94;
+    const drawnFit = drawing ?? softFit;
+    const holeUp = portalUp || !!drawnFit && mirrorAmt > 0.01;
+    const holeCx = portalUp ? px(geom.cx) : drawnFit ? mx(drawnFit.cx) : 0;
+    const holeCy = portalUp ? py(geom.cy) : drawnFit ? my(drawnFit.cy) : 0;
+    const holeR = (portalUp ? rpxOf(clampRN(geom.r)) : drawnFit ? drawnFit.r * RPX : 0) * 0.97;
     const insidePortal = (x, y) => (x - holeCx) ** 2 + (y - holeCy) ** 2 < holeR * holeR;
     let sparksInHole = 0;
     const alive = [];
@@ -1462,7 +2403,10 @@
       sp.life -= 4e-3;
       if (sp.life <= 0) continue;
       alive.push(sp);
-      if (portalUp && insidePortal(sp.x, sp.y)) sparksInHole++;
+      if (holeUp && insidePortal(sp.x, sp.y)) {
+        sparksInHole++;
+        continue;
+      }
       const speed = Math.hypot(sp.vx, sp.vy) || 1;
       const len = Math.max(5, Math.min(20, speed * 2.4));
       const h = sp.heat * sp.life;
@@ -1475,14 +2419,12 @@
       ctx.lineTo(sp.x - sp.vx / speed * len, sp.y - sp.vy / speed * len);
       ctx.stroke();
     }
-    if (portalUp && now - lastInsideCheck > 1e3) {
+    if (pinched && p.progress > 0.75 && now - lastInsideCheck > 700) {
       lastInsideCheck = now;
-      if (sparksInHole > 0 || strokeDrawnThisFrame) {
-        window.webkit?.messageHandlers?.portal?.postMessage({
-          event: "log",
-          text: `inside the portal: ${sparksInHole} sparks, stroke drawn ${strokeDrawnThisFrame}`
-        });
-      }
+      window.webkit?.messageHandlers?.portal?.postMessage({
+        event: "log",
+        text: `phase=${S.phase} progress=${p.progress.toFixed(2)} sweep=${Math.abs(p.sweep).toFixed(2)}/5.40 round=${p.roundness.toFixed(2)}/0.55 r=${p.radius.toFixed(3)} sparksInHole=${sparksInHole}`
+      });
     }
     sparks = alive.length > 1400 ? alive.slice(-1400) : alive;
   }

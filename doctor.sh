@@ -184,6 +184,7 @@ for pair in \
   "format-and-sync:PostToolUse" \
   "stop-check:Stop" \
   "env-guard:PreToolUse" \
+  "ux-guard:PreToolUse" \
   "write-log:PostToolUse"; do
   h="${pair%%:*}"
   event="${pair##*:}"
@@ -457,7 +458,7 @@ BACKEND_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 while IFS='|' read -r backend state detail; do
   case "$state" in
     healthy|installed) ok "$backend: $state, $detail" ;;
-    missing) if [ "$backend" = codex ]; then ok "codex: missing (optional secondary agent)"; else warn "$backend: missing, $detail"; fi ;;
+    missing) if [ "$backend" = codex ]; then ok "codex: missing (optional runtime)"; else warn "$backend: missing, $detail"; fi ;;
     *) warn "$backend: $state, $detail" ;;
   esac
 done < <(python3 "$BACKEND_ROOT/tools/backend_health.py" --probe-browser --lines)
@@ -1019,6 +1020,58 @@ else
 fi
 
 # ── Hook health ───────────────────────────────────────────────────────────────
+section "MCP servers"
+
+# Every local MCP server is spawned by absolute path so startup does not hit the
+# npm registry (that cost 9.27s across six servers on 2026-09-21). Absolute paths
+# buy ~7x on boot and cost silence when node moves: an nvm upgrade changes
+# ~/.nvm/versions/node/<v>/bin/node and every one of them dies with no error the
+# user ever sees. This check is the thing that makes that loud.
+if [ -f "$HOME/.claude.json" ]; then
+  MCP_REPORT="$(python3 - <<'PYEOF' 2>/dev/null
+import json, os
+try:
+    cfg = json.load(open(os.path.expanduser("~/.claude.json"))).get("mcpServers", {})
+except Exception:
+    raise SystemExit(0)
+for name, s in sorted(cfg.items()):
+    cmd = s.get("command")
+    if not cmd or str(cmd).startswith("http") or s.get("type") in ("http", "sse"):
+        continue
+    if not (os.path.isabs(cmd) or __import__("shutil").which(cmd)):
+        print(f"MISSING\t{name}\t{cmd}"); continue
+    if os.path.isabs(cmd) and not os.access(cmd, os.X_OK):
+        print(f"MISSING\t{name}\t{cmd}"); continue
+    for a in s.get("args", []):
+        if str(a).endswith(".js") and not os.path.exists(a):
+            print(f"MISSING\t{name}\t{a}"); break
+    else:
+        print(f"OK\t{name}\t")
+PYEOF
+)"
+  if [ -z "$MCP_REPORT" ]; then
+    warn "no local MCP servers configured"
+  else
+    MCP_DEAD=0
+    while IFS=$'\t' read -r st nm path; do
+      [ -z "$nm" ] && continue
+      if [ "$st" = "MISSING" ]; then
+        MCP_DEAD=$((MCP_DEAD+1))
+        bad "MCP server '$nm' points at a path that is gone: $path" \
+          "reinstall it, or if node moved: npm i -g the package and repoint ~/.claude.json at the new node"
+      fi
+    done <<< "$MCP_REPORT"
+    MCP_OK=$(printf '%s\n' "$MCP_REPORT" | grep -c '^OK' || true)
+    [ "$MCP_DEAD" -eq 0 ] && ok "all $MCP_OK local MCP servers resolve"
+  fi
+
+  if grep -q '"command": *"npx"' "$HOME/.claude.json" 2>/dev/null; then
+    warn "an MCP server still spawns via npx, which costs a registry round-trip every session start"
+  else
+    ok "no MCP server boots through npx"
+  fi
+fi
+
 section "Hook health"
 
 HOOK_LOG="$HOME/.chewbacca/logs/hooks.log"
@@ -1050,8 +1103,15 @@ else
   fi
 
   HOOK_RUNS=$(wc -l < "$HOOK_WINDOW_LOG" | tr -d ' ')
-  HOOK_FAILS=$(grep -cv '|ok|' "$HOOK_WINDOW_LOG" 2>/dev/null) || HOOK_FAILS=0
-  HOOK_FAILS_EVER=$(grep -cv '|ok|' "$HOOK_LOG" 2>/dev/null) || HOOK_FAILS_EVER=0
+  # Guards deliberately exit 2 to refuse an action. On 2026-09-21 all 69
+  # reported failures were refusals, so disabling working guards made this
+  # check greener. Keep refusals visible, separate from crashes and timeouts.
+  hook_failures() {
+    awk -F'|' '$4 != "ok" && !($4 == "exit2" && $2 ~ /-guard\.sh$/) {n++} END {print n+0}' "$1"
+  }
+  HOOK_BLOCKS=$(awk -F'|' '$4 == "exit2" && $2 ~ /-guard\.sh$/ {n++} END {print n+0}' "$HOOK_WINDOW_LOG")
+  HOOK_FAILS=$(hook_failures "$HOOK_WINDOW_LOG")
+  HOOK_FAILS_EVER=$(hook_failures "$HOOK_LOG")
   HOOK_FAILS_OLD=$((HOOK_FAILS_EVER - HOOK_FAILS))
   if [ "$HOOK_RUNS" -eq 0 ]; then
     warn "no hook runs in the last 24h. It fills as you use the kit"
@@ -1062,6 +1122,7 @@ else
   else
     bad "$HOOK_FAILS of $HOOK_RUNS hook runs failed in the last 24h" "chewbacca log errors" major
   fi
+  [ "$HOOK_BLOCKS" -eq 0 ] || ok "$HOOK_BLOCKS guard refusals in the last 24h (not crashes)"
   # Judge a hook on its TYPICAL run, not its worst one.
   #
   # This used to take the single slowest row in the whole log and report it as
@@ -1119,6 +1180,15 @@ for h in "$HOME/.claude/hooks"/*.sh; do
 done
 ok "every installed hook is executable"
 
+# A copied formatter stayed on the old synchronous push/npx path after the
+# source had been fixed. Executable and wired is not enough to detect that.
+FORMAT_SOURCE="$REPO_DIR/.claude/hooks/format-and-sync.sh"
+FORMAT_INSTALLED="$HOME/.claude/hooks/format-and-sync.sh"
+if [ -f "$FORMAT_SOURCE" ] && [ -f "$FORMAT_INSTALLED" ] &&
+   ! cmp -s "$FORMAT_SOURCE" "$FORMAT_INSTALLED"; then
+  warn "installed formatter differs from this checkout; compare before reinstalling .claude/hooks/format-and-sync.sh"
+fi
+
 # ── Context budget ────────────────────────────────────────────────────────────
 section "Context budget"
 
@@ -1148,8 +1218,8 @@ if [ ! -f "$CHAT_DB" ]; then
 elif sqlite3 "$CHAT_DB" "select count(*) from sqlite_master limit 1" >/dev/null 2>&1; then
   ok "Full Disk Access granted, the texts features can work"
 else
-  bad "no Full Disk Access, so every message feature fails silently" \
-      "System Settings > Privacy & Security > Full Disk Access, add your terminal" major
+  bad "this process cannot read Messages; Full Disk Access may be missing" \
+      "System Settings > Privacy & Security > Full Disk Access, enable the app running this session (Codex, VS Code, or terminal), then restart it" major
 fi
 
 # ── Verdict ───────────────────────────────────────────────────────────────────
@@ -1204,10 +1274,10 @@ for prob in "${PROBLEMS[@]}"; do
   echo "    - ${prob%% -> *}"
 done
 echo ""
-echo -e "  ${BLD}Easiest fix: paste this to Claude.${NC}"
+echo -e "  ${BLD}Ask your active agent to repair these findings.${NC}"
 echo "    \"run chewbacca doctor and fix whatever it reports\""
 echo ""
-echo "  Claude can read every one of these and repair them. The full log is at"
+echo "  The full diagnostic log is at"
 echo "    $LOG"
 [ "$FIX" -eq 0 ] && echo "  Or try: chewbacca doctor --fix"
 exit 2

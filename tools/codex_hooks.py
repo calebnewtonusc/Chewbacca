@@ -10,10 +10,12 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import codex_context as context
 
@@ -21,38 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 EVENTS = ('SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop')
 
 
-def invoke(command, payload, cwd, timeout=20, env=None):
-    # Existing Claude hooks have 5-20 second watchdogs; bound the adapter too.
-    result = subprocess.run(command, input=json.dumps(payload), text=True,
-                            capture_output=True, cwd=cwd, timeout=timeout, env=env)
-    if result.returncode not in (0, 2):
-        raise RuntimeError(f'{Path(command[-1]).name} exited {result.returncode}')
-    text = result.stdout.strip()
-    if not text:
-        return result.stderr.strip() if result.returncode == 2 else ''
-    try:
-        data = json.loads(text)
-    except ValueError:
-        return text
-    output = data.get('hookSpecificOutput', {})
-    return output.get('additionalContext') or output.get('systemMessage') or data.get('reason') or ''
-
-
-def shared_hook(name, payload, cwd):
-    installed = Path.home() / '.claude/hooks' / name
-    script = installed if installed.is_file() else ROOT / '.claude/hooks' / name
-    if not script.is_file():
-        return ''
-    # Agent-only setup does not install global scanner launchers. Resolve the
-    # bundled Python scanners from this checkout in fresh Codex environments.
-    env = dict(os.environ, PATH=str(ROOT / 'bin') + os.pathsep + os.environ.get('PATH', ''))
-    # Legacy reply lint writes temporary prose. Keep it in a private directory
-    # and remove it after the check, including when the subprocess fails.
-    if name == 'slop-guard.sh':
-        with tempfile.TemporaryDirectory(prefix='chewbacca-codex-') as temp:
-            return invoke(['bash', str(script)], payload, cwd,
-                          env=dict(env, TMPDIR=temp))
-    return invoke(['bash', str(script)], payload, cwd, env=env)
+from shared_checks import HookDenied, invoke, shared_hook, format_file
 
 
 def changed_paths(payload):
@@ -71,30 +42,38 @@ def changed_paths(payload):
     return list(dict.fromkeys(str((cwd / path).resolve()) for path in paths))
 
 
-def format_file(filename, cwd):
-    path = Path(filename)
-    if not path.is_file() or path.suffix not in {
-        '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json', '.css', '.scss',
-        '.html', '.md', '.yaml', '.yml',
-    }:
-        return
-    if path.name in ('CLAUDE.md', 'CLAUDE-QUICK.md'):
-        return
-    if re.search(r'^@[~./]', path.read_text(encoding='utf-8'), re.M):
-        return
-    prettier = next((str(parent / 'node_modules/.bin/prettier')
-                     for parent in path.parents
-                     if os.access(parent / 'node_modules/.bin/prettier', os.X_OK)), None)
-    prettier = prettier or shutil.which('prettier')
-    if prettier:
-        result = subprocess.run([prettier, '--write', filename, '--log-level', 'silent'],
-                                cwd=cwd, capture_output=True, text=True, timeout=20)
-        if result.returncode:
-            raise RuntimeError('Prettier failed; inspect the edited file before finishing')
+def proposed_writes(payload):
+    """Translate added patch lines for guards that inspect proposed content."""
+    tool_input = payload.get('tool_input') or {}
+    if not isinstance(tool_input, dict):
+        return {}
+    if payload.get('tool_name') != 'apply_patch':
+        path = tool_input.get('file_path')
+        cwd = Path(payload.get('cwd') or os.getcwd())
+        return {str((cwd / path).resolve()): tool_input} if path else {}
+    result, filename, added = {}, None, []
+    cwd = Path(payload.get('cwd') or os.getcwd())
+    for line in str(tool_input.get('command', '')).splitlines() + ['*** End Patch']:
+        if line.startswith('*** Move to: ') and filename is not None:
+            filename = line[len('*** Move to: '):]
+            continue
+        if line.startswith('*** '):
+            if filename is not None:
+                result[str((cwd / filename).resolve())] = {'new_string': '\n'.join(added)}
+                filename, added = None, []
+            match = re.match(r'^\*\*\* (?:Add File|Update File): (.+)$', line)
+            if match:
+                filename = match.group(1)
+        elif filename is not None and line.startswith('+'):
+            added.append(line[1:])
+    return result
 
 
 def prompt_context():
     """Read a literal context-only printf hook as data; never run arbitrary settings."""
+    shared = Path(os.environ.get('CHEWBACCA_HOME', str(Path.home() / '.chewbacca'))).expanduser() / 'preferences.json'
+    if shared.is_file():
+        return str(json.loads(shared.read_text()).get('prompt_context', ''))
     settings = Path.home() / '.claude/settings.json'
     if not settings.is_file():
         return ''
@@ -127,9 +106,50 @@ def git_notice(cwd):
     return ''
 
 
+def turn_state(payload):
+    """Keep the latest request and receipts privately; serialize parallel tools."""
+    sid = payload.get('session_id')
+    if not sid:
+        return {}
+    directory = context.codex_home() / 'chewbacca-turn-state'
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = directory / 'receipts.sqlite'
+    with contextlib.closing(sqlite3.connect(path, timeout=10)) as db, db:
+        path.chmod(0o600)
+        db.execute('CREATE TABLE IF NOT EXISTS turns (session TEXT PRIMARY KEY, state TEXT NOT NULL)')
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT state FROM turns WHERE session = ?', (sid,)).fetchone()
+        state = json.loads(row[0]) if row else {}
+        event = payload.get('hook_event_name')
+        if event == 'UserPromptSubmit':
+            state = {'prompt': payload.get('prompt', ''), 'sequence': 0,
+                     'last_write': 0, 'last_success': -1}
+        elif event == 'PostToolUse':
+            sequence = state.get('sequence', 0) + 1
+            state['sequence'] = sequence
+            response = payload.get('tool_response') or {}
+            if payload.get('tool_name') in ('apply_patch', 'Write', 'Edit'):
+                state['last_write'] = sequence
+            elif isinstance(response, dict) and response.get('exit_code') == 0:
+                state['last_success'] = sequence
+        else:
+            return state
+        db.execute('INSERT OR REPLACE INTO turns VALUES (?, ?)', (sid, json.dumps(state)))
+        return state
+
+
 def dispatch(payload):
+    try:
+        return dispatch_event(payload)
+    except HookDenied as error:
+        return {'hookSpecificOutput': {'hookEventName': 'PreToolUse',
+                'permissionDecision': 'deny', 'permissionDecisionReason': str(error)}}
+
+
+def dispatch_event(payload):
     event = payload.get('hook_event_name')
     cwd = payload.get('cwd') or os.getcwd()
+    state = turn_state(payload)
     parts = []
     if event == 'SessionStart':
         root = context.brain_root(context.codex_home())
@@ -147,23 +167,51 @@ def dispatch(payload):
                 parts.append('Second-brain health check failed; the startup briefing above still loaded.')
     elif event == 'UserPromptSubmit':
         parts.append(prompt_context())
-        parts.append(shared_hook('coursework-context.sh', payload, cwd))
-        parts.append(shared_hook('kit-route.sh', payload, cwd))
+        # These are independent local reads. Preserve their order in the
+        # output without paying for each subprocess sequentially.
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            parts.extend(pool.map(lambda name: shared_hook(name, payload, cwd),
+                                  ('coursework-context.sh', 'kit-route.sh',
+                                   'skill-route.sh', 'method-guard.sh')))
     elif event in ('PreToolUse', 'PostToolUse'):
+        if event == 'PreToolUse':
+            if payload.get('session_id'):
+                parts.append(shared_hook('write-log.sh', payload, cwd))
+            tool = payload.get('tool_name', '')
+            if tool in ('Bash', 'exec_command', 'functions.exec', 'functions.exec_command'):
+                translated = dict(payload, tool_name='Bash')
+                parts.append(shared_hook('submit-guard.sh', translated, cwd))
+                parts.append(shared_hook('browser-ux-guard.sh', translated, cwd))
+        elif payload.get('session_id'):
+            parts.append(shared_hook('write-log.sh', payload, cwd))
+        writes = proposed_writes(payload) if event == 'PreToolUse' else {}
         for filename in changed_paths(payload):
             translated = dict(payload, tool_input={'file_path': filename})
             if event == 'PreToolUse':
                 parts.append(shared_hook('env-guard.sh', translated, cwd))
+                if filename in writes:
+                    translated = dict(payload, tool_name='Edit', tool_input={
+                        **writes[filename], 'file_path': filename})
+                    parts.append(shared_hook('fusion-guard.sh', translated, cwd))
+                    parts.append(shared_hook('ux-guard.sh', translated, cwd))
             elif Path(filename).is_file():
                 format_file(filename, cwd)
-                parts.append(shared_hook('application-gate.sh', translated, cwd))
+                optional = Path.home() / '.claude/hooks/application-gate.sh'
+                if optional.is_file():
+                    parts.append(invoke(['bash', str(optional)], translated, cwd))
                 parts.append(shared_hook('prose-guard.sh', translated, cwd))
     elif event == 'Stop':
         # Codex provides turn_id; session_id alone suppresses every later turn.
         if not payload.get('stop_hook_active'):
             identity = str(payload.get('session_id', '')) + ':' + str(payload.get('turn_id', ''))
-            translated = dict(payload, prompt_id=hashlib.sha256(identity.encode()).hexdigest())
-            feedback = shared_hook('slop-guard.sh', translated, cwd)
+            translated = dict(payload, prompt_id=hashlib.sha256(identity.encode()).hexdigest(),
+                              user_message=payload.get('user_message', state.get('prompt', '')),
+                              agent='codex', codex_evidence_after_write=(
+                                  state.get('last_success', -1) > state.get('last_write', 0)))
+            feedback = '\n\n'.join(filter(None, (
+                shared_hook(name, translated, cwd)
+                for name in ('slop-guard.sh', 'handoff-guard.sh',
+                             'durable-guard.sh', 'vibe-guard.sh'))))
             if feedback:
                 return {'decision': 'block', 'reason': feedback}
         notice = git_notice(cwd)
@@ -194,8 +242,6 @@ def install(home):
             # Leave room for the shared guidance and memory index.
             handler['additionalContextLimit'] = 32000 if event == 'SessionStart' else 5000
         group = {'hooks': [handler]}
-        if event in ('PreToolUse', 'PostToolUse'):
-            group['matcher'] = '^apply_patch$|^Write$|^Edit$'
         hooks[event] = kept + [group]
     if target.exists() and not target.with_name(target.name + '.before-chewbacca').exists():
         context.atomic_write(target.with_name(target.name + '.before-chewbacca'), target.read_text())
@@ -226,7 +272,7 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
+    except (OSError, ValueError, RuntimeError, sqlite3.Error, subprocess.TimeoutExpired):
         # Don't include subprocess payloads or private source contents in errors.
         print('Chewbacca hook failed; inspect its configuration and local dependencies.', file=sys.stderr)
         raise SystemExit(1)

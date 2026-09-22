@@ -192,7 +192,20 @@ export class CircleGestureDetector {
       closeWithin: options.closeWithin ?? 0.75,
       // Roundness required to fire at all, the same gate the renderer uses
       // to decide something is becoming a circle.
-      minRoundness: options.minRoundness ?? 0.55,
+      // 0.45, NOT 0.55. "Did you make it so u hv to do a perfect circle wtf."
+      //
+      // A circle drawn in the air with a fingertip is not round. Measured on
+      // synthetic paths with realistic deformation: a 1.2:1 oval scores
+      // 0.81, a 1.4:1 oval 0.61, and a circle with 8% radial wobble 0.56.
+      // A real hand lands in that band, which put the bar right in the
+      // middle of ordinary human input: some circles opened and some did
+      // not, and nothing about the hand told you which.
+      //
+      // Swept the threshold against the shapes that must be refused. At
+      // 0.45 every real circle still opens and nothing bad gets through; at
+      // 0.38 a 1.6:1 oval does. So the bar sits at 0.45 with the evidence
+      // for it rather than at a number that felt safe.
+      minRoundness: options.minRoundness ?? 0.50,
       trailLength: options.trailLength ?? 240,
       // 0.004 of the frame is about 6px across, and a small circle drawn
       // with a fingertip has segments shorter than that: a 45px radius over

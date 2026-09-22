@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "runtimes": {
+    "claude-code": {
+      "label": "Claude Code",
+      "binary": "claude",
+      "instruction_file": "CLAUDE.md",
+      "skills_dir": ".claude/skills",
+      "config": ".claude/settings.json",
+      "adapter": "claude",
+      "apps": ["cli", "vscode", "desktop"],
+      "model_flag": "--model",
+      "model_discovery": "Use the runtime's model picker; availability depends on account and provider.",
+      "notes": [
+        "JSON settings and native Write/Edit/Bash events.",
+        "Skill frontmatter can include Claude-only tools, subagents and hooks.",
+        "IDE and desktop sessions run with their own host permissions.",
+        "Existing native hooks, plugins and permissions are preserved."
+      ],
+      "sources": [
+        "https://code.claude.com/docs/en/hooks",
+        "https://code.claude.com/docs/en/skills",
+        "https://code.claude.com/docs/en/model-config"
+      ]
+    },
+    "codex": {
+      "label": "Codex",
+      "binary": "codex",
+      "instruction_file": "AGENTS.md",
+      "skills_dir": ".agents/skills",
+      "config": ".codex/config.toml",
+      "adapter": "codex",
+      "apps": ["cli", "vscode", "desktop"],
+      "model_flag": "--model",
+      "model_discovery": "Use the runtime's model picker; keep model_provider and reasoning settings in native configuration.",
+      "notes": [
+        "Respects CODEX_HOME and a nonempty AGENTS.override.md.",
+        "Native hooks require review and trust; modified definitions may be skipped.",
+        "apply_patch carries multiple files and must be translated before shared checks.",
+        "Skills do not grant tools or permissions. Desktop connectors and automation are host capabilities."
+      ],
+      "sources": [
+        "https://learn.chatgpt.com/docs/hooks",
+        "https://learn.chatgpt.com/docs/build-skills",
+        "https://learn.chatgpt.com/docs/config-file/config-reference"
+      ]
+    },
+    "generic": {
+      "label": "Other local agent",
+      "binary": null,
+      "instruction_file": "AGENTS.md",
+      "skills_dir": null,
+      "config": null,
+      "adapter": "export",
+      "apps": ["cli", "vscode", "desktop"],
+      "model_flag": null,
+      "model_discovery": "Configure the model in the host; Chewbacca does not assume its API or context limit.",
+      "notes": [
+        "Export shared instructions explicitly. Configure discovery in the host.",
+        "Lifecycle enforcement, skill discovery and MCP are unverified until a native adapter exists."
+      ],
+      "sources": []
+    },
+    "chatgpt-web": {
+      "label": "ChatGPT browser",
+      "binary": null,
+      "instruction_file": "CHEWBACCA.md",
+      "skills_dir": null,
+      "config": null,
+      "adapter": "export",
+      "apps": ["browser"],
+      "model_flag": null,
+      "model_discovery": "Choose a model in the signed-in browser account.",
+      "notes": [
+        "Export contains public operational guidance only; attach it explicitly.",
+        "A browser session does not inherit local lifecycle hooks, files, MCP connections or OS grants.",
+        "The existing chatgpt-tab bridge is separate from local agent setup."
+      ],
+      "sources": []
+    }
+  },
+  "platforms": {
+    "darwin": {
+      "hooks": true,
+      "notes": [
+        "Mac tools require grants for the app actually hosting execution.",
+        "launchd has a minimal PATH; dependencies must be executable, not merely present."
+      ]
+    },
+    "linux": {
+      "hooks": true,
+      "notes": [
+        "Shared shell checks require Bash, Python 3 and jq.",
+        "macOS tools are unavailable. In WSL, install inside the distribution and use its paths."
+      ]
+    },
+    "win32": {
+      "hooks": false,
+      "notes": [
+        "Native Windows gets instruction exports. Run shell hook setup in WSL.",
+        "Windows permissions and executable paths are separate from WSL."
+      ]
+    }
+  }
+}

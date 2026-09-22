@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# Keep the HUD running: at login, and again if it ever dies.
+#
+# "Make hud a login item along with all things chewbacca, or whatever is most
+# 24/7 idek."
+#
+# A login item is the weaker of the two options. It starts the app once at
+# login and nothing brings it back if it crashes, which for a front door means
+# the machine quietly stops having one and nobody notices until they reach for
+# it. A LaunchAgent with KeepAlive starts it at login AND restarts it, which is
+# what 24/7 has to mean for something you talk to.
+#
+# Same convention the kit already uses for the people dashboard and the Clay
+# sync: com.calebnewton.*, RunAtLoad, KeepAlive, logs in ~/Library/Logs.
+#
+# WRITTEN AS A SCRIPT, NOT DONE BY HAND. Three fixes on 2026-09-20 were made
+# in one home directory and left out of the installer, so every other machine
+# kept the bug. Anything that configures a machine belongs in the repo.
+#
+#     hud-autostart              install and start it
+#     hud-autostart --status     say whether it is loaded and running
+#     hud-autostart --remove     unload and delete it
+#
+# The listener is deliberately NOT given an agent of its own. BobHUD starts it
+# on demand when a key is pressed and nothing is listening, which covers the
+# case without a second thing to keep alive.
+set -uo pipefail
+
+LABEL="com.calebnewton.chewbacca.hud"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+APP="/Applications/BobHUD.app/Contents/MacOS/BobHUD"
+LOGDIR="$HOME/Library/Logs"
+
+status() {
+  if launchctl list 2>/dev/null | grep -q "$LABEL"; then
+    echo "agent:   loaded"
+  else
+    echo "agent:   not loaded"
+  fi
+  if pgrep -f "BobHUD.app/Contents/MacOS/BobHUD" >/dev/null 2>&1; then
+    echo "process: running (pid $(pgrep -f 'BobHUD.app/Contents/MacOS/BobHUD' | head -1))"
+  else
+    echo "process: not running"
+  fi
+  [ -f "$PLIST" ] && echo "plist:   $PLIST" || echo "plist:   absent"
+}
+
+case "${1:-install}" in
+  --status|status) status; exit 0 ;;
+  --remove|remove)
+    launchctl unload "$PLIST" 2>/dev/null
+    rm -f "$PLIST"
+    echo "removed. BobHUD is no longer kept alive."
+    exit 0
+    ;;
+esac
+
+# The app has to exist before anything is promised about keeping it alive.
+if [ ! -x "$APP" ]; then
+  echo "BobHUD.app is not installed at /Applications." >&2
+  echo "Build and install it first, then run this again." >&2
+  exit 1
+fi
+
+mkdir -p "$HOME/Library/LaunchAgents" "$LOGDIR"
+
+# launchd hands a job PATH=/usr/bin:/bin:/usr/sbin:/sbin and nothing else, and
+# the display shells out: `hud listen` is spawned as a child and runs the model
+# CLI. On 2026-09-21 that CLI lived under nvm, the HUD could not see it, and
+# speech reached the microphone, transcribed correctly, and then went nowhere
+# with no error in any log. Every install had this; `claude` is almost never in
+# /usr/bin.
+#
+# Resolved here, at install time, from the shell that is running this, because
+# that shell is the one that can actually find these. The stable directories are
+# appended so a later nvm or Homebrew change has somewhere to be found.
+AGENT_PATH="$(
+  { command -v claude; command -v python3; command -v node; } 2>/dev/null |
+    xargs -n1 dirname 2>/dev/null | awk '!seen[$0]++' | tr '\n' ':'
+)$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+cat > "$PLIST" <<PLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$LABEL</string>
+  <key>ProgramArguments</key>
+  <array><string>$APP</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>$AGENT_PATH</string></dict>
+  <!-- A front door that dies and stays dead is worse than one that was never
+       there, because the person keeps reaching for it. -->
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>$LOGDIR/$LABEL.log</string>
+  <key>StandardErrorPath</key><string>$LOGDIR/$LABEL.err</string>
+</dict>
+</plist>
+PLISTEOF
+
+# Replace any previous copy rather than stacking a second one.
+launchctl unload "$PLIST" 2>/dev/null
+launchctl load "$PLIST" 2>/dev/null || {
+  echo "launchctl load failed. The plist is at $PLIST" >&2
+  exit 1
+}
+
+sleep 1
+status
