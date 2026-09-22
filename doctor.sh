@@ -185,6 +185,7 @@ for pair in \
   "stop-check:Stop" \
   "env-guard:PreToolUse" \
   "ux-guard:PreToolUse" \
+  "load-guard:PreToolUse" \
   "write-log:PostToolUse"; do
   h="${pair%%:*}"
   event="${pair##*:}"

@@ -1422,6 +1422,14 @@ _register("PreToolUse", hooks_dir + "/fusion-guard.sh", timeout=15,
 # here, so it only ever fired on the one machine where it had been added to
 # settings.json by hand. That is the same class as hud.listening and
 # kit-route.sh: the capability was present, good, and wired to nothing.
+# Six local Whisper jobs at once took Caleb's load average to 50 on 2026-09-22
+# while he was working, and he found out before this kit did. Network-bound
+# fan-out stays free; this refuses only CPU-bound local inference and transcode
+# run three or more wide, or run at all while the machine is already loaded.
+_register("PreToolUse", hooks_dir + "/load-guard.sh", timeout=10,
+          matcher="Bash",
+          status="Checking this will not take over the machine...")
+
 _register("PreToolUse", hooks_dir + "/ux-guard.sh", timeout=15,
           matcher="Write|Edit",
           status="Checking this UI is not the generated look...")
