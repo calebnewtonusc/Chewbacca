@@ -13,7 +13,7 @@ d893050092dc083e7a5f5b8b09733466ffdf4040755a5870fa6ade197a2fb208  .claude/hooks/
 886da8b194ed8906f4d132344f63819839ffc090a646aaf10d89c012308a9829  .claude/hooks/kit-route.sh
 511fde97efcf32a0527b1eef1ceb26d50dd2a9321d7020e1d5921645320f1730  .claude/hooks/lib.sh
 26bdb22466effb106b8584f2579665ce6cea5aa9978576d9c46759cf4fc41c52  .claude/hooks/list-guard.sh
-58105a9ef16537b17cd935a871c139840cdf307cd66201ff2d88658eee61d0b4  .claude/hooks/load-guard.sh
+609c5e2b183f10ed65689e6a933d51e5f8cdc97edcd3ed6f3bc258f0aa47e576  .claude/hooks/load-guard.sh
 c7594c3df7370c62ba76e046daf1e17843dbf24972438206496b28098c4128ee  .claude/hooks/method-guard.sh
 baff09b097b67758927ae5ea8ed991dc855687ccd34face005381a4fb432ab42  .claude/hooks/prose-guard.sh
 51838ae3e493ae3f15ec3c49d31f3fd0098df592dbaef8ebc94322dfae1bb2d2  .claude/hooks/session-context.sh
