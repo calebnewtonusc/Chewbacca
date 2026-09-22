@@ -513,17 +513,29 @@ extension AppDelegate {
         }
     }
 
-    /// Tier two: the clipboard and a paste, through peekaboo.
+    /// How long the field's application gets to come to the front before the
+    /// paste is abandoned and the words are left on the clipboard.
     ///
-    /// Runs only when the field refused `kAXSelectedText`, which is every
-    /// Electron application and some web views. It costs the person's clipboard
-    /// and it is the reason the previous contents are put back afterwards.
+    /// Guessed, never measured. A Command-V posted before the switch lands goes
+    /// to whatever was in front, which is the one outcome worse than no paste.
+    private static let frontWait: Duration = .milliseconds(600)
+
+    /// Tier two: the clipboard and a Command-V posted from here.
     ///
-    /// `peekaboo` rather than a synthesised Command-V from here, because it
-    /// already holds the permission for posting events and has the retry
-    /// behaviour for an application that is slow to take focus. If it is not
-    /// installed this returns false and the words stay on the clipboard, which
-    /// is the honest failure: the person pastes them.
+    /// Runs only when the field refused `kAXSelectedText`, which is Terminal,
+    /// every Electron application and some web views. It costs the person's
+    /// clipboard and it is the reason the previous contents are put back
+    /// afterwards.
+    ///
+    /// This used to shell out to `peekaboo hotkey cmd,v`, and that is why the
+    /// bubble went deaf on 2026-09-22: every turn into Terminal logged
+    /// `tier=paste ok=true` and nothing appeared. peekaboo exits 0 when it
+    /// fails and reports the failure only in its JSON, and with no `--app` it
+    /// aims at its latest snapshot, which on this machine was a Terminal
+    /// process from two days earlier. The display already holds Accessibility,
+    /// which is the permission posting a key event needs, so the keystroke is
+    /// made here and "ok" means the event was actually posted to the app that
+    /// owns the field.
     private static func paste(_ text: String, pid: pid_t) async -> Bool {
         let board = NSPasteboard.general
         let previous = board.string(forType: .string)
@@ -531,8 +543,9 @@ extension AppDelegate {
         board.setString(text, forType: .string)
 
         NSRunningApplication(processIdentifier: pid)?.activate(options: [])
-        let ok = await run("/usr/bin/env", ["peekaboo", "hotkey", "cmd,v"])
-        bubbleLog.notice("bubble.insert tier=paste ok=\(ok)")
+        let front = await cameForward(pid)
+        let ok = front && postCommandV()
+        bubbleLog.notice("bubble.insert tier=paste ok=\(ok) front=\(front)")
 
         // Put the clipboard back, after the paste has had time to read it. A
         // clipboard that silently becomes whatever you last dictated is a
@@ -546,16 +559,35 @@ extension AppDelegate {
         return ok
     }
 
-    private static func run(_ path: String, _ arguments: [String]) async -> Bool {
-        await withCheckedContinuation { done in
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: path)
-            task.arguments = arguments
-            task.standardOutput = FileHandle.nullDevice
-            task.standardError = FileHandle.nullDevice
-            task.terminationHandler = { done.resume(returning: $0.terminationStatus == 0) }
-            do { try task.run() } catch { done.resume(returning: false) }
+    /// Wait for `pid` to be the frontmost application, up to `frontWait`.
+    private static func cameForward(_ pid: pid_t) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now + frontWait
+        while clock.now < deadline {
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier == pid {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(20))
         }
+        return NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+    }
+
+    /// Post Command-V to the frontmost application. False when macOS would
+    /// drop the event, which it does silently without the Accessibility grant.
+    private static func postCommandV() -> Bool {
+        guard CGPreflightPostEventAccess() else { return false }
+        // Private state, so a modifier the person happens to be holding does
+        // not ride along and turn the paste into something else.
+        let source = CGEventSource(stateID: .privateState)
+        let v: CGKeyCode = 9  // kVK_ANSI_V
+        guard let down = CGEvent(keyboardEventSource: source, virtualKey: v, keyDown: true),
+              let up = CGEvent(keyboardEventSource: source, virtualKey: v, keyDown: false)
+        else { return false }
+        down.flags = .maskCommand
+        up.flags = .maskCommand
+        down.post(tap: .cghidEventTap)
+        up.post(tap: .cghidEventTap)
+        return true
     }
 
     /// Keep a followed bubble reachable.
