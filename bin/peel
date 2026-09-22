@@ -474,6 +474,57 @@ if (cmd === "scan") {
   const reach = rows.filter(r => r.tier >= 3).length;
   console.log(`\n${reach}/${rows.length} apps (${(reach/rows.length*100).toFixed(0)}%) give up real names.`);
   console.log(`${by[0] || 0} are opaque and always will be.`);
+} else if (cmd === "tauri") {
+  // Tauri embeds its frontend as [path][compressed bytes] in __RODATA.
+  // Data for record N is the gap between path N's end and path N+1's start.
+  // Brotli will "decompress" arbitrary bytes into noise, so a decode only counts
+  // when the result is actually text. Without that gate this reported 635
+  // successes and wrote 296 files of binary junk.
+  const zlib = require("zlib");
+  const target = rest[0];
+  if (!target) { console.error("usage: peel tauri <AppName> [outdir]"); process.exit(1); }
+  const app = target.endsWith(".app") ? target : path.join(APPS, target + ".app");
+  const d = detect(app);
+  if (!d.mainBin || !fs.existsSync(d.mainBin)) { console.error("no main binary"); process.exit(1); }
+  const out = rest[1] || path.join(process.cwd(), path.basename(app, ".app") + "-frontend");
+  const b = fs.readFileSync(d.mainBin);
+  const txt = b.toString("latin1");
+  const re = /\/(?:assets|_build|_app)[\x20-\x7e]{0,180}?\.(?:js|css|html|json|svg)(?:\.(?:gz|br))?/g;
+  const recs = []; let m;
+  while ((m = re.exec(txt)) !== null) recs.push({ p: m[0], s: m.index, e: m.index + m[0].length });
+  if (!recs.length) { console.error(`${path.basename(app,".app")} has no Tauri asset table`); process.exit(1); }
+  const looksLikeText = (buf) => {
+    if (buf.length < 32) return false;
+    const n = Math.min(buf.length, 4096); let pr = 0;
+    for (let i = 0; i < n; i++) { const c = buf[i];
+      if ((c >= 0x20 && c < 0x7f) || c === 9 || c === 10 || c === 13) pr++; }
+    return pr / n > 0.92;
+  };
+  let ok = 0, rej = 0, bytes = 0;
+  for (let i = 0; i < recs.length; i++) {
+    const st = recs[i].e;
+    const en = (i + 1 < recs.length) ? recs[i + 1].s : Math.min(st + (8 << 20), b.length);
+    if (en - st < 16) { rej++; continue; }
+    const blob = b.subarray(st, en);
+    let data = null;
+    for (let off = 0; off < Math.min(64, blob.length) && !data; off++) {
+      const sl = blob.subarray(off);
+      if (sl[0] === 0x1f && sl[1] === 0x8b) {
+        try { const x = zlib.gunzipSync(sl, { finishFlush: zlib.constants.Z_SYNC_FLUSH });
+              if (looksLikeText(x)) data = x; } catch {}
+      }
+      if (!data) { try { const x = zlib.brotliDecompressSync(sl); if (looksLikeText(x)) data = x; } catch {} }
+    }
+    if (!data) { rej++; continue; }
+    const clean = recs[i].p.replace(/^\/+/, "").replace(/\.(gz|br)$/, "");
+    if (clean.includes("..")) { rej++; continue; }
+    const dest = path.join(out, clean);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, data);
+    ok++; bytes += data.length;
+  }
+  console.log(`${recs.length} asset paths, ${ok} recovered as text, ${rej} rejected`);
+  console.log(`${mb(bytes)} -> ${out}`);
 } else if (cmd === "trace") {
   // Static recovery answers "what did the author write". This answers the other
   // question: what is this process executing RIGHT NOW. Works at every tier,
@@ -552,6 +603,7 @@ if (cmd === "scan") {
   peel swift <App> [out]    recover the Swift type graph from a stripped native binary
   peel map [--json]         route every app to its recovery tier and extractor
   peel trace <App> [secs]   sample a RUNNING app: what it is executing right now
+  peel tauri <App> [out]    recover a Tauri app's frontend from its Rust binary
 
 Reads only. Never writes into /Applications.`);
 }
