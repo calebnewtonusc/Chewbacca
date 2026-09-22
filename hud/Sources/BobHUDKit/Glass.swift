@@ -27,8 +27,10 @@ import SwiftUI
 /// follows urgency (`Urgency.thickness`): the glass says how awake and how
 /// loud before a word on it is read.
 ///
-/// Under the pointer the specular point follows it. The light is a function
-/// of where the pointer is and nothing else: hold still and nothing moves.
+/// Under the pointer the glass leans toward it, the words shift a pixel or
+/// two against the lean, and the specular point follows. All of it is a
+/// function of where the pointer is and nothing else: hold still and nothing
+/// moves. The words themselves are never rotated; see `body`.
 struct GlassSlab<Base: View>: ViewModifier {
     let shape: RoundedRectangle
     /// The colour of the caustic. The pill passes the presence tint, so the
@@ -43,12 +45,20 @@ struct GlassSlab<Base: View>: ViewModifier {
     var thickness: Double = 1
     /// The clear variant of Liquid Glass where the OS has it.
     var clear = false
+    /// How far the glass leans toward the pointer, in degrees at the edge.
+    /// The pill is small enough to take more than a card, which at 400
+    /// points wide swings its far edge visibly at the same angle.
+    var tilt: Double = 3
+    /// How far the content shifts against the lean, in points at the edge.
+    /// Snapped to whole pixels, so at 2x the steps are half a point.
+    var lift: CGFloat = 1.5
     @ViewBuilder let base: () -> Base
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// How awake the assistant is, 0 to 1: the light in the glass follows
     /// it. See `HUDEnergyKey`.
     @Environment(\.hudEnergy) private var energy
+    @Environment(\.displayScale) private var displayScale
     @State private var size: CGSize = .zero
     /// Where the pointer is over the slab, 0 to 1 each way. Nil when it is not.
     @State private var pointer: UnitPoint?
@@ -62,37 +72,17 @@ struct GlassSlab<Base: View>: ViewModifier {
         return content
             // The content floats: its own small shadow on the glass.
             .shadow(color: .black.opacity(0.28 * thickness), radius: 1.2, y: 1.2 * thickness)
-            .background {
-                ZStack {
-                    base()
-                    // The light in the glass powers with the assistant:
-                    // dim while it sleeps, full while it works. The base
-                    // never changes, so legibility does not either.
-                    Group {
-                        gloss
-                        // The specular point. 0.26 at the centre, gone by a
-                        // third of the width: guessed against the eye on
-                        // 2026-09-22, never measured.
-                        EllipticalGradient(
-                            colors: [.white.opacity(0.26), .white.opacity(0.06), .clear],
-                            center: light, startRadiusFraction: 0, endRadiusFraction: 0.55)
-                        // The caustic along the bottom edge. 0.20, guessed.
-                        EllipticalGradient(
-                            colors: [glow.opacity(0.20), .clear],
-                            center: .bottom, startRadiusFraction: 0, endRadiusFraction: 0.7)
-                    }
-                    .opacity(energy)
-                }
-                .animation(Motion.fade(0.25, reduced: reduceMotion), value: pointer == nil)
-                .animation(Motion.fade(0.6, reduced: reduceMotion), value: energy)
-            }
+            // Clipped flat, so a fill inside it (the pill's progress) keeps
+            // the glass's outline.
             .clipShape(shape)
-            .modifier(LiquidGlass(shape: shape, clear: clear))
-            .overlay { edge.allowsHitTesting(false) }
-            // Contact, then ambient. The tight one is what puts it on a
-            // surface; the wide one is how far above it floats.
-            .shadow(color: .black.opacity(0.32), radius: 1.5, y: 1)
-            .shadow(color: .black.opacity(0.30), radius: 22 * thickness, y: 12 * thickness)
+            // The parallax, in whole device pixels. A shift of a fraction
+            // of a pixel makes the renderer resample every glyph, and on
+            // 2026-09-22 that turned every panel soft under the pointer.
+            .offset(shift)
+            // Only the glass tilts; the words never do. A 3D rotation
+            // resamples whatever it is applied to, and text resampled is
+            // text blurred, so the rotation stays on a layer with none.
+            .background { slab(light: light) }
             .background {
                 GeometryReader { proxy in
                     Color.clear.onChange(of: proxy.size, initial: true) { _, new in size = new }
@@ -107,12 +97,58 @@ struct GlassSlab<Base: View>: ViewModifier {
                     pointer = nil
                 }
             }
-            // No tilt and no parallax. Both shipped on 2026-09-22 and came
-            // off the same day: a 3D rotation and a sub-point offset make
-            // the renderer resample the text, and every panel went soft the
-            // moment the pointer touched it ("its making the boxes blurry").
-            // The light following the pointer is what survives of it.
             .animation(Motion.spring(0.35, 0.75, reduced: reduceMotion), value: pointer)
+    }
+
+    /// The glass on its own: body, light, edge and shadows, tilted.
+    private func slab(light: UnitPoint) -> some View {
+        ZStack {
+            base()
+            // The light in the glass powers with the assistant: dim while
+            // it sleeps, full while it works. The base never changes, so
+            // legibility does not either.
+            Group {
+                gloss
+                // The specular point. 0.26 at the centre, gone by a third
+                // of the width: guessed against the eye on 2026-09-22,
+                // never measured.
+                EllipticalGradient(
+                    colors: [.white.opacity(0.26), .white.opacity(0.06), .clear],
+                    center: light, startRadiusFraction: 0, endRadiusFraction: 0.55)
+                // The caustic along the bottom edge. 0.20, guessed.
+                EllipticalGradient(
+                    colors: [glow.opacity(0.20), .clear],
+                    center: .bottom, startRadiusFraction: 0, endRadiusFraction: 0.7)
+            }
+            .opacity(energy)
+        }
+        .animation(Motion.fade(0.25, reduced: reduceMotion), value: pointer == nil)
+        .animation(Motion.fade(0.6, reduced: reduceMotion), value: energy)
+        .clipShape(shape)
+        .modifier(LiquidGlass(shape: shape, clear: clear))
+        .overlay { edge.allowsHitTesting(false) }
+        // Contact, then ambient. The tight one is what puts it on a
+        // surface; the wide one is how far above it floats.
+        .shadow(color: .black.opacity(0.32), radius: 1.5, y: 1)
+        .shadow(color: .black.opacity(0.30), radius: 22 * thickness, y: 12 * thickness)
+        .rotation3DEffect(.degrees(lean.x), axis: (x: 1, y: 0, z: 0), perspective: 0.6)
+        .rotation3DEffect(.degrees(lean.y), axis: (x: 0, y: 1, z: 0), perspective: 0.6)
+    }
+
+    /// Degrees about x and y. The side under the pointer dips, the way a
+    /// pane pressed at that spot would.
+    private var lean: (x: Double, y: Double) {
+        guard let pointer, !reduceMotion else { return (0, 0) }
+        return ((pointer.y - 0.5) * tilt * 2, (pointer.x - 0.5) * tilt * 2)
+    }
+
+    /// The content's shift against the lean, snapped to the pixel grid.
+    private var shift: CGSize {
+        guard let pointer, !reduceMotion else { return .zero }
+        let snap = { (value: CGFloat) in (value * displayScale).rounded() / displayScale }
+        return CGSize(
+            width: snap((0.5 - pointer.x) * 2 * lift),
+            height: snap((0.5 - pointer.y) * 2 * lift))
     }
 
     /// The reflection of a light above: a band across the upper half, inset
