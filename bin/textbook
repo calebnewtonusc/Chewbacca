@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# textbook: search an ingested course textbook without loading it.
+# The reader lives in texts/bin; this is its name on PATH.
+DIR="$(cd "$(dirname "$(readlink "$0" || echo "$0")")/.." && pwd)"
+exec python3 "$DIR/texts/bin/textbook" "$@"

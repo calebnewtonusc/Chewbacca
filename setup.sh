@@ -945,6 +945,10 @@ if [ -f "$SCRIPT_DIR/bin/coursework" ]; then
   COURSEWORK_HOME="${COURSEWORK_DIR:-$HOME/coursework}"
   mkdir -p "$COURSEWORK_HOME/courses" "$COURSEWORK_HOME/syllabi" "$COURSEWORK_HOME/templates"
   cp "$SCRIPT_DIR/templates/coursework/"*.yml "$COURSEWORK_HOME/templates/" 2>/dev/null || true
+  mkdir -p "$COURSEWORK_HOME/texts"
+  # A course textbook is half a million words, so it is ingested once into
+  # $COURSEWORK_HOME/texts and searched from there. See texts/README.md.
+  [ -f "$SCRIPT_DIR/bin/textbook" ] && link_tool textbook
   log "coursework installed to ~/.local/bin/, ledger at $COURSEWORK_HOME"
   echo "    Next: run /syllabus on a syllabus PDF to fill the ledger."
 fi
