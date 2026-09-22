@@ -1540,6 +1540,124 @@ def test_reconnects() -> None:
         process.wait(timeout=10)
 
 
+def _listener_fixture() -> tuple[str, str, dict]:
+    """A socket path, a model that answers with nothing, and an environment
+    that keeps the listener off the real display, names and voice."""
+    directory = tempfile.mkdtemp()
+    path = os.path.join(directory, "hud.sock")
+    fake = os.path.join(directory, "fake-model")
+    with open(fake, "w", encoding="utf-8") as handle:
+        handle.write("#!/bin/sh\ncat > /dev/null\necho 'r s'\n")
+    os.chmod(fake, 0o755)
+    env = dict(os.environ, BOB_HUD_SOCKET=path, HUD_NAMES="off", HUD_ROUTE="off")
+    return path, fake, env
+
+
+def test_one_listener_per_socket() -> None:
+    """BACKLOG #50: a second listener on the same socket leaves instead of
+    subscribing too, because two of them both answer every request."""
+    path, fake, env = _listener_fixture()
+    lock = f"{path}.listener.lock"
+    command = [sys.executable, str(BIN), "--model-cmd", fake, "--voice", "off"]
+    first = subprocess.Popen(command, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    second = None
+    server = None
+    def holder() -> str:
+        try:
+            return Path(lock).read_text().strip()
+        except OSError:
+            return ""
+
+    try:
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and holder() != str(first.pid):
+            time.sleep(0.1)
+        check("the first listener holds the socket", holder() == str(first.pid), repr(holder()))
+
+        second = subprocess.Popen(command, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        try:
+            _, err = second.communicate(timeout=15)
+        except subprocess.TimeoutExpired:
+            err = ""
+        check("a second listener exits cleanly", second.returncode == 0, repr(second.returncode))
+        check("and names the one holding the socket", str(first.pid) in err, repr(err))
+        check("the first is still running", first.poll() is None)
+
+        # The display comes up: exactly one connection, with the first kept
+        # open so a reconnect cannot be mistaken for a second listener. Six
+        # seconds outlasts the five-second reconnect backoff.
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(path)
+        server.listen(2)
+        server.settimeout(15)
+        conn, _ = server.accept()
+        server.settimeout(6)
+        try:
+            extra, _ = server.accept()
+            extra.close()
+            only_one = False
+        except socket.timeout:
+            only_one = True
+        conn.close()
+        check("only one listener subscribes", only_one)
+    finally:
+        if server is not None:
+            server.close()
+        for proc in (first, second):
+            if proc is not None and proc.poll() is None:
+                proc.terminate()
+                proc.wait(timeout=10)
+
+
+def test_orphan_leaves() -> None:
+    """BACKLOG #50: when the display that spawned the listener is replaced,
+    the listener exits rather than reconnecting beside the new one's."""
+    path, fake, env = _listener_fixture()
+    # sh stands in for BobHUD: it is the parent, and killing it orphans the
+    # listener exactly as KeepAlive replacing the app does.
+    parent = subprocess.Popen(
+        ["sh", "-c", '"$0" "$1" --model-cmd "$2" --voice off & echo $!; wait',
+         sys.executable, str(BIN), fake],
+        env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+    )
+    pid = int((parent.stdout.readline() if parent.stdout else "0").strip() or 0)
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(path)
+    server.listen(1)
+    server.settimeout(15)
+    try:
+        conn, _ = server.accept()
+        check("the listener connects to its display", True)
+        parent.kill()
+        parent.wait(timeout=10)
+        # The display dies with its parent: the connection drops and the
+        # socket file goes, which is what the listener sees on a KeepAlive.
+        conn.close()
+        server.close()
+        os.unlink(path)
+
+        gone = False
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                gone = True
+                break
+            time.sleep(0.1)
+        check("the orphaned listener exits", gone, f"pid {pid}")
+    finally:
+        try:
+            server.close()
+        except OSError:
+            pass
+        if pid:
+            try:
+                os.kill(pid, 15)
+            except ProcessLookupError:
+                pass
+
+
 def test_routing(m) -> None:
     """The router runs before the model, and only the assistant path reaches it."""
     import tempfile
@@ -1947,6 +2065,10 @@ def main() -> int:
     test_stop_end_to_end()
     print("reconnecting")
     test_reconnects()
+    print("one listener per socket")
+    test_one_listener_per_socket()
+    print("an orphan leaves")
+    test_orphan_leaves()
     print()
     if failures:
         print(f"{len(failures)} failed: {', '.join(failures)}")

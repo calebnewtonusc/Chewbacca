@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import fcntl
 import importlib.machinery
 import importlib.util
 import json
@@ -60,6 +61,14 @@ def asks_dir() -> Path:
     return voice_memory.MEMORY / "asks"
 
 SOCKET = os.environ.get("BOB_HUD_SOCKET", str(Path.home() / ".bob" / "hud.sock"))
+# Whoever started this listener, read as early as possible. The display
+# spawns it as a child, so when the display is replaced (KeepAlive, a
+# rebuild) this listener is reparented and the number changes. BACKLOG #50:
+# the orphan kept reconnecting to the new display's socket while the new
+# display spawned its own, so two listeners both answered or the person held
+# the talk key into nothing. Seen three times in one evening, 2026-09-21
+# (pids 90698 and 17618 among them).
+STARTED_BY = os.getppid()
 SKILL = Path(__file__).resolve().parent.parent / "skills" / "hud" / "SKILL.md"
 CONTEXT = Path(__file__).resolve().parent / "hud-context"
 # Which voice server reads the replies. `hud-speak` is the Python one
@@ -1267,6 +1276,20 @@ class Listener:
         delay = 0.5
         announced = False
         while True:
+            # Reconnecting is right while the display that started this is
+            # alive (`hud close`, a socket blip) and wrong once it has been
+            # replaced: the new one spawns its own listener, and this one would
+            # be the second on its socket. A listener started by launchd or
+            # nohup has a parent of 1 from the start, never changes, and keeps
+            # reconnecting as before.
+            if os.getppid() != STARTED_BY:
+                print(
+                    "the display that started this listener is gone; "
+                    "leaving the socket to the one it starts",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                return 0
             try:
                 self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 self.sock.connect(SOCKET)
@@ -3036,6 +3059,34 @@ class Listener:
         return ok, run.text, run.said, run.first_text, run.answer(), voiced
 
 
+def claim_socket(path: str) -> tuple[int | None, str]:
+    """Take the one listener slot for `path`, or say who holds it.
+
+    Two listeners on one socket both answer every request, which is BACKLOG
+    #50's other face. BobHUD's two seconds of grace (main.swift) cannot
+    prevent it: an orphan's reconnect backoff grows to five, and a slow
+    `prime()` lets the four-second spawn cooldown fire twice. A lock the
+    kernel drops when the process dies cannot go stale, which a pid file can.
+
+    Returns the open descriptor, which must stay open for the life of the
+    process, or None and the holder's pid as text.
+    """
+    lock = f"{path}.listener.lock"
+    Path(lock).parent.mkdir(parents=True, exist_ok=True)
+    # O_RDWR without O_TRUNC: a loser must be able to read the holder's pid,
+    # and truncating on open would wipe it before the lock is even tried.
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        holder = os.read(fd, 32).decode("ascii", "replace").strip()
+        os.close(fd)
+        return None, holder
+    os.ftruncate(fd, 0)
+    os.write(fd, str(os.getpid()).encode("ascii"))
+    return fd, ""
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -3075,6 +3126,17 @@ def main() -> int:
         "(~156k, 25s). Measured 2026-09-21, same question, warm.",
     )
     args = parser.parse_args()
+    # Before the prompt build, the names and the speaker, so a duplicate
+    # costs nothing on its way out.
+    held, holder = claim_socket(SOCKET)
+    if held is None:
+        print(
+            f"another listener (pid {holder or 'unknown'}) already has {SOCKET}; "
+            "leaving it to that one",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 0
     voice = None if args.voice.lower() in {"off", "none", ""} else args.voice
     dropped = scrub_inherited_session_env(os.environ)
     if dropped and args.verbose:
