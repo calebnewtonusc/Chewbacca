@@ -183,6 +183,7 @@ public final class VoiceListener {
         mode = next
         switch next {
         case .off:
+            stopWarmTimer()
             stop()
         case .wake:
             authorize { ok in if ok { self.start() } }
@@ -198,11 +199,51 @@ public final class VoiceListener {
     /// called from `setMode`, which the tests drive in a process that has no
     /// usage strings and would be killed on the first permission call.
     public func prepare() {
-        if authorized { warmUp(); return }
+        if authorized {
+            warmUp()
+            startWarmTimer()
+            return
+        }
         authorize { ok in
             self.authorized = ok
-            if ok { self.warmUp() }
+            if ok {
+                self.warmUp()
+                self.startWarmTimer()
+            }
         }
+    }
+
+    /// The on-device model is evicted after a stretch of disuse, and the next
+    /// press pays to load it. Measured 2026-09-21: a press 4h30m after launch
+    /// took 651ms from key down to the microphone opening; the press twelve
+    /// seconds later took 73ms. `warmUp()` ran once, at launch, and never
+    /// again, so the first press of every sitting paid that.
+    ///
+    /// A tenth of a second of silence every few minutes keeps it resident.
+    /// Nothing is captured: the buffer is zeros this class makes and the
+    /// microphone stays shut, exactly as in `warmUp()`.
+    private static let warmInterval: TimeInterval = 240
+    private var warmTimer: Timer?
+
+    private func startWarmTimer() {
+        warmTimer?.invalidate()
+        warmTimer = Timer.scheduledTimer(
+            withTimeInterval: Self.warmInterval, repeats: true
+        ) { [weak self] _ in
+            Task { @MainActor in self?.keepWarm() }
+        }
+    }
+
+    private func stopWarmTimer() {
+        warmTimer?.invalidate()
+        warmTimer = nil
+    }
+
+    /// Never while a turn is open. The recogniser is busy with the person's
+    /// own sentence and a second request would compete with it.
+    private func keepWarm() {
+        guard mode == .pushToTalk, task == nil, warmTask == nil else { return }
+        warmUp()
     }
 
     /// Start the system's local recognition service before it is needed.

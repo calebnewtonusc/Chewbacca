@@ -127,6 +127,17 @@ if [ -z "$IDENTITY" ]; then
   IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null |
     sed -n 's/.*"\(Chewbacca Local Signing\)".*/\1/p' | head -1)"
 fi
+# Anyone who has ever opened Xcode already has an "Apple Development" cert,
+# and it pins the requirement to the certificate exactly as the purpose-made
+# one does, without the administrator password signing-identity.sh needs.
+# Looking only for the name above is why this Mac ran ad-hoc for months with a
+# perfectly good identity sitting in its keychain, re-granting Accessibility
+# after every rebuild. Developer ID is deliberately not used: that one is for
+# distribution, and this signature never leaves the machine.
+if [ -z "$IDENTITY" ]; then
+  IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null |
+    sed -n 's/.*"\(Apple Development: [^"]*\)".*/\1/p' | head -1)"
+fi
 
 if [ -n "$IDENTITY" ]; then
   if codesign --force --sign "$IDENTITY" --identifier dev.bobthebuilder.hud "$APP" 2>/dev/null; then
