@@ -185,6 +185,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             presentFatal(error)
         }
+
+        // Start the listener at launch rather than on the first keypress.
+        //
+        // `prime()` inside it opens the model session and has the prompt read
+        // before its socket is even open, so starting it lazily means the
+        // first hold of the talk key waits for a Python start, a 70KB prompt
+        // build and a whole model round trip with the person standing there.
+        // Login is not a moment anybody is waiting on, so it is free here.
+        //
+        // Two seconds of grace first: a listener left from a previous run may
+        // still be reconnecting, and two of them on one socket both answer.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self, weak server] in
+            guard let self, let server, !server.hasSubscribers else { return }
+            _ = self.startListener()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -488,10 +503,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Self.lastSpawn = Date()
         let p = Process()
         p.executableURL = URL(fileURLWithPath: exe)
-        // Detached, and with its output discarded: this is a daemon being
-        // started, not a command being run for an answer.
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
+        // Detached, and with its output kept. It used to go to nullDevice on
+        // the grounds that this is a daemon rather than a command run for an
+        // answer, which is true and still cost hours on 2026-09-21: speech was
+        // reaching the microphone, transcribing correctly and then vanishing,
+        // and there was no record anywhere of the listener's side of it
+        // because this is where it was being thrown away. A daemon with no log
+        // is a daemon you cannot debug.
+        let logDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".chewbacca/logs")
+        try? FileManager.default.createDirectory(
+            at: logDir, withIntermediateDirectories: true)
+        let logURL = logDir.appendingPathComponent("hud-listen.log")
+        if !FileManager.default.fileExists(atPath: logURL.path) {
+            FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        }
+        if let handle = try? FileHandle(forWritingTo: logURL) {
+            // Append rather than truncate: the run before the one that broke
+            // is often the one that explains it.
+            try? handle.seekToEnd()
+            p.standardOutput = handle
+            p.standardError = handle
+        } else {
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+        }
         do { try p.run() } catch { return false }
         return true
     }
