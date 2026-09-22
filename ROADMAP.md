@@ -32,6 +32,7 @@ Each of these is a real defect someone hit, not a wish.
 | B9  | `second-brain` edges are bare `[[wikilinks]]` with no relation type, so retrieval falls back to term overlap. This is the likely cause of B8 | `skills/graph-engineering`, stage 3                                              |
 | B10 | Every memory bank only grows. No decay, no pruning, no retirement                                                                            | `research/aryaa-memory-architecture.md`, item 2                                  |
 | B11 | The portal's fn-key listener autostart builds but was never tested against a real keypress                                                   | 2026-09-21                                                                       |
+| B12 | Two indicator systems run at once. Dictation moved into the HUD, which has its own pill, but Plynn.app still runs separately drawing the legacy one (`PlynnKit/IndicatorView.swift`, the "Secure field" pill) and nothing suppresses it | observed 2026-09-21, Plynn PID confirmed running |
 
 ---
 
