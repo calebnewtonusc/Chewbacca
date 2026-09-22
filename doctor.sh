@@ -1019,6 +1019,58 @@ else
 fi
 
 # ── Hook health ───────────────────────────────────────────────────────────────
+section "MCP servers"
+
+# Every local MCP server is spawned by absolute path so startup does not hit the
+# npm registry (that cost 9.27s across six servers on 2026-09-21). Absolute paths
+# buy ~7x on boot and cost silence when node moves: an nvm upgrade changes
+# ~/.nvm/versions/node/<v>/bin/node and every one of them dies with no error the
+# user ever sees. This check is the thing that makes that loud.
+if [ -f "$HOME/.claude.json" ]; then
+  MCP_REPORT="$(python3 - <<'PYEOF' 2>/dev/null
+import json, os
+try:
+    cfg = json.load(open(os.path.expanduser("~/.claude.json"))).get("mcpServers", {})
+except Exception:
+    raise SystemExit(0)
+for name, s in sorted(cfg.items()):
+    cmd = s.get("command")
+    if not cmd or str(cmd).startswith("http") or s.get("type") in ("http", "sse"):
+        continue
+    if not (os.path.isabs(cmd) or __import__("shutil").which(cmd)):
+        print(f"MISSING\t{name}\t{cmd}"); continue
+    if os.path.isabs(cmd) and not os.access(cmd, os.X_OK):
+        print(f"MISSING\t{name}\t{cmd}"); continue
+    for a in s.get("args", []):
+        if str(a).endswith(".js") and not os.path.exists(a):
+            print(f"MISSING\t{name}\t{a}"); break
+    else:
+        print(f"OK\t{name}\t")
+PYEOF
+)"
+  if [ -z "$MCP_REPORT" ]; then
+    warn "no local MCP servers configured"
+  else
+    MCP_DEAD=0
+    while IFS=$'\t' read -r st nm path; do
+      [ -z "$nm" ] && continue
+      if [ "$st" = "MISSING" ]; then
+        MCP_DEAD=$((MCP_DEAD+1))
+        bad "MCP server '$nm' points at a path that is gone: $path" \
+          "reinstall it, or if node moved: npm i -g the package and repoint ~/.claude.json at the new node"
+      fi
+    done <<< "$MCP_REPORT"
+    MCP_OK=$(printf '%s\n' "$MCP_REPORT" | grep -c '^OK' || true)
+    [ "$MCP_DEAD" -eq 0 ] && ok "all $MCP_OK local MCP servers resolve"
+  fi
+
+  if grep -q '"command": *"npx"' "$HOME/.claude.json" 2>/dev/null; then
+    warn "an MCP server still spawns via npx, which costs a registry round-trip every session start"
+  else
+    ok "no MCP server boots through npx"
+  fi
+fi
+
 section "Hook health"
 
 HOOK_LOG="$HOME/.chewbacca/logs/hooks.log"
