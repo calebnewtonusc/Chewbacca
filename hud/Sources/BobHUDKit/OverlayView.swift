@@ -270,7 +270,9 @@ struct SurfaceCard: View {
                     .padding(9)
                     .opacity(hovering ? 1 : 0)
             }
-            .scaleEffect(dragging ? 1.02 : 1)
+            // No grow while dragged. It was a 1.02 scale, and any scale
+            // that is not 1 resamples every glyph on the card: the text went
+            // soft the moment a press moved four points (2026-09-22).
             .onHover { hovering = $0 }
             .animation(Motion.fade(0.14, reduced: reduceMotion), value: hovering)
             .animation(Motion.fade(0.12, reduced: reduceMotion), value: dragging)

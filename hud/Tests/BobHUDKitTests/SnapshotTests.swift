@@ -421,6 +421,69 @@ struct SnapshotTests {
         return made
     }
 
+    /// Words on glass, with the light turned off so only the words can
+    /// differ between two renders.
+    private func glassText(pinned: UnitPoint?, lift: CGFloat) -> some View {
+        Text("Sharp words on tilted glass")
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 40)
+            .padding(.vertical, 24)
+            .modifier(GlassSlab(
+                shape: RoundedRectangle(cornerRadius: 18, style: .continuous),
+                tilt: 5, lift: lift, pinned: pinned
+            ) { Color.black })
+            .environment(\.hudEnergy, 0)
+            .frame(width: 360, height: 120)
+            .background(Color.black)
+    }
+
+    @Test("hovering never resamples the words: the glass tilts, the text does not")
+    func hoverKeepsTextSharp() throws {
+        // 2026-09-22: "something is still making the text blurry when i
+        // hover over it". The tilt is on the glass alone and the shift is
+        // off here, so the words under a pointer in the corner must be the
+        // same pixels as the words with no pointer at all.
+        let still = try #require(render(glassText(pinned: nil, lift: 0)))
+        let hovered = try #require(render(glassText(pinned: UnitPoint(x: 0.95, y: 0.05), lift: 0)))
+        if let directory = keepDirectory {
+            write(still, to: directory.appendingPathComponent("hover-still.png"))
+            write(hovered, to: directory.appendingPathComponent("hover-pinned.png"))
+        }
+        var differing = 0
+        // The words' own box, measured at 2x on 2026-09-22 as x 193 to 528,
+        // y 110 to 135, with a margin. The slab's edges move with the tilt
+        // by design and sit outside it; a first version of this test took
+        // them in and failed on the bevel, not on a glyph.
+        for y in 104..<142 {
+            for x in 186..<536 {
+                guard let a = still.colorAt(x: x, y: y), let b = hovered.colorAt(x: x, y: y) else { continue }
+                let delta = abs(a.redComponent - b.redComponent)
+                    + abs(a.greenComponent - b.greenComponent)
+                    + abs(a.blueComponent - b.blueComponent)
+                if delta > 0.02 { differing += 1 }
+            }
+        }
+        #expect(differing == 0, "\(differing) pixels of the words changed under the pointer")
+    }
+
+    @Test("the words' shift is always a whole number of pixels")
+    func shiftIsPixelAligned() {
+        for x in stride(from: 0.0, through: 1.0, by: 0.037) {
+            for y in stride(from: 0.0, through: 1.0, by: 0.041) {
+                let slab = GlassSlab(
+                    shape: RoundedRectangle(cornerRadius: 18), lift: 1.5,
+                    pinned: UnitPoint(x: x, y: y)
+                ) { Color.clear }
+                // displayScale defaults to 1 outside a window; whole points
+                // are then whole pixels, which is the claim being tested.
+                let shift = slab.shift
+                #expect(shift.width == shift.width.rounded() && shift.height == shift.height.rounded(),
+                        "shift \(shift) at \(x),\(y) is between pixels")
+            }
+        }
+    }
+
     /// Whether two renders agree over a band of rows.
     private func same(
         _ a: NSBitmapImageRep, _ b: NSBitmapImageRep, rows: Range<Int>
