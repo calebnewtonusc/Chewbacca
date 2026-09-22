@@ -222,21 +222,6 @@ public enum Op: Sendable, Equatable {
     case mark(id: String, rect: CGRect, label: String, tone: String?, life: Double?)
     /// Take a mark off, or all of them when the id is empty.
     case unmark(id: String)
-    /// Put a dictation bubble on the glass, or move one that is already there.
-    /// Centre point, absolute, top-left origin, like `mark`.
-    case bubble(id: String, center: CGPoint, state: BubbleState?, app: String?, note: String?)
-    /// Put one up beside the pill. Nil takes the next free name.
-    ///
-    /// Separate from `bubble` because where a new bubble goes is the display's
-    /// question, not the sender's: it goes beside the pill, and the pill's
-    /// position depends on its measured width and on which display the glass is
-    /// currently on. A sender that had to compute that would get it wrong on a
-    /// second monitor.
-    case spawnBubble(id: String?)
-    /// The tidied version of what a bubble heard. Answers `b <id> clean`.
-    case bubbleInsert(id: String, text: String)
-    /// Take a bubble off, or all of them when the id is empty.
-    case unbubble(id: String)
     /// One line on the pill: a breadcrumb while working, the answer after.
     case say(String)
     /// The same line, flagged as a step: one tool call, in words. On the

@@ -12,7 +12,7 @@ import os
 /// show up as text while i speak, not some big text dump after." The bubble
 /// named a destination by hand; the caret already is one.
 ///
-/// Like the bubble, nothing here goes near a model or the router. The talk key
+/// Nothing here goes near a model or the router. The talk key
 /// without Control still asks the assistant, and the two share one microphone
 /// and one recogniser, forked by where the signals go rather than by a second
 /// listener.
@@ -32,6 +32,13 @@ final class KeyDictation {
 extension AppDelegate {
     static let keyDictation = KeyDictation()
     static let dictationLog = Logger(subsystem: "bob.hud", category: "dictation")
+
+    func setUpDictation() {
+        // Loaded at launch rather than on the first dictation, because the
+        // model takes a second or two to load and the first sentence's
+        // correction would otherwise find nothing listening.
+        Task { await Whisper.shared.warm() }
+    }
 
     /// The talk key moved. True means it was a dictation press and the
     /// assistant's handling must not also run.
@@ -55,7 +62,7 @@ extension AppDelegate {
 
     private func startKeyDictation() {
         let session = Self.keyDictation
-        guard !session.listening, dictating == nil else { return }
+        guard !session.listening else { return }
         // A password field turns secure input on, and every app that has one
         // focused does. Refused before the microphone opens.
         guard !IsSecureEventInputEnabled() else {
@@ -91,7 +98,7 @@ extension AppDelegate {
         guard session.listening, let typer = session.typer else { return false }
         switch signal {
         case .partial(let text):
-            let words = LiveText.words(Bubble.punctuate(text))
+            let words = LiveText.words(Spoken.punctuate(text))
             let stable = LiveText.stablePrefix(previous: session.previous, current: words)
             session.previous = words
             let target = stable.joined(separator: " ")
@@ -101,7 +108,7 @@ extension AppDelegate {
             if !target.isEmpty, !typer.typed.hasPrefix(target) { typer.show(target) }
 
         case .heard(let text):
-            let final = Bubble.punctuate(text)
+            let final = Spoken.punctuate(text)
             typer.show(final)
             let wav = voice.recorder?.wav16k()
             endKeyDictation()
@@ -142,7 +149,7 @@ extension AppDelegate {
                 Self.dictationLog.notice("dictation.whisper skipped")
                 return
             }
-            let corrected = Bubble.punctuate(heard)
+            let corrected = Spoken.punctuate(heard)
             guard corrected != typer.typed else { return }
             typer.show(corrected)
             Self.dictationLog.notice("dictation.whisper corrected chars=\(corrected.count)")

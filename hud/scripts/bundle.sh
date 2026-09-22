@@ -110,7 +110,8 @@ PLIST
 # 2efeddb7a49900f9f1d0d2a27e1ea2298b806558; this script rebuilt the bundle at
 # 13:40:12 as a4246cb7228c1b8662ccd2972f304ce75777334b. The switch in System
 # Settings stayed on, `AXIsProcessTrusted()` answered false, and every click of
-# the dictation bubble reopened the dialogue asking for a permission that had
+# the dictation bubble (since replaced by
+# Control-dictation) reopened the dialogue asking for a permission that had
 # already been given. Nothing the person does in System Settings can fix that,
 # because the switch is already where they put it.
 #
@@ -121,7 +122,7 @@ PLIST
 #
 # `hud/scripts/signing-identity.sh` makes one. Without it the ad-hoc branch
 # still runs and still works; the Accessibility grant is what it costs, and
-# `hud-bubble doctor` says so in those words.
+# `bin/lib/axgrant.py` says so in those words.
 IDENTITY="${CHEWBACCA_SIGN_IDENTITY:-}"
 if [ -z "$IDENTITY" ]; then
   IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null |
@@ -151,7 +152,7 @@ fi
 if [ -z "$IDENTITY" ]; then
   # The designated requirement is still spelled out, because it is what the
   # user-level grants key off and those do survive. It does not reach the
-  # system-level Accessibility row, which is the one the bubble needs.
+  # system-level Accessibility row, which is the one dictation needs.
   codesign --force --sign - --identifier dev.bobthebuilder.hud \
     --requirements '=designated => identifier "dev.bobthebuilder.hud"' "$APP" 2>/dev/null \
     || echo "  (unsigned; it will still run)"

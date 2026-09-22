@@ -83,17 +83,7 @@ public final class OverlayWindow: NSPanel {
     /// `becomesKeyOnlyIfNeeded`, set in the initialiser, is what keeps this
     /// honest: the panel takes key for a text field or a button and for nothing
     /// else.
-    public override var canBecomeKey: Bool { !(refusesKey?() ?? false) }
-
-    /// Asked whenever the panel is about to take key. True keeps it from
-    /// taking it.
-    ///
-    /// The dictation bubble needs this. A bubble click made the glass key, and
-    /// a key panel holds the keyboard even though its application is not
-    /// active, so the Command-V that puts the words into the field went to
-    /// the glass instead. On 2026-09-22 every turn into Terminal logged
-    /// `front=true glass_key=true` and nothing appeared.
-    public var refusesKey: (() -> Bool)?
+    public override var canBecomeKey: Bool { true }
 
     /// Main is different and stays false. A main window owns the menu bar and
     /// the document context, which a HUD has no business claiming.

@@ -42,57 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var reticleUp: Any?
     /// Where a reticle drag began, in screen points. Nil when not dragging.
     private var reticleOrigin: CGPoint?
-    // The dictation bubble. Internal rather than private because the whole of
-    // its behaviour lives in Dictation.swift, and stored properties cannot be
-    // added in an extension.
-    var bubbleDownMonitor: Any?
-    var bubbleDragMonitor: Any?
-    var bubbleUpMonitor: Any?
-    var localBubbleDownMonitor: Any?
-    var localBubbleDragMonitor: Any?
-    var localBubbleUpMonitor: Any?
-    /// The field each bound bubble is following, by bubble id.
-    var bubbleTargets: [String: TextTarget] = [:]
-    /// Where the field was and where the bubble was, at the moment of the
-    /// drop, so the bubble moves by the field's delta rather than jumping to
-    /// the field's own edge. See the follow loop in `Dictation.swift`.
-    var bubbleAnchors: [String: Anchor] = [:]
-
-    struct Anchor {
-        let field: CGPoint
-        let bubble: CGPoint
-    }
-    /// The bubble whose dictation turn is open, or nil. One at a time: there is
-    /// one microphone.
-    var dictating: String?
-    /// Follows every bound field at 10Hz. One task for all bubbles.
-    var bubbleFollow: Task<Void, Never>?
-    /// Which bubble is under the pointer with the button down, and where the
-    /// press landed, so a release can tell a click from a drag.
-    var bubbleDragID: String?
-    var bubbleDragFrom: CGPoint?
-    /// Where the bubble's centre is relative to the pointer, so it does not
-    /// jump to centre itself under the cursor on the first move.
-    var bubbleDragOffset: CGSize = .zero
-    /// True once a press has moved far enough to be a drag.
-    var bubbleDragMoved = false
-    /// Closes a dictation turn nobody is talking into. See `dictationSilence`.
-    var dictationQuiet: Task<Void, Never>?
-    /// Which insert each bubble is waiting on, so the clean-up hop and its
-    /// own timeout cannot both write. See `heard(_:on:)`.
-    var pendingInsert: [String: Pending] = [:]
-    var insertToken = 0
-
-    /// A sentence heard, waiting on the clean-up hop or its timeout.
-    struct Pending {
-        let token: Int
-        /// What goes in if the bridge says nothing: the transcript, punctuated
-        /// by `spoken`. Held here rather than read back off the bubble, because
-        /// the bubble's words are cleared the moment it leaves `live`.
-        let text: String
-    }
-    // `voice` is internal, not private: the dictation fork in
-    // Dictation.swift drives the same listener, and it is one microphone.
+    // `voice` is internal, not private: Control-dictation in
+    // KeyDictation.swift drives the same listener, and it is one microphone.
     let voice = VoiceListener()
     private let handTracker = HandTracker()
     /// The tone that says the press was heard. See `Earcon`.
@@ -131,7 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setUpCommandBar()
         setUpChat()
         setUpReticle()
-        setUpBubbles()
+        setUpDictation()
         setUpHands()
         setUpMenuBar()
         setUpKeys()
@@ -158,12 +109,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             switch event {
             case .heard, .typed:
                 Task { @MainActor in self?.reportNobodyListening() }
-            case .clean(let id, _):
-                // A bubble is holding a sentence waiting for a tidied version
-                // from a bridge that is not there. Waiting out the budget would
-                // be 1.5 seconds of nothing happening in front of somebody who
-                // just finished speaking.
-                Task { @MainActor in self?.nobodyToClean(id) }
             default:
                 // A click on a panel nobody is listening to is not worth a
                 // notice: the control already wrote to the panel's own data and
@@ -211,11 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             localMouseMonitor, clickMonitor, localClickMonitor, flagsMonitor,
             localFlagsMonitor, barMonitor,
             reticleDown, reticleDrag, reticleUp,
-            bubbleDownMonitor, bubbleDragMonitor, bubbleUpMonitor,
-            localBubbleDownMonitor, localBubbleDragMonitor, localBubbleUpMonitor,
         ]
-        bubbleFollow?.cancel()
-        dictationQuiet?.cancel()
         for monitor in monitors.compactMap({ $0 }) {
             NSEvent.removeMonitor(monitor)
         }
@@ -242,14 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .line(let line):
             do {
                 if let op = try LineParser.parse(line) {
-                    // The one op the display answers itself rather than
-                    // drawing: it finishes a dictation turn that is already in
-                    // flight, and the model holds no part of that.
-                    if case .bubbleInsert(let id, let text) = op {
-                        cleaned(id, text)
-                    } else {
-                        model.apply(op)
-                    }
+                    model.apply(op)
                     updateInteractive()
                 }
             } catch {
@@ -581,12 +515,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         voice.onSignal = { [weak self] signal in
             Task { @MainActor in
                 guard let self else { return }
-                // A turn the person started by clicking a bubble belongs to
-                // that bubble and to nothing else: the words go in the field
-                // they pointed at, and the pill, the presence band and the
-                // socket all stay out of it. See `Dictation.swift`.
-                if self.dictating != nil || Self.keyDictation.listening,
-                   self.dictationSignal(signal) { return }
+                // A Control-dictation turn belongs to the field at the caret
+                // and to nothing else: the pill, the presence band's own
+                // handling and the socket all stay out of it.
+                if Self.keyDictation.listening, self.keyDictationSignal(signal) { return }
                 switch signal {
                 case .listening(let on):
                     // Voice.swift sends `.heard` and then `.listening(false)`,
@@ -888,9 +820,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// pointer on another display is nowhere the band can reach.
     private func trackPointer() {
         let mouse = NSEvent.mouseLocation
-        if !model.bubbles.isEmpty {
-            model.hoverBubble(model.bubble(at: Self.flipped(mouse))?.id)
-        }
         guard let screen = OverlayWindow.active, screen.frame.contains(mouse) else {
             model.point(at: nil, aspect: 1)
             return
