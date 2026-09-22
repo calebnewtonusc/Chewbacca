@@ -243,7 +243,16 @@ and an ad-hoc signature names only the binary's hash; that happened on
 2026-09-21 (granted at 05:13:59, rebuilt at 13:40:12). `bin/lib/axgrant.py`
 names that state and `hud/scripts/signing-identity.sh` ends it by signing with a
 certificate that outlives the build. `dictation` and `whisper` lines in
-`log show --predicate 'subsystem == "bob.hud"'` say what each turn did.
+`log show --predicate 'subsystem == "bob.hud"'` say what each turn did, and a
+skipped correction says why (`reason=next_turn|app_changed|key_pressed|empty|
+short|too_long|repeating`). Use `/usr/bin/log`: a shell function named `log`
+shadows it in some shells and returns nothing.
+
+The on-device recogniser starts its transcript over after every pause, and the
+final holds only the last segment. `Segments` stitches them back in the
+listener, for dictation and the assistant alike; a `voice.segment` line marks
+each join. Whisper's answer is sized against the audio's length, never against
+what the recogniser kept.
 
 ## Guiding a person
 
