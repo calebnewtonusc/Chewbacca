@@ -173,6 +173,12 @@ public struct OverlayView: View {
             }
         }
         .animation(Motion.spring(0.30, 0.80, reduced: reduceMotion), value: model.revision)
+        .environment(\.hudEnergy, model.presence.energy)
+        .task {
+            // The screen behind the pill, for its lens and its ink. Only
+            // while the pill is up; nothing is sampled otherwise.
+            await BackdropSampler.shared.follow { [model] in model.pillFrame }
+        }
         .ignoresSafeArea()
     }
 }
@@ -258,7 +264,7 @@ struct SurfaceCard: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .modifier(SurfaceChrome(chrome: surface.chrome, lit: lit))
+            .modifier(SurfaceChrome(chrome: surface.chrome, lit: lit, urgency: surface.urgency))
             .overlay(alignment: .topTrailing) {
                 CloseButton(action: onDismiss)
                     .padding(9)
@@ -311,6 +317,8 @@ struct SurfaceCard: View {
 struct SurfaceChrome: ViewModifier {
     let chrome: Chrome
     let lit: Bool
+    /// How thick the glass is and what pools in it. See `Urgency.thickness`.
+    var urgency: Urgency = .normal
 
     func body(content: Content) -> some View {
         switch chrome {
@@ -339,35 +347,8 @@ struct SurfaceChrome: ViewModifier {
     /// the snapshot tests are what keep it honest.
     private func card(_ content: Content) -> some View {
         content
-            .background {
-                ZStack {
-                    VisualEffect(material: .hudWindow, blending: .behindWindow)
-                    // 0.55 shipped; 0.41 is a quarter less wash, asked for on
-                    // 2026-09-19 as "25% more glassy". The snapshot tests over
-                    // a white ground are what say whether it is still a card.
-                    Color.black.opacity(0.41)
-                    // The sheen, straight from the capsule: a wash off the top
-                    // edge, gone by the middle.
-                    LinearGradient(
-                        colors: [.white.opacity(0.14), .clear],
-                        startPoint: .top, endPoint: .center)
-                }
-            }
-            .clipShape(shape)
-            .modifier(LiquidGlass(shape: shape))
-            .overlay {
-                // Bright at the top, almost gone a third of the way down, and
-                // back at the bottom. The return is the thickness.
-                shape.strokeBorder(
-                    LinearGradient(
-                        stops: [
-                            .init(color: .white.opacity(0.62), location: 0),
-                            .init(color: .white.opacity(0.10), location: 0.35),
-                            .init(color: .white.opacity(0.26), location: 1),
-                        ],
-                        startPoint: .top, endPoint: .bottom),
-                    lineWidth: 1)
-            }
+            // Before the slab, so the accent leans with the glass it is
+            // printed on instead of hanging still above a tilted card.
             .overlay(alignment: .top) {
                 // The accent, kept to a short segment rather than the full
                 // width, so it reads as a light source and not as a rule.
@@ -378,7 +359,20 @@ struct SurfaceChrome: ViewModifier {
                     .padding(.horizontal, 28)
                     .opacity(lit ? 1 : 0)
             }
-            .shadow(color: .black.opacity(0.5), radius: 30, y: 14)
+            .modifier(GlassSlab(
+                shape: shape, glow: urgency.glow, rim: 0.73, thickness: urgency.thickness
+            ) {
+                ZStack {
+                    VisualEffect(material: .hudWindow, blending: .behindWindow)
+                    // 0.55 shipped; 0.41 was "25% more glassy" on 2026-09-19;
+                    // 0.34 is "more translucent" on 2026-09-22, with the
+                    // bevel and the outer hairline now holding the edge that
+                    // the wash used to. Urgency moves it either side. The
+                    // snapshot tests over a white ground are what say
+                    // whether it is still a card.
+                    Color.black.opacity(urgency.wash)
+                }
+            })
     }
 
     /// The corner radius every surface shares.

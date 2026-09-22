@@ -122,6 +122,12 @@ struct PillView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
+    private var backdrop: BackdropSampler { .shared }
+    /// Whether what is behind the pill is light enough that white ink would
+    /// be white on white. Measured, so it is false until a sample exists.
+    private var darkInk: Bool {
+        (backdrop.luminance ?? 0) > BackdropSampler.lightGround
+    }
     /// Whether the completion sweep has faded. Flipped by the phase task, so
     /// the bar finishes in colour and then gets out from under the answer.
     @State private var sweepFaded = false
@@ -185,7 +191,9 @@ struct PillView: View {
                 // White on clear glass is white on whatever is behind it. The
                 // shadow is the legibility: 0.45 at two points is the least
                 // that still reads over a white page. Guessed, never measured.
-                .shadow(color: .black.opacity(0.45), radius: 2, y: 1)
+                // Over a measured light ground the ink is dark instead and
+                // the shadow turns to a faint lift of white.
+                .shadow(color: darkInk ? .white.opacity(0.4) : .black.opacity(0.45), radius: 2, y: 1)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
                 .id(line)
@@ -198,10 +206,10 @@ struct PillView: View {
             if state.queued > 0 {
                 Text("+\(state.queued)")
                     .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ink)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Capsule().fill(.white.opacity(0.18)))
+                    .background(Capsule().fill(ink.opacity(0.18)))
                     .accessibilityLabel("\(state.queued) waiting")
             }
 
@@ -225,44 +233,29 @@ struct PillView: View {
                         value: progress)
             }
         }
-        .background {
-            // No frost and no wash: the screen through the glass. Three
-            // layers make it glass rather than nothing. A tint of white, so
-            // the capsule exists over black; light entering from the top
-            // left and gone by the middle; and an underside that darkens
-            // where a lens thickens. 0.10, 0.30 and 0.14 are guessed against
-            // the eye on 2026-09-19, never measured.
+        // No frost and no wash: the screen through the glass. A tint of
+        // white so the capsule exists over black, and an underside that
+        // darkens where a lens thickens; the slab adds the bevel, gloss,
+        // light and shadows every surface shares. 0.10 and 0.14 are guessed
+        // against the eye on 2026-09-19, never measured.
+        .modifier(GlassSlab(shape: shape, glow: presence.tint, tilt: 5, clear: true) {
             ZStack {
+                // The screen behind, bent through the capsule, once Screen
+                // Recording allows it. Drawn past the edge by the bleed so
+                // the lens pulls in from outside, and clipped by the slab.
+                if let lens = backdrop.lens {
+                    Image(decorative: lens, scale: 1)
+                        .resizable()
+                        .padding(-BackdropSampler.bleed)
+                }
                 // A touch brighter under the pointer: the one hint that the
                 // capsule opens. 0.16 against 0.10, guessed, never measured.
                 Color.white.opacity(hovering ? 0.16 : 0.10)
                 LinearGradient(
-                    colors: [.white.opacity(0.30), .clear],
-                    startPoint: .topLeading, endPoint: .center)
-                LinearGradient(
                     colors: [.clear, .black.opacity(0.14)],
                     startPoint: .center, endPoint: .bottom)
             }
-        }
-        .clipShape(shape)
-        .modifier(LiquidGlass(shape: shape, clear: true))
-        .overlay {
-            // The rim is most of what says glass on a clear capsule: bright
-            // along the top where the light enters, nearly gone a third of
-            // the way down, back along the bottom. The return is thickness.
-            shape.strokeBorder(
-                LinearGradient(
-                    stops: [
-                        .init(color: .white.opacity(0.85), location: 0),
-                        .init(color: .white.opacity(0.18), location: 0.4),
-                        .init(color: .white.opacity(0.45), location: 1),
-                    ],
-                    startPoint: .top, endPoint: .bottom),
-                lineWidth: 1)
-        }
-        // Lifts a clear object off the screen, which nothing else on it can.
-        // Guessed, never measured.
-        .shadow(color: .black.opacity(0.24), radius: 16, y: 6)
+        })
         // The whole capsule is the button. The X inside it is a Button of
         // its own and wins the click, so this only fires on the glass.
         .contentShape(shape)
@@ -273,7 +266,8 @@ struct PillView: View {
         }
         .animation(Motion.fade(0.14, reduced: reduceMotion), value: hovering)
         .animation(Motion.fade(0.18, reduced: reduceMotion), value: line)
-        .environment(\.colorScheme, .dark)
+        .environment(\.colorScheme, darkInk ? .light : .dark)
+        .animation(Motion.fade(0.3, reduced: reduceMotion), value: darkInk)
         .task(id: state.phase) {
             sweepFaded = false
             guard state.phase == .saying || state.phase == .failed else { return }
@@ -298,8 +292,8 @@ struct PillView: View {
             // White digits on the glass; near-black ones on the amber plate,
             // because white on HUD.warn is 1.5:1 and a phone camera cannot
             // read it.
-            .foregroundStyle(late ? .black.opacity(0.85) : HUD.ink.opacity(0.78))
-            .shadow(color: .black.opacity(late ? 0 : 0.45), radius: 2, y: 1)
+            .foregroundStyle(late ? .black.opacity(0.85) : ink.opacity(0.78))
+            .shadow(color: darkInk ? .white.opacity(late ? 0 : 0.4) : .black.opacity(late ? 0 : 0.45), radius: 2, y: 1)
             .padding(.horizontal, late ? 5 : 0)
             .padding(.vertical, late ? 1 : 0)
             // Past p90 the counter sits on amber rather than turning amber:
@@ -353,7 +347,8 @@ struct PillView: View {
     }
 
     private var ink: Color {
-        isTranscript ? HUD.ink.opacity(0.78) : HUD.ink
+        let base: Color = darkInk ? .black.opacity(0.86) : HUD.ink
+        return isTranscript ? base.opacity(0.78) : base
     }
 
     private var helpText: String {

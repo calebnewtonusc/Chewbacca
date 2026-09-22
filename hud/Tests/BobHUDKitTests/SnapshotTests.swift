@@ -173,6 +173,42 @@ struct SnapshotTests {
         #expect(drawn > 0.25, "a dashboard covered only \(drawn) of the frame")
     }
 
+    @Test("a card draws at every urgency, over the light ground", arguments: Urgency.allCases)
+    func cardDrawsAtUrgency(urgency: Urgency) {
+        // The ambient sheet carries the thinnest wash of any card, so it is
+        // the one that could fade into a white page. Over the light ground
+        // on purpose.
+        let drawn = coverage(
+            "surface-card-\(urgency)", size: CGSize(width: 480, height: 430), ground: .light
+        ) {
+            SurfaceCard(
+                surface: OverlaySurface(
+                    id: "s", store: dashboard, region: .center, width: 400,
+                    slot: 0, depth: 0, urgency: urgency, chrome: .card),
+                onDismiss: {}, onDrag: { _ in }, onGrab: {})
+                .frame(width: 400)
+        }
+        #expect(drawn > 0.25, "an \(urgency) card covered only \(drawn) of the frame")
+    }
+
+    @Test("the glass thickens and darkens as urgency rises")
+    func urgencyOrdersTheGlass() {
+        let levels = Urgency.allCases
+        for (quieter, louder) in zip(levels, levels.dropFirst()) {
+            #expect(quieter.thickness < louder.thickness)
+            #expect(quieter.wash < louder.wash)
+        }
+    }
+
+    @Test("the glass is never fully dark, and full only when something is happening")
+    func energyFollowsPresence() {
+        for presence in Presence.allCases {
+            #expect(presence.energy > 0 && presence.energy <= 1)
+        }
+        #expect(Presence.dormant.energy < Presence.attentive.energy)
+        #expect(Presence.attentive.energy < Presence.thinking.energy)
+    }
+
     @Test("a bare surface draws even with no panel behind it", arguments: Ground.allCases)
     func bareDraws(ground: Ground) {
         // The one most likely to come out invisible, because it is defined by

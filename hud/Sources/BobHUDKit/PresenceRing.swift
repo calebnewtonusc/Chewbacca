@@ -96,6 +96,17 @@ struct PresenceRing: View {
             Circle()
                 .stroke(presence.tint.opacity(0.22), lineWidth: 1.5)
 
+            // A glass bead inside the ring, lit from the top left like every
+            // slab it sits on, so the one object that is always on screen
+            // has a volume and not just an outline. Static: the motion
+            // signature stays the arc's alone.
+            Circle()
+                .fill(EllipticalGradient(
+                    colors: [.white.opacity(0.55), presence.tint.opacity(0.45), presence.tint.opacity(0.08)],
+                    center: UnitPoint(x: 0.34, y: 0.3),
+                    startRadiusFraction: 0, endRadiusFraction: 0.75))
+                .padding(4)
+
             arc
         }
         .frame(width: size, height: size)
