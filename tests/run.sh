@@ -355,6 +355,21 @@ if group "installer"; then
   check  "kit-debt fires when a session taught the kit nothing" \
     bash "$ROOT/tests/kit_debt.sh" "$ROOT"
 
+  # Six hooks were on disk and registered nowhere on 2026-09-22, including the
+  # two built after Caleb had to ask for the same thing four times. A hook the
+  # installer never registers is a feature that has never run.
+  check  "every hook is registered by setup.sh" \
+    bash "$ROOT/tests/hooks_registered.sh"
+
+  # An automatic pull is only acceptable if it cannot eat uncommitted work.
+  check  "kit-autopull refuses dirty, branched and diverged checkouts" \
+    bash "$ROOT/tests/kit_autopull.sh" "$ROOT"
+
+  # The two checksum tools drifted and the verifier reported main as broken
+  # while every hash matched, which blocked auto-push for everyone.
+  check  "both checksum tools cover the same patterns" \
+    bash "$ROOT/tests/checksum_patterns.sh" "$ROOT"
+
   # The guard existed since 18:49 and commit 4a0b1df still absorbed another
   # session's files at 21:44. mtime cannot separate two live sessions.
   check  "pre-commit refuses an index holding two sessions' work" \

@@ -191,6 +191,33 @@ fi
 
 # A failed push is the whole reason this hook exists, so it is never silent.
 note "PUSH FAILED, $AHEAD commit(s) still local: $(printf '%s' "$PUSH_ERR" | tr '\n' ' ' | cut -c1-300)"
+
+# EXCEPT WHEN THE ANSWER IS "YOU DO NOT OWN THIS REPO", which is the normal
+# state for anybody who cloned this kit rather than forking it. That is not a
+# fault to report once a turn for the rest of their life; it is a fact about
+# their remote that will not change until they do something about it. Say it
+# once, clearly, then stay quiet.
+case "$PUSH_ERR" in
+  *"Permission"*|*"permission denied"*|*"403"*|*"Authentication failed"*|*"not have access"*|*"does not appear to be a git repo"*)
+    DENIED_STAMP="$LOG_DIR/.autopush-denied"
+    if [ -f "$DENIED_STAMP" ]; then
+      exit 0
+    fi
+    : > "$DENIED_STAMP" 2>/dev/null || true
+    python3 <<'PY2'
+import json
+print(json.dumps({"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": (
+    "Kit auto-push is on by default, and this checkout has no push access to its "
+    "origin, which is what happens when the kit is cloned rather than forked. "
+    "Local commits will stay local. To turn auto-push into something useful here, "
+    "fork the repo and point origin at the fork:\n"
+    "  gh repo fork --remote=false && git remote set-url origin <your fork>\n"
+    "Auto-pull is unaffected and keeps working. This message is shown once."
+)}}))
+PY2
+    exit 0
+    ;;
+esac
 PUSH_ERR="$PUSH_ERR" AHEAD="$AHEAD" python3 <<'PY'
 import json, os
 err = " ".join(os.environ.get("PUSH_ERR", "").split())[:300]

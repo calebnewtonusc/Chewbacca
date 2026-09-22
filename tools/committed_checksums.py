@@ -26,7 +26,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 # Kept in step with tools/checksums.py. A pattern added there and not here
 # means a file the installer verifies that this never looks at.
-PATTERNS = ("*.sh", "*.ps1", "bin/*", "bin/lib/*", "tools/*.py", ".claude/hooks/*.sh")
+PATTERNS = ("*.sh", "*.ps1", "bin/*", "bin/lib/*", "tools/*.py", ".claude/hooks/*.sh",
+            "runtimes/*.json")
 MANIFEST = "SHA256SUMS.txt"
 
 
