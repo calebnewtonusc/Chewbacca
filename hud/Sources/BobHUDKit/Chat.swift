@@ -213,11 +213,13 @@ struct ChatPanel: View {
         // ground, and a page of white text over a white document is the
         // failure the cards' wash was tuned against.
         .modifier(SurfaceChrome(chrome: .card, lit: true))
+        .environment(\.hudEnergy, model.presence.energy)
         .environment(\.colorScheme, .dark)
-        // The pill growing into the panel: from the bottom, where the pill
-        // was, a hair smaller and clear, into place.
-        .scaleEffect(shown || offscreen ? 1 : 0.96, anchor: .bottom)
-        .opacity(shown || offscreen ? 1 : 0)
+        // The pill growing into the panel. The panel opens standing where
+        // the pill stood, so it starts as a capsule the pill's size at the
+        // bottom and opens out to its own frame; the words fade in once
+        // there is room for them.
+        .modifier(GrowFromPill(progress: shown || offscreen ? 1 : 0, from: model.pillSize))
         .onChange(of: model.chatOpenings, initial: true) { _, _ in enter() }
         .onAppear { focused = true }
         .onExitCommand { onClose() }
@@ -591,5 +593,59 @@ struct FlowLayout: Layout {
             widest = max(widest, x - spacing)
         }
         return (CGSize(width: widest, height: y + rowHeight), origins)
+    }
+}
+
+/// The conversation panel opening out of the pill.
+///
+/// A mask, not a scale: scaling the panel from the pill's size would squash
+/// its text into a smear on the way up, and a mask shows the glass growing
+/// with the words already in place behind it. It was a 0.96 scale and a fade
+/// until 2026-09-22, which read as a second thing arriving rather than the
+/// pill becoming the panel.
+nonisolated struct GrowFromPill: ViewModifier, Animatable {
+    var progress: Double
+    /// The pill as it was last measured, or `fallback` if it never was.
+    var from: CGSize = .zero
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    /// The pill at one line. Its width is `PillView.maxWidth` at most and
+    /// usually less, so this is the size a person has seen it at most.
+    /// Guessed, never measured.
+    static let fallback = CGSize(width: 320, height: 34)
+    /// How far past the panel the mask ends once open, so the glass's own
+    /// shadow is not cut off at the window's edge by the thing revealing it.
+    static let spill: CGFloat = 40
+
+    func body(content: Content) -> some View {
+        let p = min(max(progress, 0), 1)
+        let pill = from == .zero ? Self.fallback : from
+        return content
+            // Nothing readable until the capsule is most of the way open.
+            .opacity(min(1, max(0, (p - 0.15) / 0.5)))
+            .mask {
+                GeometryReader { proxy in
+                    let full = proxy.size
+                    let width = lerp(pill.width, full.width + Self.spill * 2, p)
+                    let height = lerp(pill.height, full.height + Self.spill * 2, p)
+                    RoundedRectangle(
+                        cornerRadius: lerp(pill.height / 2, SurfaceChrome.radius, p),
+                        style: .continuous)
+                        .frame(width: width, height: height)
+                        .position(
+                            x: full.width / 2,
+                            // Pinned to the bottom, where the pill was, until
+                            // the spill takes it past the edge.
+                            y: full.height - height / 2 + Self.spill * p)
+                }
+            }
+    }
+
+    private func lerp(_ a: CGFloat, _ b: CGFloat, _ t: Double) -> CGFloat {
+        a + (b - a) * CGFloat(t)
     }
 }
