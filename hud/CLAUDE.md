@@ -223,56 +223,27 @@ deliberate and it is the rule that makes the layer trustworthy: a mark that
 outlives what it described is worse than no mark, because the person learns to
 disbelieve all of them.
 
-## The dictation bubble
+## Dictation
 
-A mark says "look here". A bubble says "the words go here".
+Hold Control, then the talk key, and talk: the words are typed at the caret of
+whatever app is in front, as they are spoken. A word goes in once it has
+survived one revision of the recogniser, so the text does not shiver. On
+release a local whisper.cpp server (`~/.bob/whisper/`, 127.0.0.1:8178, started
+by the display at launch) reads the whole sentence again with the person's
+vocabulary as its prompt and corrects it in place, but only if the same app is
+still in front and no key has been pressed since.
 
-```
-b                           one, beside the pill
-b <id>                      that one, beside the pill
-b <id> <x> <y> [state=] [app=] [note=]   move it, and restate it
-b <id> insert "<text>"      put this text in the field it is bound to
-b <id> off                  take it down
-b clear                     take them all down
-```
+Nothing about it goes up the socket and no model reads it: the talk key without
+Control asks the assistant, and with Control it types. Do not draw anything for
+it and do not type on the person's behalf.
 
-The person drags it onto any text box in any application, clicks it, and talks.
-The words go in that box: no model reads them, no router sees them, and nothing
-about it touches the talk key. That is the whole point of it. Holding the talk
-key sends a sentence to the assistant, which decides what you meant, and on
-2026-09-21 "create a bubble" with Terminal in front came back as an offer to
-draft a terminal prompt. The bubble is a destination named by hand instead of
-guessed.
-
-So **do not put one up in the middle of something else**, and do not use it to
-type on their behalf. `b <id> insert` exists to answer `b <id> clean`, which is
-the display asking for one sentence to be punctuated. Use `bin/hud-bubble` from
-the command line rather than the socket:
-
-```bash
-hud-bubble new      # one on the glass
-hud-bubble clear    # all of them down
-hud-bubble doctor   # whether it can work on this machine
-```
-
-The display needs macOS Accessibility permission for the bubble and nothing
-else, so the first bubble of a fresh install can be refused with everything else
-working. `hud-bubble doctor` says which, and `bubble.bind` lines in
-`log show --predicate 'subsystem == "bob.hud" AND category == "bubble"'` say why
-a bind failed.
-
-A granted permission can still be refused, and this is the one failure the
-person cannot see. macOS stores a code requirement rather than an app, and an
-ad-hoc signature gives it nothing to name but the binary's own hash, so a
-rebuild leaves the switch in System Settings on and the app untrusted. That
-happened on 2026-09-21: granted at 05:13:59, rebuilt at 13:40:12, three
-`bubble.bind refused` lines, and a dialogue asking for a permission that was
-already given. `hud-bubble doctor` names that state instead of sending someone
-back to a switch that is already correct, `hud-bubble doctor --repair` clears
-the dead grant, and `hud/scripts/signing-identity.sh` ends it for good by
-signing with a certificate that outlives the build.
-
-Twelve marks maximum. Past a dozen the screen is not annotated, it is hatched.
+It needs macOS Accessibility for BobHUD, to post key events. A rebuild can leave
+that switch on and the app untrusted, because macOS stores a code requirement
+and an ad-hoc signature names only the binary's hash; that happened on
+2026-09-21 (granted at 05:13:59, rebuilt at 13:40:12). `bin/lib/axgrant.py`
+names that state and `hud/scripts/signing-identity.sh` ends it by signing with a
+certificate that outlives the build. `dictation` and `whisper` lines in
+`log show --predicate 'subsystem == "bob.hud"'` say what each turn did.
 
 ## Guiding a person
 

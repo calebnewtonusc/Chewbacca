@@ -9,7 +9,8 @@
 # app is refused: on 2026-09-21 the grant pinned
 # 2efeddb7a49900f9f1d0d2a27e1ea2298b806558 at 05:13:59 and the bundle rebuilt
 # at 13:40:12 as a4246cb7228c1b8662ccd2972f304ce75777334b, so every click of
-# the dictation bubble reopened a dialogue asking for a permission that had
+# the dictation bubble (since replaced by
+# Control-dictation) reopened a dialogue asking for a permission that had
 # already been given.
 #
 # With a certificate the requirement names the certificate and the bundle
@@ -91,6 +92,6 @@ sleep 1
 open -a /Applications/BobHUD.app
 
 echo
-echo "Ask for a bubble, drop it on a text box, and click it. macOS asks for"
+echo "Hold Control and the talk key in a text box and talk. macOS asks for"
 echo "Accessibility once more. Switch BobHUD on, and that answer now holds"
 echo "through every rebuild after this one."
