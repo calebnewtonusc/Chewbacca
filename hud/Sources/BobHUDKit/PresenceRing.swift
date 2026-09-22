@@ -113,7 +113,7 @@ struct PresenceRing: View {
         .opacity(presence == .dormant ? 0.25 : 1)
         .scaleEffect(breathScale)
         .shadow(color: presence.tint.opacity(glow), radius: 6)
-        .animation(.easeInOut(duration: 0.35), value: presence)
+        .animation(Motion.fade(0.35, reduced: reduceMotion), value: presence)
         .onAppear { restart() }
         .onChange(of: presence) { _, _ in restart() }
         .accessibilityLabel("Chewbacca \(presence.rawValue)")
@@ -166,7 +166,7 @@ struct PresenceRing: View {
                         .easeInOut(duration: 1.2).repeatForever(autoreverses: false),
                         reduced: reduceMotion),
                     value: spinning)
-                .animation(.easeInOut(duration: 0.3), value: acting)
+                .animation(Motion.snappy(reduced: reduceMotion), value: acting)
 
         case .attention, .failed:
             // Two pulses, then hold at high contrast. Never more than two: a

@@ -64,7 +64,7 @@ struct TurnView: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
         .padding(.leading, 56)
         .onHover { hovering = $0 }
-        .animation(Motion.fade(0.14, reduced: reduceMotion), value: hovering)
+        .animation(Motion.hover(reduced: reduceMotion), value: hovering)
         .accessibilityElement(children: .combine)
         .accessibilityLabel((turn.typed ? "You typed " : "You said ") + turn.text)
     }
@@ -99,7 +99,7 @@ struct TurnView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.trailing, 20)
         .onHover { hovering = $0 }
-        .animation(Motion.fade(0.14, reduced: reduceMotion), value: hovering)
+        .animation(Motion.hover(reduced: reduceMotion), value: hovering)
         .accessibilityElement(children: .combine)
     }
 
@@ -141,7 +141,7 @@ struct StepsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button {
-                withAnimation(Motion.spring(0.30, 0.85, reduced: reduceMotion)) { open.toggle() }
+                withAnimation(Motion.snappy(reduced: reduceMotion)) { open.toggle() }
             } label: {
                 HStack(spacing: 6) {
                     if live {
@@ -231,6 +231,8 @@ struct Shimmer: ViewModifier {
                     .mask(content)
                 }
                 .onAppear {
+                    // A sweep that never ends is movement that never ends.
+                    guard !Motion.systemReduced else { return }
                     withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) {
                         phase = 1
                     }
@@ -293,7 +295,7 @@ struct IconButton: View {
         .buttonStyle(Press())
         .opacity(enabled ? 1 : 0.35)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovering)
+        .animation(Motion.hover(reduced: Motion.systemReduced), value: hovering)
         .help(help)
         .accessibilityLabel(help)
     }
@@ -342,8 +344,8 @@ struct SwitchStyle: ToggleStyle {
         .buttonStyle(Press())
         .opacity(enabled ? 1 : 0.35)
         .onHover { hovering = $0 }
-        .animation(Motion.fade(0.18, reduced: reduceMotion), value: configuration.isOn)
-        .animation(.easeOut(duration: 0.12), value: hovering)
+        .animation(Motion.snappy(reduced: reduceMotion), value: configuration.isOn)
+        .animation(Motion.hover(reduced: Motion.systemReduced), value: hovering)
         .accessibilityAddTraits(.isToggle)
         .accessibilityValue(configuration.isOn ? "on" : "off")
     }
@@ -354,7 +356,7 @@ struct Press: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.92 : 1)
-            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+            .animation(Motion.press(reduced: Motion.systemReduced), value: configuration.isPressed)
     }
 }
 
@@ -377,6 +379,6 @@ struct Chip: View {
         }
         .buttonStyle(Press())
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovering)
+        .animation(Motion.hover(reduced: Motion.systemReduced), value: hovering)
     }
 }

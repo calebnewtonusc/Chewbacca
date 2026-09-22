@@ -458,7 +458,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         model.onChatClose = { [weak self] in
             guard let self, let chat = self.chat else { return }
-            if chat.isVisible { chat.orderOut(nil) }
+            chat.conceal()
             self.restoreFocus()
         }
     }

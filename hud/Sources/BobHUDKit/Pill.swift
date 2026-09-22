@@ -264,7 +264,7 @@ struct PillView: View {
             hovering = over
             if over { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
-        .animation(Motion.fade(0.14, reduced: reduceMotion), value: hovering)
+        .animation(Motion.hover(reduced: reduceMotion), value: hovering)
         .animation(Motion.fade(0.18, reduced: reduceMotion), value: line)
         .environment(\.colorScheme, darkInk ? .light : .dark)
         .animation(Motion.fade(0.3, reduced: reduceMotion), value: darkInk)

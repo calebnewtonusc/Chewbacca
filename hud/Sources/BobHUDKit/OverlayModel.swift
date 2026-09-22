@@ -1051,9 +1051,74 @@ public final class OverlayModel {
         y = min(y, maxY)
 
         // `.position` places a centre, so hand back the centre of the frame,
-        // plus wherever the person has dragged it.
+        // plus wherever the person has dragged it. Past the edge of the
+        // screen the drag meets resistance instead of a wall: the card keeps
+        // following the hand, a third as far, so it is plain that it has hit
+        // something and just as plain that it has not stuck. `settle` puts
+        // it back inside when the hand lets go.
+        let centre = CGPoint(x: x + width / 2, y: y + height / 2)
+        let bounds = dragBounds(centre: centre, width: width, height: height, screen: screen)
         return CGPoint(
-            x: x + width / 2 + surface.drag.width,
-            y: y + height / 2 + surface.drag.height)
+            x: centre.x + Self.resist(surface.drag.width, within: bounds.x),
+            y: centre.y + Self.resist(surface.drag.height, within: bounds.y))
+    }
+
+    /// A third. The figure iOS scroll views give an overscroll feels right
+    /// at the edge of a list and wrong here, where the card is the whole
+    /// object being moved; a third keeps it clearly attached to the pointer.
+    /// Guessed against the eye, never measured.
+    static let resistance: CGFloat = 0.33
+    /// How much of a card must stay on the glass, in points: enough to grab
+    /// again. Its title row is about 40 tall, so the top can never go above
+    /// the usable area at all.
+    static let keepVisible: CGFloat = 80
+
+    /// How far a drag may go each way before it meets resistance, as ranges
+    /// of the drag offset rather than of screen position.
+    private func dragBounds(
+        centre: CGPoint, width: CGFloat, height: CGFloat, screen: NSScreen
+    ) -> (x: ClosedRange<CGFloat>, y: ClosedRange<CGFloat>) {
+        let full = screen.frame
+        let usable = screen.visibleFrame
+        let top = full.maxY - usable.maxY
+        let bottom = usable.minY - full.minY
+        let minCentreX = usable.minX - full.minX - width / 2 + Self.keepVisible
+        let maxCentreX = usable.maxX - full.minX + width / 2 - Self.keepVisible
+        let minCentreY = top + height / 2
+        let maxCentreY = full.height - bottom + height / 2 - Self.keepVisible
+        return (
+            (minCentreX - centre.x)...max(minCentreX - centre.x, maxCentreX - centre.x),
+            (minCentreY - centre.y)...max(minCentreY - centre.y, maxCentreY - centre.y))
+    }
+
+    /// A drag offset with everything past the range scaled down.
+    static func resist(_ value: CGFloat, within range: ClosedRange<CGFloat>) -> CGFloat {
+        if value < range.lowerBound {
+            return range.lowerBound - (range.lowerBound - value) * resistance
+        }
+        if value > range.upperBound {
+            return range.upperBound + (value - range.upperBound) * resistance
+        }
+        return value
+    }
+
+    /// Where a drag comes to rest: the offset clamped inside the screen, so
+    /// the resistance is released rather than kept. The caller animates it.
+    public func settle(_ id: String, at translation: CGSize) {
+        guard let index = surfaces.firstIndex(where: { $0.id == id }),
+              let screen = OverlayWindow.active
+        else { return }
+        let surface = surfaces[index]
+        let resting = origin(for: {
+            var copy = surface
+            copy.drag = .zero
+            return copy
+        }())
+        let height = heights[id] ?? 120
+        let bounds = dragBounds(centre: resting, width: surface.width, height: height, screen: screen)
+        surfaces[index].drag = CGSize(
+            width: min(max(translation.width, bounds.x.lowerBound), bounds.x.upperBound),
+            height: min(max(translation.height, bounds.y.lowerBound), bounds.y.upperBound))
+        revision += 1
     }
 }

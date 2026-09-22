@@ -55,7 +55,7 @@ struct TerminalStripView: View {
                 pushedCursor = false
             }
         }
-        .animation(Motion.fade(0.14, reduced: reduceMotion), value: hovering)
+        .animation(Motion.hover(reduced: reduceMotion), value: hovering)
         .accessibilityLabel("Terminal: \(strip.text)")
         .accessibilityAction(named: "Show the terminal") { onFocus() }
     }

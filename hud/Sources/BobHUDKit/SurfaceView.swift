@@ -32,7 +32,10 @@ public struct SurfaceView: View {
                 ThinkingView()
             }
         }
-        .animation(.easeOut(duration: 0.18), value: store.revision)
+        // A spring, not an ease: `d` lines can arrive faster than any
+        // animation finishes, and an ease restarts from zero velocity on each
+        // one, which reads as stutter. A spring bends toward the new value.
+        .animation(Motion.smooth(reduced: Motion.systemReduced), value: store.revision)
     }
 
     /// `ancestors` is the path from the root, not everything already drawn.
@@ -213,7 +216,7 @@ public struct SurfaceView: View {
                     // under your eye is the one thing on a HUD you always want
                     // to have noticed.
                     .contentTransition(.numericText())
-                    .animation(.easeOut(duration: 0.3), value: value))
+                    .animation(Motion.smooth(reduced: Motion.systemReduced), value: value))
 
         case "Table":
             let columns = (p["columns"]?.arrayValue ?? []).compactMap { column -> Column? in
@@ -227,7 +230,7 @@ public struct SurfaceView: View {
                     caption: p["caption"]?.display ?? "",
                     columns: columns,
                     rows: rows)
-                    .animation(.spring(response: 0.34, dampingFraction: 0.85), value: rows.count)
+                    .animation(Motion.smooth(reduced: Motion.systemReduced), value: rows.count)
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel(
                         (p["caption"]?.display ?? "Table")
@@ -463,7 +466,7 @@ struct HUDButtonStyle: ButtonStyle {
                 in: Capsule())
             .foregroundStyle(primary ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
             .opacity(configuration.isPressed ? 0.7 : 1)
-            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+            .animation(Motion.press(reduced: Motion.systemReduced), value: configuration.isPressed)
     }
 }
 

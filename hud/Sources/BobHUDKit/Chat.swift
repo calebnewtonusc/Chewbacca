@@ -116,6 +116,7 @@ public final class ChatWindow: NSPanel {
         contentView = NSHostingView(
             rootView: ChatPanel(
                 model: model,
+                stage: stage,
                 onSubmit: onSubmit,
                 onSpeak: onSpeak,
                 onStop: onStop,
@@ -143,6 +144,7 @@ public final class ChatWindow: NSPanel {
                     y: visible.minY + PillView.pillLift))
         }
         placed = true
+        showing += 1
         makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -158,9 +160,29 @@ public final class ChatWindow: NSPanel {
         return !restored && !placed
     }
 
+    /// Whether the panel is grown out of the pill or folded back into it.
+    let stage = ChatStage()
+    /// Bumped on every present, so a fold that finishes after the panel was
+    /// reopened does not take the reopened one down with it.
+    private var showing = 0
+
     public func dismiss() {
-        orderOut(nil)
+        conceal()
         onDismiss()
+    }
+
+    /// Fold back into the pill, then leave. It opened by growing out of the
+    /// pill and until 2026-09-22 closed by vanishing, and an exit that does
+    /// not answer its entrance reads as a crash rather than a close.
+    public func conceal() {
+        guard isVisible, stage.open else { return }
+        let token = showing
+        withAnimation(Motion.snappy(reduced: Motion.systemReduced)) { stage.open = false }
+        // The snappy spring is visually settled by about 0.25 s.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) { [weak self] in
+            guard let self, self.showing == token, !self.stage.open else { return }
+            self.orderOut(nil)
+        }
     }
 
     public override func cancelOperation(_ sender: Any?) {
@@ -168,16 +190,24 @@ public final class ChatWindow: NSPanel {
     }
 }
 
+/// Open or folded, shared between the window that decides and the view that
+/// draws it, so the fold can run before the window goes.
+@MainActor
+@Observable
+final class ChatStage {
+    var open = false
+}
+
 /// What the conversation looks like.
 struct ChatPanel: View {
     let model: OverlayModel
+    var stage = ChatStage()
     let onSubmit: (String) -> Void
     let onSpeak: (String) -> Void
     let onStop: () -> Void
     let onClose: () -> Void
 
     @State private var draft = ""
-    @State private var shown = false
     /// Whether the transcript follows the newest line. Off once the person
     /// scrolls up to read, on again when they reach the bottom or ask.
     @State private var following = true
@@ -219,7 +249,7 @@ struct ChatPanel: View {
         // the pill stood, so it starts as a capsule the pill's size at the
         // bottom and opens out to its own frame; the words fade in once
         // there is room for them.
-        .modifier(GrowFromPill(progress: shown || offscreen ? 1 : 0, from: model.pillSize))
+        .modifier(GrowFromPill(progress: stage.open || offscreen ? 1 : 0, from: model.pillSize))
         .onChange(of: model.chatOpenings, initial: true) { _, _ in enter() }
         .onAppear { focused = true }
         .onExitCommand { onClose() }
@@ -227,9 +257,9 @@ struct ChatPanel: View {
 
     private func enter() {
         guard !offscreen else { return }
-        shown = false
+        stage.open = false
         Task { @MainActor in
-            withAnimation(Motion.spring(0.38, 0.86, reduced: reduceMotion)) { shown = true }
+            withAnimation(Motion.smooth(reduced: reduceMotion)) { stage.open = true }
             focused = true
         }
     }
@@ -312,7 +342,7 @@ struct ChatPanel: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
-                .animation(Motion.spring(0.42, 0.85, reduced: reduceMotion), value: model.turns.count)
+                .animation(Motion.smooth(reduced: reduceMotion), value: model.turns.count)
             }
             .coordinateSpace(name: "transcript")
             .scrollIndicators(.automatic)
@@ -321,7 +351,7 @@ struct ChatPanel: View {
                 if !following, !model.turns.isEmpty {
                     Latest {
                         following = true
-                        withAnimation(Motion.spring(0.35, 0.9, reduced: reduceMotion)) {
+                        withAnimation(Motion.smooth(reduced: reduceMotion)) {
                             proxy.scrollTo("end", anchor: .bottom)
                         }
                     }
@@ -329,7 +359,7 @@ struct ChatPanel: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .animation(Motion.spring(0.32, 0.85, reduced: reduceMotion), value: following)
+            .animation(Motion.snappy(reduced: reduceMotion), value: following)
             .background {
                 GeometryReader { geometry in
                     Color.clear.onPreferenceChange(EndVisible.self) { maxY in
@@ -435,7 +465,7 @@ struct ChatPanel: View {
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
             }
-            .animation(Motion.spring(0.30, 0.8, reduced: reduceMotion), value: working)
+            .animation(Motion.snappy(reduced: reduceMotion), value: working)
             HStack(spacing: 6) {
                 Text(hint)
                     .font(.system(size: 10, weight: .medium))
