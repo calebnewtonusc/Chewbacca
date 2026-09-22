@@ -400,6 +400,8 @@ public final class VoiceListener {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         let recorder = self.recorder
+        Self.log.notice(
+            "voice.format rate=\(format.sampleRate) channels=\(format.channelCount) interleaved=\(format.isInterleaved) float=\(format.commonFormat == .pcmFormatFloat32) recording=\(recorder != nil)")
         // `@Sendable`, for the same reason as the two closures in `authorize`,
         // and it matters most here: this one runs on the realtime audio thread,
         // once per 1024-frame buffer. Inheriting this class's main-actor
