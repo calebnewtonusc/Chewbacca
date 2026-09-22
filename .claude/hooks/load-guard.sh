@@ -46,7 +46,48 @@ tool="$(printf '%s' "$payload" | jq -r '.tool_name // empty' 2>/dev/null)"
 cmd="$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null)"
 [ -n "$cmd" ] || exit 0
 
-lower="$(printf '%s' "$cmd" | tr '[:upper:]' '[:lower:]')"
+# Test against the command with its DATA stripped out, not the raw text.
+#
+# On 2026-09-22, an hour after this hook shipped, it blocked a python heredoc
+# that was editing a markdown file, because the markdown being written said
+# "6 local Whisper jobs took his load to 50". The guard read its own incident
+# report as an invocation of whisper. submit-guard hit exactly this on its
+# first day and the comment below the read-exemption says so, which means the
+# lesson was written down here and still not applied to the main test.
+#
+# So: drop heredoc bodies and quoted strings first. A heavy binary named
+# inside data is a word. A heavy binary outside it is a command.
+# Two passes, because the two kinds of data are not equally ambiguous.
+#
+# A heredoc body is ALWAYS data. Nothing executes from inside one, so it is
+# stripped unconditionally. This matters more than it looks: the commit
+# message explaining this very fix was itself a heredoc quoting `xargs -P 4
+# python3 -c "import mlx_whisper"`, and the first version of this fix blocked
+# the commit, because it had decided to read the raw text whenever it saw the
+# word xargs anywhere. Describing a fan-out is not performing one.
+nohd="$(printf '%s' "$cmd" | awk '
+  /<<-?'"'"'?[A-Za-z_]+'"'"'?/ { inheredoc=1; next }
+  inheredoc && /^[A-Za-z_]*$/  { inheredoc=0; next }
+  inheredoc                    { next }
+  { print }
+')"
+# A quoted string is sometimes data and sometimes the argument that names the
+# binary, so it is only stripped when nothing outside it looks like a fan-out.
+stripped="$(printf '%s' "$nohd" | sed "s/'[^']*'/''/g; s/\"[^\"]*\"/\"\"/g")"
+# Which text to test depends on whether this is a fan-out.
+#
+#   With xargs/parallel/&: test the RAW command. `xargs -P 4 python3 -c
+#   "import mlx_whisper"` names the heavy thing inside quotes and is still a
+#   real six-wide fan-out, so stripping quotes there would miss the exact
+#   shape of the original incident.
+#
+#   Without them: test the STRIPPED command, so prose about whisper is prose.
+if printf '%s' "$nohd" | grep -qE 'xargs|parallel|&'; then
+  subject="$nohd"
+else
+  subject="$stripped"
+fi
+lower="$(printf '%s' "$subject" | tr '[:upper:]' '[:lower:]')"
 
 # Local inference and transcode, the things that actually saturate cores.
 # Deliberately NOT a general "python" or "node": this fires on named heavy
@@ -100,7 +141,15 @@ if printf '%s' "$cmd" | grep -qE '(for |while ).*(do|;).*&[[:space:]]*(done|$)';
 fi
 
 # Current machine state. One decimal figure, the 1-minute load average.
-load=$(uptime | grep -oE 'load averages?: *[0-9.]+' | grep -oE '[0-9.]+$')
+#
+# LOAD_GUARD_LOAD overrides it, for tests only. Without a seam here the test
+# for "a single heavy job passes" depends on what the machine happens to be
+# doing, and it flipped from pass to fail between two runs an hour apart with
+# no code change. A test that reports the weather is not a test.
+load="${LOAD_GUARD_LOAD:-}"
+if [ -z "$load" ]; then
+  load=$(uptime | grep -oE 'load averages?: *[0-9.]+' | grep -oE '[0-9.]+$')
+fi
 [ -n "$load" ] || load=0
 load_int=${load%%.*}
 [ -n "$load_int" ] || load_int=0
