@@ -42,6 +42,39 @@ Thresholds: auto-merge only above high confidence; auto-reject below low; queue 
 LLM adjudication or human review. An erroneous merge is far more damaging than a missed one,
 it silently fuses two entities' entire edge sets.
 
+### Blocking is what earns the loose matcher
+
+The usual reason given for blocking is cost: it turns O(n squared) into something
+runnable. It does a second thing that matters more, and it is easy to miss because it
+shows up as a matcher that was correctly rejected earlier suddenly becoming correct.
+
+**A matcher's precision is a function of how many candidates it is asked to separate,
+not of the matcher.** Generated initialisms across 12,000 investment firms are reckless:
+`gv` matches Global Ventures, Greylock V and General Venture, so the rule gets rejected
+and someone hand-writes an alias table instead. Inside a block keyed on the corporate
+email domain there are two candidates, and the same rule is decisive. Measured on the
+Northgate investor file, 2026-09-22: a hand-written acronym table caught 3 merges, and the
+identical generated rule applied inside a domain block caught 12 with no false positives
+on a hand-checked sample.
+
+So when a matcher is rejected for being too loose, the question is not "what is a
+tighter matcher". It is "what block makes this one safe".
+
+Two things that follow:
+
+- **Choose the blocking key for evidential strength, not just cheapness.** A corporate
+  email domain is assigned by the firm; an organization string is typed by whoever built
+  the list. Blocking on the strong one turns the weak one into a thing you can correct.
+- **Normalization upstream can hide the evidence the matcher needs.** If the key
+  generator strips "Ventures" from Charles River Ventures, its initials become `cr` and
+  the acronym `crv` no longer matches. Run acronym tests against the raw surface form,
+  not the normalized key.
+
+The asymmetry from the paragraph above still holds inside the block. A pair with no
+positive evidence is left unmerged on purpose: `accel.com` carried "the african
+leadership university", `morganstanley.com` carried "harmony family office". Those are
+wrong-org rows and advisor teams under a parent, and merging them invents a firm.
+
 ## Ontology matching
 
 When fusing two graphs (not just instances), align schemas first: map entity types and
