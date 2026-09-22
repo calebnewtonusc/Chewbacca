@@ -115,6 +115,7 @@ it.** Build the teaching half at the same time as the doing half, not after.
 | 4 | **TTS site** | open | Needs the design corpus in #5. ArcRank mockup shows the real competitor set: SparkSC, Sigma Eta Pi, LavaLab, TroyLabs, VC Academy |
 | 5 | **Deep UI/UX research, component and workflow frameworks** | open | Caleb's #2. Four reference images captured 9/21. `dembrandt` (3,506 stars) already extracts tokens, type scale, motion and hover patterns from a live site into a DESIGN.md |
 | 6 | **Self-correcting cold outreach** | open | Caleb to Sagar: "has anyone ever built that?" Sagar: "unless you set up some cli magic." Caleb: "cli magic it is." The genuinely novel item |
+| 50 | **The HUD orphans its listener on every restart, and voice silently dies** | open | Caleb, 2026-09-21: *"it is pretty fucked up rn"*, handed to Gavin. `KeepAlive` restarts BobHUD; the `hud-listen` it spawned survives as `ppid=1`, disconnected from the new socket. The new HUD's launch spawn then sees a listener already running by name and the person holds the talk key into nothing. Seen three times in one evening (pids 90698, 17618, and again after an auto-restart). The socket's `send()` is a deliberate no-op with no subscribers, so **nothing anywhere reports it**. Fix is one of: kill the child in `applicationWillTerminate`, have `hud-listen` exit when its socket drops, or have the launch spawn check subscribers rather than process names. Repro: `launchctl kickstart -k gui/$(id -u)/com.calebnewton.chewbacca.hud` twice, then `ps -o ppid= -p $(pgrep -f hud-listen)` |
 
 ## Next
 
@@ -180,6 +181,12 @@ it.** Build the teaching half at the same time as the doing half, not after.
 | `hud doctor` false staleness on docs commits | `be0e8a3`. Obeying it re-signed the bundle and dropped the Accessibility grant |
 | Installer says how to remove itself, and what leaves the Mac | `8e47d04`, with a test refusing any printed "nothing is uploaded" claim |
 | Proverbs wired into `bin/method` as a standing check per process | `8e47d04` |
+| Talk key raises the overlay, and the recogniser stays warm | `2b511a2`. Held with the glass hidden it opened the mic behind a blank screen. First press of a sitting cost 651ms against 73ms warm, because `warmUp()` ran once at launch |
+| Accessibility survives a HUD rebuild | `2b511a2`. It was never macOS: the bundle was ad-hoc signed, so the requirement named the binary hash. `bundle.sh` now takes any Apple Development cert before falling back |
+| The HUD LaunchAgent can find the model CLI | `fc0a21b`. launchd gives `PATH=/usr/bin:/bin:/usr/sbin:/sbin`; `claude` lives under nvm. Speech transcribed correctly and went nowhere, with no error in any log |
+| Listener starts at login, and its output is kept | `b100a1c`. It was spawned lazily, so the first talk-key hold paid for a Python start, a 70KB prompt build and a synchronous `prime()`. stdout went to `nullDevice`, which is why none of tonight's failures left a trace |
+| MCP servers stop booting through npx | `a5ae9b1`. 9.27s to 1.33s across six, verified with a real initialize handshake. `doctor.sh` now fails when a server path goes missing |
+| One process's PATH can no longer delete tools from the published catalog | `54db658`. A narrow PATH dropped bd, cap, mac, mac-use and yt-transcript from `toolkit.json`, took 116 lines out of `setup.sh` and rewrote REFERENCE.md from nine tools to four |
 | Gavin's and Caleb's creative procedures captured | `b57dceb` |
 | Operating doctrine from the three corpora, with the stop rule | `6e6e901` |
 | Prometheus targeting: 1.04M rows to 51,320 reachable | `calebnewtonusc/prometheus-targeting`, private |
