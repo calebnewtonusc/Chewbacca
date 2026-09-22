@@ -65,7 +65,10 @@ public actor Whisper {
 
     /// The sentence as Whisper hears it, or nil for any reason at all.
     public func transcribe(_ wav: Data, prompt: String) async -> String? {
-        guard available else { return nil }
+        guard available else {
+            Self.log.notice("whisper.turn skipped reason=not_installed")
+            return nil
+        }
         await warm()
         let boundary = "bob-\(UUID().uuidString)"
         var body = Data()
@@ -87,7 +90,11 @@ public actor Whisper {
         let started = Date()
         do {
             let (data, response) = try await URLSession.shared.upload(for: request, from: body)
-            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard status == 200 else {
+                Self.log.notice("whisper.turn failed status=\(status)")
+                return nil
+            }
             let text = String(decoding: data, as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             Self.log.notice(

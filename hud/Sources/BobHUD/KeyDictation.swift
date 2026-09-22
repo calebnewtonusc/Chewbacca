@@ -27,6 +27,11 @@ final class KeyDictation {
     /// Bumped per session, so a Whisper answer for an earlier sentence never
     /// edits a later one.
     var turn = 0
+    /// This session's audio. Held here as well as on the listener, because the
+    /// listener drops its reference when the turn closes and `.heard` reaches
+    /// this file a hop later: read off the listener, every sentence on
+    /// 2026-09-22 arrived with no audio and Whisper never ran.
+    var recorder: AudioRecorder?
 }
 
 extension AppDelegate {
@@ -77,7 +82,9 @@ extension AppDelegate {
         session.typer = KeystrokeTyper(pid: app.processIdentifier)
         session.previous = []
         session.listening = true
-        voice.recorder = AudioRecorder()
+        let recorder = AudioRecorder()
+        session.recorder = recorder
+        voice.recorder = recorder
         Task { await Whisper.shared.warm() }
         model.setPresence(.attentive, amplitude: 0)
         Self.dictationLog.notice(
@@ -89,6 +96,7 @@ extension AppDelegate {
         let session = Self.keyDictation
         session.listening = false
         session.previous = []
+        session.recorder = nil
         model.setPresence(.dormant, amplitude: 0)
     }
 
@@ -110,9 +118,10 @@ extension AppDelegate {
         case .heard(let text):
             let final = Spoken.punctuate(text)
             typer.show(final)
-            let wav = voice.recorder?.wav16k()
+            let wav = session.recorder?.wav16k()
             endKeyDictation()
-            Self.dictationLog.notice("dictation.said chars=\(final.count)")
+            Self.dictationLog.notice(
+                "dictation.said chars=\(final.count) audio_bytes=\(wav?.count ?? -1)")
             if let wav { correct(typer, turn: session.turn, wav: wav) }
 
         case .failed(let message):
