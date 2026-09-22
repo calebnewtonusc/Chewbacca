@@ -1,0 +1,252 @@
+#!/usr/bin/env node
+// peel - detect an app's build stack and recover whatever source it shipped.
+// Zero dependencies. Reads only; never writes into /Applications.
+"use strict";
+const fs = require("fs");
+const path = require("path");
+const { execFileSync } = require("child_process");
+
+// ---------- asar ----------
+// An asar is an index + concatenated bytes. No compression, no encryption.
+function readAsar(file) {
+  const fd = fs.openSync(file, "r");
+  try {
+    const head = Buffer.alloc(8);
+    if (fs.readSync(fd, head, 0, 8, 0) < 8) return null;
+    const headerSize = head.readUInt32LE(4);
+    if (headerSize <= 0 || headerSize > 1 << 28) return null;
+    const hb = Buffer.alloc(headerSize);
+    fs.readSync(fd, hb, 0, headerSize, 8);
+    // Pickle: [payloadSize][stringLen][json]. The second field is the one that matters.
+    const jsonLen = hb.readUInt32LE(4);
+    const header = JSON.parse(hb.toString("utf8", 8, 8 + jsonLen));
+    return { header, baseOffset: 8 + headerSize, file };
+  } catch { return null; }
+  finally { fs.closeSync(fd); }
+}
+
+function walkAsar(node, prefix, out) {
+  for (const [name, e] of Object.entries(node.files || {})) {
+    const p = prefix + "/" + name;
+    if (e.files) walkAsar(e, p, out);
+    else out.push({ path: p, size: e.size || 0, offset: e.offset, unpacked: !!e.unpacked });
+  }
+  return out;
+}
+
+function asarList(file) {
+  const a = readAsar(file);
+  return a ? walkAsar(a.header, "", []) : null;
+}
+
+function asarRead(file, entry) {
+  const a = readAsar(file);
+  if (!a || entry.offset === undefined) return null;
+  const fd = fs.openSync(file, "r");
+  try {
+    const buf = Buffer.alloc(entry.size);
+    fs.readSync(fd, buf, 0, entry.size, a.baseOffset + Number(entry.offset));
+    return buf;
+  } finally { fs.closeSync(fd); }
+}
+
+// ---------- classification ----------
+const VENDOR = /(^|\/)(node_modules|bower_components|vendor|\.yarn)\//;
+const isFirstParty = (p) => !VENDOR.test(p);
+
+function findAsars(appPath) {
+  const res = path.join(appPath, "Contents", "Resources");
+  if (!fs.existsSync(res)) return [];
+  const out = [];
+  const scan = (dir, depth) => {
+    if (depth > 2) return;
+    let ents = [];
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      const f = path.join(dir, e.name);
+      if (e.isDirectory()) scan(f, depth + 1);
+      else if (e.name.endsWith(".asar")) out.push(f);
+    }
+  };
+  scan(res, 0);
+  // Stub archives shadow the real one (Slack, Obsidian). Keep them all, biggest first.
+  return out.sort((a, b) => fs.statSync(b).size - fs.statSync(a).size);
+}
+
+function machoInfo(bin) {
+  try {
+    const out = execFileSync("otool", ["-l", bin], { maxBuffer: 1 << 28, stdio: ["ignore","pipe","ignore"] }).toString();
+    const m = out.match(/cryptid\s+(\d+)/);
+    const s = out.match(/cryptsize\s+(\d+)/);
+    return { cryptid: m ? +m[1] : null, cryptsize: s ? +s[1] : null };
+  } catch { return { cryptid: null, cryptsize: null }; }
+}
+
+function detect(appPath) {
+  const C = path.join(appPath, "Contents");
+  const R = path.join(C, "Resources");
+  const F = path.join(C, "Frameworks");
+  const has = (p) => fs.existsSync(p);
+  const stacks = [];
+
+  if (has(path.join(appPath, "WrappedBundle"))) stacks.push("ios-on-mac");
+  if (has(path.join(F, "Electron Framework.framework"))) stacks.push("electron");
+  else if (findAsars(appPath).length) stacks.push("electron");
+  if (has(path.join(F, "Flutter.framework"))) stacks.push("flutter");
+  if (has(path.join(R, "main.jsbundle"))) stacks.push("react-native");
+
+  // Tauri embeds its frontend in __RODATA of the main binary.
+  let mainBin = null;
+  try {
+    const plist = fs.readFileSync(path.join(C, "Info.plist"), "utf8");
+    const m = plist.match(/<key>CFBundleExecutable<\/key>\s*<string>([^<]+)<\/string>/);
+    if (m) mainBin = path.join(C, "MacOS", m[1]);
+  } catch {}
+  if (mainBin && has(mainBin)) {
+    try {
+      const b = fs.readFileSync(mainBin, { encoding: "latin1" }).slice(0, 40 << 20);
+      if (b.includes("tauri::") || b.includes("__TAURI__")) stacks.push("tauri");
+      if (b.includes("PyInstaller") || b.includes("pyi-")) stacks.push("pyinstaller");
+    } catch {}
+  }
+  if (has(path.join(R, "lib")) && fs.existsSync(path.join(R, "lib"))) {
+    try { if (fs.readdirSync(path.join(R, "lib")).some(d => /^python/.test(d))) stacks.push("python"); } catch {}
+  }
+  if (!stacks.length) stacks.push("native");
+  return { stacks: [...new Set(stacks)], mainBin };
+}
+
+// ---------- source map analysis ----------
+function analyzeMaps(appPath) {
+  const result = { archives: [], totalFiles: 0, maps: 0, firstPartyMaps: 0,
+                   mapsWithSource: 0, recoveredFiles: 0, recoveredBytes: 0, samples: [] };
+  // A file shared by two bundles appears in both maps. Count each source once.
+  const seen = new Map();
+  for (const arch of findAsars(appPath)) {
+    const list = asarList(arch);
+    if (!list) continue;
+    result.archives.push({ file: path.basename(arch), files: list.length });
+    result.totalFiles += list.length;
+    const maps = list.filter(e => e.path.endsWith(".map"));
+    result.maps += maps.length;
+    for (const m of maps.filter(e => isFirstParty(e.path))) {
+      result.firstPartyMaps++;
+      let j;
+      try { j = JSON.parse(asarRead(arch, m).toString("utf8")); } catch { continue; }
+      if (!j.sourcesContent) continue;
+      const own = (j.sources || []).map((s, i) => [s, j.sourcesContent[i]])
+        .filter(([s, c]) => c && c.length && isFirstParty(s));
+      if (!own.length) continue;
+      result.mapsWithSource++;
+      for (const [src, c] of own) if (!seen.has(src)) seen.set(src, c.length);
+      for (const [s] of own.slice(0, 3)) if (result.samples.length < 8) result.samples.push(s);
+    }
+  }
+  result.recoveredFiles = seen.size;
+  result.recoveredBytes = [...seen.values()].reduce((a, b) => a + b, 0);
+  return result;
+}
+
+function extract(appPath, outDir) {
+  let bytes = 0;
+  const written = new Set();
+  for (const arch of findAsars(appPath)) {
+    const list = asarList(arch);
+    if (!list) continue;
+    for (const m of list.filter(e => e.path.endsWith(".map") && isFirstParty(e.path))) {
+      let j;
+      try { j = JSON.parse(asarRead(arch, m).toString("utf8")); } catch { continue; }
+      if (!j.sourcesContent) continue;
+      j.sources.forEach((src, i) => {
+        const c = j.sourcesContent[i];
+        if (!c || !c.length || !isFirstParty(src)) return;
+        const clean = src.replace(/^(\.\.\/)+/, "").replace(/^\/+/, "")
+                         .replace(/^webpack:\/\/\/?/, "").replace(/\0/g, "");
+        if (!clean || clean.includes("..")) return;
+        if (written.has(clean)) return;
+        const dest = path.join(outDir, clean);
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, c);
+        written.add(clean); bytes += c.length;
+      });
+    }
+  }
+  return { files: written.size, bytes };
+}
+
+// ---------- cli ----------
+const APPS = "/Applications";
+const listApps = () => fs.readdirSync(APPS).filter(f => f.endsWith(".app")).map(f => path.join(APPS, f));
+const mb = (b) => (b / 1048576).toFixed(2) + " MB";
+
+const [, , cmd, ...rest] = process.argv;
+
+if (cmd === "scan") {
+  const json = rest.includes("--json");
+  const rows = [];
+  for (const app of listApps()) {
+    const name = path.basename(app, ".app");
+    const d = detect(app);
+    const a = analyzeMaps(app);
+    rows.push({ app: name, stacks: d.stacks, ...a });
+  }
+  if (json) { console.log(JSON.stringify(rows, null, 2)); process.exit(0); }
+  const electron = rows.filter(r => r.stacks.includes("electron"));
+  const hits = rows.filter(r => r.recoveredFiles > 0);
+  console.log("app".padEnd(24) + "stack".padEnd(22) + "files".padStart(8) +
+              "maps".padStart(7) + "1st".padStart(6) + "src".padStart(6) + "  recovered");
+  console.log("-".repeat(96));
+  for (const r of rows.sort((a, b) => b.recoveredFiles - a.recoveredFiles)) {
+    if (!r.totalFiles && r.stacks.join() === "native") continue;
+    console.log(r.app.slice(0, 23).padEnd(24) + r.stacks.join(",").slice(0, 21).padEnd(22) +
+      String(r.totalFiles).padStart(8) + String(r.maps).padStart(7) +
+      String(r.firstPartyMaps).padStart(6) + String(r.mapsWithSource).padStart(6) +
+      (r.recoveredFiles ? `  ${r.recoveredFiles} files / ${mb(r.recoveredBytes)}` : ""));
+  }
+  console.log("-".repeat(96));
+  console.log(`apps scanned          ${rows.length}`);
+  console.log(`electron apps         ${electron.length}`);
+  console.log(`ship any .map         ${rows.filter(r => r.maps > 0).length}`);
+  console.log(`ship first-party .map ${rows.filter(r => r.firstPartyMaps > 0).length}`);
+  console.log(`LEAK first-party SRC  ${hits.length}  (${(hits.length / electron.length * 100).toFixed(1)}% of electron)`);
+  console.log(`total source files    ${hits.reduce((a, r) => a + r.recoveredFiles, 0)}`);
+} else if (cmd === "extract") {
+  const target = rest[0];
+  if (!target) { console.error("usage: peel extract <AppName> [outdir]"); process.exit(1); }
+  const app = target.endsWith(".app") ? target : path.join(APPS, target + ".app");
+  if (!fs.existsSync(app)) { console.error(`no such app: ${app}`); process.exit(1); }
+  const out = rest[1] || path.join(process.cwd(), path.basename(app, ".app") + "-source");
+  const r = extract(app, out);
+  console.log(`${r.files} files, ${mb(r.bytes)} -> ${out}`);
+  if (!r.files) console.log("no first-party source maps. try: peel info " + path.basename(app, ".app"));
+} else if (cmd === "info") {
+  const target = rest[0];
+  const app = target.endsWith(".app") ? target : path.join(APPS, target + ".app");
+  const d = detect(app);
+  console.log("stack:    " + d.stacks.join(", "));
+  for (const a of findAsars(app)) {
+    const l = asarList(a);
+    console.log(`archive:  ${path.basename(a)}  ${l ? l.length : "?"} files  ${mb(fs.statSync(a).size)}`);
+  }
+  if (d.stacks.includes("ios-on-mac") || d.stacks.includes("flutter")) {
+    const fw = path.join(app, "Wrapper", path.basename(app, ".app") + " Mobile.app", "Frameworks");
+    const dir = fs.existsSync(fw) ? fw : path.join(app, "Contents", "Frameworks");
+    if (fs.existsSync(dir)) for (const f of fs.readdirSync(dir).filter(x => x.endsWith(".framework"))) {
+      const bin = path.join(dir, f, path.basename(f, ".framework"));
+      if (!fs.existsSync(bin)) continue;
+      const i = machoInfo(bin);
+      if (i.cryptid !== null) console.log(`  ${f.padEnd(34)} cryptid=${i.cryptid} ${i.cryptid === 0 ? "READABLE" : "encrypted"} (${mb(fs.statSync(bin).size)})`);
+    }
+  }
+  const a = analyzeMaps(app);
+  console.log(`maps:     ${a.maps} total, ${a.firstPartyMaps} first-party, ${a.mapsWithSource} with source`);
+  if (a.samples.length) { console.log("sample sources:"); a.samples.forEach(s => console.log("  " + s)); }
+} else {
+  console.log(`peel - recover whatever source an installed app shipped
+
+  peel scan [--json]        classify every app in /Applications, report source-map leakage
+  peel info <App>           detect stack, list archives, show encryption state
+  peel extract <App> [out]  rebuild the original source tree from shipped source maps
+
+Reads only. Never writes into /Applications.`);
+}
