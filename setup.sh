@@ -1255,6 +1255,44 @@ h["Stop"] = [{"hooks": [{
     "command": hooks_dir + "/slop-guard.sh",
     "timeout": 15,
     "statusMessage": "Checking the reply against the writing rules...",
+}]}, {"hooks": [{
+    # A claim of a verified state needs evidence in the session, not
+    # confidence. On 2026-09-21 a fix was reported as done three times and the
+    # next screenshot showed the same bug, and several more "fixed" claims were
+    # made while the code path being described was not executing at all. This
+    # refuses a reply saying something is fixed, verified or passing unless a
+    # command RAN after the last file was written, and refuses "safe to close"
+    # without a passing closeout receipt for the current commits.
+    "type": "command",
+    "command": hooks_dir + "/vibe-guard.sh",
+    "timeout": 15,
+    "statusMessage": "Checking claims of doneness against evidence...",
+}]}, {"hooks": [{
+    # A closing message that hands over a command is a confession of stopping
+    # early. The shell was right there.
+    "type": "command",
+    "command": hooks_dir + "/handoff-guard.sh",
+    "timeout": 15,
+    "statusMessage": "Checking the reply does not hand you a command...",
+}]}, {"hooks": [{
+    # A correction that changes only the reply changes nothing. This checks
+    # that being corrected actually moved something in the kit.
+    "type": "command",
+    "command": hooks_dir + "/durable-guard.sh",
+    "timeout": 15,
+    "statusMessage": "Checking a correction actually changed the kit...",
+}]}, {"hooks": [{
+    # An outbound list reported as finished, unread. On 2026-09-20 five
+    # investor lists were called done four times running, and reading the
+    # OUTPUT each time found what the code review had missed: 2,121 people on
+    # more than one list, eleven partners at one fund, info@ mailboxes, and 843
+    # rows whose company name was the literal string "Company". It was written
+    # up as guidance in a skill and then never fired, which is the failure it
+    # exists to prevent, and it was registered nowhere at all until now.
+    "type": "command",
+    "command": hooks_dir + "/list-guard.sh",
+    "timeout": 20,
+    "statusMessage": "Checking an outbound list was actually read...",
 }]}]
 
 # Coursework context loads when a prompt mentions a class, so the ledger is in
@@ -1283,6 +1321,32 @@ h["PreToolUse"] = [{"matcher": "Write", "hooks": [{
 _register("PreToolUse", hooks_dir + "/browser-ux-guard.sh", timeout=10,
           matcher="Bash|mcp__peekaboo__.*",
           status="Checking this browser work is not being done through pixels...")
+
+# Stage 8 of graph-engineering, knowledge fusion, which the skill calls the #1
+# cause of useless graphs and which this machine kept skipping. On 2026-09-21 a
+# session wrote a paying client's name into the notes off a FIRST NAME match
+# and got the wrong person. Refuses a write that introduces "First Last" where
+# that first name is already on the roster under a different surname.
+_register("PreToolUse", hooks_dir + "/fusion-guard.sh", timeout=15,
+          matcher="Write|Edit|MultiEdit",
+          status="Checking a name against the roster...")
+
+# Coursework is never turned in without being asked. This was a rule in prose
+# that got broken twice in one night, so it became a gate.
+_register("PreToolUse", hooks_dir + "/submit-guard.sh", timeout=10,
+          matcher="mcp__chrome-devtools__.*|Bash|mcp__peekaboo__.*",
+          status="Checking this is not a coursework submission...")
+
+# Say the ranking rule out loud before ranking, and name what would falsify
+# the answer. Running someone's list top to bottom is not a method.
+_register("UserPromptSubmit", hooks_dir + "/method-guard.sh", timeout=8,
+          status="Naming the process and the falsifier...")
+
+# The prose rules apply to files too, not only to replies. A draft that passes
+# every detector can still carry six kickers.
+_register("PostToolUse", hooks_dir + "/prose-guard.sh", timeout=20,
+          matcher="Write|Edit",
+          status="Checking the prose against the writing rules...")
 
 h["Notification"] = [{"hooks": [{
     "type": "command",
