@@ -64,6 +64,21 @@ fi
 
 mkdir -p "$HOME/Library/LaunchAgents" "$LOGDIR"
 
+# launchd hands a job PATH=/usr/bin:/bin:/usr/sbin:/sbin and nothing else, and
+# the display shells out: `hud listen` is spawned as a child and runs the model
+# CLI. On 2026-09-21 that CLI lived under nvm, the HUD could not see it, and
+# speech reached the microphone, transcribed correctly, and then went nowhere
+# with no error in any log. Every install had this; `claude` is almost never in
+# /usr/bin.
+#
+# Resolved here, at install time, from the shell that is running this, because
+# that shell is the one that can actually find these. The stable directories are
+# appended so a later nvm or Homebrew change has somewhere to be found.
+AGENT_PATH="$(
+  { command -v claude; command -v python3; command -v node; } 2>/dev/null |
+    xargs -n1 dirname 2>/dev/null | awk '!seen[$0]++' | tr '\n' ':'
+)$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
 cat > "$PLIST" <<PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -75,6 +90,8 @@ cat > "$PLIST" <<PLISTEOF
   <array><string>$APP</string></array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>$AGENT_PATH</string></dict>
   <!-- A front door that dies and stays dead is worse than one that was never
        there, because the person keeps reaching for it. -->
   <key>ThrottleInterval</key><integer>10</integer>
