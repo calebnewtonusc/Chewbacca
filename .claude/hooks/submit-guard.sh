@@ -64,7 +64,16 @@ esac
 # A shell HTTP call that carries a body is a submission by definition.
 if [ "$tool" = "Bash" ]; then
   case "$lower" in
-    *-x\ post*|*--request\ post*|*\ -f\ *|*--form*|*--data*|*-d\ @*) submitting=1 ;;
+    *-x\ post*|*--request\ post*|*--form*|*--data*|*-d\ @*) submitting=1 ;;
+  esac
+  # curl's form flag is -F and its upload flag is -T, both uppercase. The
+  # lowercased copy above cannot tell -F from -f (curl's --fail) or from a
+  # plain "[ -f path ]" file test, so matching " -f " on $lower blocked a
+  # read. On 2026-09-21 it false-blocked a GET that downloaded lecture
+  # slides, because the command began with [ -f ~/Downloads/... ].
+  # Match the original case instead, and only inside a curl invocation.
+  case "$blob" in
+    *curl*\ -F\ *|*curl*\ -T\ *|*curl*\ --upload-file*) submitting=1 ;;
   esac
 fi
 

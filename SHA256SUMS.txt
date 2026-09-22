@@ -19,7 +19,7 @@ baff09b097b67758927ae5ea8ed991dc855687ccd34face005381a4fb432ab42  .claude/hooks/
 44f089849a94f36c31cdb79c9b9285eff991b21efd6df510c1a4d3aca76fb781  .claude/hooks/slop-guard.sh
 991de99509214748f9352ebe1d62e423cf9d78a2b195b099c914315330bf86ea  .claude/hooks/statusline.sh
 db7eed7d9305d87ac474675a4b600d51059dd378a789cff4e5e13d66d2cd9014  .claude/hooks/stop-check.sh
-3f3cfad70e0d0cb86db7824b7cbee449f5dac7e57c0afc1aeb184814005db0e9  .claude/hooks/submit-guard.sh
+14dcd53cb15ff6362ffa87a6244fda8caba0b483c0ad413da00b250689620776  .claude/hooks/submit-guard.sh
 4a95c5c590419c23989685b2b3122c54e09f8660237e8e03242cde51e022a03e  .claude/hooks/terminal-loop.sh
 a1403fdb87442604e8d9aecaadcff2b2de7f13bec444aeb7f69149ebb4b51723  .claude/hooks/ux-guard.sh
 2cda063657261154cbe19aaf10d5cb3a0e911cd55d7aab7f7b84eca17fc6c74e  .claude/hooks/vibe-guard.sh
