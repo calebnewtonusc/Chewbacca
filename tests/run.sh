@@ -978,6 +978,7 @@ if group "reasoning backends"; then
   check "portals open and close" bash "$ROOT/tests/portal_state.sh"
   check "the drawn extent never walks backwards" bash "$ROOT/tests/sweep_monotonic.sh"
   check "the vibe guard refuses claims with no evidence" bash "$ROOT/tests/vibe_guard.sh"
+  check "stage 8 is enforced: a first-name collision is refused" bash "$ROOT/tests/fusion_guard.sh"
   check "shared agent instructions are current" python3 "$ROOT/tools/agents_md.py" --check
   check "ChatGPT turn boundaries" python3 "$ROOT/tests/test_chatgpt_tab.py"
   check "gateway protocol and execution" python3 "$ROOT/tests/test_chatgpt_gateway.py"
