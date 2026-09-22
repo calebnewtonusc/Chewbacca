@@ -29,6 +29,26 @@ CLAUDE_CHECKS = {
 }
 
 
+
+def claude_home():
+    """The Claude config dir, never outside a sandboxed HOME.
+
+    CLAUDE_CONFIG_DIR is honoured, except when HOME is not the account's own
+    and the config dir is not inside it: that is a test's temp HOME carrying
+    the real second account's CLAUDE_CONFIG_DIR, and writing there put a temp
+    brain path into the real CLAUDE.md on 2026-09-22. See setup.sh.
+    """
+    import pwd
+    home = Path.home()
+    configured = os.environ.get('CLAUDE_CONFIG_DIR')
+    if not configured:
+        return home / '.claude'
+    chosen = Path(configured).expanduser()
+    real = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    if home.resolve() != real.resolve() and home.resolve() not in chosen.resolve().parents:
+        return home / '.claude'
+    return chosen
+
 def registry():
     data = json.loads(SPECS.read_text())
     if data.get('schema_version') != 1:
@@ -81,7 +101,7 @@ def native_paths(key):
         override = home / 'AGENTS.override.md'
         instruction = override if override.is_file() and override.read_text().strip() else home / 'AGENTS.md'
         return [instruction, home / 'hooks.json', home / 'chewbacca-context.json']
-    home = Path(os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home() / '.claude'))).expanduser()
+    home = claude_home()
     return [home / 'CLAUDE.md', home / 'settings.json']
 
 
@@ -141,7 +161,7 @@ def export(name, destination):
 
 
 def claude_hooks():
-    home = Path(os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home() / '.claude'))).expanduser()
+    home = claude_home()
     path = home / 'settings.json'
     data = json.loads(path.read_text()) if path.exists() else {}
     hooks = data.setdefault('hooks', {})
@@ -193,7 +213,7 @@ def setup(name, brain=None, import_claude_skills=False, person_name=None):
             skill_path = Path.home() / spec['skills_dir']
             activation = 'Review hook trust in Codex, then verify a real event. Configuration alone is not execution.'
         else:
-            home = Path(os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home() / '.claude'))).expanduser()
+            home = claude_home()
             target = context.install_claude(brain)
             hook_path = claude_hooks()
             skill_path = home / 'skills'
@@ -225,7 +245,7 @@ def status(name):
         if spec['adapter'] == 'codex':
             hook = context.codex_home() / 'hooks.json'
         elif spec['adapter'] == 'claude':
-            hook = Path(os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home() / '.claude'))) / 'settings.json'
+            hook = claude_home() / 'settings.json'
         else:
             hook = None
         spec['hook_configuration_present'] = bool(hook and hook.is_file())

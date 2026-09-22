@@ -1009,6 +1009,7 @@ if group "reasoning backends"; then
   check "Codex personal context startup" python3 "$ROOT/tests/test_codex_context.py"
   check "Codex native lifecycle hooks" python3 "$ROOT/tests/test_codex_hooks.py"
   check "newcomer setup preserves identity and privacy choices" python3 "$ROOT/tests/test_onboarding.py"
+  check "a sandboxed HOME never reaches the real Claude config" python3 "$ROOT/tests/test_sandbox_config.py"
   check "runtime adapters work independently in fresh homes" python3 "$ROOT/tests/test_agent_runtime.py"
   check "Codex shares skills without replacing personal entries" python3 "$ROOT/tests/test_codex_skills.py"
   check "Codex imports only selected integrations" python3 "$ROOT/tests/test_codex_integrations.py"

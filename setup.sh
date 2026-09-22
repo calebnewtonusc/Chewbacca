@@ -19,6 +19,27 @@
 
 set -e
 
+# A sandboxed HOME must not reach the real agent config.
+#
+# Tests run this with HOME pointed at a temp directory. A second Claude
+# account is run with CLAUDE_CONFIG_DIR=~/.claude-2, and a test started from
+# that session inherited it: every `claude` call here then used the real
+# account's config while macOS looked for a keychain under the fake HOME,
+# which is the "A keychain cannot be found" dialogue that kept appearing
+# (2026-09-22), and tools/agent_context.py wrote a temp brain path into the
+# real CLAUDE.md. The config dir follows HOME whenever HOME is not the
+# account's own.
+if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+  _real_home="$(eval echo "~$(id -un)")"
+  if [ "$HOME" != "$_real_home" ]; then
+    case "$CLAUDE_CONFIG_DIR" in
+      "$HOME"/*) ;;
+      *) export CLAUDE_CONFIG_DIR="$HOME/.claude" ;;
+    esac
+  fi
+  unset _real_home
+fi
+
 # ── Colors ────────────────────────────────────────────────────────────────────
 BLU='\033[0;34m'
 GRN='\033[0;32m'

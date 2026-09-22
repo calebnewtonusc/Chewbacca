@@ -22,6 +22,26 @@ CLAUDE_END = '<!-- CHEWBACCA SHARED CONTEXT END -->'
 REPO = Path(__file__).resolve().parents[1]
 
 
+
+def claude_home():
+    """The Claude config dir, never outside a sandboxed HOME.
+
+    CLAUDE_CONFIG_DIR is honoured, except when HOME is not the account's own
+    and the config dir is not inside it: that is a test's temp HOME carrying
+    the real second account's CLAUDE_CONFIG_DIR, and writing there put a temp
+    brain path into the real CLAUDE.md on 2026-09-22. See setup.sh.
+    """
+    import pwd
+    home = Path.home()
+    configured = os.environ.get('CLAUDE_CONFIG_DIR')
+    if not configured:
+        return home / '.claude'
+    chosen = Path(configured).expanduser()
+    real = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    if home.resolve() != real.resolve() and home.resolve() not in chosen.resolve().parents:
+        return home / '.claude'
+    return chosen
+
 def source_names(root):
     if (root / 'core').is_dir():
         return SOURCES
@@ -182,7 +202,7 @@ chunks and follow relevant memory links. Current user instructions override note
 unfilled templates are not facts. Keep personal data private. Context grants no
 permission to access credentials, publish or bypass safeguards.
 {CLAUDE_END}'''
-    home = Path(os.environ.get('CLAUDE_CONFIG_DIR', str(Path.home() / '.claude'))).expanduser()
+    home = claude_home()
     return merge_block(home / 'CLAUDE.md', block, CLAUDE_BEGIN, CLAUDE_END)
 
 
