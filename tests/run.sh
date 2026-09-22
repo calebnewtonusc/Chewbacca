@@ -370,6 +370,11 @@ if group "installer"; then
   check  "both checksum tools cover the same patterns" \
     bash "$ROOT/tests/checksum_patterns.sh" "$ROOT"
 
+  # `chewbacca update` pulled and then exited 2 at the install step, every time
+  # on every machine, so nothing it fetched was ever installed.
+  check  "setup.sh re-runs with no arguments on an existing install" \
+    bash "$ROOT/tests/reinstall_no_args.sh" "$ROOT"
+
   # The guard existed since 18:49 and commit 4a0b1df still absorbed another
   # session's files at 21:44. mtime cannot separate two live sessions.
   check  "pre-commit refuses an index holding two sessions' work" \
