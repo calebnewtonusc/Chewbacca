@@ -20,6 +20,18 @@
     {
       "prompt": "Teach me graph engineering",
       "expect_behavior": "worked examples per stage, not a definition list"
+    },
+    {
+      "prompt": "My agent keeps looping without stopping. How do I structure it?",
+      "expect_behavior": "name loop engineering: a bound and an exit decided by exit codes, not the model"
+    },
+    {
+      "prompt": "Should I use chain of thought or tree of thoughts here?",
+      "expect_behavior": "route to prompt engineering and pick the cheapest that works, chain unless the problem forks"
+    },
+    {
+      "prompt": "How do I stop an agent from touching things it shouldn't?",
+      "expect_behavior": "runtime engineering: make it unreachable in the harness, not forbidden in the prompt"
     }
   ]
 }
