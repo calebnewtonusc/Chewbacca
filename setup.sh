@@ -268,7 +268,20 @@ fi
 # --only runs one section. Everything here is written to be safe to repeat, so
 # a run that died halfway, or a tool that arrived after the first run, is one
 # flag away rather than a hand-copied block from this file.
-SECTIONS="prereq repos settings editor desktop mcp rules skills plugins tools agents plynn verify manifest"
+# PLYNN IS OUT OF THE DEFAULT INSTALL, 2026-09-21.
+#
+# Dictation moved into the HUD, which draws its own pill. Plynn kept running as
+# a separate app drawing the legacy indicator, so two overlapping systems were
+# live at once and the one people saw was the retired one: "Secure field,
+# dictation paused", from PlynnKit/IndicatorView.swift.
+#
+# The source stays in plynn/ and the installer still works if asked for by
+# name, because the parts worth folding into the HUD are listed in
+# plynn/SALVAGE.md. It just no longer installs and auto-starts behind a second
+# indicator nobody asked for.
+#
+#     ./setup.sh --only plynn     still installs it
+SECTIONS="prereq repos settings editor desktop mcp rules skills plugins tools agents verify manifest"
 if [ -n "$ONLY" ]; then
   case " $SECTIONS " in
     *" $ONLY "*) ;;
