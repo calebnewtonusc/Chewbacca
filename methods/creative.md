@@ -88,6 +88,56 @@ And for work that is actually the person's own, the inversion:
 The model holds the questions. The person holds the judgment. That ordering is
 what keeps the output his and it is the reason the writing sounds like him.
 
+
+### Ask for the distribution, not the answer
+
+Measured here on 2026-09-22, after Caleb sent Dan Fabulich's argument that LLMs
+tell bad jokes because they minimise surprise by design.
+
+**Fabulich is right about the symptom and too pessimistic about the cause.** His
+claim is architectural: next-token prediction avoids surprise, so no amount of
+compute fixes it. The measured mechanism is narrower and more useful. It is
+**typicality bias in preference data**: annotators systematically prefer familiar
+text, so the alignment objective sharpens the output distribution. The base model
+keeps the diversity; alignment narrows the sampling. Direct prompting retains
+**23.8%** of base-model diversity, asking for a distribution retains **66.8%**
+(Verbalized Sampling, Zhang et al., arXiv 2510.01171). The humor-specific version
+of the symptom: one study asked ChatGPT for a joke 1,008 times and **over 90% of
+the outputs were variants of the same 25 setups**.
+
+That difference matters because it means the fix is at inference, not in training.
+
+**The procedure.** Instead of asking for N candidates, ask for a distribution:
+
+> Generate a distribution of 12 responses sampled from across the entire
+> probability distribution rather than from its mode. For each, state the
+> approximate probability you would give that response if asked once. At least
+> half must be under 5%, meaning responses you would almost never produce.
+> A set of near-synonyms is a failed answer.
+
+This is the mechanical version of Caleb's "tell it it's wrong and tell it it
+sucks." Both move the sampler off the mode. His is a constraint, this one is a
+change of question.
+
+**What it bought, on one premise, 12 candidates per arm:**
+
+| | direct prompt | asked for a distribution |
+| --- | --- | --- |
+| distinct semantic frames | 5 | **12** |
+| frames per candidate | 1.58 | **2.33** |
+
+The control never once left software, database and a social scene. The other arm
+reached a stack trace, medicine, prayer, family, sport, cartography and money:
+seven frames the control touched zero times. That is mode collapse made visible.
+
+**The trap, and it cost the first measurement.** Lexical diversity and conceptual
+diversity are different things, and the first metric only saw the first one. Mean
+pairwise word overlap was 0.012 versus 0.014, essentially identical, and the
+verdict printed "no improvement". It was wrong. Twelve rewordings of one idea use
+just as many distinct words as twelve different ideas. **Mode collapse is
+conceptual, so it has to be measured conceptually.** The working version counts
+distinct semantic frames: `comedy-engine/scripts/frames.py`.
+
 ## The trap specific to creative work
 
 Every instrument you can build measures the ABSENCE of defects, so a process
