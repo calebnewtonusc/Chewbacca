@@ -276,7 +276,29 @@ if [ -z "$NAME" ] && [ "${ONLY:-}" = "repos" ]; then
   exit 2
 fi
 
-if [ -z "$NAME" ] && [ -z "$ONLY" ] && [ "$NO_GITHUB" -eq 0 ]; then
+# A RE-INSTALL HAS ALREADY ANSWERED THESE QUESTIONS.
+#
+# `chewbacca update` pulls and then runs this file with no arguments, which hit
+# the --name guard below and exited 2. Every time, on every machine. So update
+# fast-forwarded new hooks, skills, commands and tools and then installed none
+# of them, and the only symptom was an exit code in a command nobody reads the
+# tail of. Found 2026-09-22 while making pull-and-push the default, which is
+# exactly the thing that made it matter: pulling code you never install is
+# worse than not pulling, because now the repo and the machine disagree and
+# every surface reports the new version.
+#
+# --name exists to name the personal context repo, which only the `repos`
+# section creates. On a machine that already has an install manifest that repo
+# exists, so the section has nothing left to do and its one input is not
+# needed. Skip it and let the rest of the install proceed.
+REINSTALL=0
+if [ -z "$NAME" ] && [ -z "$ONLY" ] && [ -z "$ANSWERS" ] && \
+   [ -f "$HOME/.chewbacca/install-manifest.json" ]; then
+  REINSTALL=1
+  SKIP_SECTIONS="$SKIP_SECTIONS repos"
+fi
+
+if [ -z "$NAME" ] && [ -z "$ONLY" ] && [ "$NO_GITHUB" -eq 0 ] && [ "$REINSTALL" -eq 0 ]; then
   err "--name is required (or --answers, or --only <section>)"
   echo
   usage
