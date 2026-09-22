@@ -85,7 +85,21 @@ case "$(basename "${GIT_INDEX_FILE:-index}")" in
   *)           PATHSPEC_COMMIT=0 ;;
 esac
 
-SESSIONS=$(pgrep -f "claude" 2>/dev/null | wc -l | tr -d ' ')
+# A merge, cherry-pick or revert is legitimately a whole-index commit and
+# CANNOT be a pathspec commit: git forbids a pathspec while one is in
+# progress ("fatal: cannot do a partial commit during a merge"). So the
+# gate below, which tells the author to name paths, is advice they cannot
+# take, and it fired on every merge of upstream/main this session until
+# CHEWBACCA_PATHSPEC_COMMIT=1 was set by hand (2026-09-22). The merge tree
+# was already resolved and looked at, which is the thing the gate protects,
+# so a merge in progress is let through.
+GIT_DIR_PATH="$(git rev-parse --git-dir 2>/dev/null || echo .git)"
+if [ -f "$GIT_DIR_PATH/MERGE_HEAD" ] || [ -f "$GIT_DIR_PATH/CHERRY_PICK_HEAD" ]    || [ -f "$GIT_DIR_PATH/REVERT_HEAD" ]; then
+  PATHSPEC_COMMIT=1
+fi
+
+# CHEWBACCA_FAKE_SESSIONS lets the test drive this count; live it is pgrep.
+SESSIONS=${CHEWBACCA_FAKE_SESSIONS:-$(pgrep -f "claude" 2>/dev/null | wc -l | tr -d ' ')}
 if [ "${SESSIONS:-0}" -gt 1 ] && [ "$PATHSPEC_COMMIT" -eq 0 ] \
    && [ -z "${CHEWBACCA_PATHSPEC_COMMIT:-}" ]; then
   STAGED_N=$(printf '%s\n' "$STAGED" | wc -l | tr -d ' ')
