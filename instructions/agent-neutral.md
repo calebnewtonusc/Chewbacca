@@ -1,12 +1,34 @@
-## Chewbacca and the coding agents
+## Chewbacca across models and runtimes
 
-Chewbacca is a command-line toolkit, coding standards, skills, and private context
-system. Claude Code is the primary day-to-day agent. Codex is an optional secondary
-coding agent, launched intentionally when preferred or when Claude credits run out.
-Claude's hooks, slash commands, subagents, and MCP configuration
-remain Claude-specific unless explicitly adapted. `tools/codex_hooks.py` installs
-native Codex lifecycle hooks for the shared checks; their definitions must be
-trusted in Codex before they run. Presence on disk alone is not proof of execution.
+Chewbacca shares one private context store, skill library, and set of checks.
+The user chooses the model and host. Runtime adapters handle instruction discovery,
+hook events, configuration formats and tool payloads. OS permissions belong to the
+app executing the tools. Never infer capabilities from the model's name.
+
+`chewbacca agent plan --runtime auto` detects installed local agents without
+changing configuration or making model calls. `chewbacca agent setup --runtime
+claude-code`, `codex`, or `both` installs the chosen adapters. Shared skills live
+under `~/.chewbacca/skills`; native discovery links point at that library. Existing
+conflicting skills and unrelated configuration are preserved and reported.
+`runtimes/profiles.json` records runtime and platform requirements, with sources.
+See `docs/RUNTIMES.md` for setup, migration, model selection and capability limits.
+
+Claude Code uses its native JSON hooks, tools and skill extensions. Codex uses
+its own lifecycle adapter, including multi-file patch translation and private
+turn receipts. Codex hooks require native review and trust; modified definitions
+can be skipped. Installation is not proof that a hook ran. A successful command
+after a write establishes execution, not correctness. Verify a representative
+refusal and a permitted operation in the actual host before claiming enforcement.
+
+Other local agents and browser apps can receive an explicit public instruction
+export. Their hooks, tools and skill discovery remain unverified until adapted.
+A skill's requirements still apply after registration; missing tools need an
+available supported equivalent. Keep model IDs, provider authentication, context
+limits and reasoning controls in native configuration rather than guessing them.
+
+`tools/codex_integrations.py --server <name>` imports named existing MCP connections
+from private Claude configuration into Codex, preserving existing Codex entries.
+Verify the handshake and tool inventory separately from configuration discovery.
 
 ## Starting in a repository
 
@@ -29,13 +51,10 @@ capabilities instead of claiming an unsupported slash command or hook ran.
 
 ## Working standards
 
-The detailed standards live in `.claude/rules/` (git, security, naming,
-review-discipline, context-discipline, typescript, design-system, deploy-gate)
-and in the user's global instructions, both of which already load for the
-primary agent. Nothing here restates them. What is specific to a non-Claude
-agent: that path metadata and those Claude-only instructions are not executable
-hooks elsewhere, so use supported tools and never claim an unsupported slash
-command or hook ran.
+Shared standards currently retain their historical `.claude/rules/` paths.
+Read their substantive guidance in any runtime; path frontmatter and native
+Claude tool instructions require the selected adapter. The directory name is
+compatibility layout, not a dependency on an installed Claude application.
 
 Chewbacca's hermetic suite is `bash tests/run.sh`; pass a group name as its
 positional argument. Live checks are separate: `chewbacca live --list` lists the
@@ -65,7 +84,8 @@ people, voice, and memory index on startup, resume, and compaction. Global start
 instructions retain `tools/codex_context.py read` as a fallback when the hook has
 not loaded the briefing. Follow relevant index links for deeper context.
 The adapter translates multi-file patches and reply-check feedback to Codex's
-event formats. It does not auto-sync, commit, or push private repositories.
+event formats. Private-repository syncs, commits, and pushes require their own
+authorized workflow outside the adapter.
 
 ## Machine and browser operations
 

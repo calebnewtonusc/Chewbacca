@@ -12,7 +12,7 @@ MAX_BYTES = 24 * 1024
 def render():
     text = ("# AGENTS.md\n\nGenerated from `instructions/agent-neutral.md`. "
             "Edit that shared source, then run\n`python3 tools/agents_md.py`. "
-            "Claude Code remains the primary agent.\n\n" + SOURCE.read_text(encoding="utf-8"))
+            "Select the runtime independently of the shared context.\n\n" + SOURCE.read_text(encoding="utf-8"))
     if len(text.encode("utf-8")) > MAX_BYTES:
         raise ValueError("agent-neutral instructions exceed the 24 KiB export budget")
     return text

@@ -105,7 +105,12 @@ fi
 # "It works now" is a claim.
 if printf '%s' "$LOWER" | grep -qE "(that'?s fixed|it'?s fixed now|it works now|now works|confirmed working|i verified|verified (that|it)|all tests pass|tests (are )?(all )?(green|passing)|everything passes|no longer (broken|fails))"; then
   EVIDENCE=0
-  if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
+  # Codex's transcript is not Claude JSONL. Its adapter records successful
+  # completed shell calls after the last patch; parsing it as Claude content
+  # would always report no evidence, even after an actual successful check.
+  if printf '%s' "$INPUT" | jq -e '.agent == "codex" and .codex_evidence_after_write == true' >/dev/null 2>&1; then
+    EVIDENCE=1
+  elif [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
     # Walk this turn's tail and ask a simple question: did anything RUN after
     # the last thing that was WRITTEN? A build, a test, a screenshot, a grep
     # of the shipped bundle all count. An edit followed only by prose does

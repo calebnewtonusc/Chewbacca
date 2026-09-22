@@ -13,7 +13,8 @@ recent | "")
   [ -f "$LOGDIR/hooks.log" ] || { echo "No hook log yet. It fills as you use the kit."; exit 0; }
   echo -e "${BLD}Recent hook activity${NC} ${DIM}(when|hook|ms|status)${NC}"
   tail -n "$N" "$LOGDIR/hooks.log" | while IFS='|' read -r when hook ms status detail; do
-    color=""; [ "$status" != "ok" ] && color="$RED"
+    case "$hook|$status" in *-guard.sh\|exit2) status="blocked" ;; esac
+    color=""; [ "$status" != "ok" ] && [ "$status" != "blocked" ] && color="$RED"
     printf "  ${DIM}%s${NC}  %-22s %6sms  ${color}%s${NC} %s\n" \
       "$when" "$hook" "$ms" "$status" "${detail:-}"
   done
@@ -28,14 +29,14 @@ slow)
   ;;
 errors)
   [ -f "$LOGDIR/hooks.log" ] || { echo "No hook log yet."; exit 0; }
-  grep -v '|ok|' "$LOGDIR/hooks.log" 2>/dev/null | tail -n "$N" ||
+  awk -F'|' '$4 != "ok" && !($4 == "exit2" && $2 ~ /-guard\.sh$/)' "$LOGDIR/hooks.log" | tail -n "$N" ||
     echo "No hook has failed since logging started."
   ;;
 stats)
   [ -f "$LOGDIR/hooks.log" ] || { echo "No hook log yet."; exit 0; }
   echo -e "${BLD}Per-hook totals${NC}"
-  awk -F'|' '{n[$2]++; t[$2]+=$3; if($4!="ok") e[$2]++}
-    END{for(h in n) printf "  %-22s %5d runs  %7.0fms avg  %d failed\n", h, n[h], t[h]/n[h], e[h]+0}' \
+  awk -F'|' '{n[$2]++; t[$2]+=$3; if($4=="exit2" && $2 ~ /-guard\.sh$/) b[$2]++; else if($4!="ok") e[$2]++}
+    END{for(h in n) printf "  %-22s %5d runs  %7.0fms avg  %d failed, %d blocked\n", h, n[h], t[h]/n[h], e[h]+0, b[h]+0}' \
     "$LOGDIR/hooks.log" | sort -k2 -rn
   ;;
 path)

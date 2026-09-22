@@ -30,27 +30,32 @@ FULL_SEND=0
 PROFILE="personal"
 DRY_RUN=0
 FAST=0
+PERSON_NAME=""
 
-# Almost nobody types this line by hand. An agent types it, from a README it
-# skimmed, and agents mistype flags: --fullsend, --full_send, -full-send all
-# showed up in testing on 2026-09-19, and each one killed the install with a
-# bare "unknown argument" and no install. An installer that refuses to run over
-# a hyphen is worse than one that guesses, so spelling is normalized here and an
-# argument that still makes no sense is a warning, not an exit.
+# Normalize harmless convenience flags. Permission changes require the exact
+# documented flag; a typo must not change the scope of an installation.
 normalize() {
   local a="$1"
+  case "$a" in --full-send|--bypass-permissions) echo --full-send; return ;; esac
   a="${a#-}"; a="${a#-}"          # strip any number of leading dashes
   a="$(printf '%s' "$a" | tr 'A-Z_' 'a-z-')"
   case "$a" in
-    fullsend|full-send|send-it|sendit|yolo) echo "--full-send" ;;
     fast|minimal|quick|demo)                echo "--fast" ;;
     dryrun|dry-run)                         echo "--dry-run" ;;
     ref|pin|pin-to)                         echo "--pin" ;;
     version|v)                              echo "--version" ;;
     profile)                                echo "--profile" ;;
+    name)                                   echo "--name" ;;
     h|help)                                 echo "--help" ;;
     *)                                      echo "$1" ;;
   esac
+}
+
+require_value() {
+  if [ -z "${2:-}" ] || [[ "$2" == -* ]]; then
+    echo "Missing value for $1" >&2
+    exit 2
+  fi
 }
 
 while [ $# -gt 0 ]; do
@@ -59,7 +64,7 @@ while [ $# -gt 0 ]; do
     --fast) FAST=1; TOTAL=5; shift ;;
     # Pin the install. Without this, everyone gets whatever landed on main an
     # hour ago, and "which version am I running" has no answer.
-    --pin) REF="${2:-}"; shift 2 ;;
+    --pin) require_value "$@"; REF="$2"; shift 2 ;;
     # --version used to silently mean "pin to this tag", so `--version` alone
     # ate the next argument and `--version 1.1.0` looked like it was reporting a
     # version while actually pinning one. It now does what every other command
@@ -73,19 +78,37 @@ while [ $# -gt 0 ]; do
           "https://raw.githubusercontent.com/$REPO/$BRANCH/VERSION" 2>/dev/null || echo unknown)"
         exit 0
       fi ;;
-    --profile)   PROFILE="${2:-personal}"; shift 2 ;;
+    --profile)   require_value "$@"; PROFILE="$2"; shift 2 ;;
+    --name)      require_value "$@"; PERSON_NAME="$2"; shift 2 ;;
     --dry-run)   DRY_RUN=1; shift ;;
     --help)
-      sed -n '2,20p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'
+      cat <<'HELP'
+Chewbacca full macOS installer
+  --profile personal|student|developer|portable
+  --name NAME       Optional for personal/student; never inferred from an account
+  --fast            Install the smaller configuration set
+  --dry-run         Preview before installing
+  --pin REF         Install a specific version
+  --full-send       Explicitly disable the supported agent permission prompts
+  --help            Show this help
+
+For an existing local agent, use the smaller runtime setup from a checkout:
+  bash setup.sh --runtime codex
+  bash setup.sh --runtime claude-code
+HELP
       exit 0 ;;
-    *) echo "  (ignoring unrecognized option: $1)"; shift ;;
+    *) echo "Unknown option: $1. Use --help to review supported options." >&2; exit 2 ;;
   esac
 done
 
 case "$PROFILE" in
   personal|student|developer|portable) ;;
-  *) echo "  (unknown profile '$PROFILE', using personal)"; PROFILE="personal" ;;
+  *) echo "Unknown profile: $PROFILE. Choose personal, student, developer or portable." >&2; exit 2 ;;
 esac
+if [ "$PROFILE" = developer ] && [ -z "$PERSON_NAME" ]; then
+  echo "The developer profile needs --name for its repositories. Personal setup can leave your name unset." >&2
+  exit 2
+fi
 
 # Colors, but only into a real terminal that says it can do them. Piping this
 # into a file or a terminal without color support used to print escape codes.
@@ -118,7 +141,7 @@ cat <<INTRO
 
   Before any of it runs, here is exactly what it touches:
 
-    Everything it writes goes in your own account:
+    Chewbacca configuration goes in your account:
       ~/.chewbacca        the kit itself
       ~/.claude           what your agent reads every session
       ~/.local/bin        the commands it installs
@@ -127,9 +150,11 @@ cat <<INTRO
     installs shared developer tools outside your account. Nothing else here
     needs it.
 
-    It uploads nothing. Every file it writes stays on this machine.
+    Setup downloads software. Agent conversations and connected services can
+    send data to their providers. Personal data imports are separate choices.
 
-    To remove all of it later: chewbacca uninstall
+    To remove kit configuration later: chewbacca uninstall
+    Personal stores and separately installed software may remain.
 
   About 10 minutes, most of it downloads. Add --fast to install only the part
   that makes the agent know you, which takes seconds instead.
@@ -358,20 +383,16 @@ if [ -x "$HOME_DIR/bin/bootstrap.sh" ]; then
     work "some tools were skipped, continuing"
 fi
 
-# Their real first name, from the Mac's own account record. One less question,
-# and it is almost always right. Falls back to the short username.
-FIRST_NAME=$(id -F 2>/dev/null | awk '{print $1}')
-[ -z "$FIRST_NAME" ] && FIRST_NAME=$(id -un)
-
-SETUP_ARGS=(--profile "$PROFILE" --name "$FIRST_NAME")
+SETUP_ARGS=(--profile "$PROFILE")
+[ -n "$PERSON_NAME" ] && SETUP_ARGS+=(--name "$PERSON_NAME")
 [ "$FULL_SEND" -eq 1 ] && SETUP_ARGS+=(--full-send)
 [ "$FAST" -eq 1 ] && SETUP_ARGS+=(--fast)
 
 step "Setting up Claude"
-echo "      Installing as ${B}$FIRST_NAME${N}. Tell Claude if that is wrong."
+echo "      Name: ${PERSON_NAME:-not provided; your agent can ask later}."
 echo
 bash "$HOME_DIR/setup.sh" "${SETUP_ARGS[@]}" || {
-  bad "Setup hit a problem. Nothing is broken: run 'chewbacca doctor' to see what."
+  bad "Setup stopped after a failure. Some changes may already be installed; chewbacca doctor can inspect them."
   exit 1
 }
 
@@ -453,19 +474,18 @@ DONE
 if [ -n "$AGENT_CMD" ] && [ -t 0 ] && [ -t 1 ]; then
   say "Starting $AGENT_NAME..."
   sleep 1
-  exec "$AGENT_CMD" "Introduce yourself to $FIRST_NAME in three sentences. You were just
+  exec "$AGENT_CMD" "Introduce yourself in three sentences. The person supplied this name: ${PERSON_NAME:-no name provided; do not infer it from the computer account}. You were just
 installed on their Mac. Say what you can now do that you could not before,
-using their actual calendar or contacts as the example rather than describing
-it abstractly. Then ask them one question about what they want help with, and
-write what they say into their second brain. Do not list your features."
+Ask what they want help with today. Do not read their calendar, contacts or
+other private sources until they authorize the relevant access. Record only
+what they choose to share. Do not list your features."
 else
   # No TTY means this is running inside an agent's shell, which is the common
   # case: someone pasted the repo link at Claude and Claude ran this. Claude is
   # already here, so telling them to go open Claude is nonsense. Tell the agent
   # what to do next instead.
-  echo "  Claude: setup is done. Do not list what was installed. Read their real"
-  echo "  calendar and contacts now and tell them something true about their week,"
-  echo "  then ask what they want help with and save the answer to their brain."
+  echo "  Setup is done. Ask what the person wants help with today."
+  echo "  Read personal sources only within the access they authorize."
   echo "  Then load the life-context skill and follow it. Do not ask them to"
   echo "  describe themselves."
 fi
