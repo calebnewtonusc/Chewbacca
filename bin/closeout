@@ -30,8 +30,10 @@ to a specific verified state rather than to a memory of having run it.
 
 from __future__ import annotations
 
+import concurrent.futures as cf
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -115,15 +117,91 @@ class Checks:
             f"git rev-list @{{u}}..HEAD: {ahead} commit(s) ahead",
         )
 
-    def gates(self) -> None:
-        """Run the fast deterministic gates and require them to pass."""
+    def gates(self, quiet: bool = False) -> None:
+        """Run the gates, fanned out across the groups.
+
+        "Nothing should ever take that long bruh, you have graph engineering
+        and the ability to intelligently split things up."
+
+        Correct, and this was the clearest case of it in the repo. The suite is
+        155 checks with no edges between them, run strictly one after another,
+        and the whole of closeout was ten minutes of waiting for that. A set of
+        independent nodes run sequentially is the exact anti-pattern the task
+        graph half of skills/graph-engineering exists to name.
+
+        The groups are the natural partition: run.sh already accepts one as an
+        argument, so no restructuring of the 155 checks is needed to fan them
+        out. Wall clock becomes the slowest group rather than the sum of all
+        of them, which on this machine is `installer` at about 40 seconds
+        against a sequential total over ten minutes.
+        """
         suite = KIT / "tests" / "run.sh"
         if not suite.exists():
             self.record(True, "gates: no suite present, skipped", "")
             return
-        code, out = run(["bash", str(suite)], KIT, timeout=900)
-        tail = "\n".join(out.splitlines()[-4:])
-        self.record(code == 0, "gates: tests/run.sh passes", tail or f"exit {code}")
+
+        groups = self._groups(suite)
+        if not groups:
+            code, out = run(["bash", str(suite)], KIT, timeout=900)
+            self.record(code == 0, "gates: tests/run.sh passes",
+                        "\n".join(out.splitlines()[-4:]) or f"exit {code}")
+            return
+
+        started = time.time()
+        failed: list[str] = []
+        detail: list[str] = []
+        # Bounded. More workers than cores turns a fan-out into contention,
+        # and several of these groups shell out heavily.
+        workers = min(len(groups), max(2, (os.cpu_count() or 4)))
+        with cf.ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(run, ["bash", str(suite), g], KIT, 600): g
+                for g in groups
+            }
+            done_n = 0
+            for fut in cf.as_completed(futures):
+                g = futures[fut]
+                code, out = fut.result()
+                done_n += 1
+                if code != 0:
+                    failed.append(g)
+                    for line in out.splitlines():
+                        if line.strip().startswith("- "):
+                            detail.append(f"{g}: {line.strip()[2:]}")
+                # SAY SO AS IT LANDS. "Closeout taking too long bruh, break it
+                # up into more steps." Ten minutes of silence and then one
+                # verdict is the same information delivered in the worst
+                # possible shape: nothing to act on until all of it is done,
+                # and no way to tell a slow run from a hung one.
+                if not quiet:
+                    mark = "ok  " if code == 0 else "FAIL"
+                    print(f"  {mark}  [{done_n}/{len(groups)}] {g}"
+                          f"  {time.time() - started:.0f}s", flush=True)
+        secs = time.time() - started
+        self.record(
+            not failed,
+            f"gates: {len(groups)} groups in parallel, {secs:.0f}s",
+            "\n".join(detail[:5]) if detail else f"all {len(groups)} groups green",
+        )
+
+    @staticmethod
+    def _groups(suite: Path) -> list[str]:
+        """Group names, read from the suite rather than hardcoded here.
+
+        Hardcoding them would mean a group added later silently never runs,
+        which is the same shape as a hook that ships without being registered.
+        """
+        try:
+            text = suite.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return []
+        found = re.findall(r'^\s*group\s+"([^"]+)"', text, re.M)
+        seen, out = set(), []
+        for g in found:
+            if g not in seen:
+                seen.add(g)
+                out.append(g)
+        return out
 
     def lesson_written(self) -> None:
         """Code changed today means a lesson was written down today.
@@ -179,7 +257,7 @@ def main() -> int:
     c.pushed(KIT, "kit")
     c.clean(BRAIN, "brain")
     c.pushed(BRAIN, "brain")
-    c.gates()
+    c.gates(quiet)
     c.lesson_written()
     c.no_scaffolding()
 
