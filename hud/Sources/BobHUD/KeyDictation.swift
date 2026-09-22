@@ -139,29 +139,37 @@ extension AppDelegate {
 
     /// Whisper's pass. It replaces the recogniser's text only while nothing
     /// else can have touched the field: same app in front, no key pressed since
-    /// the sentence went in, and an answer of a plausible size.
+    /// the sentence went in, and an answer of a plausible size for the audio.
+    /// Every way it declines is logged by name, because a bare "skipped" on
+    /// 2026-09-22 hid that the size rule was discarding the right answer.
     private func correct(_ typer: KeystrokeTyper, turn: Int, wav: Data) {
         let finished = Date()
+        let seconds = Whisper.seconds(ofWav: wav)
         let prompt = Vocabulary.load().prefix(60).joined(separator: ", ")
         Task { @MainActor in
             guard let heard = await Whisper.shared.transcribe(wav, prompt: prompt) else { return }
             let session = Self.keyDictation
             let sinceKey = CGEventSource.secondsSinceLastEventType(
                 .combinedSessionState, eventType: .keyDown)
-            let before = LiveText.words(typer.typed).count
-            let after = LiveText.words(heard).count
-            guard session.turn == turn, !session.listening,
-                  NSWorkspace.shared.frontmostApplication?.processIdentifier == typer.pid,
-                  sinceKey >= Date().timeIntervalSince(finished),
-                  after > 0, after * 2 >= before, after <= before * 2 + 2
-            else {
-                Self.dictationLog.notice("dictation.whisper skipped")
+            let reason: String? =
+                session.turn != turn || session.listening ? "next_turn"
+                : NSWorkspace.shared.frontmostApplication?.processIdentifier != typer.pid ? "app_changed"
+                : sinceKey < Date().timeIntervalSince(finished) ? "key_pressed"
+                : Whisper.rejection(heard: heard, typed: typer.typed, seconds: seconds)
+            if let reason {
+                Self.dictationLog.notice(
+                    "dictation.whisper skipped reason=\(reason, privacy: .public) typed=\(typer.typed.count) heard=\(heard.count) seconds=\(seconds, format: .fixed(precision: 1))")
                 return
             }
             let corrected = Spoken.punctuate(heard)
-            guard corrected != typer.typed else { return }
+            guard corrected != typer.typed else {
+                Self.dictationLog.notice("dictation.whisper unchanged")
+                return
+            }
+            let from = typer.typed.count
             typer.show(corrected)
-            Self.dictationLog.notice("dictation.whisper corrected chars=\(corrected.count)")
+            Self.dictationLog.notice(
+                "dictation.whisper corrected from=\(from) chars=\(corrected.count)")
         }
     }
 }

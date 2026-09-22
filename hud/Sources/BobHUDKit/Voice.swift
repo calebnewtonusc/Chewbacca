@@ -97,6 +97,13 @@ public final class VoiceListener {
     /// The newest partial of the open turn, so a key release can commit what
     /// was heard without waiting for a final the recogniser is slow to send.
     private var latestPartial = ""
+    /// The segments the recogniser has already finished and started over
+    /// after, in this turn. See `Segments`.
+    private var settled = ""
+    /// The last result ended a segment, by the recogniser's own metadata.
+    private var segmentClosed = false
+    /// Everything heard this turn: the settled segments and the open one.
+    private var heardSoFar: String { Segments.join(settled, latestPartial) }
     /// When the key came up, so the final's lag can be logged and
     /// `commitGrace` moved from a research band to a measurement.
     private var releasedAt: Date?
@@ -372,6 +379,8 @@ public final class VoiceListener {
             return
         }
         latestPartial = ""
+        settled = ""
+        segmentClosed = false
         releasedAt = nil
 
         // `nonisolated(unsafe)`: the tap below captures this and calls
@@ -441,16 +450,19 @@ public final class VoiceListener {
             let code = (error as NSError?)?.code ?? 0
             let text = result?.bestTranscription.formattedString
             let isFinal = result?.isFinal ?? false
+            let segmentEnded = result?.speechRecognitionMetadata != nil
             Task { @MainActor in
                 self?.received(
-                    text: text, isFinal: isFinal, failed: failed, errorCode: code, turn: turn)
+                    text: text, isFinal: isFinal, failed: failed, errorCode: code,
+                    segmentEnded: segmentEnded, turn: turn)
             }
         }
     }
 
     /// Every recognition result lands here, on the main actor, as scalars.
     private func received(
-        text: String?, isFinal: Bool, failed: Bool, errorCode: Int = 0, turn: Int
+        text: String?, isFinal: Bool, failed: Bool, errorCode: Int = 0,
+        segmentEnded: Bool = false, turn: Int
     ) {
         // A cancelled task reports an error, and this is where that error, and
         // every late result from a torn-down turn, is dropped on the floor.
@@ -462,16 +474,29 @@ public final class VoiceListener {
             // is the branch that commits nearly every sentence: the
             // recogniser answers `endAudio` with error 1101, never a final.
             logTurn("error", code: errorCode)
-            if latestPartial.isEmpty {
+            if heardSoFar.isEmpty {
                 onSignal?(.failed(Self.message(forRecognizerError: errorCode)))
                 stop()
             } else {
-                commit(latestPartial)
+                commit(heardSoFar)
             }
             return
         }
         guard let text else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A result that starts over is a new segment: what the open one held
+        // is kept before this replaces it. The final is checked too, because
+        // on this Mac the final is only the last segment. Push to talk only:
+        // in wake mode a restart is the room moving on to a new sentence, and
+        // stitching would hand the next request somebody else's words.
+        if mode == .pushToTalk, !trimmed.isEmpty,
+           Segments.isRestart(current: latestPartial, next: trimmed, closed: segmentClosed) {
+            settled = heardSoFar
+            latestPartial = ""
+            Self.log.notice(
+                "voice.segment settled_chars=\(self.settled.count) by=\(self.segmentClosed ? "metadata" : "length", privacy: .public)")
+        }
+        segmentClosed = segmentEnded
         if isFinal {
             if mode == .wake {
                 fire(text)
@@ -482,8 +507,9 @@ public final class VoiceListener {
                 // sentence. `lag_ms=held` in the log means the recogniser
                 // ended the turn under the key, which reads as "it stopped
                 // listening to me" and is worth knowing the rate of.
+                if !trimmed.isEmpty { latestPartial = text }
                 logTurn(trimmed.isEmpty ? "empty-final" : "final")
-                commit(trimmed.isEmpty ? latestPartial : text)
+                commit(heardSoFar)
             }
             return
         }
@@ -496,7 +522,7 @@ public final class VoiceListener {
         if mode == .wake {
             if let addressed = strippingWakeWord(from: text) { onSignal?(.partial(addressed)) }
         } else {
-            onSignal?(.partial(text))
+            onSignal?(.partial(heardSoFar))
         }
         // Speech has no full stops. A pause is the only end-of-turn signal
         // there is, so the timer is the turn-taking model: reset it on every
@@ -531,9 +557,9 @@ public final class VoiceListener {
     /// The grace timer's body: commit what was heard, unless the turn has
     /// already closed or never produced a partial.
     private func commitLatestPartial(turn: Int) {
-        guard turn == self.turn, !latestPartial.isEmpty else { return }
+        guard turn == self.turn, !heardSoFar.isEmpty else { return }
         logTurn("grace")
-        commit(latestPartial)
+        commit(heardSoFar)
     }
 
     /// See `finalFloor`. Armed beside the grace rather than instead of it: a
@@ -564,7 +590,7 @@ public final class VoiceListener {
     private func logTurn(_ source: String, code: Int = 0) {
         let lag = lagSinceRelease.map(String.init) ?? "held"
         Self.log.notice(
-            "voice.turn source=\(source, privacy: .public) code=\(code) lag_ms=\(lag, privacy: .public) partial_chars=\(self.latestPartial.count)"
+            "voice.turn source=\(source, privacy: .public) code=\(code) lag_ms=\(lag, privacy: .public) partial_chars=\(self.heardSoFar.count) settled_chars=\(self.settled.count)"
         )
     }
 
@@ -595,6 +621,8 @@ public final class VoiceListener {
         // below sends back through the recognition callback.
         turn += 1
         latestPartial = ""
+        settled = ""
+        segmentClosed = false
         releasedAt = nil
         recorder = nil
         silenceTimer?.invalidate()
@@ -696,10 +724,12 @@ public final class VoiceListener {
     @discardableResult
     func receivedForTesting(
         _ text: String?, isFinal: Bool, failed: Bool = false, errorCode: Int = 0,
-        turn: Int? = nil
+        segmentEnded: Bool = false, turn: Int? = nil
     ) -> Int {
         let turn = turn ?? self.turn
-        received(text: text, isFinal: isFinal, failed: failed, errorCode: errorCode, turn: turn)
+        received(
+            text: text, isFinal: isFinal, failed: failed, errorCode: errorCode,
+            segmentEnded: segmentEnded, turn: turn)
         return turn
     }
 
