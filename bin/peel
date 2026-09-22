@@ -525,6 +525,55 @@ if (cmd === "scan") {
   }
   console.log(`${recs.length} asset paths, ${ok} recovered as text, ${rej} rejected`);
   console.log(`${mb(bytes)} -> ${out}`);
+} else if (cmd === "java") {
+  // The JVM needs a full type system for reflection, so decompilation is close
+  // to lossless. The work is in NOT decompiling the vendored half: Transporter
+  // ships 25 jars and 13 are public on Maven, where the source already exists.
+  const target = rest[0];
+  if (!target) { console.error("usage: peel java <AppName> [outdir] [--all]"); process.exit(1); }
+  const app = target.endsWith(".app") ? target : path.join(APPS, target + ".app");
+  if (!fs.existsSync(app)) { console.error(`no such app: ${app}`); process.exit(1); }
+  const all = rest.includes("--all");
+  const out = rest.find(r => r !== target && !r.startsWith("--")) ||
+              path.join(process.cwd(), path.basename(app, ".app") + "-java");
+
+  const jars = [];
+  const walk = (d, depth) => {
+    if (depth > 8) return;
+    let ents; try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      const f = path.join(d, e.name);
+      if (e.isSymbolicLink()) continue;
+      if (e.isDirectory()) walk(f, depth + 1);
+      else if (e.name.endsWith(".jar")) jars.push(f);
+    }
+  };
+  walk(app, 0);
+  if (!jars.length) { console.error("no jars found"); process.exit(1); }
+
+  const VENDORED = /^(org\.apache|org\.eclipse|org\.osgi|com\.fasterxml|com\.google|org\.slf4j|jrt-fs)/;
+  const pick = jars.filter(j => all || !VENDORED.test(path.basename(j)));
+  console.log(`${jars.length} jars, ${jars.length - pick.length} vendored (already public), ${pick.length} to decompile`);
+
+  const cfr = path.join(process.env.HOME, ".cache", "peel", "cfr.jar");
+  if (!fs.existsSync(cfr)) {
+    fs.mkdirSync(path.dirname(cfr), { recursive: true });
+    console.log("fetching CFR...");
+    try {
+      execFileSync("curl", ["-sL", "--max-time", "180", "-o", cfr,
+        "https://github.com/leibnitz27/cfr/releases/download/0.152/cfr-0.152.jar"],
+        { stdio: ["ignore", "ignore", "ignore"] });
+    } catch { console.error("could not fetch CFR"); process.exit(1); }
+  }
+  let total = 0;
+  for (const j of pick) {
+    const name = path.basename(j, ".jar");
+    const dir = path.join(out, name);
+    try { execFileSync("java", ["-jar", cfr, j, "--outputdir", dir],
+      { stdio: ["ignore", "ignore", "ignore"], maxBuffer: 1 << 26 }); } catch {}
+    total += countFiles(dir, "*.java", 12);
+  }
+  console.log(`${total} .java files -> ${out}`);
 } else if (cmd === "trace") {
   // Static recovery answers "what did the author write". This answers the other
   // question: what is this process executing RIGHT NOW. Works at every tier,
@@ -604,6 +653,7 @@ if (cmd === "scan") {
   peel map [--json]         route every app to its recovery tier and extractor
   peel trace <App> [secs]   sample a RUNNING app: what it is executing right now
   peel tauri <App> [out]    recover a Tauri app's frontend from its Rust binary
+  peel java <App> [out]     decompile an app's first-party jars (--all for vendored too)
 
 Reads only. Never writes into /Applications.`);
 }
