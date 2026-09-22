@@ -10,7 +10,7 @@ edc9cc9d67d8a05fce30fd49e56aded7be67efab08cba2ad5d83172bf275dbeb  .claude/hooks/
 08d36ddb4e7ce1ae9e78c1d73965d69aa56a0e6b00ce5eb6766450ef49b865cd  .claude/hooks/kit-autopull.sh
 876f35c4ce174ff6950d9771708138e1badfacbcc61b9ef1ca9bbb10496bd642  .claude/hooks/kit-autopush.sh
 d893050092dc083e7a5f5b8b09733466ffdf4040755a5870fa6ade197a2fb208  .claude/hooks/kit-debt.sh
-886da8b194ed8906f4d132344f63819839ffc090a646aaf10d89c012308a9829  .claude/hooks/kit-route.sh
+8d6ffd67b550b52c7a4c9abaee80d40387289d67189e1e0ba8d839d5b58f8415  .claude/hooks/kit-route.sh
 511fde97efcf32a0527b1eef1ceb26d50dd2a9321d7020e1d5921645320f1730  .claude/hooks/lib.sh
 26bdb22466effb106b8584f2579665ce6cea5aa9978576d9c46759cf4fc41c52  .claude/hooks/list-guard.sh
 609c5e2b183f10ed65689e6a933d51e5f8cdc97edcd3ed6f3bc258f0aa47e576  .claude/hooks/load-guard.sh

@@ -97,6 +97,19 @@ def bigrams(seq):
 prompt_stems = stems(prompt)
 prompt_bigrams = bigrams(stem_seq(prompt))
 
+# Stems that are English rather than topic, and stems whose 5-character
+# truncation collapses unrelated word families. `inter` is the worst offender:
+# it is interview, internal, internship, interested, international and
+# interaction all at once, and three of those appear in almost any message
+# about a club. Each of these was observed producing a false route on
+# 2026-09-22, in a single message, against both installed kits.
+GENERIC = {
+    "role", "roles", "perso", "speci", "time", "acros", "stand", "profe",
+    "inter", "state", "offic", "reque", "membe", "team", "work", "peopl",
+    "compa", "cover", "under", "gener", "sched", "place", "point", "thing",
+}
+
+
 def read_kit(d):
     marker = os.path.join(d, ".kit")
     try:
@@ -115,7 +128,14 @@ def read_kit(d):
     use_when = field("use-when")
     if not name or "{{" in name or not use_when or "{{" in use_when:
         return None
-    kit_stems = (stems(use_when) | stems(field("domain"))) - stems(name.replace("-", " "))
+    # use-when only. `domain:` is a human-readable description, not a matcher
+    # input, and folding it in is where the generic English came from.
+    # Measured 2026-09-22: apply-kit's domain line ("Applications: clubs, jobs
+    # and internships, fellowships, grad school, grants, accelerators")
+    # contributed `clubs` and `role`, and use-when contributed `perso`,
+    # `speci`, `inter`. A 17,000-character message about building a club
+    # website hit all five and routed into an applications kit.
+    kit_stems = stems(use_when) - stems(name.replace("-", " ")) - GENERIC
     return {"dir": d, "name": name, "use_when": use_when, "stems": kit_stems}
 
 loaded = [k for k in (read_kit(d) for d in kit_paths()) if k]
@@ -144,12 +164,30 @@ for k in loaded:
 
     # Two words that belong to this kit and no other is as good as a phrase.
     # "apply" and "essay" only ever point one direction; "letter" does not.
-    distinctive = {h for h in hits if claims.get(h, 0) == 1}
+    #
+    # Rarity needs a population to be rare in. With two kits installed, every
+    # single hit is "claimed by exactly one kit" and this test says yes to
+    # everything. Measured 2026-09-22 on a machine with exactly two kits: all
+    # six apply-kit hits and all four accommodations-kit hits came back
+    # distinctive, so both kits matched one message and the only thing
+    # deciding the route was which scored higher.
+    distinctive = (
+        {h for h in hits if claims.get(h, 0) == 1} if len(loaded) >= 4 else set()
+    )
+
+    # Three scattered hits is evidence in a sentence and noise in a transcript.
+    # The same three stems that correctly route "apply to three clubs,
+    # deadline Friday, need my resume" (6 content words, 50% density) also
+    # routed a 584-stem strategy dump at 1.0% density. Counting hits without
+    # dividing by what was typed means a long enough message matches every kit
+    # on the machine.
+    density = len(hits) / max(len(prompt_stems), 1)
+    dense = len(hits) >= 3 and density >= 0.04
 
     strong = (
         (phrase_hit and len(hits) >= 2)
         or len(distinctive) >= 2
-        or len(hits) >= 3
+        or dense
     )
     if not strong:
         continue

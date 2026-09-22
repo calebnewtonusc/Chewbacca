@@ -355,6 +355,12 @@ if group "installer"; then
   check  "kit-debt fires when a session taught the kit nothing" \
     bash "$ROOT/tests/kit_debt.sh" "$ROOT"
 
+  # Every kit on the machine matched one 17,000-character message about a club
+  # website on 2026-09-22, because hit count was never divided by what was
+  # typed and two kits make every stem look distinctive.
+  check  "kit-route stays silent on long off-topic messages" \
+    bash "$ROOT/tests/kit_route.sh" "$ROOT"
+
   # Six hooks were on disk and registered nowhere on 2026-09-22, including the
   # two built after Caleb had to ask for the same thing four times. A hook the
   # installer never registers is a feature that has never run.
