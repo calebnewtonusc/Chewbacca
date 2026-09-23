@@ -215,6 +215,46 @@ def main() -> int:
     if _oldm is not None:
         _os.environ["HUD_MODEL_CMD"] = _oldm
 
+    # ── tier 3: Jev ──────────────────────────────────────────────────────
+    # Stubbed: the suite never touches the network. The live numbers are in
+    # tests/eval_route_jev.py.
+    import types
+    stub = types.ModuleType("jev")
+    seen_state = []
+
+    def answering(choice, probs):
+        def ask(state, questions, timeout=0):
+            seen_state.append(state)
+            return None if choice is None else {"dest": {"type": "choice", "choice": choice, "probabilities": probs}}
+        return ask
+    sys.modules["jev"] = stub
+    _off = _os.environ.pop("HUD_CLASSIFY_JEV", None)
+    stub.ask = answering("terminal", {"terminal": 0.95, "assistant": 0.05})
+    check("jev: a sure terminal answer goes to the terminal",
+          r.classify_with_jev("rename that function", {"context": TERMINAL}) == "terminal")
+    check("jev: the frontmost Claude tab is named in the state",
+          seen_state[-1] == {"spoken": "rename that function", "frontmost_app": "Terminal (Claude Code)"}, str(seen_state[-1]))
+    # "Create a bubble" came back terminal at 0.56 on 2026-09-23.
+    stub.ask = answering("terminal", {"terminal": 0.56, "assistant": 0.43})
+    check("jev: an unsure terminal answer falls to the assistant",
+          r.classify_with_jev("Create a bubble", {}) == "assistant")
+    stub.ask = answering("browser", {"browser": 0.72})
+    check("jev: a browser answer stands", r.classify_with_jev("look up Clay pricing", {}) == "browser")
+    stub.ask = answering(None, {})
+    check("jev: no answer is no decision", r.classify_with_jev("hm", {}) is None)
+    d = dest("what do you think of the design", NOBODY, COLD, classify=r.classify_with_jev)
+    check("jev: no answer ends at the assistant, unsettled", d.dest == "assistant" and d.reason == "unsettled", str(d))
+    stub.ask = answering("terminal", {"terminal": 0.99})
+    _os.environ["HUD_CLASSIFY_JEV"] = "off"
+    check("jev: HUD_CLASSIFY_JEV=off switches the tier off", r.classify_with_jev("fix it", {}) is None)
+    _os.environ.pop("HUD_CLASSIFY_JEV", None)
+    if _off is not None:
+        _os.environ["HUD_CLASSIFY_JEV"] = _off
+    d = dest("make the parser handle the format", TERMINAL, COLD, classify=r.classify_default)
+    check("jev: the default classifier reaches the sentence the word list misses",
+          d.dest == "terminal" and d.reason == "classifier", str(d))
+    del sys.modules["jev"]
+
     # ── draft words ──────────────────────────────────────────────────────
     for said in ("send it", "Send.", "run it", "run", "confirm", "go", "do it", "send that"):
         check(f"submit word: {said!r}", r.draft_word(said) == "submit")

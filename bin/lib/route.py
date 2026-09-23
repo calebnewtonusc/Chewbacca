@@ -7,10 +7,12 @@ names for what the rules cannot settle, and the assistant when nothing does.
 The design and the evidence for each rule are in
 the voice-routing design notes.
 
-Tier 3 ships off. The frontmost application is a prior here and not a
-destination: `_work_shaped` is the gate that made it one, and `_classify_cmd`
-carries the measurement that switched the model call off. `summarize` still
-runs the CLI, under a budget that can afford it.
+Tier 3 is TypeSafe's Jev (`classify_with_jev`), because it answers in a
+quarter of a second where the Haiku CLI took 9 to 17. The frontmost
+application is a prior here and not a destination: `_work_shaped` is the gate
+that made it one, and `_classify_cmd` carries the measurement that switched
+the CLI call off. `summarize` still runs the CLI, under a budget that can
+afford it.
 """
 import json
 import os
@@ -259,7 +261,7 @@ def route(
 ) -> Decision:
     import time as _time
     now = _time.time() if now is None else now
-    classify = classify_with_haiku if classify is None else classify
+    classify = classify_default if classify is None else classify
     warm = memory.get("warm")
     app = context.get("app", "")
 
@@ -282,13 +284,13 @@ def route(
         return Decision("terminal", 0.8, "terminal in front, about the work")
     if app in BROWSER_APPS:
         if warm == "terminal" and not browser_shaped:
-            return _classified(said, memory, classify)
+            return _classified(said, {**memory, "context": context}, classify)
         return Decision("browser", 0.8, "browser in front")
 
     if browser_shaped:
         return Decision("browser", 0.8, "browser-shaped")
 
-    return _classified(said, memory, classify)
+    return _classified(said, {**memory, "context": context}, classify)
 
 
 def _classified(said: str, memory: dict, classify) -> Decision:
@@ -412,6 +414,65 @@ def _ask_model(prompt: str, timeout: float, argv: list[str] | None = None) -> st
     except ValueError:
         pass
     return text
+
+
+# Jev may send a sentence to the terminal only when it is at least this sure.
+# Measured 2026-09-23 on the 30 hand-labelled sentences in
+# tests/eval_route_jev.py: three bubble and window fragments came back
+# terminal at 0.55, 0.56 and 0.62, and every real terminal request scored 0.80
+# or higher. The asymmetry in `_classified` is why the floor sits on the
+# terminal side only.
+JEV_TERMINAL_FLOOR = 0.7
+
+JEV_QUESTION = {"dest": {
+    "type": "choice",
+    "instructions": {
+        "question": "The user said `spoken` out loud to their Mac. Which of the three should handle it?",
+        "note": "Speech-to-text is noisy: fragments, filler and misheard words are common. "
+                "A fragment or one-word utterance with no clear request belongs to the assistant.",
+    },
+    "criteria": {
+        "terminal": "The coding session in the terminal: a request to change, build, fix, explain or "
+                    "discuss the software they are building (the HUD, the voice assistant, Chewbacca, a "
+                    "repo, a feature, a bug).",
+        "browser": "Chrome: open a website, or search the web for something to look at.",
+        "assistant": "The voice assistant: questions, conversation, calendar, reminders, messages, "
+                     "music, school, personal plans, making a spreadsheet or document, fragments, and "
+                     "anything unclear.",
+    },
+}}
+
+
+def classify_default(said: str, memory: dict) -> str | None:
+    """HUD_CLASSIFY_CMD when somebody set one, otherwise Jev."""
+    if _classify_cmd():
+        return classify_with_haiku(said, memory)
+    return classify_with_jev(said, memory)
+
+
+def classify_with_jev(said: str, memory: dict) -> str | None:
+    """One Choice question to TypeSafe's Jev, None when it cannot answer.
+
+    The frontmost application is in the state because it moved one sentence
+    of the thirty: "No, let's talk to text feature. We just built the bubble."
+    scored terminal 0.80 with it and 0.59 without. HUD_CLASSIFY_JEV=off
+    switches the tier off again.
+    """
+    if os.environ.get("HUD_CLASSIFY_JEV") == "off":
+        return None
+    import jev
+    context = memory.get("context") or {}
+    app = context.get("app") or "nothing"
+    if app == "Terminal" and context.get("claude_tab"):
+        app = "Terminal (Claude Code)"
+    answers = jev.ask({"spoken": said, "frontmost_app": app}, JEV_QUESTION, timeout=CLASSIFY_TIMEOUT_S)
+    answer = (answers or {}).get("dest") or {}
+    choice = answer.get("choice")
+    if choice not in DESTS:
+        return None
+    if choice == "terminal" and (answer.get("probabilities") or {}).get("terminal", 0.0) < JEV_TERMINAL_FLOOR:
+        return "assistant"
+    return choice
 
 
 def classify_with_haiku(said: str, memory: dict) -> str | None:
