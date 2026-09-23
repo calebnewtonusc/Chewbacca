@@ -3,6 +3,7 @@ fe3e089e15005d5e68f1f414519f7256ff37f31a5fb4d9e4853cb83aaa095ab1  .claude/hooks/
 66905632eda6e963ed130b09c20ae3765585cf40f8b5927ed19b6c91ba40bdfc  .claude/hooks/auto-push.sh
 4a1c8a14231bfe159c20cb876d414bff7182d32b0362a3e5507b1054a08c6aa3  .claude/hooks/browser-ux-guard.sh
 2b4c3d09aa7d44acece030a70da076a4ee8baae96d348342758125de661bdc38  .claude/hooks/coursework-context.sh
+354baefe8fba14c9e8b158c5adaddf334ec74cd8a1e2326712488368e475849f  .claude/hooks/design-context.sh
 9e9d798aa6c593ee6993e5369df2de13c6162f7a927a3ca5830105bde3d784e2  .claude/hooks/durable-guard.sh
 3856d3932a4390ab147bc9d9c31db31c931834c902d588b78ee0b3cb8dba56de  .claude/hooks/env-guard.sh
 b28bc39ba3d201e6ccc2c42fc0beabbad43bb261eac5935eab80c5c6535ca2f1  .claude/hooks/format-and-sync.sh
