@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""Every Claude Code session on this Mac, and which one a sentence is for.
+
+    agents                   one line per session: waiting first, then running, then done
+    agents say               the same, as the one sentence the voice speaks
+    agents pick "<words>"    which session those words are for, through Jev
+    agents --json            the board as JSON
+
+The board comes from `agent-events.jsonl`, written by the terminal hook for
+every session it sees (bin/lib/agent_board.py). A session appears after its
+first tool call; one that has been silent for two hours drops off.
+"""
+import json
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import agent_board  # noqa: E402
+
+
+def main(argv: list[str]) -> int:
+    board = agent_board.load()
+    if argv[:1] == ["--json"]:
+        print(json.dumps(agent_board.ordered(board), indent=2))
+        return 0
+    if argv[:1] == ["say"]:
+        print(agent_board.summary(board))
+        return 0
+    if argv[:1] == ["pick"]:
+        said = " ".join(argv[1:]).strip()
+        if not said:
+            print('usage: agents pick "<words>"', file=sys.stderr)
+            return 2
+        got = agent_board.pick(said, board)
+        match = board.get(got["session"] or "")
+        where = f"{match['folder']} ({match['cwd']})" if match else "nobody: ask which one"
+        print(f"{where}  confidence {got['confidence']:.2f}, {got['why']}")
+        return 0 if match else 1
+    if argv:
+        print(__doc__.strip(), file=sys.stderr)
+        return 2
+    rows = agent_board.ordered(board)
+    if not rows:
+        print("No agents yet. A session shows up here after its first tool call.")
+        return 0
+    for s in rows:
+        print(f"{s['state']:8} {s['folder']:24} {s.get('text') or ''}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

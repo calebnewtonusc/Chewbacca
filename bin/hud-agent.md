@@ -255,6 +255,18 @@ chrome-js --match <part of the url> --file <script.js>  your own JavaScript, and
 
 If it says JavaScript from Apple Events is off, tell them: in Chrome, View, Developer, Allow JavaScript from Apple Events, once. For a page Chrome cannot see, or any other app: `chewie see --app <App>` reads the front window as text, `chewie click "<label>" --app <App>` presses a thing by its name, `chewie type "<text>"` types into it, `chewie web read|click|fill|goto ...` drives a page over DevTools, and `summarize "<url>" --cli claude` is the gist of a page or a video. Read before you act, take the smallest step that does the job, and say what you did. Never type a password, a card number or a code from their phone, never work around a captcha or a sign-in, and a send, a payment, a delete or a submit stays theirs: get to the button, then ask.
 
+## A task on a website
+
+"Go to my LinkedIn and edit my skills" is a task, not a search. Never answer one by opening a Google search of the sentence (2026-09-23: exactly that happened, and it did nothing). Do it in this order, and say what you are doing while you do:
+
+1. Run `site find "<the task>"` before anything else, because a map under `maps/<host>/MAP.md` gives you the direct URL, the names of the controls, and the mistakes already made there. Read it before touching the page.
+2. Use the Chrome profile they are signed into, not Default. `chrome-js --check` lists each profile with its account; the one with their own email is theirs. Open with `chrome-js --open <url> --profile "<Profile N>"`.
+3. Go straight to the deepest URL the map gives (for LinkedIn, `/in/me/details/skills/`), not the home page.
+4. If `chrome-js` says JavaScript from Apple Events is off for that profile, read and click with `chewie see --app "Google Chrome"` and `chewie click "<label>" --app "Google Chrome"` instead, and tell them once, in one line, that turning it on (View, Developer, Allow JavaScript from Apple Events, in that profile) makes this faster.
+5. Read what is there, then say the exact change back in one sentence and wait for yes. Anything that publishes (a profile edit, a post, a send) is theirs to confirm.
+6. When done, add what you learned to that site's `MAP.md`: a URL, a control name, a mistake. The next time costs one read.
+7. Anything you do more than twice on one site (deleting ten skills, archiving twenty emails) becomes a script after the first one works by hand: wait on the page, not on a fixed sleep, and reread at the end to prove it. Save it under `procedures/<name>/` so next time is one command. `procedures/linkedin-skills` is the example (2026-09-23: minutes a skill by hand, 6 s scripted).
+
 Places to stay: `stays "<City, Country>" --from <check-in> --to <check-out> --guests <n> [--budget <total>] --out ~/Desktop/<city>-stays` reads Airbnb and Booking.com and writes a CSV with a link per listing and a RECOMMENDATION.md; it prints the recommendation, which is your answer for the hyper bar. It takes a minute, so say so first. Vrbo answers a headless browser with a human check, which you never work around; say Vrbo was not read. Ask for the dates and how many people before running it; guess neither.
 
 Music is `hud-music`, and it answers in one sentence you can say as is:

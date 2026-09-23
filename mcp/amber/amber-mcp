@@ -435,6 +435,86 @@ function summary() {
   ].filter(Boolean).join("\n");
 }
 
+// ── Knowing the person ───────────────────────────────────────────────────────
+//
+// Karthik's first deliverable asks three things of one person's agent: that it
+// knows whose it is, remembers what it was told in an earlier session, and
+// never sees anyone else's. The people store (bin/people) already holds the
+// memory; these tools run it with PEOPLE_DIR inside this user's root, so the
+// isolation is the same path-level isolation the tenant test proves, and a
+// fact survives because it went to disk, not into a context window.
+
+const PEOPLE_BIN = path.join(path.dirname(fs.realpathSync(__filename)), "..", "..", "bin", "people");
+
+function people(...args) {
+  const peopleDir = path.join(DIR, "people");
+  fs.mkdirSync(peopleDir, { recursive: true, mode: 0o700 });
+  try {
+    return execFileSync(PEOPLE_BIN, args, {
+      encoding: "utf8",
+      timeout: 20000,
+      env: { ...process.env, PEOPLE_DIR: peopleDir, AMBER_ROOT: DIR, AMBER_USER: USER, NO_COLOR: "1" },
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  } catch (e) {
+    const said = String(e.stderr || e.stdout || e.message).trim();
+    throw new Error(said || "the people store did not answer");
+  }
+}
+
+function profileName() {
+  try {
+    const m = fs.readFileSync(path.join(DIR, "profile.md"), "utf8").match(/^name: (.+)$/m);
+    return m ? m[1].trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function hello() {
+  const name = profileName();
+  const today = JSON.parse(people("today", "--json") || "{}");
+  const aboutYou = JSON.parse(people("me", "--list", "--json", "--limit", "12") || "[]");
+  return JSON.stringify({
+    you: { id: USER, name: name || USER },
+    what_you_have_told_me_about_yourself: aboutYou,
+    today,
+    how_to_answer:
+      "Greet the person by first name. Lead with anything due or owed, then who is worth a message. " +
+      "Use what they have told you about themselves to decide how to talk to them. Say nothing about other users: there are none in this store.",
+  });
+}
+
+function remember({ about, fact }) {
+  const said = String(fact || "").trim();
+  const who = String(about || "me").trim();
+  if (!said) throw new Error("remember needs a fact");
+  if (/^(me|myself|i|the user)$/i.test(who)) {
+    people("me", said);
+    return `Remembered about ${profileName() || USER}: ${said}`;
+  }
+  try {
+    return people("note", who, said);
+  } catch (e) {
+    // Someone new: add them, then note it. Only when nobody matches: an
+    // ambiguous name is refused by the store and passed back to be resolved.
+    if (!/no one|nobody|not found|no match/i.test(e.message)) throw e;
+    people("add", who);
+    return people("note", who, said);
+  }
+}
+
+function recall({ about, query }) {
+  const person = String(about || "").trim();
+  if (/^(me|myself|i|the user)$/i.test(person))
+    return people("me", "--list", "--json", ...(query ? ["--search", String(query)] : []));
+  if (person) return people("search", "--person", person, "--json", ...(query ? [String(query)] : []));
+  const words = String(query || "").match(/[\p{L}\p{N}]{3,}/gu) || [];
+  if (!words.length) throw new Error("recall needs a person or some words to look for");
+  // Any word, not all of them: "Sam's new job" should find "Sam started at Ramp".
+  return people("search", words.map((w) => `"${w}"`).join(" OR "), "--json");
+}
+
 // ── Tools ────────────────────────────────────────────────────────────────────
 
 const CONTACT = {
@@ -443,6 +523,40 @@ const CONTACT = {
 };
 
 const TOOLS = [
+  {
+    name: "hello",
+    description:
+      "Call this first in every conversation, and whenever the person greets you. Returns who this Amber belongs to, what they have told you about themselves, and what is due today: dates, people to check in on, things they owe, who is worth a message. Greet them by name and lead with what is due.",
+    inputSchema: { type: "object", properties: {} },
+    run: hello,
+  },
+  {
+    name: "remember",
+    description:
+      "Save something the person told you, so a later conversation knows it. `about` is a person's name, or 'me' for a fact about the person themselves (a preference, how they like to be talked to, what they are working on). Use whenever they share news about someone or about themselves.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        about: { type: "string", description: "A person's name, or 'me'" },
+        fact: { type: "string", description: "What to remember, in plain words" },
+      },
+      required: ["fact"],
+    },
+    run: remember,
+  },
+  {
+    name: "recall",
+    description:
+      "Look up what the person has told you before. Pass `about` for everything about one person (or 'me'), `query` for a few keywords across everyone, or both.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        about: { type: "string", description: "A person's name, or 'me'" },
+        query: { type: "string", description: "A few keywords" },
+      },
+    },
+    run: recall,
+  },
   {
     name: "preview_import",
     description:

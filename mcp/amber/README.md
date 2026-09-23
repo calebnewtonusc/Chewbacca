@@ -14,6 +14,9 @@ layer for model calls is `bin/amber-redact`.
 | `undo_import`     | Removes the people one import added and clears the fields it filled. Nothing else.                                                       |
 | `search_contacts` | Name, company, title, email or notes.                                                                                                    |
 | `amber_summary`   | Count, top companies, import history.                                                                                                    |
+| `hello`           | Whose Amber this is, what they have told it about themselves, and what is due today. Chat apps call it first and greet the person by name. |
+| `remember`        | Saves a fact about a person, or about the user ("me"), to their own people store, so a later conversation knows it.                      |
+| `recall`          | What the user told it before: everything about one person, or keywords across everyone.                                                  |
 
 Duplicates match on email, LinkedIn, phone (last ten digits), or name plus
 company with legal suffixes stripped. A name alone never matches, because two
@@ -22,7 +25,8 @@ one.
 
 ## Where the data lives
 
-`~/.chewbacca/users/<user>/contacts.db`. The file is mode 0600 and its directory 0700. The user is fixed when the server starts (`AMBER_USER`, default the macOS
+`~/.chewbacca/users/<user>/contacts.db`, and what `remember` saves goes to
+`~/.chewbacca/users/<user>/people/`, the same people store `bin/people` runs. The file is mode 0600 and its directory 0700. The user is fixed when the server starts (`AMBER_USER`, default the macOS
 account), and no tool takes a user argument, so one process can only ever
 reach one person's contacts.
 

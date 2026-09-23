@@ -1,0 +1,13 @@
+{
+  "id": "health_event",
+  "family": "people",
+  "question": "Does `message` mention an illness, injury, surgery, hospital visit, or health scare for someone?",
+  "rules": [
+    "\\b(sick|hospital|surgery|injur|broke (my|his|her)|covid|flu|doctor|er\\b|diagnos)"
+  ],
+  "action": "write a people fact, check in later",
+  "false_positive_cost": "a wrong fact",
+  "false_negative_cost": "not checking on someone who was hurt",
+  "accept": 0.8,
+  "review": 0.35
+}

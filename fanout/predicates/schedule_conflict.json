@@ -1,0 +1,13 @@
+{
+  "id": "schedule_conflict",
+  "family": "plans",
+  "question": "Does `message` show a clash: someone cancelling, rescheduling, running late, or two plans on top of each other?",
+  "rules": [
+    "\\b(cancel|reschedul|can'?t make it|running late|push (it|back)|conflict|rain check)\\b"
+  ],
+  "action": "update the calendar entry",
+  "false_positive_cost": "a wrong calendar change",
+  "false_negative_cost": "showing up to something that moved",
+  "accept": 0.8,
+  "review": 0.35
+}

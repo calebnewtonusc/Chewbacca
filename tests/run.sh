@@ -292,6 +292,7 @@ if group "tools"; then
   check  "amber-mcp imports 10,000 contacts deduplicated, one user per store" python3 "$ROOT/tests/test_amber_mcp.py"
   check  "site finds what the kit knows and snaps a page by role" python3 "$ROOT/tests/test_site.py"
   check  "amber-user: two people, each recalls their own and never the other's" python3 "$ROOT/tests/test_amber_tenants.py"
+  check  "amber agent: greets its own person, recalls across sessions, Jev off until opted in" python3 "$ROOT/tests/test_amber_agent.py"
   check  "amber-redact: known and pattern values never leak, the gap is measured" python3 "$ROOT/tests/test_amber_redact.py"
   # The craft gate is the only thing making the demo rules fire rather than sit
   # in a markdown file, so its fail-closed behaviour is the property to pin.
@@ -934,6 +935,8 @@ if group "hud"; then
   check  "the router's table holds" python3 "$ROOT/tests/test_route.py"
   check  "the terminal hook filters and holds" python3 "$ROOT/tests/test_terminal_events.py"
   check  "the terminal state folds and tails" python3 "$ROOT/tests/test_terminal_state.py"
+  check  "the agent board folds every session and picks by Jev" python3 "$ROOT/tests/test_agent_board.py"
+  check  "fanout runs the JevBacca kill test with injected judges" python3 "$ROOT/tests/test_fanout.py"
   # The same file has a pytest-only path (the fixtures at its top) that no
   # runner ever exercised: none of the python3 interpreters on the dev Macs,
   # 3.12 through 3.14 and /usr/bin, has pytest, so a bare `python3 -m pytest`

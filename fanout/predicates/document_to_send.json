@@ -1,0 +1,13 @@
+{
+  "id": "document_to_send",
+  "family": "obligations",
+  "question": "Does `message` ask the user to send a file, link, document, photo, résumé, or form, or say one is still owed?",
+  "rules": [
+    "\\b(send (me|over)|resume|résumé|deck|pdf|doc|link|file|form|screenshot)\\b"
+  ],
+  "action": "add a task: send the thing",
+  "false_positive_cost": "one wrong task",
+  "false_negative_cost": "a dropped handoff",
+  "accept": 0.8,
+  "review": 0.35
+}

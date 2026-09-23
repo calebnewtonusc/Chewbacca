@@ -1,0 +1,13 @@
+{
+  "id": "money_owed_to_user",
+  "family": "obligations",
+  "question": "Does `message` show someone owes the user money (a loan, split bill, invoice, Venmo request not yet paid)?",
+  "rules": [
+    "\\b(owe me|pay (me )?back|venmo|zelle|cash ?app|split|invoice|\\$\\d+)"
+  ],
+  "action": "add a loans row (they owe)",
+  "false_positive_cost": "a wrong debt on record",
+  "false_negative_cost": "money never collected",
+  "accept": 0.8,
+  "review": 0.35
+}

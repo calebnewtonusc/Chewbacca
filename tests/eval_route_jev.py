@@ -20,6 +20,9 @@ import route  # noqa: E402
 
 T, B, A = "terminal", "browser", "assistant"
 CASES = [
+    ("can you go to my linked in and edit my skills", A), ("Update my headline on LinkedIn", A),
+    ("Post this on Twitter", A), ("Book the cheapest flight to Denver", A),
+    ("Open YouTube", B), ("Search for flights to Tokyo", B), ("Pull up the Clay pricing page", B),
     ("This is", A), ("Make a spreadsheet comparing rental prices for Lisbon", A),
     ("How the check-in date be March 3 have the check out day March 20 and make it for two people with a budget of $3000", A),
     ("I was just thinking out loud there you know", A), ("Open up terminal start, Claude", A),

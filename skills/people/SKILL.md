@@ -392,9 +392,12 @@ physical, intellectual, social, financial**. They each decay at their own rate,
 because someone's physical situation changes far faster than their spiritual
 one.
 
-Without `--dim`, the CLI falls back to keyword matching, which is worse than you
-at this and often produces nothing. **Always pass `--dim`.** Multiple are fine
-and often right: losing a job is `financial,emotional`.
+Without `--dim`, `note` and `me` ask TypeSafe's Jev, which tags dimensions,
+modality and source in about a third of a second (22, 24 and 22 of 24 on
+`tests/eval_people_jev.py`, against 9, 13 and 20 for the old keyword fallback).
+With no key or `PEOPLE_JEV=off`, it falls back to the keywords. **Still pass
+`--dim` when you know it.** Multiple are fine and often right: losing a job is
+`financial,emotional`. Jev fills only the flags you leave out.
 
 That is what makes `people rank --dim financial` work, and that question is the
 reason the scoring exists at all.

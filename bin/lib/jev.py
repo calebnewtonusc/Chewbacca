@@ -28,23 +28,50 @@ def api_key() -> str | None:
     hud-listen runs under launchd and does not inherit a shell, so the
     Keychain entry (service TYPESAFE_API_KEY) is the path that actually
     fires in production. Looked up once per process.
+
+    Resolved into a local and published once: assigning "" to the cache before
+    the Keychain lookup returned made every other thread read "no key", and on
+    2026-09-23 that failed 29 of 30 calls in fanout's two-worker pool.
     """
     global _key
     if _key is None:
-        _key = os.environ.get("TYPESAFE_API_KEY", "")
-        if not _key:
+        key = os.environ.get("TYPESAFE_API_KEY", "")
+        if not key:
             try:
                 out = subprocess.run(
                     ["security", "find-generic-password", "-s", "TYPESAFE_API_KEY", "-w"],
                     capture_output=True, text=True, timeout=2.0,
                 )
-                _key = out.stdout.strip() if out.returncode == 0 else ""
+                key = out.stdout.strip() if out.returncode == 0 else ""
             except (OSError, subprocess.TimeoutExpired):
-                _key = ""
+                key = ""
+        _key = key
     return _key or None
 
 
+def allowed() -> bool:
+    """Whether this process may send anything to Jev at all.
+
+    Jev is a cloud API, so every call is data leaving the machine. Inside an
+    Amber user's root (AMBER_ROOT, set by bin/amber-user and amber-mcp) that
+    needs the person's own yes, recorded by `amber-user consent <user> jev on`
+    in <root>/consent.json. A new user has no file, so Jev is off for them
+    until they choose it. Outside any root is the machine owner's own install,
+    where having put a TypeSafe key on the machine is the choice.
+    """
+    root = os.environ.get("AMBER_ROOT")
+    if not root:
+        return True
+    try:
+        with open(os.path.join(root, "consent.json")) as f:
+            return json.load(f).get("jev") is True
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
 def ask(state, questions: dict, timeout: float = TIMEOUT_S) -> dict | None:
+    if not allowed():
+        return None
     key = api_key()
     if not key:
         return None

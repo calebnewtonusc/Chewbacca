@@ -82,6 +82,23 @@ WORK_VERBS = frozenset({"commit", "push", "pull", "rebase", "checkout", "stash",
 BROWSER_APPS = frozenset({"Google Chrome", "Chromium", "Arc", "Safari"})
 BROWSER_OPENERS = ("look up ", "lookup ", "search for ", "search ", "google ", "go to ", "goto ")
 DOMAIN_OPENERS = ("go to ", "goto ", "open ")
+# A sentence asking for something to be done on a site, not just opened.
+# The browser destination can only open a URL, so anything it cannot open
+# becomes a Google search of the whole sentence. On 2026-09-23 "can you go to my
+# linked in and edit my skills" went there through the classifier and opened
+# exactly that search. The same sentence without "can you" was caught earlier by
+# the "go to" opener, and with Chrome in front by the browser-in-front rule, so
+# the rule applies at all three. A search keeps its own intent: "search for how
+# to delete my account" is still a search.
+SITE_TASK_WORDS = frozenset({
+    "edit", "update", "change", "add", "remove", "delete", "fill", "post", "publish",
+    "send", "message", "reply", "comment", "apply", "book", "buy", "order", "upload",
+    "download", "reorder", "rearrange", "rename", "schedule", "cancel", "unsubscribe",
+    "follow", "unfollow", "connect", "accept", "endorse", "submit", "save", "fix",
+    "write", "set", "move", "invite", "share", "like", "pay", "checkout", "subscribe",
+})
+SITE_TASK_PHRASES = ("sign up", "sign in", "log in", "login to", "turn on", "turn off")
+SEARCH_OPENERS = ("look up ", "lookup ", "search for ", "search ", "google ")
 EXPLICIT_TERMINAL = ("in terminal", "in the terminal", "terminal,", "to the terminal")
 EXPLICIT_BROWSER = ("in chrome", "in the browser", "in browser", "in safari")
 
@@ -232,6 +249,16 @@ def _work_shaped(said: str) -> bool:
     return bool(re.search(r"[a-z0-9_-]+/[a-z0-9_.-]+|[a-z0-9_-]\.[a-z]{1,4}\b", said.lower()))
 
 
+def _site_task(said: str) -> bool:
+    """Something to do once the page is open, which only the assistant can do."""
+    low = _norm(said) + " "
+    if low.startswith(SEARCH_OPENERS):
+        return False
+    if any(w in SITE_TASK_WORDS for w in low.split()):
+        return True
+    return any(f" {p} " in f" {low}" for p in SITE_TASK_PHRASES)
+
+
 def _browser_shaped(said: str) -> bool:
     low = _norm(said) + " "
     if low.startswith(BROWSER_OPENERS):
@@ -279,12 +306,15 @@ def route(
     if warm and _continuation(said):
         return Decision(warm, 0.85, f"continuation, {warm} warm")
 
-    browser_shaped = _browser_shaped(said)
+    site_task = _site_task(said)
+    browser_shaped = _browser_shaped(said) and not site_task
     if app == "Terminal" and context.get("claude_tab") and _work_shaped(said):
         return Decision("terminal", 0.8, "terminal in front, about the work")
     if app in BROWSER_APPS:
         if warm == "terminal" and not browser_shaped:
             return _classified(said, {**memory, "context": context}, classify)
+        if site_task:
+            return Decision("assistant", 0.8, "a task on a site")
         return Decision("browser", 0.8, "browser in front")
 
     if browser_shaped:
@@ -295,6 +325,8 @@ def route(
 
 def _classified(said: str, memory: dict, classify) -> Decision:
     answer = classify(said, memory)
+    if answer == "browser" and _site_task(said):
+        return Decision("assistant", 0.6, "classifier said browser, but it is a task on a site")
     if answer in DESTS:
         return Decision(answer, 0.6, "classifier")
     # The assistant, never the warm destination, which is why this no longer
@@ -435,10 +467,13 @@ JEV_QUESTION = {"dest": {
         "terminal": "The coding session in the terminal: a request to change, build, fix, explain or "
                     "discuss the software they are building (the HUD, the voice assistant, Chewbacca, a "
                     "repo, a feature, a bug).",
-        "browser": "Chrome: open a website, or search the web for something to look at.",
+        "browser": "Chrome, only to open a website or run a web search and stop there: 'open YouTube', "
+                   "'search for flights to Tokyo'. If anything is to be done once the page is open (edit, "
+                   "change, add, post, send, fill in, book, buy, check their account), it is not this one.",
         "assistant": "The voice assistant: questions, conversation, calendar, reminders, messages, "
-                     "music, school, personal plans, making a spreadsheet or document, fragments, and "
-                     "anything unclear.",
+                     "music, school, personal plans, making a spreadsheet or document, doing a task on a "
+                     "website or in an app for them (editing their LinkedIn, posting, filling a form, "
+                     "booking), fragments, and anything unclear.",
     },
 }}
 

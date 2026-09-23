@@ -157,6 +157,19 @@ def main() -> int:
     d = dest("write the readme", CHROME, mem("terminal", 30), classify=classifier("terminal"))
     check("Chrome in front but terminal warm and not browser-shaped: the classifier decides",
           d.dest == "terminal" and calls == ["write the readme"], str((d, calls)))
+    # 2026-09-23: "can you go to my linked in and edit my skills" opened a
+    # Google search of itself. A task on a site never goes to the browser,
+    # by any of the three paths that used to send it there.
+    d = dest("can you go to my linked in and edit my skills", NOBODY, classify=classifier("browser"))
+    check("classifier says browser for a task on a site: the assistant", d.dest == "assistant", str(d))
+    d = dest("go to my linkedin and edit my skills", NOBODY)
+    check("'go to <site> and <task>' is not browser-shaped", d.dest == "assistant", str(d))
+    d = dest("add python to my skills", CHROME)
+    check("Chrome in front and a task: the assistant", d.dest == "assistant" and d.reason == "a task on a site", str(d))
+    d = dest("search for how to delete my account", NOBODY)
+    check("a search that mentions a task verb is still a search", d.dest == "browser", str(d))
+    d = dest("go to github.com", NOBODY)
+    check("'go to <domain>' alone is still the browser", d.dest == "browser", str(d))
     d = dest("look up flexbox", CHROME, mem("terminal", 30))
     check("Chrome in front, terminal warm, browser-shaped: the browser", d.dest == "browser")
 

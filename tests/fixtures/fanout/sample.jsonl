@@ -1,0 +1,30 @@
+{"id": "f0", "who": "Test Person", "from_me": false, "body": "yo can you send me that deck before thursday?", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f1", "who": "Test Person", "from_me": true, "body": "yeah I'll send it tonight", "sent_at": "2026-09-20T12:00:00Z", "context": ["them: yo can you send me that deck before thursday?"]}
+{"id": "f2", "who": "Test Person", "from_me": false, "body": "I got the job at Stripe!! start in November", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f3", "who": "Test Person", "from_me": false, "body": "moving to Denver in January, can't believe it", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f4", "who": "Test Person", "from_me": false, "body": "tore my acl playing pickup, surgery next week", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f5", "who": "Test Person", "from_me": false, "body": "we got engaged last night", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f6", "who": "Test Person", "from_me": false, "body": "honestly been super stressed about money lately", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f7", "who": "Test Person", "from_me": false, "body": "you still owe me $40 for the tickets", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f8", "who": "Test Person", "from_me": true, "body": "my bad I owe you for dinner, sending now", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f9", "who": "Test Person", "from_me": false, "body": "I know a guy at a16z, want me to intro you?", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f10", "who": "Test Person", "from_me": false, "body": "do you know anyone who does car imports? my dad wants an R34", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f11", "who": "Test Person", "from_me": false, "body": "how much would you charge to build our booking site", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f12", "who": "Test Person", "from_me": false, "body": "let's hop on a call tomorrow at 3pm", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f13", "who": "Test Person", "from_me": false, "body": "we should build this together, I'll handle sales", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f14", "who": "Test Person", "from_me": false, "body": "we'd pay you $2k a month to run our socials", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f15", "who": "Test Person", "from_me": false, "body": "here's the wifi password: sunset2024!", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f16", "who": "Test Person", "from_me": false, "body": "https://www.youtube.com/watch?v=abc123 watch this talk on pricing, it's so good", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f17", "who": "Test Person", "from_me": true, "body": "what if an app just texted you who you forgot to reply to", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f18", "who": "Test Person", "from_me": false, "body": "party at my place saturday, pull up", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f19", "who": "Test Person", "from_me": false, "body": "you have to try Pinkerton's bbq", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f20", "who": "Test Person", "from_me": false, "body": "can you help me with my resume this week? kinda lost", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f21", "who": "Test Person", "from_me": false, "body": "gotta cancel tomorrow, can we do next week?", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f22", "who": "Test Person", "from_me": false, "body": "lol", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f23", "who": "Test Person", "from_me": true, "body": "bet", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f24", "who": "Test Person", "from_me": false, "body": "that game was crazy", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f25", "who": "Test Person", "from_me": false, "body": "I'll grab the keys from you after class", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f26", "who": "Test Person", "from_me": false, "body": "what time is it over there", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f27", "who": "Test Person", "from_me": true, "body": "ok sounds good", "sent_at": "2026-09-20T12:00:00Z", "context": ["them: lunch friday at noon?"]}
+{"id": "f28", "who": "Test Person", "from_me": false, "body": "good morning", "sent_at": "2026-09-20T12:00:00Z", "context": []}
+{"id": "f29", "who": "Test Person", "from_me": false, "body": "my mom's in the hospital, pray for her", "sent_at": "2026-09-20T12:00:00Z", "context": []}

@@ -1,0 +1,13 @@
+{
+  "id": "idea_to_capture",
+  "family": "hygiene",
+  "question": "Does `message` state a product, business, or project idea worth writing down?",
+  "rules": [
+    "\\b(idea|what if|we should build|app that|startup|business idea)\\b"
+  ],
+  "action": "append to the ideas file",
+  "false_positive_cost": "one noise entry",
+  "false_negative_cost": "a good idea lost in a thread",
+  "accept": 0.8,
+  "review": 0.35
+}

@@ -1,0 +1,13 @@
+{
+  "id": "intro_asked",
+  "family": "opportunities",
+  "question": "Does someone in `message` ask the user to introduce them to a person, or does the user ask someone for an intro?",
+  "rules": [
+    "\\b(intro|introduce|connect me|do you know anyone|know someone who)\\b"
+  ],
+  "action": "add a task: make or chase the intro",
+  "false_positive_cost": "one wrong task",
+  "false_negative_cost": "a favor forgotten",
+  "accept": 0.8,
+  "review": 0.35
+}

@@ -30,6 +30,7 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 def point_at(tmp: str) -> None:
     te.MEMORY = Path(tmp)
     te.EVENTS = Path(tmp) / "terminal-events.jsonl"
+    te.AGENT_EVENTS = Path(tmp) / "agent-events.jsonl"
     te.ASKS = Path(tmp) / "asks"
     te.PROJECT = Path(tmp) / "project.json"
 
@@ -88,10 +89,15 @@ def main() -> int:
     te.handle(json.dumps(event("PreToolUse", "/somewhere/else", tool_name="Bash", tool_input={"command": "ls"})),
               front=lambda: "", sleep=lambda s: None, clock=lambda: 0.0)
     check("another cwd: nothing written", not te.EVENTS.exists())
+    board = [json.loads(l) for l in te.AGENT_EVENTS.read_text().splitlines()]
+    check("another cwd still reaches the agent board", len(board) == 2
+          and board[-1]["cwd"] == "/somewhere/else" and board[-1]["session"] == "abc123", str(board))
     te.handle(json.dumps(event("UserPromptSubmit", proj)), front=lambda: "", sleep=lambda s: None, clock=lambda: 0.0)
     check("an event outside the handled six: nothing written", not te.EVENTS.exists())
     te.handle("not json", front=lambda: "", sleep=lambda s: None, clock=lambda: 0.0)
     check("garbage on stdin: nothing written, no exception", not te.EVENTS.exists())
+    check("unhandled events and garbage never reach the board",
+          len(te.AGENT_EVENTS.read_text().splitlines()) == 2)
     link = Path(tmp, "link")
     link.symlink_to(proj)
     te.handle(json.dumps(event("PreToolUse", str(link), tool_name="Bash", tool_input={"command": "ls"})),

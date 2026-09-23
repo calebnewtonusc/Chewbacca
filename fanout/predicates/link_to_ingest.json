@@ -1,0 +1,13 @@
+{
+  "id": "link_to_ingest",
+  "family": "hygiene",
+  "question": "Does `message` share a link, article, video, or resource worth saving to read or watch later (not a meme or joke)?",
+  "rules": [
+    "https?://"
+  ],
+  "action": "queue the link for summarize",
+  "false_positive_cost": "one wasted summary",
+  "false_negative_cost": "losing a resource someone sent on purpose",
+  "accept": 0.8,
+  "review": 0.35
+}
