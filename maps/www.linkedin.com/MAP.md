@@ -23,8 +23,13 @@ and the ads column, the three things that cost turns when navigating by clicks.
 
 - Top: a link named **Add a skill**, then filter buttons **All**, **Industry
   Knowledge**, **Tools & Technologies**, **Interpersonal Skills**.
-- Each row: the skill's name, then a link named **Edit <name> skill**. Removing a
-  skill happens inside that edit dialog, not from the list.
+- Each row: the skill's name, then a link named **Edit <name> skill**. It opens a
+  page, not a dialog: `/in/<handle>/details/skills/edit/forms/<id>/`, with the
+  experiences to attach the skill to, **Delete skill** and **Save**.
+- Removing (2026-09-23): **Delete skill**, then a confirm with **No thanks** and
+  **Delete**. Only the second click removes it. Reload the list to check.
+- Before a bulk removal, scroll the list until it stops growing and show the whole
+  list to the person: a profile that showed 10 skills held 28+ once scrolled.
 - The list renders about 10 rows at first and loads the rest on scroll. A read
   of the page that finds 10 skills has not found all of them: scroll, then read
   again, before saying what is there.
