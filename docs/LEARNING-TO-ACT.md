@@ -195,7 +195,7 @@ front of them. That is the consent model the registry runs on.
 | a procedure distilled from a task       | `procedures/stays-compare`, from the Valencia run of 2026-09-20; `maps/` for Airbnb, Booking and Vrbo |
 | a recorder for free-form sessions       | missing: what Claude does through peekaboo and chrome-js leaves no trace     |
 | a distiller                             | missing                                                                      |
-| retrieval before acting                 | missing: nothing checks for a procedure before exploring                     |
+| retrieval before acting                 | `site find "<task>"`, BM25 over procedures, maps and saved pages; `site snap` files a page by role and name ([SITE-LEARNING.md](SITE-LEARNING.md)) |
 | the registry                            | missing                                                                      |
 
 The plan runner writes a trace and the free-form session does not, which
