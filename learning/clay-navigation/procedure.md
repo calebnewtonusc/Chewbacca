@@ -139,3 +139,15 @@ and a registry as missing. Explicit local receipts and read-only graph routing
 address only parts of evidence retention and planning. They do not fill those
 gaps or make procedures execute without a model. The compatible map/procedure
 pointers help manual retrieval; no background hooks or publication are enabled.
+
+## Follow-on correction lessons (operator-observed)
+
+- **Filtered five-row views:** create each multi-value filter token, then observe the saved chip/count before entering the next. A rapid sequence initially retained only the last value. Confirm the exact row identities, not just a row count, before paid runs.
+- **Targeted formula edits:** selecting an exact existing substring in the formula editor and replacing it persisted successfully. Inspect the saved expression afterward; visible text alone still does not prove persistence.
+- **Cached text during reruns:** upstream research can be `awaiting_callback` while old research, raw copy and QA values remain visible with `isStale: true`. A disabled Stop button did not establish completed callbacks. Never export cached text as current merely because it is nonempty.
+- **Correction propagation:** a one-cell research rerun changed readiness to BLOCKED; dependent assembled email/follow-up became blank while the old raw opener and QA remained stale. Preserve the block and do not rerun paid copy to force an output. Require completed, non-stale upstream evidence and matching versions before any later handoff.
+- **Evidence gates:** exact URL membership rejects a partial-URL match that a substring check would accept. Evaluate the saved formula against missing evidence, blocked statuses, wrong campaign and failed QA. Local expression tests support the gate logic, not all Clay execution behavior or source truth.
+- **Research output review:** an official-looking URL list does not prove that a current named-person role was established, that regional mandates transfer between offices, or that a client's domicile is known. Keep these checks separate from copy style and reject unsupported qualification even when the model labels it ready.
+
+These observations extend the procedure; they do not promote untested graph edges,
+claim general mastery, enable hooks, or authorize automatic publication.
