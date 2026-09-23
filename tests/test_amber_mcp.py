@@ -209,6 +209,24 @@ def main():
                          env=dict(os.environ, AMBER_HOME=str(home), AMBER_USER=".."))
     check("a user id of .. is refused, not rewritten", bad.returncode == 2 and not (home / "..").joinpath("contacts.db").exists(), bad.stderr)
 
+    print("install")
+    fake = tmp / "fakehome"
+    desk = fake / "Library/Application Support/Claude"
+    desk.mkdir(parents=True)
+    (desk / "claude_desktop_config.json").write_text(json.dumps({"mcpServers": {"other": {"command": "x"}}, "keep": 1}))
+    (fake / ".claude.json").write_text("{ not json")
+    ienv = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
+    ienv.update(HOME=str(fake), AMBER_USER="gavin", AMBER_HOME=str(home))
+    r = subprocess.run(["node", str(SERVER), "install"], capture_output=True, text=True, env=ienv)
+    cfg = json.loads((desk / "claude_desktop_config.json").read_text())
+    check("install adds Amber to Claude Desktop and keeps what was there",
+          cfg["mcpServers"]["amber"]["env"]["AMBER_USER"] == "gavin" and cfg["mcpServers"]["other"] and cfg["keep"] == 1, cfg)
+    check("install backs the config up first", (desk / "claude_desktop_config.json.before-amber").exists())
+    check("a config that does not parse is left untouched", (fake / ".claude.json").read_text() == "{ not json", r.stdout)
+    check("what install says never uses the word MCP", "MCP" not in r.stdout.upper(), r.stdout)
+    r2 = subprocess.run(["node", str(SERVER), "install"], capture_output=True, text=True, env=ienv)
+    check("installing twice changes nothing", "already there" in r2.stdout, r2.stdout)
+
     print("file reads are confined")
     outside = pathlib.Path(tempfile.mkdtemp()) / "c.csv"
     outside.write_text("name,email\nEve,eve@x.com\n")

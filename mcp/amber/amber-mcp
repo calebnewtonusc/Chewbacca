@@ -579,6 +579,46 @@ function serveHttp(port) {
     );
 }
 
+// `amber-mcp install` puts Amber into the apps a person already uses. What it
+// prints never says "MCP": Caleb's brief was that the letters alone make a
+// non-technical person think this is not for them. Each config is backed up
+// before it is touched, and one that does not parse is left alone and named.
+function install() {
+  const self = fs.realpathSync(__filename);
+  const entry = { command: self, env: { AMBER_USER: USER } };
+  const said = [];
+  const targets = [
+    ["Claude Desktop", path.join(os.homedir(), "Library/Application Support/Claude/claude_desktop_config.json")],
+    ["Claude Code", path.join(os.homedir(), ".claude.json")],
+  ];
+  for (const [app, file] of targets) {
+    if (!fs.existsSync(file)) continue;
+    let cfg;
+    try {
+      cfg = JSON.parse(fs.readFileSync(file, "utf8"));
+    } catch {
+      said.push(`${app}: skipped, its settings file did not read cleanly, so it was left exactly as it was`);
+      continue;
+    }
+    cfg.mcpServers = cfg.mcpServers || {};
+    const had = cfg.mcpServers.amber;
+    if (had && had.command === self && had.env?.AMBER_USER === USER) {
+      said.push(`${app}: Amber is already there`);
+      continue;
+    }
+    fs.copyFileSync(file, file + ".before-amber");
+    cfg.mcpServers.amber = entry;
+    fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + "\n");
+    said.push(`${app}: Amber added. Quit and reopen ${app} to see it.`);
+  }
+  if (!said.length) said.push("Neither Claude Desktop nor Claude Code is installed here yet. Install one, then run this again.");
+  process.stdout.write(
+    [...said, "", `Your contacts stay on this Mac, in ${DIR}.`,
+      `Try: "Add the contacts in my Downloads folder file investors.csv to Amber."`].join("\n") + "\n",
+  );
+}
+
 const i = process.argv.indexOf("--http");
-if (i !== -1) serveHttp(Number(process.argv[i + 1]) || 7789);
+if (process.argv[2] === "install") install();
+else if (i !== -1) serveHttp(Number(process.argv[i + 1]) || 7789);
 else serveStdio();

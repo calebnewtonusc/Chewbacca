@@ -49,15 +49,14 @@ mcp/amber/amber-mcp                # stdio: Claude Desktop, Claude Code, Codex
 mcp/amber/amber-mcp --http 7789    # HTTP on 127.0.0.1 only, for browser clients
 ```
 
-Claude Desktop, in `claude_desktop_config.json`:
+To add it to Claude Desktop and Claude Code in one step (each config is backed
+up to `*.before-amber` first):
 
-```json
-{
-  "mcpServers": {
-    "amber": { "command": "/path/to/Chewbacca/mcp/amber/amber-mcp" }
-  }
-}
+```sh
+mcp/amber/amber-mcp install
 ```
+
+A walkthrough for showing it to someone is in [DEMO.md](DEMO.md).
 
 ## Limits worth knowing before the demo
 
