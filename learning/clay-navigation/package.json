@@ -1,0 +1,226 @@
+{
+  "schema_version": 1,
+  "package_id": "clay-navigation",
+  "revision": "2026-09-23.1",
+  "title": "Clay direct AI columns and bounded tests",
+  "cost_unit": "relative_effort",
+  "states": [
+    {
+      "id": "table",
+      "label": "Intended Clay table visible"
+    },
+    {
+      "id": "column-menu",
+      "label": "Add column menu visible"
+    },
+    {
+      "id": "use-ai",
+      "label": "Use AI selected"
+    },
+    {
+      "id": "configure",
+      "label": "AI Configure panel visible"
+    },
+    {
+      "id": "research-prompt",
+      "label": "Argon web research prompt visible"
+    },
+    {
+      "id": "row-bound",
+      "label": "Prompt contains actual row-field tokens"
+    },
+    {
+      "id": "auto-run-off",
+      "label": "Column Auto-run visibly disabled"
+    },
+    {
+      "id": "saved",
+      "label": "Saved research column inspected"
+    },
+    {
+      "id": "research-tested",
+      "label": "At most five research rows run and read back"
+    },
+    {
+      "id": "copy-saved",
+      "label": "Native per-row copy column saved with Auto-run off"
+    },
+    {
+      "id": "copy-tested",
+      "label": "At most five copy rows run and read back"
+    },
+    {
+      "id": "csv-dialog",
+      "label": "CSV upload dialog visible"
+    },
+    {
+      "id": "csv-selected",
+      "label": "Intended file selected in native picker"
+    },
+    {
+      "id": "import-review",
+      "label": "Import mapping and destination inspected"
+    },
+    {
+      "id": "sculptor",
+      "label": "Sculptor workflow"
+    },
+    {
+      "id": "campaign-sent",
+      "label": "Campaign launched or sent"
+    }
+  ],
+  "edges": [
+    {
+      "id": "open-add-column",
+      "from": "table",
+      "to": "column-menu",
+      "action": "Choose Add column",
+      "postcondition": "Add column menu visible",
+      "status": "observed",
+      "cost": 1,
+      "forbidden": false
+    },
+    {
+      "id": "select-use-ai",
+      "from": "column-menu",
+      "to": "use-ai",
+      "action": "Choose Use AI",
+      "postcondition": "Use AI configuration entry visible",
+      "status": "observed",
+      "cost": 1,
+      "forbidden": false
+    },
+    {
+      "id": "open-configure",
+      "from": "use-ai",
+      "to": "configure",
+      "action": "Open Configure",
+      "postcondition": "AI configuration panel visible",
+      "status": "observed",
+      "cost": 1,
+      "forbidden": false
+    },
+    {
+      "id": "research-argon",
+      "from": "configure",
+      "to": "research-prompt",
+      "action": "Inspect Argon web research configuration and enter approved prompt",
+      "postcondition": "Research configuration and prompt visible",
+      "status": "observed",
+      "cost": 1,
+      "forbidden": false
+    },
+    {
+      "id": "insert-row-token",
+      "from": "research-prompt",
+      "to": "row-bound",
+      "action": "Type / in prompt and choose <SOURCE_COLUMN>",
+      "postcondition": "Actual row-field token appears in prompt",
+      "status": "observed",
+      "cost": 1,
+      "forbidden": false
+    },
+    {
+      "id": "disable-auto-run",
+      "from": "row-bound",
+      "to": "auto-run-off",
+      "action": "Turn column Auto-run off",
+      "postcondition": "Auto-run visibly disabled",
+      "status": "observed",
+      "cost": 1,
+      "forbidden": false
+    },
+    {
+      "id": "save-without-run",
+      "from": "auto-run-off",
+      "to": "saved",
+      "action": "Save without running, then inspect stored configuration",
+      "postcondition": "Saved prompt tokens, model, output fields and Auto-run-off confirmed",
+      "status": "documented",
+      "cost": 1,
+      "forbidden": false
+    },
+    {
+      "id": "test-research-five",
+      "from": "saved",
+      "to": "research-tested",
+      "action": "Select and run no more than five intended rows",
+      "postcondition": "Bounded selected rows completed and output cells read back",
+      "status": "documented",
+      "cost": 1,
+      "forbidden": false
+    },
+    {
+      "id": "configure-native-copy",
+      "from": "research-tested",
+      "to": "copy-saved",
+      "action": "Configure direct native AI copy column bound to verified row research and approved offer; disable Auto-run and save without running",
+      "postcondition": "Saved copy column has actual row tokens and Auto-run off",
+      "status": "documented",
+      "cost": 1,
+      "forbidden": false
+    },
+    {
+      "id": "test-copy-five",
+      "from": "copy-saved",
+      "to": "copy-tested",
+      "action": "Run no more than five selected copy rows; verify grounding and missing-input behavior",
+      "postcondition": "Per-row copy outputs read back, failures retained, nothing sent",
+      "status": "documented",
+      "cost": 1,
+      "forbidden": false
+    },
+    {
+      "id": "choose-csv",
+      "from": "csv-dialog",
+      "to": "csv-selected",
+      "action": "Choose <CSV_PATH> with Browse files in native picker",
+      "postcondition": "Expected filename shown",
+      "status": "documented",
+      "cost": 1,
+      "forbidden": false
+    },
+    {
+      "id": "review-import",
+      "from": "csv-selected",
+      "to": "import-review",
+      "action": "Inspect destination and column mapping",
+      "postcondition": "Expected mapping and target confirmed",
+      "status": "documented",
+      "cost": 1,
+      "forbidden": false
+    },
+    {
+      "id": "complete-import",
+      "from": "import-review",
+      "to": "table",
+      "action": "Complete authorized import with automation disabled; read back destination",
+      "postcondition": "Expected count, stable row IDs and values verified",
+      "status": "documented",
+      "cost": 1,
+      "forbidden": false
+    },
+    {
+      "id": "use-sculptor",
+      "from": "table",
+      "to": "sculptor",
+      "action": "Do not use Sculptor",
+      "postcondition": "Forbidden by standing user instruction",
+      "status": "documented",
+      "cost": 1,
+      "forbidden": true
+    },
+    {
+      "id": "send-campaign",
+      "from": "copy-tested",
+      "to": "campaign-sent",
+      "action": "Do not send, launch, activate, or schedule campaigns",
+      "postcondition": "Forbidden: copy remains draft output",
+      "status": "documented",
+      "cost": 1,
+      "forbidden": true
+    }
+  ],
+  "notes": "Observed edges reflect the live operator session handoff on 2026-09-23, not an authenticated witness or independent replay. Import and save/run/copy completion remain documented. Equal unit costs are unmeasured planning estimates. Coverage is limited; no mastery claim. Private evidence is not included."
+}

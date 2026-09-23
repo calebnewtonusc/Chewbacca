@@ -211,6 +211,17 @@ if group "doctor"; then
     bash -c "grep -q 'MIN_RUNS_FOR_VERDICT' '$ROOT/doctor.sh'"
 fi
 
+# Offline UX evidence and routing; no live application calls.
+if group "ux-learning"; then
+  expect "UX learning appears in help" "chewbacca ux-learning" bash "$ROOT/bin/chewbacca" --help
+  check "UX learning dispatches" bash "$ROOT/bin/chewbacca" ux-learning --help
+  ln -s "$ROOT/bin/ux-learning" "$TMP/ux-learning"
+  check "UX learning resolves installed symlink" "$TMP/ux-learning" --help
+  check "UX learning evidence and routing" python3 "$ROOT/tests/test_ux_learning.py"
+  check "Clay map validates" python3 "$ROOT/bin/ux-learning" validate "$ROOT/learning/clay-navigation/package.json"
+  check "shared instruction export is current" python3 "$ROOT/tools/agents_md.py" --check
+fi
+
 # ── GTM engineering ───────────────────────────────────────────────────────────
 if group "gtme"; then
   check "workflow graph validates evidence and bounds execution" python3 "$ROOT/tests/test_gtme_graph.py"

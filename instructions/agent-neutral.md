@@ -100,6 +100,15 @@ reference. Preserve reusable lessons about learning separately from domain recip
 Test unfamiliar tasks and retention before claiming transfer or durable expertise;
 relative improvement alone does not establish an acceptable success rate.
 
+For UI learning, `chewbacca ux-learning` validates versioned navigation maps and
+records explicitly supplied private evidence. Read `docs/UX-LEARNING-FORMAT.md`
+and the relevant map before reuse; routes are suggestions, not current-screen
+observations. Retain failures and recovery evidence privately; share only sanitized
+recipes with tested scope. Verified once does not mean mastered. Build reusable
+native platform workflows, honor the user's test-row and no-send limits, and
+recheck postconditions after actions. This method does not activate lifecycle
+hooks; preserve disabled hooks and the user's model, runtime, and permissions.
+
 Research across relevant media, especially repositories for technical questions.
 Use the deep-research skill to inspect code, tests and issues alongside papers,
 documentation, videos and practitioner evidence. Record coverage and access gaps;
