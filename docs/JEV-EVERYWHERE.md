@@ -111,6 +111,14 @@ the same batch of questions (worth remembering, which person, which project, is 
 commitment, is it a deadline). JevBacca's Opportunity Book is that batch pointed at a
 business. None of it runs on personal text until the A/B/C choice is made.
 
+## Built
+
+- **Amber's people scoring, fed by Jev (2026-09-23).** `people note` and `people me`
+  now ask Jev for dimensions, modality and source whenever the flags leave them out.
+  Before this, every observation in the live store was `actual`, so the modality
+  weights in Amber's design never fired. `tests/eval_people_jev.py`: dimensions
+  22/24, modality 24/24, source 22/24, against 9, 13 and 20 for the keyword path.
+
 ## Order
 
 1. **Decision registry, log and shadow mode.** Nothing else is measurable without it.

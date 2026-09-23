@@ -1734,12 +1734,13 @@ function cmdAdd(argv) {
   return id;
 }
 
-function insertObservation({ personId, circleId, body, flags = {}, sourceCircleId = null }) {
+function insertObservation({ personId, circleId, body, flags = {}, sourceCircleId = null, judge = false }) {
   const d = db();
   const id = uuid();
+  const judged = judge && !(flags.dim && flags.modality && flags.source) ? jevJudge(body) : null;
   const kind = flags.kind || "fact";
-  const modality = flags.modality || "actual";
-  const source = flags.source || "told_directly";
+  const modality = flags.modality || judged?.modality || "actual";
+  const source = flags.source || judged?.source || "told_directly";
   const temporal = flags.temporal || (flags.until ? "window" : "decaying");
   d.prepare(
     `INSERT INTO observations
@@ -1768,12 +1769,112 @@ function insertObservation({ personId, circleId, body, flags = {}, sourceCircleI
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean)
-    : inferDimensions(body);
+    : judged
+      ? judged.dims
+      : inferDimensions(body);
   const link = d.prepare(
     "INSERT INTO observation_dimensions (observation_id, dimension_id, weight) VALUES (?,?,?) ON CONFLICT DO NOTHING",
   );
   for (const code of codes) link.run(id, dimByCode(code).id, 1.0);
-  return { id, dims: codes };
+  return { id, dims: codes, modality, source, judged: !!judged };
+}
+
+// ---------------------------------------------------------------- jev
+//
+// The scoring half of Amber's design weights every observation by how it is
+// known: modality (a "might" counts 0.25, a thing that happened 1.0) and source
+// (told directly 1.0, third party 0.4). None of that ever fired. On 2026-09-23
+// all 28 observations in the live store were `actual`, because nothing sets
+// --modality and the default is actual, so "she might move to SF" scored as a
+// move. Dimensions fell back to keyword lists whenever --dim was missing.
+//
+// TypeSafe's Jev answers those three judgments as typed questions in one call
+// of about a third of a second. It fills only what the caller left unset, and
+// only for notes the user typed or said (`note`, `me`), never for text pulled
+// out of message threads: that waits on the brain's privacy choice. No key, a
+// timeout, or PEOPLE_JEV=off, and it returns null and the keyword path runs.
+
+const JEV_LIB = path.join(__dirname, "lib");
+
+// Every question sees the note and nothing else about the person.
+const JEV_DIM_TEXT = {
+  spiritual: "faith, church, prayer, meaning, religious practice",
+  emotional: "mood, stress, grief, relationships' emotional weight, mental health, excitement",
+  physical: "health, injury, illness, fitness, sleep, body, medical care",
+  intellectual: "school, study, reading, research, learning, ideas they are working through",
+  social: "friends, family, dating, marriage, moving, community, events, who they spend time with",
+  financial: "work, jobs, money, raises, layoffs, fundraising, a company they run, rent",
+};
+
+function jevQuestions() {
+  const q = {};
+  for (const [code, text] of Object.entries(JEV_DIM_TEXT)) {
+    q[`dim_${code}`] = {
+      type: "noul",
+      instructions: `Does \`note\` say something about this person's ${code} life (${text})?`,
+    };
+  }
+  q.modality = {
+    type: "choice",
+    instructions: {
+      question: "Did the thing in `note` happen, or is it planned, possible, wanted, offered or turned down?",
+      note: "Judge the main claim of the note. Present-tense states count as actual.",
+    },
+    criteria: {
+      actual: "It happened or is true now.",
+      planned: "It is agreed or scheduled for the future and has not happened yet.",
+      hypothetical: "It might happen: maybe, considering, thinking about, could.",
+      desired: "They want or hope for it.",
+      available: "They are open to it or offering it.",
+      declined: "They said no to it or turned it down.",
+    },
+  };
+  q.source = {
+    type: "choice",
+    instructions: {
+      question: "The user wrote `note` about someone they know. How does the user know it?",
+      note: "Without any sign of how it is known, the person told the user.",
+    },
+    criteria: {
+      told_directly: "The person said it to the user, or nothing says otherwise.",
+      observed: "The user saw it happen themselves.",
+      third_party: "Somebody else told the user: heard from, apparently, someone said.",
+      inferred: "The user is guessing or working it out.",
+    },
+  };
+  return q;
+}
+
+// Set before any run. tests/eval_people_jev.py on 2026-09-23, 24 labelled
+// notes: dimensions 22/24 (keywords 9), modality 24/24 (the old default 13),
+// source 22/24 (20), worst note 0.58 s. The floors were not tuned on that run.
+const JEV_DIM_FLOOR = 0.5;
+const JEV_CHOICE_FLOOR = 0.5;
+
+function jevJudge(body) {
+  if (process.env.PEOPLE_JEV === "off") return null;
+  let answers;
+  try {
+    const out = execFileSync(
+      "python3",
+      ["-c", "import json,sys; sys.path.insert(0, sys.argv[1]); import jev; " +
+             "s,q = json.load(sys.stdin); print(json.dumps(jev.ask(s, q)))", JEV_LIB],
+      { input: JSON.stringify([{ note: body }, jevQuestions()]), timeout: 4000, encoding: "utf8",
+        stdio: ["pipe", "pipe", "ignore"] },
+    );
+    answers = JSON.parse(out);
+  } catch {
+    return null;
+  }
+  if (!answers || typeof answers !== "object") return null;
+  const pick = (a) => {
+    const choice = a?.choice;
+    return choice && (a.probabilities?.[choice] ?? 0) >= JEV_CHOICE_FLOOR ? choice : null;
+  };
+  const dims = Object.keys(JEV_DIM_TEXT).filter(
+    (code) => (answers[`dim_${code}`]?.noul ?? 0) >= JEV_DIM_FLOOR,
+  );
+  return { dims, modality: pick(answers.modality), source: pick(answers.source) };
 }
 
 // Keyword fallback only. The skill instructs Claude to pass --dim explicitly,
@@ -1822,9 +1923,10 @@ function cmdNote(argv) {
     }
   }
 
-  const { dims } = insertObservation({ personId: p.id, body, flags });
+  const { dims, modality, source } = insertObservation({ personId: p.id, body, flags, judge: true });
   const tag = dims.length ? c.dim(` [${dims.join(", ")}]`) : c.dim(" [no dimension]");
-  say(`${c.grn("noted")} on ${c.b(p.name)}${tag}`);
+  const how = modality !== "actual" || source !== "told_directly" ? c.dim(` ${modality}, ${source}`) : "";
+  say(`${c.grn("noted")} on ${c.b(p.name)}${tag}${how}`);
   if (!flags["no-score"]) recomputeScores();
 }
 
@@ -1862,7 +1964,7 @@ function cmdMe(argv) {
     return;
   }
 
-  const { dims } = insertObservation({ personId: null, circleId: null, body, flags });
+  const { dims } = insertObservation({ personId: null, circleId: null, body, flags, judge: true });
   say(`${c.grn("noted")} about ${c.b("you")}${dims.length ? c.dim(` [${dims.join(", ")}]`) : ""}`);
 }
 
