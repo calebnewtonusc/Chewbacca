@@ -50,7 +50,15 @@ const { execFileSync } = require("node:child_process");
 const { DatabaseSync } = require("node:sqlite");
 
 const PROTOCOL = "2025-06-18";
-const USER = (process.env.AMBER_USER || os.userInfo().username).replace(/[^A-Za-z0-9._-]/g, "_");
+// Refuse, never rewrite. A sanitiser that keeps dots let AMBER_USER=".." put
+// the store at ~/.chewbacca itself, and any rewrite can turn two different ids
+// into one directory. Same rule as bin/amber-user (e2's catch, 2026-09-23).
+const USER_ID = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+const USER = String(process.env.AMBER_USER || os.userInfo().username.toLowerCase());
+if (!USER_ID.test(USER)) {
+  process.stderr.write(`amber-mcp: "${USER}" is not a valid Amber user id. Set AMBER_USER to lowercase letters, digits, - or _.\n`);
+  process.exit(2);
+}
 // One root per person, shared with the rest of Amber (profile, people store,
 // log), so a tenant test that isolates a user isolates their contacts too.
 const ROOT = process.env.AMBER_HOME || path.join(os.homedir(), ".chewbacca", "users");
@@ -394,19 +402,33 @@ function undo({ import_id }) {
 
 function search({ query, limit }) {
   const q = `%${String(query || "").trim()}%`;
-  const rows = db().prepare(
-    `SELECT name, title, company, email, phone FROM contacts
-     WHERE name LIKE ? OR company LIKE ? OR title LIKE ? OR email LIKE ? OR notes LIKE ?
-     ORDER BY name LIMIT ?`,
-  ).all(q, q, q, q, q, Math.min(Number(limit) || 25, 200));
-  if (!rows.length) return `No one in ${USER}'s Amber matches "${query}".`;
-  return rows.map((c) => `${c.name}${c.title ? ", " + c.title : ""}${c.company ? " at " + c.company : ""}${c.email ? " <" + c.email + ">" : ""}${c.phone ? " " + c.phone : ""}`).join("\n");
+  const where = "WHERE name LIKE ? OR company LIKE ? OR title LIKE ? OR email LIKE ? OR notes LIKE ?";
+  const d = db();
+  // The total comes back with every answer. Without it a model asked "how many
+  // at Northstar" counted a capped page and guessed: it said 402 when the store
+  // held 360 (end-to-end run, 2026-09-23).
+  const total = d.prepare(`SELECT COUNT(*) n FROM contacts ${where}`).get(q, q, q, q, q).n;
+  if (!total) return `No one in ${USER}'s Amber matches "${query}".`;
+  const cap = Math.min(Number(limit) || 25, 200);
+  const rows = d.prepare(`SELECT name, title, company, email, phone FROM contacts ${where} ORDER BY name LIMIT ?`).all(q, q, q, q, q, cap);
+  const head = total > rows.length ? `${total} people match "${query}". Showing the first ${rows.length}.` : `${total} people match "${query}".`;
+  return [head, ...rows.map((c) => `${c.name}${c.title ? ", " + c.title : ""}${c.company ? " at " + c.company : ""}${c.email ? " <" + c.email + ">" : ""}${c.phone ? " " + c.phone : ""}`)].join("\n");
 }
 
 function summary() {
   const d = db();
   const n = d.prepare("SELECT COUNT(*) n FROM contacts").get().n;
-  const companies = d.prepare("SELECT company, COUNT(*) n FROM contacts WHERE company IS NOT NULL GROUP BY LOWER(company) ORDER BY n DESC LIMIT 10").all();
+  // Group by the same firm key the matcher uses, so "Northstar Ventures" and
+  // "Northstar Ventures LLC" are one firm here too, named by its commonest spelling.
+  const firms = new Map();
+  for (const r of d.prepare("SELECT company, COUNT(*) n FROM contacts WHERE company IS NOT NULL GROUP BY company").all()) {
+    const k = normCompany(r.company);
+    const f = firms.get(k) || { n: 0, best: r.company, bestN: 0 };
+    f.n += r.n;
+    if (r.n > f.bestN) Object.assign(f, { best: r.company, bestN: r.n });
+    firms.set(k, f);
+  }
+  const companies = [...firms.values()].sort((a, b) => b.n - a.n).slice(0, 10).map((f) => ({ company: f.best, n: f.n }));
   const imports = d.prepare("SELECT * FROM imports ORDER BY applied_at DESC LIMIT 10").all();
   return [
     `${USER}'s Amber holds ${n} people.`,

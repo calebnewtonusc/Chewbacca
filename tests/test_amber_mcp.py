@@ -196,6 +196,19 @@ def main():
     else:
         print("  skip  PDF reader (needs pdftotext and cupsfilter)")
 
+    print("counting")
+    (cnt,) = call(home, "gavin", ("search_contacts", {"query": "Firm 1 Capital", "limit": 5}))
+    first = cnt.split("\n")[0]
+    check("search states the full match count, not the page size",
+          first.split()[0].isdigit() and int(first.split()[0]) > 5 and "Showing the first 5" in first, cnt[:200])
+    (sm,) = call(home, "gavin", ("amber_summary", {}))
+    check("the summary counts a firm and its LLC spelling as one", "Firm 0 Capital (1" in sm and "LLC" not in sm.split("Imports")[0], sm[:400])
+
+    print("user ids")
+    bad = subprocess.run(["node", str(SERVER)], input="", capture_output=True, text=True,
+                         env=dict(os.environ, AMBER_HOME=str(home), AMBER_USER=".."))
+    check("a user id of .. is refused, not rewritten", bad.returncode == 2 and not (home / "..").joinpath("contacts.db").exists(), bad.stderr)
+
     print("file reads are confined")
     outside = pathlib.Path(tempfile.mkdtemp()) / "c.csv"
     outside.write_text("name,email\nEve,eve@x.com\n")
