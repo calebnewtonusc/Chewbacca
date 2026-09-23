@@ -611,7 +611,11 @@ function install() {
     fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + "\n");
     said.push(`${app}: Amber added. Quit and reopen ${app} to see it.`);
   }
-  if (!said.length) said.push("Neither Claude Desktop nor Claude Code is installed here yet. Install one, then run this again.");
+  // Perplexity keeps its connectors behind its own settings screen, not a file
+  // this can edit, so hand over the exact line to paste.
+  if (fs.existsSync("/Applications/Perplexity.app"))
+    said.push(`Perplexity: open Settings, Connectors, Add Connector, name it Amber, and paste this as the command:\n  AMBER_USER=${USER} ${self}`);
+  if (!said.length) said.push("No Claude Desktop, Claude Code or Perplexity is installed here yet. Install one, then run this again.");
   process.stdout.write(
     [...said, "", `Your contacts stay on this Mac, in ${DIR}.`,
       `Try: "Add the contacts in my Downloads folder file investors.csv to Amber."`].join("\n") + "\n",

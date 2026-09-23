@@ -58,17 +58,22 @@ mcp/amber/amber-mcp install
 
 A walkthrough for showing it to someone is in [DEMO.md](DEMO.md).
 
-## Limits worth knowing before the demo
+## Where it runs, and what gets built next
 
-- **A 10,000-row list has to come in as a file.** A model can't emit ten
-  thousand contacts as tool arguments, since that is roughly 400k output
-  tokens. Inline rows are for short lists the model read itself.
-- **PDFs are read line by line.** A table with one contact per line reads
-  correctly. A PDF laid out as cards or multi-line blocks won't, which is why
-  the preview flags every PDF import to be checked before applying.
-- **Browser clients** (Perplexity, ChatGPT on the web) need the HTTP transport
-  plus a tunnel or a connector, and can't read a local file path. Claude Desktop
-  and Claude Code work today.
+- **Claude Desktop, Claude Code:** `amber-mcp install` adds it.
+- **Perplexity for Mac:** works today. Perplexity's Mac app runs local
+  connectors through its PerplexityXPC helper. `install` prints the command
+  to paste under Settings, Connectors, Add Connector.
+- **ChatGPT:** it only talks to remote HTTPS servers, and OpenAI's Secure MCP
+  Tunnel client reaches one running on your Mac. Next to build: point that
+  tunnel at `amber-mcp --http`, then add the OAuth ChatGPT expects in front of
+  the bearer token.
+- **Ten thousand rows come in as a file path, not as rows in the chat.** One
+  contact is about 40 tokens, so 10,000 is roughly 400k tokens of tool input.
+  The file path gets around that entirely.
+- **PDFs are read one line at a time.** Tables read correctly. Card layouts
+  are next, using the model's own reading of the page. The preview flags every
+  PDF import until then.
 
 ## Tests
 

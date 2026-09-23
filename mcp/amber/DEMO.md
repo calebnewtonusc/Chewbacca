@@ -31,8 +31,8 @@ the on-device, one-person-per-store shape behind deliverables 1 and 2.
 - Ten thousand rows arrive as a file, not pasted into chat. A model can't
   write out that many contacts as tool input. Previewing and saving 10,000
   rows each take about 0.1s in the test.
-- Perplexity and ChatGPT on the web need a hosted connector first. Claude
-  Desktop and Claude Code work today.
+- It runs in Claude Desktop, Claude Code and Perplexity for Mac today. The
+  ChatGPT path (OpenAI's tunnel plus OAuth) is the next build.
 - The redaction boundary (PAPILLON) and per-user profiles are in
   [docs/AMBER-PLAN.md](../../docs/AMBER-PLAN.md), not in this demo.
 
