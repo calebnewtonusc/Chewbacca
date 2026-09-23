@@ -268,6 +268,7 @@ if group "tools"; then
   check  "slop check holds the line" python3 "$ROOT/bin/slop-check" "$ROOT/docs" "$ROOT/skills" --max 60
   check  "code-slop scores its own tests" python3 "$ROOT/tests/test_code_slop.py"
   check  "inventory parses frontmatter and holds house style" python3 "$ROOT/tests/test_inventory.py"
+  check  "amber-mcp imports 10,000 contacts deduplicated, one user per store" python3 "$ROOT/tests/test_amber_mcp.py"
   # The craft gate is the only thing making the demo rules fire rather than sit
   # in a markdown file, so its fail-closed behaviour is the property to pin.
   check  "craft-gate refuses a craft nobody studied" bash -c "! CRAFT_DIR='$TMP/craft-empty' python3 '$ROOT/bin/craft-gate' pitch-deck >/dev/null 2>&1"
