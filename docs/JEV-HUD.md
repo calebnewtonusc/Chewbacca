@@ -2,7 +2,8 @@
 
 How the HUD uses TypeSafe's Jev to run many agents and act faster, step by step
 against Movez's "Jev Engineering: how to build the fastest AI Agent Brain in 10
-Steps" (2026-09-18). Started 2026-09-23.
+Steps" (2026-09-18). Started 2026-09-23. The wider plan, beyond the HUD, is
+[JEV-EVERYWHERE.md](JEV-EVERYWHERE.md).
 
 The rule the whole plan follows, from the article: **if an operation creates text,
 it stays with the LLM. If it picks from a list, scores, or answers yes or no, it
