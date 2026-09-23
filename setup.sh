@@ -1495,6 +1495,19 @@ _register("UserPromptSubmit", hooks_dir + "/method-guard.sh", timeout=8,
 _register("UserPromptSubmit", hooks_dir + "/skill-route.sh", timeout=8,
           status="Checking whether a skill already covers this...")
 
+# ux-engine holds 18 research files, six stances, a motion constant table, a
+# 24-entry effects catalog and 106 psychology principles, and a whole session
+# of UI work on 2026-09-23 consulted none of it: the page shipped at 3
+# animations against a reference's 214 while its own linter returned clean,
+# because the linter scores the absence of tells and nothing scored ambition.
+# Caleb: "no point of research if it doesn't get implemented."
+#
+# Puts two things in front of design work and only two, because a wall of
+# doctrine reads the same as none: the constants that get violated most, and
+# the avoid list of features that have actually lost a blind comparison here.
+# The second one is the part that compounds.
+_register("UserPromptSubmit", hooks_dir + "/design-context.sh", timeout=8)
+
 _register("UserPromptSubmit", hooks_dir + "/ask-capture.sh", timeout=5)
 
 _register("Stop", hooks_dir + "/kit-autopush.sh", timeout=30,

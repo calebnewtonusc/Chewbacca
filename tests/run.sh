@@ -366,6 +366,10 @@ if group "installer"; then
   check  "agent-claim-guard refuses an unlaunched agent claim" \
     bash "$ROOT/tests/agent_claim_guard.sh" "$ROOT"
 
+  # 18 research files and a whole session of UI work that read none of them.
+  check  "design-context fires on design work only" \
+    bash "$ROOT/tests/design_context.sh" "$ROOT"
+
   # Six hooks were on disk and registered nowhere on 2026-09-22, including the
   # two built after Caleb had to ask for the same thing four times. A hook the
   # installer never registers is a feature that has never run.
