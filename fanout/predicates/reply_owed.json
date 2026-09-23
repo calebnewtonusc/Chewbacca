@@ -1,0 +1,14 @@
+{
+  "id": "reply_owed",
+  "family": "obligations",
+  "question": "Does `message`, sent by the other person (from=them), ask the user a direct question or request that needs an answer from the user?",
+  "rules": [
+    "\\?\\s*$",
+    "\\b(can you|could you|would you|are you|do you|did you|lmk|let me know)\\b"
+  ],
+  "action": "add to the owed-replies list",
+  "false_positive_cost": "one extra nudge",
+  "false_negative_cost": "someone left on read",
+  "accept": 0.8,
+  "review": 0.35
+}

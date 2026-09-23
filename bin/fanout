@@ -1,0 +1,198 @@
+#!/usr/bin/env python3
+"""fanout: the JevBacca kill test on your own texts.
+
+    fanout sample [--n 300] [--days 30] [--seed 7]   draw messages from people.db
+    fanout label                                     hand-label them (resumable)
+    fanout run A|B|C [--limit N] [--model sonnet]     run one architecture, dry
+    fanout score                                     compare the latest runs
+    fanout scan [--days 1]                           what the gate would write, writes nothing
+
+Everything lives in ~/.chewbacca/fanout (FANOUT_DIR), mode 600, never in git.
+The predicates are fanout/predicates/*.json in this repo. `--sample PATH` and
+`--labels PATH` point any command at other files, which is how the tests run.
+"""
+import argparse
+import json
+import os
+import random
+import sqlite3
+import sys
+import time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import fanout  # noqa: E402
+
+PEOPLE_DB = Path(os.environ.get("PEOPLE_DIR", Path.home() / ".chewbacca" / "people")) / "people.db"
+# Tapbacks and attachment placeholders say nothing a predicate can check.
+NOISE = ("Liked “", "Loved “", "Laughed at “", "Emphasized “", "Disliked “", "Questioned “",
+         "Reacted ", "￼")
+CONTEXT_LINES = 3
+
+
+def private_write(path: Path, text: str, mode: str = "w") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, mode) as f:
+        f.write(text)
+    os.chmod(path, 0o600)
+
+
+def cmd_sample(a) -> None:
+    db = sqlite3.connect(f"file:{PEOPLE_DB}?mode=ro", uri=True)
+    since = (datetime.now(timezone.utc) - timedelta(days=a.days)).isoformat()
+    rows = db.execute(
+        "SELECT msg_id, who, from_me, body, sent_at FROM messages WHERE sent_at >= ? "
+        "ORDER BY sent_at", (since,)).fetchall()
+    rows = [r for r in rows if len(r[3].strip()) >= 4 and not r[3].startswith(NOISE)]
+    random.Random(a.seed).shuffle(rows)
+    picked = rows[: a.n]
+    out = []
+    for msg_id, who, from_me, body, sent_at in picked:
+        prev = db.execute(
+            "SELECT from_me, body FROM messages WHERE who = ? AND sent_at < ? "
+            "ORDER BY sent_at DESC LIMIT ?", (who, sent_at, CONTEXT_LINES)).fetchall()
+        context = [f"{'me' if m else 'them'}: {b}" for m, b in reversed(prev)]
+        out.append({"id": str(msg_id), "who": who, "from_me": bool(from_me), "body": body,
+                    "sent_at": sent_at, "context": context})
+    private_write(a.sample, "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in out))
+    print(f"{len(out)} messages from the last {a.days} days ({len(rows)} eligible) -> {a.sample}")
+
+
+def cmd_label(a) -> None:
+    events = fanout.load_jsonl(a.sample)
+    preds = fanout.load_predicates()
+    done = {r["id"] for r in fanout.load_jsonl(a.labels)}
+    todo = [e for e in events if e["id"] not in done]
+    print(f"{len(done)} labelled, {len(todo)} to go. Numbers separated by spaces, "
+          "enter for none, s skip, ? full questions, q quit.\n")
+    for n, ev in enumerate(todo, 1):
+        print("\n" + "-" * 60)
+        print(f"[{len(done) + n}/{len(events)}] {ev['who']}  {ev['sent_at'][:16]}")
+        for c in ev.get("context", []):
+            print(f"   {c}")
+        print(f" > {'me' if ev['from_me'] else 'them'}: {ev['body']}")
+        print("   " + "  ".join(f"{i + 1}.{p['id']}" for i, p in enumerate(preds)))
+        while True:
+            raw = input("true: ").strip().lower()
+            if raw == "q":
+                return
+            if raw == "?":
+                for i, p in enumerate(preds):
+                    print(f"   {i + 1:>2}. {p['question']}")
+                continue
+            if raw == "s":
+                row = {"id": ev["id"], "skip": True}
+                break
+            try:
+                picks = sorted({int(x) for x in raw.split()})
+                if any(i < 1 or i > len(preds) for i in picks):
+                    raise ValueError
+            except ValueError:
+                print("   numbers 1 to 25, enter, s, ? or q")
+                continue
+            row = {"id": ev["id"], "true": [preds[i - 1]["id"] for i in picks]}
+            break
+        private_write(a.labels, json.dumps(row) + "\n", mode="a")
+
+
+def cmd_run(a) -> None:
+    events = fanout.load_jsonl(a.sample)
+    if a.labelled_only:
+        labels = fanout.load_labels(a.labels)
+        events = [e for e in events if e["id"] in labels]
+    if a.limit:
+        events = events[: a.limit]
+    if not events:
+        sys.exit("no messages to run on. Run `fanout sample` first.")
+    fanout.CLAUDE_MODEL = a.model
+    run = fanout.run_arm(a.arm, events, fanout.load_predicates())
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    path = fanout.DATA_DIR / "runs" / f"{a.arm}-{stamp}.json"
+    private_write(path, json.dumps(run, indent=1))
+    s = run["stats"]
+    print(f"arm {a.arm}: {len(events)} messages, {s['seconds']} s, Claude ${s['claude_usd']:.4f} "
+          f"in {s['claude_calls']} calls ({s['claude_failures']} failed), "
+          f"Jev {s['jev_calls']} calls ({s['jev_failures']} failed, "
+          f"{s['jev_tokens_in'] + s['jev_tokens_out']} tokens) -> {path}")
+
+
+def latest_run(arm: str) -> dict | None:
+    runs = sorted((fanout.DATA_DIR / "runs").glob(f"{arm}-*.json"))
+    return json.loads(runs[-1].read_text()) if runs else None
+
+
+def cmd_score(a) -> None:
+    labels = fanout.load_labels(a.labels)
+    preds = fanout.load_predicates()
+    if not labels:
+        sys.exit("no labels yet. Run `fanout label`.")
+    scored = {}
+    for arm in "ABC":
+        run = latest_run(arm)
+        if run:
+            scored[arm] = fanout.score(run, labels, preds)
+    if not scored:
+        sys.exit("no runs yet. Run `fanout run A`, `B` and `C`.")
+    head = f"{'arm':<4}{'n':>5}{'recall':>8}{'prec':>7}{'review':>8}{'claude $':>10}{'jev tok':>9}{'sec':>8}{'fail':>6}"
+    lines = [head]
+    for arm, s in scored.items():
+        lines.append(f"{arm:<4}{s['labelled']:>5}{s['recall'] or 0:>8.3f}{s['precision'] or 0:>7.3f}"
+                     f"{s['review_burden']:>8}{s['claude_usd']:>10.4f}{s['jev_tokens']:>9}"
+                     f"{s['seconds']:>8.1f}{s['failures']:>6}")
+    if "B" in scored and "C" in scored:
+        lines += ["", fanout.verdict(scored["B"], scored["C"])]
+    lines += ["", "per predicate, tp/fp/fn:"]
+    for p in preds:
+        cells = "  ".join(f"{arm} {'/'.join(map(str, s['per_predicate'][p['id']]))}"
+                          for arm, s in scored.items())
+        lines.append(f"  {p['id']:<22}{cells}")
+    report = "\n".join(lines)
+    print(report)
+    # Counts only, no message text, so this file is safe to copy into the brain.
+    private_write(fanout.DATA_DIR / "report.txt",
+                  f"fanout score {time.strftime('%Y-%m-%d %H:%M')}, {len(labels)} labels\n\n{report}\n")
+
+
+def cmd_scan(a) -> None:
+    db = sqlite3.connect(f"file:{PEOPLE_DB}?mode=ro", uri=True)
+    since = (datetime.now(timezone.utc) - timedelta(days=a.days)).isoformat()
+    rows = db.execute("SELECT msg_id, who, from_me, body, sent_at FROM messages "
+                      "WHERE sent_at >= ? ORDER BY sent_at", (since,)).fetchall()
+    events = [{"id": str(r[0]), "who": r[1], "from_me": bool(r[2]), "body": r[3], "sent_at": r[4]}
+              for r in rows if len(r[3].strip()) >= 4 and not r[3].startswith(NOISE)]
+    for f in fanout.scan(events, fanout.load_predicates()):
+        p = f"{f['p']:.2f}" if f["p"] is not None else "claude"
+        print(f"{f['who'][:18]:<18} {f['predicate']:<22} {p:>6}  would: {f['action']}")
+        print(f"{'':<18} {f['body'][:100]}")
+    print("\nNothing was written.")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(prog="fanout", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--sample", type=Path, default=fanout.DATA_DIR / "sample.jsonl")
+    ap.add_argument("--labels", type=Path, default=fanout.DATA_DIR / "labels.jsonl")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("sample")
+    s.add_argument("--n", type=int, default=300)
+    s.add_argument("--days", type=int, default=30)
+    s.add_argument("--seed", type=int, default=7)
+    sub.add_parser("label")
+    r = sub.add_parser("run")
+    r.add_argument("arm", choices=["A", "B", "C"])
+    r.add_argument("--limit", type=int, default=0)
+    r.add_argument("--model", default=fanout.CLAUDE_MODEL)
+    r.add_argument("--all", dest="labelled_only", action="store_false",
+                   help="run on every sampled message, not only labelled ones")
+    sub.add_parser("score")
+    sc = sub.add_parser("scan")
+    sc.add_argument("--days", type=int, default=1)
+    a = ap.parse_args()
+    {"sample": cmd_sample, "label": cmd_label, "run": cmd_run,
+     "score": cmd_score, "scan": cmd_scan}[a.cmd](a)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,13 @@
+{
+  "id": "moving",
+  "family": "people",
+  "question": "Does `message` say someone moved, is moving, or is considering moving to a new city or home?",
+  "rules": [
+    "\\b(mov(e|ed|ing) to|new (place|apartment|house)|relocat)"
+  ],
+  "action": "write a people fact",
+  "false_positive_cost": "a wrong fact",
+  "false_negative_cost": "missing a life change",
+  "accept": 0.8,
+  "review": 0.35
+}

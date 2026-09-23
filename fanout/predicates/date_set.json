@@ -1,0 +1,16 @@
+{
+  "id": "date_set",
+  "family": "commitments",
+  "question": "Does `message` fix a specific date or time for something to happen (a meeting, deadline, trip, event), agreed rather than merely floated?",
+  "rules": [
+    "\\b(mon|tues|wednes|thurs|fri|satur|sun)day\\b",
+    "\\b(tomorrow|tonight|next week)\\b",
+    "\\b\\d{1,2}(:\\d\\d)?\\s?(am|pm)\\b",
+    "\\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.? \\d{1,2}\\b"
+  ],
+  "action": "add a calendar entry",
+  "false_positive_cost": "a wrong calendar entry",
+  "false_negative_cost": "a missed meeting",
+  "accept": 0.8,
+  "review": 0.35
+}

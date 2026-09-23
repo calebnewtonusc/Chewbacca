@@ -1,0 +1,13 @@
+{
+  "id": "recommendation_given",
+  "family": "plans",
+  "question": "Does `message` recommend a specific place, product, book, show, person, or tool to the user?",
+  "rules": [
+    "\\b(you should (try|check|watch|read|go)|recommend|highly suggest|best .* is)\\b"
+  ],
+  "action": "save the recommendation with who gave it",
+  "false_positive_cost": "one noise entry",
+  "false_negative_cost": "losing a recommendation",
+  "accept": 0.8,
+  "review": 0.35
+}

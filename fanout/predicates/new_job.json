@@ -1,0 +1,13 @@
+{
+  "id": "new_job",
+  "family": "people",
+  "question": "Does `message` say someone got, left, lost, or is starting a job, role, or company?",
+  "rules": [
+    "\\b(new job|hired|got the job|offer|quit|laid off|fired|promot|started at|joining|founded|starting a company)\\b"
+  ],
+  "action": "write a people fact with modality",
+  "false_positive_cost": "a wrong fact about someone",
+  "false_negative_cost": "missing a congratulations moment",
+  "accept": 0.8,
+  "review": 0.35
+}

@@ -28,19 +28,24 @@ def api_key() -> str | None:
     hud-listen runs under launchd and does not inherit a shell, so the
     Keychain entry (service TYPESAFE_API_KEY) is the path that actually
     fires in production. Looked up once per process.
+
+    Resolved into a local and published once: assigning "" to the cache before
+    the Keychain lookup returned made every other thread read "no key", and on
+    2026-09-23 that failed 29 of 30 calls in fanout's two-worker pool.
     """
     global _key
     if _key is None:
-        _key = os.environ.get("TYPESAFE_API_KEY", "")
-        if not _key:
+        key = os.environ.get("TYPESAFE_API_KEY", "")
+        if not key:
             try:
                 out = subprocess.run(
                     ["security", "find-generic-password", "-s", "TYPESAFE_API_KEY", "-w"],
                     capture_output=True, text=True, timeout=2.0,
                 )
-                _key = out.stdout.strip() if out.returncode == 0 else ""
+                key = out.stdout.strip() if out.returncode == 0 else ""
             except (OSError, subprocess.TimeoutExpired):
-                _key = ""
+                key = ""
+        _key = key
     return _key or None
 
 

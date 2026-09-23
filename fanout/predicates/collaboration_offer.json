@@ -1,0 +1,13 @@
+{
+  "id": "collaboration_offer",
+  "family": "opportunities",
+  "question": "Does someone in `message` propose building, working, or partnering on a project or business with the user?",
+  "rules": [
+    "\\b(partner|collab|work together|build (this|it) together|co-?found|join (us|the team))\\b"
+  ],
+  "action": "add an opportunity: the collaboration",
+  "false_positive_cost": "one wrong entry",
+  "false_negative_cost": "a partner the user said they need, missed",
+  "accept": 0.8,
+  "review": 0.35
+}

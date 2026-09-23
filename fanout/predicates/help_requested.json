@@ -1,0 +1,13 @@
+{
+  "id": "help_requested",
+  "family": "plans",
+  "question": "Does someone in `message` ask the user for help, advice, or a favor beyond a simple yes/no question?",
+  "rules": [
+    "\\b(help|advice|favor|could you|can you|need you)\\b"
+  ],
+  "action": "add to the owed list with what they need",
+  "false_positive_cost": "one extra task",
+  "false_negative_cost": "letting a friend down",
+  "accept": 0.8,
+  "review": 0.35
+}

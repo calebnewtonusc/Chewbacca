@@ -1,0 +1,30 @@
+{"id": "f0", "true": ["document_to_send", "reply_owed", "date_set"]}
+{"id": "f1", "true": ["i_promised"]}
+{"id": "f2", "true": ["new_job"]}
+{"id": "f3", "true": ["moving"]}
+{"id": "f4", "true": ["health_event"]}
+{"id": "f5", "true": ["relationship_change"]}
+{"id": "f6", "true": ["feeling_disclosed"]}
+{"id": "f7", "true": ["money_owed_to_user"]}
+{"id": "f8", "true": ["money_user_owes", "i_promised"]}
+{"id": "f9", "true": ["intro_offered", "reply_owed"]}
+{"id": "f10", "true": ["intro_asked", "buyer_signal", "reply_owed"]}
+{"id": "f11", "true": ["buyer_signal", "paid_work_offer", "reply_owed"]}
+{"id": "f12", "true": ["meeting_request", "date_set"]}
+{"id": "f13", "true": ["collaboration_offer", "they_promised"]}
+{"id": "f14", "true": ["paid_work_offer"]}
+{"id": "f15", "true": ["secret_pasted"]}
+{"id": "f16", "true": ["link_to_ingest", "recommendation_given"]}
+{"id": "f17", "true": ["idea_to_capture"]}
+{"id": "f18", "true": ["social_invite", "date_set"]}
+{"id": "f19", "true": ["recommendation_given"]}
+{"id": "f20", "true": ["help_requested", "reply_owed"]}
+{"id": "f21", "true": ["schedule_conflict", "reply_owed"]}
+{"id": "f22", "true": []}
+{"id": "f23", "true": []}
+{"id": "f24", "true": []}
+{"id": "f25", "true": ["they_promised"]}
+{"id": "f26", "true": ["reply_owed"]}
+{"id": "f27", "true": []}
+{"id": "f28", "true": []}
+{"id": "f29", "true": ["health_event", "feeling_disclosed"]}

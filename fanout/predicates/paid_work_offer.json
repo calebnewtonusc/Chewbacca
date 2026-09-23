@@ -1,0 +1,13 @@
+{
+  "id": "paid_work_offer",
+  "family": "opportunities",
+  "question": "Does `message` offer the user paid work, a job, a contract, a gig, or a role?",
+  "rules": [
+    "\\b(pay you|paid|job|role|position|contract|gig|consult|offer)\\b"
+  ],
+  "action": "add an opportunity with the amount if stated",
+  "false_positive_cost": "one wrong entry",
+  "false_negative_cost": "income passed over",
+  "accept": 0.8,
+  "review": 0.35
+}

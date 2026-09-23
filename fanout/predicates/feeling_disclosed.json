@@ -1,0 +1,13 @@
+{
+  "id": "feeling_disclosed",
+  "family": "people",
+  "question": "Does someone in `message` share a real fear, worry, stress, or excitement about their own life (not small talk)?",
+  "rules": [
+    "\\b(stressed|anxious|worried|scared|nervous|excited|pumped|overwhelmed|burnt out|depressed|lonely)\\b"
+  ],
+  "action": "write a people fact with the emotional dimension",
+  "false_positive_cost": "a wrong fact",
+  "false_negative_cost": "missing when a friend is struggling",
+  "accept": 0.8,
+  "review": 0.35
+}

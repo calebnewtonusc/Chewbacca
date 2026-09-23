@@ -1,0 +1,13 @@
+{
+  "id": "they_promised",
+  "family": "commitments",
+  "question": "Did the other person (from=them) commit in `message` to do something specific for the user?",
+  "rules": [
+    "\\b(i'?ll|i will|i can|i'?m gonna|let me|will do)\\b"
+  ],
+  "action": "add a waiting-on item: what they promised the user",
+  "false_positive_cost": "one wrong reminder",
+  "false_negative_cost": "losing track of something owed to the user",
+  "accept": 0.8,
+  "review": 0.35
+}

@@ -1,0 +1,13 @@
+{
+  "id": "i_promised",
+  "family": "commitments",
+  "question": "Did the user (from=me) commit in `message` to do something specific for someone: send, call, pay, show up, finish, introduce?",
+  "rules": [
+    "\\b(i'?ll|i will|i can|i'?m gonna|let me)\\b.{0,40}\\b(send|call|text|get|do|pay|bring|finish|intro|check|look)"
+  ],
+  "action": "add a task: what the user promised, to whom, by when",
+  "false_positive_cost": "one wrong task to delete",
+  "false_negative_cost": "a broken promise to someone",
+  "accept": 0.8,
+  "review": 0.35
+}

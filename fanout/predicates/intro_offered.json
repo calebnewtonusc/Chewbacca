@@ -1,0 +1,13 @@
+{
+  "id": "intro_offered",
+  "family": "opportunities",
+  "question": "Does someone in `message` offer to introduce the user to a person or connect them with someone?",
+  "rules": [
+    "\\b(intro|introduce|connect you|put you in touch|should meet|know (a guy|someone))\\b"
+  ],
+  "action": "add an opportunity: the intro, and follow up",
+  "false_positive_cost": "one wrong follow-up",
+  "false_negative_cost": "a warm intro that never happens",
+  "accept": 0.8,
+  "review": 0.35
+}

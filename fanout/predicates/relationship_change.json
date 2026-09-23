@@ -1,0 +1,13 @@
+{
+  "id": "relationship_change",
+  "family": "people",
+  "question": "Does `message` say someone started dating, got engaged, married, broke up, divorced, or had a baby?",
+  "rules": [
+    "\\b(dating|girlfriend|boyfriend|engaged|married|wedding|broke up|breakup|divorc|pregnant|baby)\\b"
+  ],
+  "action": "write a people fact",
+  "false_positive_cost": "a wrong fact",
+  "false_negative_cost": "missing a big life moment",
+  "accept": 0.8,
+  "review": 0.35
+}

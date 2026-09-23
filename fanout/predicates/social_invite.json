@@ -1,0 +1,13 @@
+{
+  "id": "social_invite",
+  "family": "plans",
+  "question": "Does `message` invite the user to a party, event, game, trip, or hangout?",
+  "rules": [
+    "\\b(pull up|come (to|through|over)|party|wanna|want to|down to|invite|trip|game|hang)\\b"
+  ],
+  "action": "add a tentative calendar hold",
+  "false_positive_cost": "one wrong hold",
+  "false_negative_cost": "missing a friend's event",
+  "accept": 0.8,
+  "review": 0.35
+}

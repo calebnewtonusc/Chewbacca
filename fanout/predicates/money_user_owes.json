@@ -1,0 +1,13 @@
+{
+  "id": "money_user_owes",
+  "family": "obligations",
+  "question": "Does `message` show the user owes someone money or must pay for something?",
+  "rules": [
+    "\\b(i owe|owe you|pay you|i'?ll venmo|i'?ll send (you )?\\$|invoice|due)\\b"
+  ],
+  "action": "add a loans row (user owes)",
+  "false_positive_cost": "a wrong debt on record",
+  "false_negative_cost": "an unpaid debt hurting a relationship",
+  "accept": 0.8,
+  "review": 0.35
+}

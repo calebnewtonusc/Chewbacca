@@ -1,0 +1,13 @@
+{
+  "id": "buyer_signal",
+  "family": "opportunities",
+  "question": "Does `message` show someone wants to buy, hire, or pay for something the user or the user's businesses sell or build (cars, events, software, services, Chewbacca, Amber)?",
+  "rules": [
+    "\\b(how much|price|pricing|buy|interested in|looking for|need (a|someone)|hire|quote|budget)\\b"
+  ],
+  "action": "add an opportunity with an estimated value",
+  "false_positive_cost": "a false lead in the book",
+  "false_negative_cost": "a sale nobody followed up",
+  "accept": 0.8,
+  "review": 0.35
+}

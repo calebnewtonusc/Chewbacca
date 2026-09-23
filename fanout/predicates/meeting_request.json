@@ -1,0 +1,13 @@
+{
+  "id": "meeting_request",
+  "family": "opportunities",
+  "question": "Does `message` ask to meet, call, get coffee, or hop on a call with the user?",
+  "rules": [
+    "\\b(call|meet|coffee|lunch|dinner|zoom|facetime|hop on|grab time|catch up)\\b"
+  ],
+  "action": "add a scheduling task",
+  "false_positive_cost": "one wrong task",
+  "false_negative_cost": "a meeting that never gets scheduled",
+  "accept": 0.8,
+  "review": 0.35
+}
