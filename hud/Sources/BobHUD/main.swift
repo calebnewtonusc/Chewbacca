@@ -662,7 +662,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // the band lingers a moment, and the next press works at
                 // once because the turn is already closed.
                 voice.dropPush()
-                model.pressHeardNothing()
+                // Zeros from the device for the whole press is not an
+                // accidental tap, and dropping it without a word left ten
+                // presses in twenty seconds on 2026-09-23 with nothing said.
+                if voice.lastPressSilent {
+                    model.fail(VoiceListener.silentMicrophone, hold: 4)
+                } else {
+                    model.pressHeardNothing()
+                }
                 return
             }
             voice.endPush()

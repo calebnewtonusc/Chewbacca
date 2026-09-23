@@ -59,6 +59,7 @@ extension AppDelegate {
             // Nothing heard: a press by accident. Close it without a word.
             endKeyDictation()
             voice.dropPush()
+            if voice.lastPressSilent { model.fail(VoiceListener.silentMicrophone, hold: 4) }
         } else {
             voice.endPush()
         }

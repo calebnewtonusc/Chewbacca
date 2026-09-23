@@ -67,7 +67,22 @@ public final class VoiceListener {
     /// precisely is one people stop using.
     public var wakeWords: [String] = ["chewy", "chewie", "chewbacca", "jarvis"]
 
-    private let engine = AVAudioEngine()
+    /// Rebuilt on every press, never kept for the life of the process. An
+    /// engine binds to the input device that was the default when it was made
+    /// and keeps it: from the display's launch at 23:48 on 2026-09-22 every
+    /// press read a 3-channel input that delivered nothing, while the default
+    /// input was the 1-channel built-in microphone, and neither dictation nor
+    /// the assistant heard a word for the rest of the night.
+    private var engine = AVAudioEngine()
+    /// Any sample that was not digital zero reached the tap this press.
+    private var sawSignal = false
+    private var openedAt: Date?
+    /// The last press held the microphone open for a second or more and got
+    /// nothing but zeros: a dead or stale device, not a quiet room, because a
+    /// working microphone never reads exactly zero.
+    public private(set) var lastPressSilent = false
+    public static let silentMicrophone =
+        "The microphone is sending silence. Check Input in System Settings, Sound"
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
@@ -356,6 +371,7 @@ public final class VoiceListener {
     /// Shut the microphone without touching the recognition task.
     private func closeMicrophone() {
         guard engine.isRunning else { return }
+        noteSilence()
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
         onSignal?(.level(0))
@@ -406,22 +422,39 @@ public final class VoiceListener {
         request.addsPunctuation = true
         self.request = request
 
+        if !engine.isRunning { engine = AVAudioEngine() }
+        sawSignal = false
+        lastPressSilent = false
+        openedAt = Date()
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         let recorder = self.recorder
+        let device = AVCaptureDevice.default(for: .audio)?.localizedName ?? "?"
         Self.log.notice(
-            "voice.format rate=\(format.sampleRate) channels=\(format.channelCount) interleaved=\(format.isInterleaved) float=\(format.commonFormat == .pcmFormatFloat32) recording=\(recorder != nil)")
+            "voice.format device=\(device, privacy: .public) rate=\(format.sampleRate) channels=\(format.channelCount) interleaved=\(format.isInterleaved) float=\(format.commonFormat == .pcmFormatFloat32) recording=\(recorder != nil)")
         // `@Sendable`, for the same reason as the two closures in `authorize`,
         // and it matters most here: this one runs on the realtime audio thread,
         // once per 1024-frame buffer. Inheriting this class's main-actor
         // isolation meant the runtime checked the executor on every buffer and
         // trapped on the first, roughly 23ms after the microphone opened.
         input.installTap(onBus: 0, bufferSize: 1024, format: format) {
-            @Sendable [weak self] buffer, _ in
+            @Sendable [weak self] raw, _ in
+            // Mono before anything reads it. The recogniser and Whisper are
+            // speech models and want one channel; a multi-channel input
+            // handed over as it is heard nothing on 2026-09-22.
+            let buffer = Self.mono(raw) ?? raw
             request.append(buffer)
             recorder?.append(buffer)
-            guard let level = Self.level(of: buffer) else { return }
-            Task { @MainActor in self?.onSignal?(.level(level)) }
+            let signal = Self.carriesSignal(buffer)
+            let level = Self.level(of: buffer)
+            // One hop for both: two tasks capturing `self` from this closure
+            // is a race Swift 6 refuses.
+            guard signal || level != nil else { return }
+            Task { @MainActor in
+                guard let self else { return }
+                if signal { self.sawSignal = true }
+                if let level { self.onSignal?(.level(level)) }
+            }
         }
 
         engine.prepare()
@@ -636,6 +669,7 @@ public final class VoiceListener {
         request?.endAudio()
         request = nil
         if engine.isRunning {
+            noteSilence()
             engine.stop()
             engine.inputNode.removeTap(onBus: 0)
         }
@@ -758,6 +792,54 @@ public final class VoiceListener {
             .drop { $0 == "," || $0 == "." || $0 == "?" || $0 == "!" }
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return cleaned.isEmpty ? nil : String(cleaned)
+    }
+
+    /// Called as the microphone closes. Under a second is too short to judge:
+    /// the tap's hops to this actor may not all have landed.
+    private func noteSilence() {
+        let held = openedAt.map { Date().timeIntervalSince($0) } ?? 0
+        lastPressSilent = held >= 1 && !sawSignal
+        if lastPressSilent {
+            Self.log.notice("voice.silent held_s=\(held, format: .fixed(precision: 1))")
+        }
+    }
+
+    /// Anything but digital zero. Room noise on a real microphone sits
+    /// around 1e-4; a device that is not delivering reads 0.
+    nonisolated static func carriesSignal(_ buffer: AVAudioPCMBuffer) -> Bool {
+        guard let data = buffer.floatChannelData else { return false }
+        let count = Int(buffer.frameLength)
+        for channel in 0..<Int(buffer.format.channelCount) {
+            for index in 0..<count where abs(data[channel][index]) > 1e-6 { return true }
+        }
+        return false
+    }
+
+    /// One channel: the average of the channels that carry anything, so a
+    /// microphone array with a silent channel is not halved or zeroed. Nil
+    /// for a buffer that is already mono or not the float layout the engine
+    /// delivers.
+    nonisolated static func mono(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        let channels = Int(buffer.format.channelCount)
+        guard channels > 1, !buffer.format.isInterleaved,
+              let from = buffer.floatChannelData,
+              let format = AVAudioFormat(
+                  standardFormatWithSampleRate: buffer.format.sampleRate, channels: 1),
+              let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: buffer.frameLength),
+              let to = out.floatChannelData?[0]
+        else { return nil }
+        let count = Int(buffer.frameLength)
+        out.frameLength = buffer.frameLength
+        let live = (0..<channels).filter { channel in
+            (0..<count).contains { abs(from[channel][$0]) > 0 }
+        }
+        let scale: Float = live.isEmpty ? 0 : 1 / Float(live.count)
+        for index in 0..<count {
+            var sum: Float = 0
+            for channel in live { sum += from[channel][index] }
+            to[index] = sum * scale
+        }
+        return out
     }
 
     /// Root mean square of a buffer, mapped to something a ring can use.
