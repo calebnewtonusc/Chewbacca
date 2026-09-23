@@ -24,6 +24,31 @@ class HookTests(unittest.TestCase):
         self.state_patch.start()
         self.addCleanup(self.state_patch.stop)
 
+    def test_removed_native_hook_does_not_dispatch_or_write_receipt(self):
+        import io
+        home = hooks.context.codex_home()
+        (home / 'hooks.json').write_text(json.dumps({'hooks': {'Stop': [
+            {'hooks': [{'type': 'command', 'command': 'other-hook'}]}]}}))
+        with patch.object(sys, 'argv', ['codex_hooks.py', 'run']), \
+             patch.object(sys, 'stdin', io.StringIO(json.dumps({'hook_event_name': 'Stop'}))), \
+             patch.object(hooks, 'dispatch') as dispatch, \
+             patch('sys.stdout', new_callable=io.StringIO) as output:
+            hooks.main()
+        dispatch.assert_not_called()
+        self.assertEqual(output.getvalue(), '')
+        self.assertFalse((home / 'chewbacca-hook-status.json').exists())
+
+    def test_registration_is_specific_to_adapter_and_event(self):
+        home = hooks.context.codex_home()
+        self.assertFalse(hooks.registered_for_event(home, 'Stop'))
+        hooks.install(home)
+        self.assertTrue(hooks.registered_for_event(home, 'Stop'))
+        data = json.loads((home / 'hooks.json').read_text())
+        data['hooks']['Stop'] = []
+        (home / 'hooks.json').write_text(json.dumps(data))
+        self.assertFalse(hooks.registered_for_event(home, 'Stop'))
+        self.assertTrue(hooks.registered_for_event(home, 'UserPromptSubmit'))
+
     def test_review_observes_real_repository_writes_across_tool_shapes(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp).resolve()

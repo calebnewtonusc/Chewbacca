@@ -410,6 +410,25 @@ def install(home):
     return path
 
 
+def registered_for_event(home, event):
+    """A cached native handler must respect removal from the live configuration."""
+    config = home / 'hooks.json'
+    if not config.exists():
+        return False
+    data = json.loads(config.read_text())
+    for group in data.get('hooks', {}).get(event, []):
+        for handler in group.get('hooks', []):
+            if handler.get('type') != 'command':
+                continue
+            try:
+                words = shlex.split(handler.get('command', ''))
+            except ValueError:
+                continue
+            if any(Path(word).resolve() == Path(__file__).resolve() for word in words):
+                return True
+    return False
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=('install', 'run'))
@@ -421,6 +440,8 @@ def main():
     payload = json.load(sys.stdin)
     if not isinstance(payload, dict) or payload.get('hook_event_name') not in EVENTS:
         raise ValueError('unsupported hook event')
+    if not registered_for_event(context.codex_home(), payload['hook_event_name']):
+        return
     output = dispatch(payload)
     # Only event metadata is persisted; never prompts, replies, paths, or the briefing.
     audit = context.codex_home() / 'chewbacca-hook-status.json'
