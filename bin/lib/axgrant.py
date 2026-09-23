@@ -36,7 +36,7 @@ from pathlib import Path
 
 SYSTEM_TCC = Path("/Library/Application Support/com.apple.TCC/TCC.db")
 CLIENT = "dev.bobthebuilder.hud"
-APP = Path("/Applications/BobHUD.app")
+APP = Path("/Applications/Kyber.app")
 
 # Opcodes of a code requirement's first term, from the Security framework's
 # requirement language. Only these two are answerable: anything else is a real

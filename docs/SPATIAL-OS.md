@@ -36,8 +36,8 @@ The browser version, for hacking on the visuals without a Swift build, is
 | Least-squares circle fit (Kasa) | same | Works. Centre lands 0.0005 off on a 216 degree arc, versus 0.0656 for a centroid |
 | Open/close state machine | `core/portal-state.ts` | Works. Pure reducer, 7 tests |
 | Eye-through-fingertip pointing | `core/pointing.ts` | Works. 20 tests, collinearity asserted in 3D |
-| Apple Vision hand tracking | `hud/Sources/BobHUDKit/HandTracker.swift` | Works. 7.56ms one hand, 4-6% of one core on an M4 Pro |
-| Landmark bridge, and pupils | `hud/Sources/BobHUDKit/LandmarkBridge.swift` | Works. 8 tests |
+| Apple Vision hand tracking | `hud/Sources/KyberKit/HandTracker.swift` | Works. 7.56ms one hand, 4-6% of one core on an M4 Pro |
+| Landmark bridge, and pupils | `hud/Sources/KyberKit/LandmarkBridge.swift` | Works. 8 tests |
 | The portal on the HUD glass | `hud/Sources/Portal/` | Works. Transparent WKWebView, click-through |
 | Window placement behind the hole | `hud/Sources/Portal/WindowPlacer.swift` | Works. Needs Accessibility, prompts for it |
 | `portal` CLI and named targets | `bin/portal` | Works |

@@ -19,7 +19,7 @@ import re
 import sys
 
 HERE = pathlib.Path(__file__).parent
-DEFAULT_SOURCE = HERE.parents[2] / "hud/Sources/BobHUDKit/PresenceFieldShader.swift"
+DEFAULT_SOURCE = HERE.parents[2] / "hud/Sources/KyberKit/PresenceFieldShader.swift"
 
 # Every constant the tuner lifts into a uniform, as it appears in the Metal.
 # Name, the Metal declaration to delete, the GLSL uniform it becomes.

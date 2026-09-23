@@ -1,0 +1,434 @@
+{
+  "url": "https://github.com/",
+  "requested": "https://github.com",
+  "title": "GitHub · Change is constant. GitHub keeps you ahead. · GitHub",
+  "blocked": null,
+  "counts": {
+    "link": 73,
+    "button": 22,
+    "textbox": 2,
+    "tab": 8
+  },
+  "controls": [
+    {
+      "role": "link",
+      "name": "Skip to content"
+    },
+    {
+      "role": "link",
+      "name": "Homepage"
+    },
+    {
+      "role": "button",
+      "name": "Platform"
+    },
+    {
+      "role": "button",
+      "name": "Solutions"
+    },
+    {
+      "role": "button",
+      "name": "Resources"
+    },
+    {
+      "role": "button",
+      "name": "Open Source"
+    },
+    {
+      "role": "button",
+      "name": "Enterprise"
+    },
+    {
+      "role": "link",
+      "name": "Pricing"
+    },
+    {
+      "role": "button",
+      "name": "Search or jump to, type / to search"
+    },
+    {
+      "role": "link",
+      "name": "Sign in"
+    },
+    {
+      "role": "link",
+      "name": "Sign up"
+    },
+    {
+      "role": "textbox",
+      "name": "Enter your email"
+    },
+    {
+      "role": "button",
+      "name": "Sign up for GitHub"
+    },
+    {
+      "role": "link",
+      "name": "Download GitHub Copilot app"
+    },
+    {
+      "role": "button",
+      "name": "Pause"
+    },
+    {
+      "role": "tab",
+      "name": "Code"
+    },
+    {
+      "role": "tab",
+      "name": "Plan"
+    },
+    {
+      "role": "tab",
+      "name": "Collaborate"
+    },
+    {
+      "role": "tab",
+      "name": "Automate"
+    },
+    {
+      "role": "tab",
+      "name": "Secure"
+    },
+    {
+      "role": "button",
+      "name": "Pause animation"
+    },
+    {
+      "role": "button",
+      "name": "Pause video"
+    },
+    {
+      "role": "link",
+      "name": "Explore GitHub Copilot"
+    },
+    {
+      "role": "link",
+      "name": "Read customer story"
+    },
+    {
+      "role": "link",
+      "name": "Read industry report"
+    },
+    {
+      "role": "button",
+      "name": "Automate your path to production"
+    },
+    {
+      "role": "link",
+      "name": "Explore GitHub Actions"
+    },
+    {
+      "role": "button",
+      "name": "Code instantly from anywhere"
+    },
+    {
+      "role": "button",
+      "name": "Keep momentum on the go"
+    },
+    {
+      "role": "button",
+      "name": "Shape your toolchain"
+    },
+    {
+      "role": "link",
+      "name": "Explore GitHub Advanced Security"
+    },
+    {
+      "role": "link",
+      "name": "Learn about GitHub Code Security"
+    },
+    {
+      "role": "link",
+      "name": "Learn about Dependabot"
+    },
+    {
+      "role": "link",
+      "name": "Learn about GitHub Secret Protection"
+    },
+    {
+      "role": "link",
+      "name": "Footnote 1"
+    },
+    {
+      "role": "link",
+      "name": "Footnote 1"
+    },
+    {
+      "role": "link",
+      "name": "Explore GitHub Projects"
+    },
+    {
+      "role": "button",
+      "name": "Keep track of your tasks"
+    },
+    {
+      "role": "link",
+      "name": "Explore GitHub Issues"
+    },
+    {
+      "role": "button",
+      "name": "Share ideas and ask questions"
+    },
+    {
+      "role": "button",
+      "name": "Review code changes together"
+    },
+    {
+      "role": "button",
+      "name": "Fund open source projects"
+    },
+    {
+      "role": "tab",
+      "name": "By industry"
+    },
+    {
+      "role": "tab",
+      "name": "By size"
+    },
+    {
+      "role": "tab",
+      "name": "By use case"
+    },
+    {
+      "role": "link",
+      "name": "Technology Figma streamlines development and strengthens security Read customer story"
+    },
+    {
+      "role": "link",
+      "name": "Automotive Mercedes-Benz standardizes source code and automates onboarding Read customer story"
+    },
+    {
+      "role": "link",
+      "name": "Financial services Mercado Libre cuts coding time by 50% Read customer story"
+    },
+    {
+      "role": "link",
+      "name": "Explore customer stories"
+    },
+    {
+      "role": "link",
+      "name": "View all solutions"
+    },
+    {
+      "role": "textbox",
+      "name": "Enter your email"
+    },
+    {
+      "role": "button",
+      "name": "Sign up for GitHub"
+    },
+    {
+      "role": "link",
+      "name": "Download GitHub Copilot app"
+    },
+    {
+      "role": "link",
+      "name": "Back to content GitHub internal customer data, 2025."
+    },
+    {
+      "role": "link",
+      "name": "Back to top"
+    },
+    {
+      "role": "link",
+      "name": "Go to GitHub homepage"
+    },
+    {
+      "role": "link",
+      "name": "Subscribe"
+    },
+    {
+      "role": "link",
+      "name": "Features"
+    },
+    {
+      "role": "link",
+      "name": "Enterprise"
+    },
+    {
+      "role": "link",
+      "name": "Copilot"
+    },
+    {
+      "role": "link",
+      "name": "AI"
+    },
+    {
+      "role": "link",
+      "name": "Security"
+    },
+    {
+      "role": "link",
+      "name": "Pricing"
+    },
+    {
+      "role": "link",
+      "name": "Team"
+    },
+    {
+      "role": "link",
+      "name": "Resources"
+    },
+    {
+      "role": "link",
+      "name": "Roadmap"
+    },
+    {
+      "role": "link",
+      "name": "Compare GitHub"
+    },
+    {
+      "role": "link",
+      "name": "Developer API"
+    },
+    {
+      "role": "link",
+      "name": "Partners"
+    },
+    {
+      "role": "link",
+      "name": "Education"
+    },
+    {
+      "role": "link",
+      "name": "GitHub CLI"
+    },
+    {
+      "role": "link",
+      "name": "GitHub Desktop"
+    },
+    {
+      "role": "link",
+      "name": "GitHub Mobile"
+    },
+    {
+      "role": "link",
+      "name": "GitHub Marketplace"
+    },
+    {
+      "role": "link",
+      "name": "MCP Registry"
+    },
+    {
+      "role": "link",
+      "name": "Docs"
+    },
+    {
+      "role": "link",
+      "name": "Community Forum"
+    },
+    {
+      "role": "link",
+      "name": "Professional Services"
+    },
+    {
+      "role": "link",
+      "name": "Premium Support"
+    },
+    {
+      "role": "link",
+      "name": "Skills"
+    },
+    {
+      "role": "link",
+      "name": "Status"
+    },
+    {
+      "role": "link",
+      "name": "Contact GitHub"
+    },
+    {
+      "role": "link",
+      "name": "What is Git?"
+    },
+    {
+      "role": "link",
+      "name": "Sitemap"
+    },
+    {
+      "role": "link",
+      "name": "About"
+    },
+    {
+      "role": "link",
+      "name": "Why GitHub"
+    },
+    {
+      "role": "link",
+      "name": "Customer Stories"
+    },
+    {
+      "role": "link",
+      "name": "Blog"
+    },
+    {
+      "role": "link",
+      "name": "The ReadME Project"
+    },
+    {
+      "role": "link",
+      "name": "Careers"
+    },
+    {
+      "role": "link",
+      "name": "Inclusion"
+    },
+    {
+      "role": "link",
+      "name": "Social Impact"
+    },
+    {
+      "role": "link",
+      "name": "Shop"
+    },
+    {
+      "role": "link",
+      "name": "Terms"
+    },
+    {
+      "role": "link",
+      "name": "Privacy"
+    },
+    {
+      "role": "button",
+      "name": "Manage cookies"
+    },
+    {
+      "role": "button",
+      "name": "Do not share my personal information"
+    },
+    {
+      "role": "link",
+      "name": "GitHub on LinkedIn"
+    },
+    {
+      "role": "link",
+      "name": "GitHub on Instagram"
+    },
+    {
+      "role": "link",
+      "name": "GitHub on YouTube"
+    },
+    {
+      "role": "link",
+      "name": "GitHub on X"
+    },
+    {
+      "role": "link",
+      "name": "GitHub on TikTok"
+    },
+    {
+      "role": "link",
+      "name": "GitHub on Twitch"
+    },
+    {
+      "role": "link",
+      "name": "GitHub’s organization on GitHub"
+    },
+    {
+      "role": "button",
+      "name": "English - Select language"
+    }
+  ]
+}

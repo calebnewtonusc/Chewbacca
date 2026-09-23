@@ -33,7 +33,7 @@ figures. It is that a cascade is over the conversational budget before inference
 finishes, so every stage has to start on the previous stage's partial output or
 the sum is hopeless.
 
-**In Bob:** `../bin/hud-listen` already streams at two of the three
+**In Kyber:** `../bin/hud-listen` already streams at two of the three
 joins. It holds one Claude Code process open per session and feeds each request
 as a `stream-json` turn rather than paying process start per request, and it
 hands hud-speak each finished sentence as it arrives instead of the whole reply.
@@ -68,7 +68,7 @@ On Apple Silicon the same idea exists as an 8M CoreML model (Smart Turn v3.2,
 23 languages), which is small enough that the question of whether to run it is
 not a resource question.
 
-**In Bob:** `Sources/BobHUDKit/Voice.swift`. Push to talk sidesteps end of
+**In Kyber:** `Sources/KyberKit/Voice.swift`. Push to talk sidesteps end of
 turn entirely, which is the correct first move and why the mode exists. Wake mode
 does not, and `silenceTimer` there is the timer this section is about. The
 `commitGrace` band of 300 to 500 ms is sized off the same research as everyone
@@ -132,7 +132,7 @@ class. Measured by its packagers on M-series silicon at roughly 0.056 RTF (about
 is to keep a VAD as a backstop, because background noise can make the joint emit
 non-blank tokens and reset the debounce.
 
-**In Bob:** the relevant fact is local. `../plynn` already runs Parakeet
+**In Kyber:** the relevant fact is local. `../plynn` already runs Parakeet
 Unified on the Neural Engine through FluidAudio, with a Silero VAD gate at
 `finish()` and a flush pad that recovers words spoken immediately before release.
 That is the same vendor's ASR as the NVIDIA page is selling, already integrated,
@@ -158,7 +158,7 @@ costs roughly ten times the compute per second of speech and a hard cap on
 utterance length. For a HUD whose replies are capped at twenty words and whose
 first-audio budget is already blown by the model, it is the wrong place to spend.
 
-**In Bob:** `../bin/hud-speak` runs Kokoro-82M through MLX in Python,
+**In Kyber:** `../bin/hud-speak` runs Kokoro-82M through MLX in Python,
 which is the right model reached the expensive way. It costs a `uv` environment,
 a PyTorch import, and 6 to 10 seconds of priming per session (`primed in 10s` in
 `~/.bob/listen.log`), to run a model that FluidAudio runs in-process in Swift on
@@ -178,7 +178,7 @@ Their other three levers are all structural. Cache the phrases that recur.
 Stream synthesis sentence by sentence rather than per reply. Prefetch the data
 the turn is probably going to need before the model asks for it.
 
-**In Bob:** the second is already done, in `run_streamed`. The first is not, and
+**In Kyber:** the second is already done, in `run_streamed`. The first is not, and
 the HUD says a small closed set of things constantly (acknowledgements, "stepping
 back", the presence transitions) that could be synthesised once and played from
 disk at zero cost. The third is the one that matters most here, because the

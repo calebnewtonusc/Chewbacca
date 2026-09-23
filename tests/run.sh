@@ -939,7 +939,7 @@ if group "hud"; then
   else
     skip "the suite collects under pytest" "no pytest and no uv"
   fi
-  expect "the skill teaches the wire format" "Bob Lines" cat "$ROOT/skills/hud/SKILL.md"
+  expect "the skill teaches the wire format" "Kyber Lines" cat "$ROOT/skills/hud/SKILL.md"
 fi
 
 # ── guide ─────────────────────────────────────────────────────────────────────

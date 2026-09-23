@@ -58,7 +58,7 @@ class Finding:
     key: str          # stable across runs, so a repeat is recognisable
     severity: int     # higher wins; only the worst is shown
     title: str
-    lines: list[str]  # Bob Lines for the body, already composed
+    lines: list[str]  # Kyber Lines for the body, already composed
 
     def fingerprint(self) -> str:
         return hashlib.sha256(f"{self.key}|{self.severity}".encode()).hexdigest()[:16]

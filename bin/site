@@ -77,6 +77,8 @@ STOP = {
 # below, so 0.9 is the floor. Re-measure when the corpus grows past ~100 files.
 MIN_SCORE = 0.9
 
+INVISIBLE = re.compile("[\u200b-\u200f\u2060\ufeff]")
+
 # A saved snapshot is read back into a model's context, so it has a ceiling.
 # Guessed, never measured: 60k characters is roughly 15k tokens, about the
 # cost of one lean voice turn, which is the budget a map read should fit in.
@@ -162,7 +164,10 @@ def snapshot(url: str, timeout_ms: int):
     for line in tree.splitlines():
         m = re.match(r'\s*-\s*(\w+)(?:\s+"([^"]*)")?', line)
         if m and m.group(1) in CONTROL_ROLES:
-            controls.append({"role": m.group(1), "name": m.group(2) or ""})
+            # Stripe's page has "Contact sales" twice, once with an invisible
+            # U+2060 on the end (read 2026-09-23), which made two options of one.
+            name = INVISIBLE.sub("", m.group(2) or "").strip()
+            controls.append({"role": m.group(1), "name": name})
     counts = {}
     for c in controls:
         counts[c["role"]] = counts.get(c["role"], 0) + 1

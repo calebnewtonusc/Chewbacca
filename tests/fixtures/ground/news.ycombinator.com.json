@@ -1,0 +1,900 @@
+{
+  "url": "https://news.ycombinator.com/",
+  "requested": "https://news.ycombinator.com",
+  "title": "Hacker News",
+  "blocked": null,
+  "counts": {
+    "link": 221,
+    "textbox": 1
+  },
+  "controls": [
+    {
+      "role": "link",
+      "name": ""
+    },
+    {
+      "role": "link",
+      "name": "Hacker News"
+    },
+    {
+      "role": "link",
+      "name": "new"
+    },
+    {
+      "role": "link",
+      "name": "past"
+    },
+    {
+      "role": "link",
+      "name": "comments"
+    },
+    {
+      "role": "link",
+      "name": "ask"
+    },
+    {
+      "role": "link",
+      "name": "show"
+    },
+    {
+      "role": "link",
+      "name": "jobs"
+    },
+    {
+      "role": "link",
+      "name": "submit"
+    },
+    {
+      "role": "link",
+      "name": "login"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "GPT-6 Sol and Luna"
+    },
+    {
+      "role": "link",
+      "name": "openai.com"
+    },
+    {
+      "role": "link",
+      "name": "OfficialTurkey"
+    },
+    {
+      "role": "link",
+      "name": "13 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "698 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "Claude Opus 5.5"
+    },
+    {
+      "role": "link",
+      "name": "anthropic.com"
+    },
+    {
+      "role": "link",
+      "name": "km144"
+    },
+    {
+      "role": "link",
+      "name": "15 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "918 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "Transit rewards"
+    },
+    {
+      "role": "link",
+      "name": "waymo.com"
+    },
+    {
+      "role": "link",
+      "name": "raybb"
+    },
+    {
+      "role": "link",
+      "name": "4 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "103 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "Data-only attacks are easier than you think (2024)"
+    },
+    {
+      "role": "link",
+      "name": "usenix.org"
+    },
+    {
+      "role": "link",
+      "name": "segfaultbuserr"
+    },
+    {
+      "role": "link",
+      "name": "3 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "14 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "OpenAI GPT–6 Astra breaks Enigma message that has resisted solution since 2005"
+    },
+    {
+      "role": "link",
+      "name": "cryptocellar.org"
+    },
+    {
+      "role": "link",
+      "name": "sohkamyung"
+    },
+    {
+      "role": "link",
+      "name": "17 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "383 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "Microsoft killed FoxPro in 2007. Anyway, here's FoxPro revived"
+    },
+    {
+      "role": "link",
+      "name": "foxscript.org"
+    },
+    {
+      "role": "link",
+      "name": "boredjohnny"
+    },
+    {
+      "role": "link",
+      "name": "10 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "172 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "'We hacked the FBI:' Hackers say they have data on all FBI employees"
+    },
+    {
+      "role": "link",
+      "name": "404media.co"
+    },
+    {
+      "role": "link",
+      "name": "spenvo"
+    },
+    {
+      "role": "link",
+      "name": "13 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "397 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "github.com/xcuri0"
+    },
+    {
+      "role": "link",
+      "name": "nateb2022"
+    },
+    {
+      "role": "link",
+      "name": "10 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "43 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "github.com/hsfzxjy"
+    },
+    {
+      "role": "link",
+      "name": "hsfzxjy"
+    },
+    {
+      "role": "link",
+      "name": "1 hour ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "2 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "What California is learning from solar panels built over irrigation canals"
+    },
+    {
+      "role": "link",
+      "name": "kqed.org"
+    },
+    {
+      "role": "link",
+      "name": "Jtsummers"
+    },
+    {
+      "role": "link",
+      "name": "12 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "324 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "trailofbits.com"
+    },
+    {
+      "role": "link",
+      "name": "aray07"
+    },
+    {
+      "role": "link",
+      "name": "12 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "130 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "How did AMD Ryzen get 50% faster in two years?"
+    },
+    {
+      "role": "link",
+      "name": "lemire.me"
+    },
+    {
+      "role": "link",
+      "name": "ibobev"
+    },
+    {
+      "role": "link",
+      "name": "18 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "116 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "No Easy Fix for Bogus Respondents in Online Opt-In Polls"
+    },
+    {
+      "role": "link",
+      "name": "pewresearch.org"
+    },
+    {
+      "role": "link",
+      "name": "luu"
+    },
+    {
+      "role": "link",
+      "name": "4 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "5 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "github.com/wordpress"
+    },
+    {
+      "role": "link",
+      "name": "vntok"
+    },
+    {
+      "role": "link",
+      "name": "15 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "94 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "Claude Opus 5.5 Intelligence, Performance and Price Analysis (Max)"
+    },
+    {
+      "role": "link",
+      "name": "artificialanalysis.ai"
+    },
+    {
+      "role": "link",
+      "name": "theanonymousone"
+    },
+    {
+      "role": "link",
+      "name": "14 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "84 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "Pentagon says overreliance on AI contributed to missile strike on Iran school"
+    },
+    {
+      "role": "link",
+      "name": "bloomberg.com"
+    },
+    {
+      "role": "link",
+      "name": "devonnull"
+    },
+    {
+      "role": "link",
+      "name": "12 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "298 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "Unreal Agent"
+    },
+    {
+      "role": "link",
+      "name": "unreallabs.ai"
+    },
+    {
+      "role": "link",
+      "name": "trollied"
+    },
+    {
+      "role": "link",
+      "name": "13 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "99 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "The softness of metal"
+    },
+    {
+      "role": "link",
+      "name": "psyche.co"
+    },
+    {
+      "role": "link",
+      "name": "NaOH"
+    },
+    {
+      "role": "link",
+      "name": "6 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "6 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "The current balance of power in open models"
+    },
+    {
+      "role": "link",
+      "name": "interconnects.ai"
+    },
+    {
+      "role": "link",
+      "name": "gmays"
+    },
+    {
+      "role": "link",
+      "name": "9 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "25 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "Grammarly will send unhinged messages to all your users if you try to cancel"
+    },
+    {
+      "role": "link",
+      "name": "reddit.com"
+    },
+    {
+      "role": "link",
+      "name": "ksec"
+    },
+    {
+      "role": "link",
+      "name": "3 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "20 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "bloomberg.com"
+    },
+    {
+      "role": "link",
+      "name": "alephnerd"
+    },
+    {
+      "role": "link",
+      "name": "19 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "182 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "fb.com"
+    },
+    {
+      "role": "link",
+      "name": "grep_it"
+    },
+    {
+      "role": "link",
+      "name": "5 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "1 comment"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "obscura.com"
+    },
+    {
+      "role": "link",
+      "name": "Flimm"
+    },
+    {
+      "role": "link",
+      "name": "12 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "99 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "benchmarkheaven.com"
+    },
+    {
+      "role": "link",
+      "name": "florianstandhar"
+    },
+    {
+      "role": "link",
+      "name": "12 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "24 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "OpenAI is well positioned to fast-follow Jev"
+    },
+    {
+      "role": "link",
+      "name": "arcturus-labs.com"
+    },
+    {
+      "role": "link",
+      "name": "JohnBerryman"
+    },
+    {
+      "role": "link",
+      "name": "16 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "205 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "Markdown in /src"
+    },
+    {
+      "role": "link",
+      "name": "htmx.org"
+    },
+    {
+      "role": "link",
+      "name": "perrygeo"
+    },
+    {
+      "role": "link",
+      "name": "13 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "64 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "Side-stepping the Secretary Problem, unwittingly"
+    },
+    {
+      "role": "link",
+      "name": "evalapply.org"
+    },
+    {
+      "role": "link",
+      "name": "pvdebbe"
+    },
+    {
+      "role": "link",
+      "name": "7 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "13 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "Native apps written in TypeScript and CSS"
+    },
+    {
+      "role": "link",
+      "name": "github.com/geastack"
+    },
+    {
+      "role": "link",
+      "name": "arbayi"
+    },
+    {
+      "role": "link",
+      "name": "12 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "37 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "Apple has added persistent 'ads' to iOS, and it's driving users crazy"
+    },
+    {
+      "role": "link",
+      "name": "techradar.com"
+    },
+    {
+      "role": "link",
+      "name": "MC995"
+    },
+    {
+      "role": "link",
+      "name": "17 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "508 comments"
+    },
+    {
+      "role": "link",
+      "name": "upvote"
+    },
+    {
+      "role": "link",
+      "name": "16-bit Intel 8088 chip (c. 1985)"
+    },
+    {
+      "role": "link",
+      "name": "allpoetry.com"
+    },
+    {
+      "role": "link",
+      "name": "rbanffy"
+    },
+    {
+      "role": "link",
+      "name": "15 hours ago"
+    },
+    {
+      "role": "link",
+      "name": "hide"
+    },
+    {
+      "role": "link",
+      "name": "15 comments"
+    },
+    {
+      "role": "link",
+      "name": "More"
+    },
+    {
+      "role": "link",
+      "name": "Guidelines"
+    },
+    {
+      "role": "link",
+      "name": "FAQ"
+    },
+    {
+      "role": "link",
+      "name": "Lists"
+    },
+    {
+      "role": "link",
+      "name": "API"
+    },
+    {
+      "role": "link",
+      "name": "Security"
+    },
+    {
+      "role": "link",
+      "name": "Legal"
+    },
+    {
+      "role": "link",
+      "name": "Apply to YC"
+    },
+    {
+      "role": "link",
+      "name": "Contact"
+    },
+    {
+      "role": "textbox",
+      "name": ""
+    }
+  ]
+}

@@ -16,6 +16,18 @@ js() { $C --match linkedin.com --eval "$1" 2>/dev/null; }
 wait_js() { for i in {1..40}; do [[ $(js "$1") == yes ]] && return 0; sleep 0.25; done; return 1; }
 q() { python3 -c 'import json,sys;print(json.dumps("Edit "+sys.argv[1]+" skill"))' "$1"; }
 
+# Chrome must never come to the front: he works on this Mac while this runs (2026-09-23,
+# "it keeps bringing the window in front"). Record what is frontmost, and if Chrome ever
+# takes it, hand focus back and stop rather than keep stealing it.
+FRONT=$(osascript -e 'tell application "System Events" to name of first process whose frontmost is true' 2>/dev/null)
+guard_front() {
+  [[ $FRONT == "Google Chrome" ]] && return 0
+  local now=$(osascript -e 'tell application "System Events" to name of first process whose frontmost is true' 2>/dev/null)
+  [[ $now == "Google Chrome" ]] || return 0
+  osascript -e "tell application \"$FRONT\" to activate" >/dev/null 2>&1
+  echo "stopped: Chrome came to the front; gave focus back to $FRONT" >&2; exit 4
+}
+
 # Navigation goes through Chrome, not location.href: after a delete the edit page silently
 # ignored location.href (2026-09-23), and every later step then acted on a stale page.
 go_list() {
@@ -24,7 +36,7 @@ repeat with t in tabs of w
 if URL of t contains \"linkedin.com\" then set URL of t to \"$LIST\"
 end repeat
 end repeat" >/dev/null
-  sleep 1
+  sleep 1; guard_front
   wait_js "document.readyState==='complete'&&location.pathname.endsWith('/details/skills/')&&document.querySelector('a[aria-label^=\"Edit \"]')?'yes':'no'" || return 1
   # The list renders 10 rows and adds more on scroll; scroll until the count stops changing.
   local prev=-1 now=0

@@ -541,7 +541,7 @@ else
     warn "mac missing, no Calendar/Contacts/Messages/Notes access"
   fi
 
-  # The BobHUD staleness check that was here has moved into `hud doctor`,
+  # The Kyber staleness check that was here has moved into `hud doctor`,
   # which the "The display" section below calls. It was one of two readings
   # of the same question living in two sections of one run, and the other
   # reading (the build number against the repo's commit count) is blind

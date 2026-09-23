@@ -2,7 +2,7 @@
 # Make a signing identity that stays put, so macOS permissions survive a rebuild.
 #
 # Ad-hoc signing has one cost and this script is how you stop paying it. macOS
-# does not store "BobHUD may use Accessibility"; it stores a code requirement,
+# does not store "Kyber may use Accessibility"; it stores a code requirement,
 # and an ad-hoc signature with no team identifier gives it nothing to name
 # except the binary's own hash. Every rebuild is a new hash. The row keeps
 # saying allowed, the switch in System Settings keeps reading as on, and the
@@ -79,19 +79,19 @@ echo "Rebuilding the display so it carries the new signature..."
 ./scripts/bundle.sh release
 
 echo "Installing it..."
-rm -rf /Applications/BobHUD.app
-cp -R build/BobHUD.app /Applications/
+rm -rf /Applications/Kyber.app
+cp -R build/Kyber.app /Applications/
 
 # The old grant still names a hash that no longer exists anywhere. Clearing it
 # is what turns a switch that lies into one honest prompt.
 python3 "$REPO/bin/lib/axgrant.py" --repair || true
 
 echo "Restarting it..."
-killall BobHUD 2>/dev/null || true
+killall Kyber 2>/dev/null || true
 sleep 1
-open -a /Applications/BobHUD.app
+open -a /Applications/Kyber.app
 
 echo
 echo "Hold Control and the talk key in a text box and talk. macOS asks for"
-echo "Accessibility once more. Switch BobHUD on, and that answer now holds"
+echo "Accessibility once more. Switch Kyber on, and that answer now holds"
 echo "through every rebuild after this one."

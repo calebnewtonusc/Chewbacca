@@ -21,14 +21,14 @@
 #     hud-autostart --status     say whether it is loaded and running
 #     hud-autostart --remove     unload and delete it
 #
-# The listener is deliberately NOT given an agent of its own. BobHUD starts it
+# The listener is deliberately NOT given an agent of its own. Kyber starts it
 # on demand when a key is pressed and nothing is listening, which covers the
 # case without a second thing to keep alive.
 set -uo pipefail
 
 LABEL="com.calebnewton.chewbacca.hud"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-APP="/Applications/BobHUD.app/Contents/MacOS/BobHUD"
+APP="/Applications/Kyber.app/Contents/MacOS/Kyber"
 LOGDIR="$HOME/Library/Logs"
 
 status() {
@@ -37,8 +37,8 @@ status() {
   else
     echo "agent:   not loaded"
   fi
-  if pgrep -f "BobHUD.app/Contents/MacOS/BobHUD" >/dev/null 2>&1; then
-    echo "process: running (pid $(pgrep -f 'BobHUD.app/Contents/MacOS/BobHUD' | head -1))"
+  if pgrep -f "Kyber.app/Contents/MacOS/Kyber" >/dev/null 2>&1; then
+    echo "process: running (pid $(pgrep -f 'Kyber.app/Contents/MacOS/Kyber' | head -1))"
   else
     echo "process: not running"
   fi
@@ -50,14 +50,14 @@ case "${1:-install}" in
   --remove|remove)
     launchctl unload "$PLIST" 2>/dev/null
     rm -f "$PLIST"
-    echo "removed. BobHUD is no longer kept alive."
+    echo "removed. Kyber is no longer kept alive."
     exit 0
     ;;
 esac
 
 # The app has to exist before anything is promised about keeping it alive.
 if [ ! -x "$APP" ]; then
-  echo "BobHUD.app is not installed at /Applications." >&2
+  echo "Kyber.app is not installed at /Applications." >&2
   echo "Build and install it first, then run this again." >&2
   exit 1
 fi

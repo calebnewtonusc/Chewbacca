@@ -77,7 +77,7 @@ type, is the moat [LEARNING-TO-ACT.md](LEARNING-TO-ACT.md) describes for the reg
 JEV-HUD.md already covers the agent board, one parallel call per sentence, permission
 triage, guide mode and the cost line. These go further.
 
-- **End-of-turn detection.** `hud/Sources/BobHUDKit/Voice.swift` closes a turn after a
+- **End-of-turn detection.** `hud/Sources/KyberKit/Voice.swift` closes a turn after a
   fixed 1.1 s of silence, and its own comment says that is shorter than a pause for
   thought. Ask Jev on every partial transcript: "is this utterance finished". A
   finished sentence fires at 300 ms of silence; "and then the" waits. Turn-taking is

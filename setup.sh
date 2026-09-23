@@ -1013,14 +1013,14 @@ if [ -n "$_installed_hud" ]; then
   # two lines, in the middle of a setup that prints hundreds, and nothing he
   # could run afterwards would have told him. An install that ends in an
   # instruction has not installed anything.
-  if [ ! -d "/Applications/BobHUD.app" ] && [ ! -d "$HOME/Applications/BobHUD.app" ]; then
+  if [ ! -d "/Applications/Kyber.app" ] && [ ! -d "$HOME/Applications/Kyber.app" ]; then
     if command -v swift >/dev/null 2>&1 && [ -x "$SCRIPT_DIR/hud/scripts/bundle.sh" ]; then
       log "Building the display. About a minute, once."
       if (cd "$SCRIPT_DIR/hud" && ./scripts/bundle.sh release >/dev/null 2>&1); then
         _dest="/Applications"
         [ -w "$_dest" ] || { _dest="$HOME/Applications"; mkdir -p "$_dest"; }
-        if cp -r "$SCRIPT_DIR/hud/build/BobHUD.app" "$_dest/" 2>/dev/null; then
-          log "Installed BobHUD.app to $_dest/. Open it, or run: hud open"
+        if cp -r "$SCRIPT_DIR/hud/build/Kyber.app" "$_dest/" 2>/dev/null; then
+          log "Installed Kyber.app to $_dest/. Open it, or run: hud open"
         else
           warn "built the display but could not copy it into $_dest"
         fi

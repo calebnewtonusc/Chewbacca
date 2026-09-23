@@ -1,4 +1,4 @@
-# Bob HUD
+# Kyber
 
 A layer of glass over your whole screen that an AI agent can draw on.
 
@@ -192,7 +192,7 @@ text, and a caption sitting inside the region it was supposed to be labelling.
 ```bash
 swift build
 swift test          # 70 tests
-./scripts/bundle.sh # produces build/BobHUD.app
+./scripts/bundle.sh # produces build/Kyber.app
 ```
 
 macOS 14 or later. No dependencies.
@@ -213,7 +213,7 @@ left out.
 
 ## Design notes
 
-The comments in `Sources/BobHUDKit` explain the reasoning rather than the syntax,
+The comments in `Sources/KyberKit` explain the reasoning rather than the syntax,
 and most of them exist because something was wrong first. A few worth knowing:
 
 - The window ignores mouse events by default and only becomes solid where a

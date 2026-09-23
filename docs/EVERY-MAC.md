@@ -113,7 +113,7 @@ In the order of what each one unblocks.
 She is not a figure of speech and she is not going to open a terminal. Two
 things have to be true, and only one of them is achievable, so say which.
 
-The app can be hers. BobHUD is one bundle, so it can be signed with a
+The app can be hers. Kyber is one bundle, so it can be signed with a
 Developer ID, notarized, stapled, and taught to update itself. She downloads it
 once and never thinks about it again, and every change made here reaches her
 the same week.

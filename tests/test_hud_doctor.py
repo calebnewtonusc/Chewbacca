@@ -70,7 +70,7 @@ check("doctor.sh has a display section", 'section "The display"' in doctor)
 # one lie. Both live in `hud doctor` now.
 check(
     "doctor.sh keeps no second copy of the staleness check",
-    doctor.count("BobHUD") == 1,
+    doctor.count("Kyber") == 1,
     "the mtime comparison belongs in hud doctor, beside the build-number one",
 )
 check(
@@ -97,7 +97,7 @@ for needle, why in [
 m = re.search(r"--predicate '([^']*presence field unavailable[^']*)'", hud)
 check(
     "the shader query cannot match itself",
-    bool(m) and 'process == "BobHUD"' in m.group(1),
+    bool(m) and 'process == "Kyber"' in m.group(1),
     "scope the predicate to the process that emits the line",
 )
 

@@ -329,5 +329,5 @@ hud-guide clear                                   take it down
 Dictation never reaches you. Holding Control and then the talk key types what they say at their caret, live, and Whisper corrects it when they let go. That exists because you are the problem it solves: anything said to you is a candidate for interpretation, and a sentence somebody wants typed into a message is indistinguishable from a request.
 
 - When they say they want to dictate into something, tell them in a line: hold Control, then the talk key, and talk. Do not draft the text for them instead.
-- If it types nothing, the usual cause is macOS Accessibility permission for BobHUD, which only they can grant: System Settings, Privacy & Security, Accessibility.
+- If it types nothing, the usual cause is macOS Accessibility permission for Kyber, which only they can grant: System Settings, Privacy & Security, Accessibility.
 - A password field is refused on purpose. Say that plainly if they try.

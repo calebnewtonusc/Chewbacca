@@ -15,7 +15,7 @@ change one later instead of drawing it again.
 ```bash
 hud status                 # is it running
 hud open                   # start it
-hud draw                   # Bob Lines on stdin
+hud draw                   # Kyber Lines on stdin
 hud demo                   # put one of everything on screen
 hud close <surface>        # take one down
 ```

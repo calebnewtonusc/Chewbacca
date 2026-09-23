@@ -160,7 +160,7 @@ def main() -> int:
         check("nothing recorded, nothing known", guide.under_display() is None)
         (bob / "front-app").write_text(json.dumps({"name": "Safari", "bundle": "com.apple.Safari", "pid": 1}))
         check("the recorded app", guide.under_display() == "Safari")
-        (bob / "front-app").write_text(json.dumps({"name": "BobHUD"}))
+        (bob / "front-app").write_text(json.dumps({"name": "Kyber"}))
         check("the display itself is never the answer", guide.under_display() is None)
 
         print("the command")

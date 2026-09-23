@@ -1,0 +1,798 @@
+{
+  "url": "https://stripe.com/",
+  "requested": "https://stripe.com",
+  "title": "Stripe | Financial Infrastructure to Grow Your Revenue",
+  "blocked": null,
+  "counts": {
+    "link": 167,
+    "button": 27,
+    "textbox": 1,
+    "combobox": 1
+  },
+  "controls": [
+    {
+      "role": "link",
+      "name": "Stripe homepage"
+    },
+    {
+      "role": "button",
+      "name": "Products"
+    },
+    {
+      "role": "button",
+      "name": "Solutions"
+    },
+    {
+      "role": "button",
+      "name": "Developers"
+    },
+    {
+      "role": "button",
+      "name": "Resources"
+    },
+    {
+      "role": "link",
+      "name": "Pricing"
+    },
+    {
+      "role": "link",
+      "name": "Guide me"
+    },
+    {
+      "role": "link",
+      "name": "Sign in"
+    },
+    {
+      "role": "link",
+      "name": "Contact sales"
+    },
+    {
+      "role": "link",
+      "name": "Get started"
+    },
+    {
+      "role": "link",
+      "name": "Sign up with Google"
+    },
+    {
+      "role": "link",
+      "name": "OpenAI"
+    },
+    {
+      "role": "link",
+      "name": "Amazon"
+    },
+    {
+      "role": "link",
+      "name": "Nvidia"
+    },
+    {
+      "role": "link",
+      "name": "Ford"
+    },
+    {
+      "role": "link",
+      "name": "Google"
+    },
+    {
+      "role": "link",
+      "name": "Shopify"
+    },
+    {
+      "role": "link",
+      "name": "Mindbody"
+    },
+    {
+      "role": "link",
+      "name": "Ramp"
+    },
+    {
+      "role": "link",
+      "name": "Figma"
+    },
+    {
+      "role": "link",
+      "name": "WooCommerce"
+    },
+    {
+      "role": "link",
+      "name": "Vercel"
+    },
+    {
+      "role": "link",
+      "name": "Uber"
+    },
+    {
+      "role": "link",
+      "name": "Anthropic"
+    },
+    {
+      "role": "link",
+      "name": "Brightwheel"
+    },
+    {
+      "role": "link",
+      "name": "Cursor"
+    },
+    {
+      "role": "link",
+      "name": "OpenAI"
+    },
+    {
+      "role": "link",
+      "name": "Amazon"
+    },
+    {
+      "role": "link",
+      "name": "Nvidia"
+    },
+    {
+      "role": "link",
+      "name": "Ford"
+    },
+    {
+      "role": "link",
+      "name": "Google"
+    },
+    {
+      "role": "link",
+      "name": "Shopify"
+    },
+    {
+      "role": "link",
+      "name": "Mindbody"
+    },
+    {
+      "role": "link",
+      "name": "Ramp"
+    },
+    {
+      "role": "link",
+      "name": "Figma"
+    },
+    {
+      "role": "link",
+      "name": "WooCommerce"
+    },
+    {
+      "role": "link",
+      "name": "Vercel"
+    },
+    {
+      "role": "link",
+      "name": "Uber"
+    },
+    {
+      "role": "link",
+      "name": "Anthropic"
+    },
+    {
+      "role": "link",
+      "name": "Brightwheel"
+    },
+    {
+      "role": "link",
+      "name": "Cursor"
+    },
+    {
+      "role": "button",
+      "name": "Accept and optimize payments globally—online and in person"
+    },
+    {
+      "role": "button",
+      "name": "Enable any billing model"
+    },
+    {
+      "role": "button",
+      "name": "Monetize through agentic commerce"
+    },
+    {
+      "role": "button",
+      "name": "Create a card issuing program"
+    },
+    {
+      "role": "button",
+      "name": "Access borderless money movement with stablecoins and crypto"
+    },
+    {
+      "role": "button",
+      "name": "Embed payments in your platform"
+    },
+    {
+      "role": "textbox",
+      "name": "Enter your company's URL, or tell us what you sell and how you sell it..."
+    },
+    {
+      "role": "button",
+      "name": "Submit query"
+    },
+    {
+      "role": "link",
+      "name": "Stripe uses AI"
+    },
+    {
+      "role": "link",
+      "name": "Privacy Policy"
+    },
+    {
+      "role": "link",
+      "name": "Watch now"
+    },
+    {
+      "role": "button",
+      "name": "135+"
+    },
+    {
+      "role": "button",
+      "name": "$1.9T"
+    },
+    {
+      "role": "button",
+      "name": "99.999%"
+    },
+    {
+      "role": "link",
+      "name": "historical uptime"
+    },
+    {
+      "role": "button",
+      "name": "200M+"
+    },
+    {
+      "role": "link",
+      "name": "Stripe for enterprises"
+    },
+    {
+      "role": "button",
+      "name": "Hertz unifies commerce with Stripe."
+    },
+    {
+      "role": "link",
+      "name": "Read Hertz's story"
+    },
+    {
+      "role": "button",
+      "name": "URBN consolidates $5 billion in online and in-store revenue onto Stripe."
+    },
+    {
+      "role": "link",
+      "name": "Read URBN's story"
+    },
+    {
+      "role": "button",
+      "name": "Instacart powers online grocery delivery with Stripe."
+    },
+    {
+      "role": "link",
+      "name": "Read Instacart's story"
+    },
+    {
+      "role": "button",
+      "name": "Le Monde improves local and international payments with Stripe."
+    },
+    {
+      "role": "link",
+      "name": "Read LeMonde's story"
+    },
+    {
+      "role": "link",
+      "name": "View services"
+    },
+    {
+      "role": "link",
+      "name": "View partners"
+    },
+    {
+      "role": "link",
+      "name": "View plans"
+    },
+    {
+      "role": "link",
+      "name": "Stripe for startups"
+    },
+    {
+      "role": "button",
+      "name": "Previous customer story"
+    },
+    {
+      "role": "button",
+      "name": "Next customer story"
+    },
+    {
+      "role": "link",
+      "name": "Lovable logo Lovable grows into a vibe-coding juggernaut with Stripe. Read Lovable’s story"
+    },
+    {
+      "role": "link",
+      "name": "Gamma logo Gamma expands to $100M ARR and 70 million users with Stripe. Read Gamma’s story"
+    },
+    {
+      "role": "link",
+      "name": "Runway logo Runway protects developer time with no-code solutions from Stripe. Read Runway’s story"
+    },
+    {
+      "role": "link",
+      "name": "Supabase logo Supabase delivers its backend-as-a-service to 150 countries with Stripe. Read Supabase’s story"
+    },
+    {
+      "role": "link",
+      "name": "Linear logo Linear partners with Stripe to handle billing and payments. Read Linear’s story"
+    },
+    {
+      "role": "link",
+      "name": "ElevenLabs logo ElevenLabs grows into a $3B AI audio leader with Stripe. Watch the video"
+    },
+    {
+      "role": "link",
+      "name": "Browserbase logo Browserbase offers usage-based billing for an AI agent browser with Stripe. Read Browserbase’s story"
+    },
+    {
+      "role": "link",
+      "name": "Decagon logo Decagon decreases support costs by 65% with Stripe-integrated agents. Read Decagon’s story"
+    },
+    {
+      "role": "link",
+      "name": "Stripe Startups program. Access financial benefits, a focused community, and expert resources to help you grow your business. Apply now"
+    },
+    {
+      "role": "link",
+      "name": "Stripe Atlas. Incorporate and get everything you need to fundraise, bank, and accept payments in two business days. Start your company"
+    },
+    {
+      "role": "link",
+      "name": "Stripe for platforms"
+    },
+    {
+      "role": "link",
+      "name": "Read the guide"
+    },
+    {
+      "role": "link",
+      "name": "Read the guide"
+    },
+    {
+      "role": "link",
+      "name": "Read the guide"
+    },
+    {
+      "role": "link",
+      "name": "Read the story"
+    },
+    {
+      "role": "link",
+      "name": "Read the story"
+    },
+    {
+      "role": "link",
+      "name": "Read the story"
+    },
+    {
+      "role": "link",
+      "name": "Read the story"
+    },
+    {
+      "role": "button",
+      "name": "Show testimonial from Mindbody"
+    },
+    {
+      "role": "button",
+      "name": "Show testimonial from Jobber"
+    },
+    {
+      "role": "button",
+      "name": "Show testimonial from Substack"
+    },
+    {
+      "role": "button",
+      "name": "Show testimonial from Lightspeed"
+    },
+    {
+      "role": "link",
+      "name": "View developer docs"
+    },
+    {
+      "role": "link",
+      "name": "View Stripe’s GitHub"
+    },
+    {
+      "role": "link",
+      "name": "Explore no-code"
+    },
+    {
+      "role": "link",
+      "name": "See directory"
+    },
+    {
+      "role": "link",
+      "name": "Get started"
+    },
+    {
+      "role": "button",
+      "name": "Previous slide"
+    },
+    {
+      "role": "button",
+      "name": "Next slide"
+    },
+    {
+      "role": "link",
+      "name": "Read the letter"
+    },
+    {
+      "role": "link",
+      "name": "Stripe Press"
+    },
+    {
+      "role": "link",
+      "name": "Works in Progress"
+    },
+    {
+      "role": "link",
+      "name": "Start now"
+    },
+    {
+      "role": "link",
+      "name": "Contact sales"
+    },
+    {
+      "role": "link",
+      "name": "Pricing details"
+    },
+    {
+      "role": "link",
+      "name": "Integration options"
+    },
+    {
+      "role": "link",
+      "name": "Pricing"
+    },
+    {
+      "role": "link",
+      "name": "Atlas"
+    },
+    {
+      "role": "link",
+      "name": "Authorization Boost"
+    },
+    {
+      "role": "link",
+      "name": "Billing"
+    },
+    {
+      "role": "link",
+      "name": "Capital"
+    },
+    {
+      "role": "link",
+      "name": "Capital for platforms"
+    },
+    {
+      "role": "link",
+      "name": "Checkout"
+    },
+    {
+      "role": "link",
+      "name": "Climate"
+    },
+    {
+      "role": "link",
+      "name": "Connect"
+    },
+    {
+      "role": "link",
+      "name": "Crypto"
+    },
+    {
+      "role": "link",
+      "name": "Crypto Onramp"
+    },
+    {
+      "role": "link",
+      "name": "Data Pipeline"
+    },
+    {
+      "role": "link",
+      "name": "Elements"
+    },
+    {
+      "role": "link",
+      "name": "Financial Connections"
+    },
+    {
+      "role": "link",
+      "name": "Global Payouts"
+    },
+    {
+      "role": "link",
+      "name": "Identity"
+    },
+    {
+      "role": "link",
+      "name": "Invoicing"
+    },
+    {
+      "role": "link",
+      "name": "Issuing"
+    },
+    {
+      "role": "link",
+      "name": "Link"
+    },
+    {
+      "role": "link",
+      "name": "Managed Payments"
+    },
+    {
+      "role": "link",
+      "name": "Payment links"
+    },
+    {
+      "role": "link",
+      "name": "Payment methods"
+    },
+    {
+      "role": "link",
+      "name": "Payments"
+    },
+    {
+      "role": "link",
+      "name": "Radar"
+    },
+    {
+      "role": "link",
+      "name": "Revenue Recognition"
+    },
+    {
+      "role": "link",
+      "name": "Stripe Sigma"
+    },
+    {
+      "role": "link",
+      "name": "Subscriptions"
+    },
+    {
+      "role": "link",
+      "name": "Tax"
+    },
+    {
+      "role": "link",
+      "name": "Terminal"
+    },
+    {
+      "role": "link",
+      "name": "Treasury"
+    },
+    {
+      "role": "link",
+      "name": "Treasury for platforms"
+    },
+    {
+      "role": "link",
+      "name": "Usage-based billing"
+    },
+    {
+      "role": "link",
+      "name": "Enterprises"
+    },
+    {
+      "role": "link",
+      "name": "Startups"
+    },
+    {
+      "role": "link",
+      "name": "Agentic commerce"
+    },
+    {
+      "role": "link",
+      "name": "Crypto"
+    },
+    {
+      "role": "link",
+      "name": "Ecommerce"
+    },
+    {
+      "role": "link",
+      "name": "Embedded finance"
+    },
+    {
+      "role": "link",
+      "name": "Finance automation"
+    },
+    {
+      "role": "link",
+      "name": "Global businesses"
+    },
+    {
+      "role": "link",
+      "name": "In-app payments"
+    },
+    {
+      "role": "link",
+      "name": "Marketplaces"
+    },
+    {
+      "role": "link",
+      "name": "Money management"
+    },
+    {
+      "role": "link",
+      "name": "Platforms"
+    },
+    {
+      "role": "link",
+      "name": "SaaS"
+    },
+    {
+      "role": "link",
+      "name": "AI companies"
+    },
+    {
+      "role": "link",
+      "name": "Creator economy"
+    },
+    {
+      "role": "link",
+      "name": "Fintech"
+    },
+    {
+      "role": "link",
+      "name": "Gaming"
+    },
+    {
+      "role": "link",
+      "name": "Hospitality, travel, and leisure"
+    },
+    {
+      "role": "link",
+      "name": "Insurance"
+    },
+    {
+      "role": "link",
+      "name": "Media and entertainment"
+    },
+    {
+      "role": "link",
+      "name": "Nonprofits"
+    },
+    {
+      "role": "link",
+      "name": "Professional services"
+    },
+    {
+      "role": "link",
+      "name": "Public sector"
+    },
+    {
+      "role": "link",
+      "name": "Retail"
+    },
+    {
+      "role": "link",
+      "name": "Documentation"
+    },
+    {
+      "role": "link",
+      "name": "API reference"
+    },
+    {
+      "role": "link",
+      "name": "API status"
+    },
+    {
+      "role": "link",
+      "name": "API changelog"
+    },
+    {
+      "role": "link",
+      "name": "Libraries and SDKs"
+    },
+    {
+      "role": "link",
+      "name": "Stripe Projects"
+    },
+    {
+      "role": "link",
+      "name": "Developer blog"
+    },
+    {
+      "role": "link",
+      "name": "Stripe App Marketplace"
+    },
+    {
+      "role": "link",
+      "name": "Stripe Partner ecosystem"
+    },
+    {
+      "role": "link",
+      "name": "Professional services"
+    },
+    {
+      "role": "link",
+      "name": "Product roadmap"
+    },
+    {
+      "role": "link",
+      "name": "Guides"
+    },
+    {
+      "role": "link",
+      "name": "Customer stories"
+    },
+    {
+      "role": "link",
+      "name": "Blog"
+    },
+    {
+      "role": "link",
+      "name": "Community"
+    },
+    {
+      "role": "link",
+      "name": "Sessions annual conference"
+    },
+    {
+      "role": "link",
+      "name": "Privacy and terms"
+    },
+    {
+      "role": "link",
+      "name": "Prohibited and restricted businesses"
+    },
+    {
+      "role": "link",
+      "name": "Licenses"
+    },
+    {
+      "role": "link",
+      "name": "Sitemap"
+    },
+    {
+      "role": "link",
+      "name": "Cookie settings"
+    },
+    {
+      "role": "link",
+      "name": "Your privacy choices"
+    },
+    {
+      "role": "link",
+      "name": "More resources"
+    },
+    {
+      "role": "link",
+      "name": "About"
+    },
+    {
+      "role": "link",
+      "name": "Careers"
+    },
+    {
+      "role": "link",
+      "name": "Newsroom"
+    },
+    {
+      "role": "link",
+      "name": "Stripe Press"
+    },
+    {
+      "role": "link",
+      "name": "Contact sales"
+    },
+    {
+      "role": "link",
+      "name": "Get support"
+    },
+    {
+      "role": "link",
+      "name": "Managed support plans"
+    },
+    {
+      "role": "link",
+      "name": "Sign in"
+    },
+    {
+      "role": "combobox",
+      "name": "United States. Choose your country"
+    }
+  ]
+}

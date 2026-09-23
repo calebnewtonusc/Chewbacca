@@ -1,0 +1,294 @@
+{
+  "url": "https://www.airbnb.com/",
+  "requested": "https://www.airbnb.com",
+  "title": "Airbnb | Vacation rentals, cabins, beach houses, & more",
+  "blocked": null,
+  "counts": {
+    "link": 48,
+    "tab": 12,
+    "searchbox": 1,
+    "button": 9
+  },
+  "controls": [
+    {
+      "role": "link",
+      "name": "Skip to content"
+    },
+    {
+      "role": "link",
+      "name": "Airbnb homepage"
+    },
+    {
+      "role": "tab",
+      "name": "All"
+    },
+    {
+      "role": "tab",
+      "name": "Homes"
+    },
+    {
+      "role": "tab",
+      "name": "Experiences"
+    },
+    {
+      "role": "tab",
+      "name": "Services"
+    },
+    {
+      "role": "searchbox",
+      "name": "Where"
+    },
+    {
+      "role": "button",
+      "name": "When Add dates"
+    },
+    {
+      "role": "button",
+      "name": "Who Add guests"
+    },
+    {
+      "role": "button",
+      "name": "Search"
+    },
+    {
+      "role": "button",
+      "name": "Become a host"
+    },
+    {
+      "role": "button",
+      "name": "Log in or sign up"
+    },
+    {
+      "role": "button",
+      "name": "Main navigation menu"
+    },
+    {
+      "role": "tab",
+      "name": "Popular"
+    },
+    {
+      "role": "tab",
+      "name": "Arts & culture"
+    },
+    {
+      "role": "tab",
+      "name": "Beach"
+    },
+    {
+      "role": "tab",
+      "name": "Mountains"
+    },
+    {
+      "role": "tab",
+      "name": "Outdoors"
+    },
+    {
+      "role": "tab",
+      "name": "Things to do"
+    },
+    {
+      "role": "tab",
+      "name": "Travel tips & inspiration"
+    },
+    {
+      "role": "tab",
+      "name": "Airbnb-friendly apartments"
+    },
+    {
+      "role": "link",
+      "name": "Portland Cabin rentals"
+    },
+    {
+      "role": "link",
+      "name": "Cleveland Villa rentals"
+    },
+    {
+      "role": "link",
+      "name": "Barcelona Vacation rentals"
+    },
+    {
+      "role": "link",
+      "name": "Kauai Vacation rentals"
+    },
+    {
+      "role": "link",
+      "name": "Portland Vacation rentals"
+    },
+    {
+      "role": "link",
+      "name": "Minneapolis Vacation rentals"
+    },
+    {
+      "role": "link",
+      "name": "Raleigh Apartment rentals"
+    },
+    {
+      "role": "link",
+      "name": "Amsterdam Apartment rentals"
+    },
+    {
+      "role": "link",
+      "name": "Gulf Shores House rentals"
+    },
+    {
+      "role": "link",
+      "name": "Philadelphia Monthly Rentals"
+    },
+    {
+      "role": "link",
+      "name": "Orange Beach Cottage rentals"
+    },
+    {
+      "role": "link",
+      "name": "Tokyo Condo rentals"
+    },
+    {
+      "role": "link",
+      "name": "St. Petersburg Vacation rentals"
+    },
+    {
+      "role": "link",
+      "name": "Charlotte Condo rentals"
+    },
+    {
+      "role": "link",
+      "name": "West Palm Beach House rentals"
+    },
+    {
+      "role": "button",
+      "name": "Show more Popular"
+    },
+    {
+      "role": "link",
+      "name": "Help Center"
+    },
+    {
+      "role": "link",
+      "name": "Get help with a safety issue"
+    },
+    {
+      "role": "link",
+      "name": "AirCover"
+    },
+    {
+      "role": "link",
+      "name": "Travel insurance"
+    },
+    {
+      "role": "link",
+      "name": "Anti-discrimination"
+    },
+    {
+      "role": "link",
+      "name": "Disability support"
+    },
+    {
+      "role": "link",
+      "name": "Cancellation options"
+    },
+    {
+      "role": "link",
+      "name": "Report neighborhood concern"
+    },
+    {
+      "role": "link",
+      "name": "Airbnb your home"
+    },
+    {
+      "role": "link",
+      "name": "Airbnb your experience"
+    },
+    {
+      "role": "link",
+      "name": "Airbnb your service"
+    },
+    {
+      "role": "link",
+      "name": "AirCover for Hosts"
+    },
+    {
+      "role": "link",
+      "name": "Hosting resources"
+    },
+    {
+      "role": "link",
+      "name": "Community forum"
+    },
+    {
+      "role": "link",
+      "name": "Hosting responsibly"
+    },
+    {
+      "role": "link",
+      "name": "Airbnb-friendly apartments"
+    },
+    {
+      "role": "link",
+      "name": "Join a free hosting class"
+    },
+    {
+      "role": "link",
+      "name": "Find a co‑host"
+    },
+    {
+      "role": "link",
+      "name": "Refer a host"
+    },
+    {
+      "role": "link",
+      "name": "2026 Summer Release"
+    },
+    {
+      "role": "link",
+      "name": "Newsroom"
+    },
+    {
+      "role": "link",
+      "name": "Careers"
+    },
+    {
+      "role": "link",
+      "name": "Investors"
+    },
+    {
+      "role": "link",
+      "name": "Gift cards"
+    },
+    {
+      "role": "link",
+      "name": "Airbnb.org emergency stays"
+    },
+    {
+      "role": "link",
+      "name": "Privacy"
+    },
+    {
+      "role": "link",
+      "name": "Terms"
+    },
+    {
+      "role": "link",
+      "name": "Your Privacy Choices"
+    },
+    {
+      "role": "button",
+      "name": "Choose a language"
+    },
+    {
+      "role": "button",
+      "name": "Choose a currency"
+    },
+    {
+      "role": "link",
+      "name": "Navigate to Facebook"
+    },
+    {
+      "role": "link",
+      "name": "Navigate to Twitter"
+    },
+    {
+      "role": "link",
+      "name": "Navigate to Instagram"
+    }
+  ]
+}

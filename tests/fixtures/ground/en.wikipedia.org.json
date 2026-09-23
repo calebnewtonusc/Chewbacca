@@ -1,0 +1,1138 @@
+{
+  "url": "https://en.wikipedia.org/wiki/Main_Page",
+  "requested": "https://en.wikipedia.org/wiki/Main_Page",
+  "title": "Wikipedia, the free encyclopedia",
+  "blocked": null,
+  "counts": {
+    "link": 266,
+    "button": 6,
+    "searchbox": 1,
+    "radio": 8
+  },
+  "controls": [
+    {
+      "role": "link",
+      "name": "Jump to content"
+    },
+    {
+      "role": "button",
+      "name": "Main menu"
+    },
+    {
+      "role": "link",
+      "name": "Wikipedia The Free Encyclopedia"
+    },
+    {
+      "role": "searchbox",
+      "name": "Search Wikipedia"
+    },
+    {
+      "role": "button",
+      "name": "Search"
+    },
+    {
+      "role": "link",
+      "name": "Donate"
+    },
+    {
+      "role": "link",
+      "name": "Create account"
+    },
+    {
+      "role": "link",
+      "name": "Log in"
+    },
+    {
+      "role": "link",
+      "name": "Main Page"
+    },
+    {
+      "role": "link",
+      "name": "Talk"
+    },
+    {
+      "role": "link",
+      "name": "Read"
+    },
+    {
+      "role": "link",
+      "name": "View source"
+    },
+    {
+      "role": "link",
+      "name": "View history"
+    },
+    {
+      "role": "button",
+      "name": "Tools"
+    },
+    {
+      "role": "button",
+      "name": "Hide Appearance"
+    },
+    {
+      "role": "radio",
+      "name": "Small"
+    },
+    {
+      "role": "radio",
+      "name": "Standard"
+    },
+    {
+      "role": "radio",
+      "name": "Large"
+    },
+    {
+      "role": "radio",
+      "name": "Standard"
+    },
+    {
+      "role": "radio",
+      "name": "Wide"
+    },
+    {
+      "role": "radio",
+      "name": "Automatic"
+    },
+    {
+      "role": "radio",
+      "name": "Light"
+    },
+    {
+      "role": "radio",
+      "name": "Dark"
+    },
+    {
+      "role": "link",
+      "name": "Wikipedia"
+    },
+    {
+      "role": "link",
+      "name": "free"
+    },
+    {
+      "role": "link",
+      "name": "anyone can edit"
+    },
+    {
+      "role": "link",
+      "name": "265,014"
+    },
+    {
+      "role": "link",
+      "name": "7,243,180"
+    },
+    {
+      "role": "link",
+      "name": "English"
+    },
+    {
+      "role": "link",
+      "name": "Mary Mallon"
+    },
+    {
+      "role": "link",
+      "name": "Mary Mallon"
+    },
+    {
+      "role": "link",
+      "name": "bacteria"
+    },
+    {
+      "role": "link",
+      "name": "typhoid fever"
+    },
+    {
+      "role": "link",
+      "name": "quarantined"
+    },
+    {
+      "role": "link",
+      "name": "Sloane Maternity Hospital"
+    },
+    {
+      "role": "link",
+      "name": "public health"
+    },
+    {
+      "role": "link",
+      "name": "HIV/AIDS"
+    },
+    {
+      "role": "link",
+      "name": "tuberculosis"
+    },
+    {
+      "role": "link",
+      "name": "COVID-19"
+    },
+    {
+      "role": "link",
+      "name": "Full article..."
+    },
+    {
+      "role": "link",
+      "name": "Alison Frantz"
+    },
+    {
+      "role": "link",
+      "name": "Early Netherlandish painting"
+    },
+    {
+      "role": "link",
+      "name": "Misti"
+    },
+    {
+      "role": "link",
+      "name": "Archive"
+    },
+    {
+      "role": "link",
+      "name": "By email"
+    },
+    {
+      "role": "link",
+      "name": "More featured articles"
+    },
+    {
+      "role": "link",
+      "name": "About"
+    },
+    {
+      "role": "link",
+      "name": "Lotte Rakhat chocolate bar"
+    },
+    {
+      "role": "link",
+      "name": "Lotte Rakhat"
+    },
+    {
+      "role": "link",
+      "name": "Jackie Robinson commemorative coins"
+    },
+    {
+      "role": "link",
+      "name": "baseball card"
+    },
+    {
+      "role": "link",
+      "name": "Candidatus Magnetoglobus multicellularis"
+    },
+    {
+      "role": "link",
+      "name": "prokaryotes"
+    },
+    {
+      "role": "link",
+      "name": "Leona E. Prasse"
+    },
+    {
+      "role": "link",
+      "name": "1972 Feininger catalogue"
+    },
+    {
+      "role": "link",
+      "name": "the subject's widow"
+    },
+    {
+      "role": "link",
+      "name": "a previous Feininger book from 1959"
+    },
+    {
+      "role": "link",
+      "name": "Umbellaoolithus"
+    },
+    {
+      "role": "link",
+      "name": "Makan Nasiri"
+    },
+    {
+      "role": "link",
+      "name": "2026 Minab school attack"
+    },
+    {
+      "role": "link",
+      "name": "I Became the Main Role of a BL Drama"
+    },
+    {
+      "role": "link",
+      "name": "script"
+    },
+    {
+      "role": "link",
+      "name": "Pistol Nell"
+    },
+    {
+      "role": "link",
+      "name": "Billy Bragg"
+    },
+    {
+      "role": "link",
+      "name": "Joe Hill's ashes"
+    },
+    {
+      "role": "link",
+      "name": "Archive"
+    },
+    {
+      "role": "link",
+      "name": "Start a new article"
+    },
+    {
+      "role": "link",
+      "name": "Nominate an article"
+    },
+    {
+      "role": "link",
+      "name": "A small cat with dappled fur and a long tail"
+    },
+    {
+      "role": "link",
+      "name": "An attack on a police complex"
+    },
+    {
+      "role": "link",
+      "name": "Kohat"
+    },
+    {
+      "role": "link",
+      "name": "tilcayo"
+    },
+    {
+      "role": "link",
+      "name": "Hashim Thaçi"
+    },
+    {
+      "role": "link",
+      "name": "war crimes during his leadership"
+    },
+    {
+      "role": "link",
+      "name": "Kosovo Liberation Army"
+    },
+    {
+      "role": "link",
+      "name": "the Primetime Emmy Awards"
+    },
+    {
+      "role": "link",
+      "name": "Widow's Bay"
+    },
+    {
+      "role": "link",
+      "name": "Outstanding Comedy Series"
+    },
+    {
+      "role": "link",
+      "name": "The Pitt"
+    },
+    {
+      "role": "link",
+      "name": "Outstanding Drama Series"
+    },
+    {
+      "role": "link",
+      "name": "Iran war"
+    },
+    {
+      "role": "link",
+      "name": "Lebanon war"
+    },
+    {
+      "role": "link",
+      "name": "Russo-Ukrainian war"
+    },
+    {
+      "role": "link",
+      "name": "timeline"
+    },
+    {
+      "role": "link",
+      "name": "Recent deaths"
+    },
+    {
+      "role": "link",
+      "name": "Dolores Sibonga"
+    },
+    {
+      "role": "link",
+      "name": "Aracy Amaral"
+    },
+    {
+      "role": "link",
+      "name": "Bonnie Greer"
+    },
+    {
+      "role": "link",
+      "name": "Peter Max"
+    },
+    {
+      "role": "link",
+      "name": "Chung Ho-yong"
+    },
+    {
+      "role": "link",
+      "name": "Win Aung"
+    },
+    {
+      "role": "link",
+      "name": "More current events"
+    },
+    {
+      "role": "link",
+      "name": "Nominate an article"
+    },
+    {
+      "role": "link",
+      "name": "September 23"
+    },
+    {
+      "role": "link",
+      "name": "Celebrate Bisexuality Day"
+    },
+    {
+      "role": "link",
+      "name": "U2 performing in Sarajevo"
+    },
+    {
+      "role": "link",
+      "name": "1803"
+    },
+    {
+      "role": "link",
+      "name": "Maratha"
+    },
+    {
+      "role": "link",
+      "name": "East India Company"
+    },
+    {
+      "role": "link",
+      "name": "Battle of Assaye"
+    },
+    {
+      "role": "link",
+      "name": "Second Anglo-Maratha War"
+    },
+    {
+      "role": "link",
+      "name": "1884"
+    },
+    {
+      "role": "link",
+      "name": "Cape Virgenes"
+    },
+    {
+      "role": "link",
+      "name": "Tierra del Fuego Gold Rush"
+    },
+    {
+      "role": "link",
+      "name": "1983"
+    },
+    {
+      "role": "link",
+      "name": "Gulf Air Flight 771"
+    },
+    {
+      "role": "link",
+      "name": "Abu Nidal Organization"
+    },
+    {
+      "role": "link",
+      "name": "United Arab Emirates"
+    },
+    {
+      "role": "link",
+      "name": "1997"
+    },
+    {
+      "role": "link",
+      "name": "U2"
+    },
+    {
+      "role": "link",
+      "name": "performed"
+    },
+    {
+      "role": "link",
+      "name": "Sarajevo"
+    },
+    {
+      "role": "link",
+      "name": "Bosnian War"
+    },
+    {
+      "role": "link",
+      "name": "2016"
+    },
+    {
+      "role": "link",
+      "name": "rape in Germany"
+    },
+    {
+      "role": "link",
+      "name": "Eleonora Gonzaga"
+    },
+    {
+      "role": "link",
+      "name": "Émilie Gamelin"
+    },
+    {
+      "role": "link",
+      "name": "Omar Ali Saifuddien III"
+    },
+    {
+      "role": "link",
+      "name": "Ray Charles"
+    },
+    {
+      "role": "link",
+      "name": "September 22"
+    },
+    {
+      "role": "link",
+      "name": "September 23"
+    },
+    {
+      "role": "link",
+      "name": "September 24"
+    },
+    {
+      "role": "link",
+      "name": "Archive"
+    },
+    {
+      "role": "link",
+      "name": "By email"
+    },
+    {
+      "role": "link",
+      "name": "List of days of the year"
+    },
+    {
+      "role": "link",
+      "name": "About"
+    },
+    {
+      "role": "link",
+      "name": "Palace of Assembly, Chandigarh"
+    },
+    {
+      "role": "link",
+      "name": "Palace of Assembly"
+    },
+    {
+      "role": "link",
+      "name": "There are 117 constituencies of the Punjab Legislative Assembly"
+    },
+    {
+      "role": "link",
+      "name": "unicameral"
+    },
+    {
+      "role": "link",
+      "name": "Punjab"
+    },
+    {
+      "role": "link",
+      "name": "North India"
+    },
+    {
+      "role": "link",
+      "name": "Punjab Legislative Assembly"
+    },
+    {
+      "role": "link",
+      "name": "Chandigarh"
+    },
+    {
+      "role": "link",
+      "name": "Chandigarh Capitol Complex"
+    },
+    {
+      "role": "link",
+      "name": "Le Corbusier"
+    },
+    {
+      "role": "link",
+      "name": "state legislative assembly"
+    },
+    {
+      "role": "link",
+      "name": "state in India"
+    },
+    {
+      "role": "link",
+      "name": "Scheduled Castes"
+    },
+    {
+      "role": "link",
+      "name": "reservation status"
+    },
+    {
+      "role": "link",
+      "name": "Full list..."
+    },
+    {
+      "role": "link",
+      "name": "Humphrey Bogart on stage, screen, radio, and television"
+    },
+    {
+      "role": "link",
+      "name": "Glossary of sound laws in the Indo-European languages"
+    },
+    {
+      "role": "link",
+      "name": "Canadian National Skating Championships"
+    },
+    {
+      "role": "link",
+      "name": "Archive"
+    },
+    {
+      "role": "link",
+      "name": "More featured lists"
+    },
+    {
+      "role": "button",
+      "name": "Play video"
+    },
+    {
+      "role": "link",
+      "name": "The Adventures of Prince Achmed"
+    },
+    {
+      "role": "link",
+      "name": "fairy-tale"
+    },
+    {
+      "role": "link",
+      "name": "Lotte Reiniger"
+    },
+    {
+      "role": "link",
+      "name": "Quirino Cristiani"
+    },
+    {
+      "role": "link",
+      "name": "lost"
+    },
+    {
+      "role": "link",
+      "name": "One Thousand and One Nights"
+    },
+    {
+      "role": "link",
+      "name": "Aladdin"
+    },
+    {
+      "role": "link",
+      "name": "Ahmed and Paribanou"
+    },
+    {
+      "role": "link",
+      "name": "The Ebony Horse"
+    },
+    {
+      "role": "link",
+      "name": "silhouette-animation"
+    },
+    {
+      "role": "link",
+      "name": "wayang"
+    },
+    {
+      "role": "link",
+      "name": "color tinting"
+    },
+    {
+      "role": "link",
+      "name": "multiplane camera"
+    },
+    {
+      "role": "link",
+      "name": "Walter Ruttmann"
+    },
+    {
+      "role": "link",
+      "name": "Berthold Bartosch"
+    },
+    {
+      "role": "link",
+      "name": "Carl Koch"
+    },
+    {
+      "role": "link",
+      "name": "Lotte Reiniger"
+    },
+    {
+      "role": "link",
+      "name": "Malabar pied hornbill"
+    },
+    {
+      "role": "link",
+      "name": "Vertumnus"
+    },
+    {
+      "role": "link",
+      "name": "Lambert conformal conic projection"
+    },
+    {
+      "role": "link",
+      "name": "Archive"
+    },
+    {
+      "role": "link",
+      "name": "More featured pictures"
+    },
+    {
+      "role": "link",
+      "name": "Community portal"
+    },
+    {
+      "role": "link",
+      "name": "Village pump"
+    },
+    {
+      "role": "link",
+      "name": "Site news"
+    },
+    {
+      "role": "link",
+      "name": "Teahouse"
+    },
+    {
+      "role": "link",
+      "name": "Help desk"
+    },
+    {
+      "role": "link",
+      "name": "Reference desk"
+    },
+    {
+      "role": "link",
+      "name": "Content portals"
+    },
+    {
+      "role": "link",
+      "name": "Wikimedia Foundation"
+    },
+    {
+      "role": "link",
+      "name": "projects"
+    },
+    {
+      "role": "link",
+      "name": "Wikimedia Commons logo"
+    },
+    {
+      "role": "link",
+      "name": "Commons"
+    },
+    {
+      "role": "link",
+      "name": "MediaWiki logo"
+    },
+    {
+      "role": "link",
+      "name": "MediaWiki"
+    },
+    {
+      "role": "link",
+      "name": "Meta-Wiki"
+    },
+    {
+      "role": "link",
+      "name": "Wikibooks logo"
+    },
+    {
+      "role": "link",
+      "name": "Wikibooks"
+    },
+    {
+      "role": "link",
+      "name": "Wikidata"
+    },
+    {
+      "role": "link",
+      "name": "Wikifunctions logo"
+    },
+    {
+      "role": "link",
+      "name": "Wikifunctions"
+    },
+    {
+      "role": "link",
+      "name": "Wikiquote"
+    },
+    {
+      "role": "link",
+      "name": "Wikisource logo"
+    },
+    {
+      "role": "link",
+      "name": "Wikisource"
+    },
+    {
+      "role": "link",
+      "name": "Wikispecies logo"
+    },
+    {
+      "role": "link",
+      "name": "Wikispecies"
+    },
+    {
+      "role": "link",
+      "name": "Wikiversity logo"
+    },
+    {
+      "role": "link",
+      "name": "Wikiversity"
+    },
+    {
+      "role": "link",
+      "name": "Wikivoyage logo"
+    },
+    {
+      "role": "link",
+      "name": "Wikivoyage"
+    },
+    {
+      "role": "link",
+      "name": "Wiktionary logo"
+    },
+    {
+      "role": "link",
+      "name": "Wiktionary"
+    },
+    {
+      "role": "link",
+      "name": "English"
+    },
+    {
+      "role": "link",
+      "name": "other Wikipedias are available"
+    },
+    {
+      "role": "link",
+      "name": "العربية"
+    },
+    {
+      "role": "link",
+      "name": "Deutsch"
+    },
+    {
+      "role": "link",
+      "name": "Español"
+    },
+    {
+      "role": "link",
+      "name": "فارسی"
+    },
+    {
+      "role": "link",
+      "name": "Français"
+    },
+    {
+      "role": "link",
+      "name": "Italiano"
+    },
+    {
+      "role": "link",
+      "name": "Nederlands"
+    },
+    {
+      "role": "link",
+      "name": "日本語"
+    },
+    {
+      "role": "link",
+      "name": "Polski"
+    },
+    {
+      "role": "link",
+      "name": "Português"
+    },
+    {
+      "role": "link",
+      "name": "Русский"
+    },
+    {
+      "role": "link",
+      "name": "Svenska"
+    },
+    {
+      "role": "link",
+      "name": "Українська"
+    },
+    {
+      "role": "link",
+      "name": "Tiếng Việt"
+    },
+    {
+      "role": "link",
+      "name": "中文"
+    },
+    {
+      "role": "link",
+      "name": "Bahasa Indonesia"
+    },
+    {
+      "role": "link",
+      "name": "Bahasa Melayu"
+    },
+    {
+      "role": "link",
+      "name": "Bân-lâm-gú"
+    },
+    {
+      "role": "link",
+      "name": "Български"
+    },
+    {
+      "role": "link",
+      "name": "Català"
+    },
+    {
+      "role": "link",
+      "name": "Čeština"
+    },
+    {
+      "role": "link",
+      "name": "Dansk"
+    },
+    {
+      "role": "link",
+      "name": "Eesti"
+    },
+    {
+      "role": "link",
+      "name": "Ελληνικά"
+    },
+    {
+      "role": "link",
+      "name": "Esperanto"
+    },
+    {
+      "role": "link",
+      "name": "Euskara"
+    },
+    {
+      "role": "link",
+      "name": "עברית"
+    },
+    {
+      "role": "link",
+      "name": "Հայերեն"
+    },
+    {
+      "role": "link",
+      "name": "한국어"
+    },
+    {
+      "role": "link",
+      "name": "Magyar"
+    },
+    {
+      "role": "link",
+      "name": "Norsk bokmål"
+    },
+    {
+      "role": "link",
+      "name": "Română"
+    },
+    {
+      "role": "link",
+      "name": "Simple English"
+    },
+    {
+      "role": "link",
+      "name": "Slovenčina"
+    },
+    {
+      "role": "link",
+      "name": "Srpski"
+    },
+    {
+      "role": "link",
+      "name": "Srpskohrvatski"
+    },
+    {
+      "role": "link",
+      "name": "Suomi"
+    },
+    {
+      "role": "link",
+      "name": "Türkçe"
+    },
+    {
+      "role": "link",
+      "name": "Oʻzbekcha"
+    },
+    {
+      "role": "link",
+      "name": "Asturianu"
+    },
+    {
+      "role": "link",
+      "name": "Azərbaycanca"
+    },
+    {
+      "role": "link",
+      "name": "বাংলা"
+    },
+    {
+      "role": "link",
+      "name": "Bosanski"
+    },
+    {
+      "role": "link",
+      "name": "کوردی"
+    },
+    {
+      "role": "link",
+      "name": "Frysk"
+    },
+    {
+      "role": "link",
+      "name": "Gaeilge"
+    },
+    {
+      "role": "link",
+      "name": "Galego"
+    },
+    {
+      "role": "link",
+      "name": "Hrvatski"
+    },
+    {
+      "role": "link",
+      "name": "ქართული"
+    },
+    {
+      "role": "link",
+      "name": "Kurdî"
+    },
+    {
+      "role": "link",
+      "name": "Latviešu"
+    },
+    {
+      "role": "link",
+      "name": "Lietuvių"
+    },
+    {
+      "role": "link",
+      "name": "മലയാളം"
+    },
+    {
+      "role": "link",
+      "name": "Македонски"
+    },
+    {
+      "role": "link",
+      "name": "မြန်မာဘာသာ"
+    },
+    {
+      "role": "link",
+      "name": "Norsk nynorsk"
+    },
+    {
+      "role": "link",
+      "name": "ਪੰਜਾਬੀ"
+    },
+    {
+      "role": "link",
+      "name": "Shqip"
+    },
+    {
+      "role": "link",
+      "name": "Slovenščina"
+    },
+    {
+      "role": "link",
+      "name": "ไทย"
+    },
+    {
+      "role": "link",
+      "name": "తెలుగు"
+    },
+    {
+      "role": "link",
+      "name": "اردو"
+    },
+    {
+      "role": "button",
+      "name": "349 languages"
+    },
+    {
+      "role": "link",
+      "name": "Parsoid"
+    },
+    {
+      "role": "link",
+      "name": "Creative Commons Attribution-ShareAlike 4.0 License"
+    },
+    {
+      "role": "link",
+      "name": "Terms of Use"
+    },
+    {
+      "role": "link",
+      "name": "Privacy Policy"
+    },
+    {
+      "role": "link",
+      "name": "Wikimedia Foundation, Inc."
+    },
+    {
+      "role": "link",
+      "name": "Privacy policy"
+    },
+    {
+      "role": "link",
+      "name": "About Wikipedia"
+    },
+    {
+      "role": "link",
+      "name": "Disclaimers"
+    },
+    {
+      "role": "link",
+      "name": "Contact Wikipedia"
+    },
+    {
+      "role": "link",
+      "name": "Legal & safety contacts"
+    },
+    {
+      "role": "link",
+      "name": "Code of Conduct"
+    },
+    {
+      "role": "link",
+      "name": "Developers"
+    },
+    {
+      "role": "link",
+      "name": "Statistics"
+    },
+    {
+      "role": "link",
+      "name": "Cookie statement"
+    },
+    {
+      "role": "link",
+      "name": "Mobile view"
+    },
+    {
+      "role": "link",
+      "name": "Wikimedia Foundation"
+    },
+    {
+      "role": "link",
+      "name": "Powered by MediaWiki"
+    }
+  ]
+}

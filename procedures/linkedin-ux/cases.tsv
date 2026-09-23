@@ -1,0 +1,30 @@
+# page(s)	what the person says	accepted control, "role: regex"; a | between pages or controls means either is right
+skills	add a new skill	link: ^Add a skill$
+skills	change my AI agent skill	link: ^Edit AI Agent Orchestration skill$
+experience	add a new job	button: ^Add a position or career break$
+experience	move my jobs around	link: ^Reorder the grouped experiences$
+experience	fix the Veyra job	link: ^Edit .* at VEYRA$
+education	add a school	link: ^Add education$
+profile	edit my about section	link: ^Edit about$
+profile|views	who's been looking at my profile	link: ^\d+ profile views
+profile	change my profile link	link: ^Edit Public profile & URL$
+profile	how many followers do I have	link: ^[\d,]+ followers$
+intro	change my pronouns	combobox: ^Please select He/Him
+intro	update my contact info	link: ^Edit contact info$
+feed|profile	write a post	button: ^Start a post$|link: ^Create a post$
+feed	write an article	link: ^Write article$
+invitations|network	accept the connection request	button: ^Accept .*invitation$
+invitations|network	ignore that invite	button: ^Ignore an invitation
+invitations	show requests I sent	link: ^Sent$
+messaging	message someone new	button: ^Compose a new message$
+messaging	search my messages	searchbox: ^Search messages$
+messaging	show only unread messages	button: ^Unread$
+network	see all my connections	link: ^Show [\d,]+ connections$
+jobs	find product jobs	textbox: ^Describe the job you want$
+jobs	jobs I saved or applied to	link: ^Job tracker$
+settings	turn on dark mode	link: ^Dark mode$
+settings|privacy	change my password	link: ^Sign in & security$
+privacy	stop LinkedIn using my data to train AI	link: ^Data for Generative AI Improvement
+privacy	download all my data	link: ^Download your data$
+notifications	only show mentions	radio: ^Mentions$
+views	who viewed me this week	link: ^Past 90 days$|link: ^Search$

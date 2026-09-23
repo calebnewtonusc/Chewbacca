@@ -10,7 +10,7 @@ cd hud && swift run HandDemo
 
 Quit with Cmd-Q.
 
-The production hand gestures live in `BobHUDKit/HandTracker.swift` and go
+The production hand gestures live in `KyberKit/HandTracker.swift` and go
 through the `onGesture` callback. They do not draw anything on screen. This
 target exists so the skeleton is visible on camera for a demo recording.
 

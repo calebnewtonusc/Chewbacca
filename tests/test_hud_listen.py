@@ -1616,7 +1616,7 @@ def test_orphan_leaves() -> None:
     """BACKLOG #50: when the display that spawned the listener is replaced,
     the listener exits rather than reconnecting beside the new one's."""
     path, fake, env = _listener_fixture()
-    # sh stands in for BobHUD: it is the parent, and killing it orphans the
+    # sh stands in for Kyber: it is the parent, and killing it orphans the
     # listener exactly as KeepAlive replacing the app does.
     parent = subprocess.Popen(
         ["sh", "-c", '"$0" "$1" --model-cmd "$2" --voice off & echo $!; wait',

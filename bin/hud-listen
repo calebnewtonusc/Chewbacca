@@ -2,7 +2,7 @@
 """Close the loop: speech in, an interface out.
 
 The display can hear (it emits `h "..."` when someone speaks to it) and it can
-draw (it accepts Bob Lines). Nothing joined the two, so the microphone produced
+draw (it accepts Kyber Lines). Nothing joined the two, so the microphone produced
 events that went nowhere. This is the join: hold one connection open, wait for
 something to be said, ask a model for an interface, and stream the answer back
 down the same socket.
@@ -266,7 +266,7 @@ PERMISSION_MODES = {"acceptEdits", "auto", "bypassPermissions", "manual", "dontA
 RETIRE_TURNS = 50
 RETIRE_TOKENS = 60_000
 # The names the display's recogniser is told to expect (Vocabulary in
-# BobHUDKit reads this): whoever the person has been texting, then whoever
+# KyberKit reads this): whoever the person has been texting, then whoever
 # is in Contacts. Written once per start, in the background.
 NAMES = Path(os.environ.get("BOB_NAMES", str(Path.home() / ".bob" / "names.txt")))
 NAMES_CHATS = 60
@@ -564,7 +564,7 @@ def user_settings() -> dict:
 def instructions() -> str:
     """The drawing vocabulary, as a fallback only.
 
-    The first version pasted this into every prompt and demanded Bob Lines back
+    The first version pasted this into every prompt and demanded Kyber Lines back
     on stdout. Then the first real test showed the model doing something better:
     it found the `hud` skill itself, went and read the actual coursework ledger
     and message history, and drew real data. Told to emit lines, it would have
@@ -582,7 +582,7 @@ def instructions() -> str:
 def draw_lines(text: str) -> list[str]:
     """Keep the ops and throw away the prose.
 
-    A model asked for only Bob Lines will still occasionally explain itself, and
+    A model asked for only Kyber Lines will still occasionally explain itself, and
     an explanation sent to the parser is a screen full of warnings. Filtering to
     known verbs on this side means the worst case is a missing surface rather
     than a broken one.
@@ -2961,7 +2961,7 @@ class Listener:
                 f"{instructions()}\n\n---\n\n"
                 + prefix
                 + f"The user said, out loud: {req.said!r}\n\n"
-                "Answer by drawing on their screen. Reply with Bob Lines "
+                "Answer by drawing on their screen. Reply with Kyber Lines "
                 "and nothing else: no prose, no explanation, no code "
                 "fences. If the request does not warrant a panel, reply "
                 "with a single line that is only the word: none\n"
@@ -3307,7 +3307,7 @@ def claim_socket(path: str) -> tuple[int | None, str]:
     """Take the one listener slot for `path`, or say who holds it.
 
     Two listeners on one socket both answer every request, which is BACKLOG
-    #50's other face. BobHUD's two seconds of grace (main.swift) cannot
+    #50's other face. Kyber's two seconds of grace (main.swift) cannot
     prevent it: an orphan's reconnect backoff grows to five, and a slow
     `prime()` lets the four-second spawn cooldown fire twice. A lock the
     kernel drops when the process dies cannot go stale, which a pid file can.

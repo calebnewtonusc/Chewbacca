@@ -214,7 +214,7 @@ may use none of them.
 
 ### What is already running
 
-BobHUD.app, `hud-listen`, `hud-speak`, a `claude -p` subprocess and
+Kyber.app, `hud-listen`, `hud-speak`, a `claude -p` subprocess and
 `node bin/lib/chewbacca-hud.js` on port 7474 have been up for hours.
 
 [ROADMAP.md](ROADMAP.md) lists a daemon under **Deliberately not doing**, on the
@@ -563,7 +563,7 @@ get used.
 | Surface | Can do | Cannot do |
 | --- | --- | --- |
 | Claude Code in a terminal | everything: files, git, subagents, long work | not ambient, not glanceable, not voice |
-| BobHUD overlay plus voice | ambient, hears you, renders 18 component types | forbidden from drawing, no history, no undo |
+| Kyber overlay plus voice | ambient, hears you, renders 18 component types | forbidden from drawing, no history, no undo |
 | `chewbacca open` on :7474 | one glance at people and coursework | read-only, cannot act |
 
 The HUD's own audit says it best, item 995: "Two front doors, the pill and the

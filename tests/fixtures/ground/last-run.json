@@ -1,0 +1,518 @@
+[
+  {
+    "page": "airbnb.com",
+    "request": "log in",
+    "accepted": [
+      "button: Log in or sign up"
+    ],
+    "missing": [],
+    "pick": "button: Log in or sign up",
+    "right": true,
+    "top": 1.0,
+    "second": 0.0,
+    "runner_up": "button: Choose a currency",
+    "confidence": 1.0,
+    "seconds": 0.3,
+    "baseline": "button: Log in or sign up",
+    "options": 70
+  },
+  {
+    "page": "airbnb.com",
+    "request": "I want to rent out my place",
+    "accepted": [
+      "button: Become a host",
+      "link: Airbnb your home"
+    ],
+    "missing": [],
+    "pick": "button: Become a host",
+    "right": true,
+    "top": 0.89,
+    "second": 0.11,
+    "runner_up": "link: Airbnb your home",
+    "confidence": 0.88,
+    "seconds": 0.28,
+    "baseline": "tab: All",
+    "options": 70
+  },
+  {
+    "page": "airbnb.com",
+    "request": "change the currency to euros",
+    "accepted": [
+      "button: Choose a currency"
+    ],
+    "missing": [],
+    "pick": "button: Choose a currency",
+    "right": true,
+    "top": 1.0,
+    "second": 0.0,
+    "runner_up": "link: Careers",
+    "confidence": 1.0,
+    "seconds": 0.3,
+    "baseline": "button: Choose a currency",
+    "options": 70
+  },
+  {
+    "page": "airbnb.com",
+    "request": "pick my dates",
+    "accepted": [
+      "button: When Add dates"
+    ],
+    "missing": [],
+    "pick": "button: When Add dates",
+    "right": true,
+    "top": 1.0,
+    "second": 0.0,
+    "runner_up": "link: Hosting resources",
+    "confidence": 0.99,
+    "seconds": 0.27,
+    "baseline": "button: When Add dates",
+    "options": 70
+  },
+  {
+    "page": "airbnb.com",
+    "request": "how many people are coming",
+    "accepted": [
+      "button: Who Add guests"
+    ],
+    "missing": [],
+    "pick": "button: Who Add guests",
+    "right": true,
+    "top": 0.97,
+    "second": 0.02,
+    "runner_up": "button: Log in or sign up",
+    "confidence": 0.96,
+    "seconds": 0.25,
+    "baseline": "tab: All",
+    "options": 70
+  },
+  {
+    "page": "airbnb.com",
+    "request": "show me beach places",
+    "accepted": [
+      "tab: Beach"
+    ],
+    "missing": [],
+    "pick": "tab: Beach",
+    "right": true,
+    "top": 0.97,
+    "second": 0.03,
+    "runner_up": "searchbox: Where",
+    "confidence": 0.96,
+    "seconds": 0.31,
+    "baseline": "tab: Beach",
+    "options": 70
+  },
+  {
+    "page": "booking.com",
+    "request": "type where I'm going",
+    "accepted": [
+      "combobox: Enter destination"
+    ],
+    "missing": [],
+    "pick": "combobox: Enter destination",
+    "right": true,
+    "top": 1.0,
+    "second": 0.0,
+    "runner_up": "link: Become an affiliate",
+    "confidence": 0.99,
+    "seconds": 0.26,
+    "baseline": "checkbox: I'm traveling for work",
+    "options": 231
+  },
+  {
+    "page": "booking.com",
+    "request": "I need a rental car",
+    "accepted": [
+      "menuitem: Car rental"
+    ],
+    "missing": [],
+    "pick": "menuitem: Car rental",
+    "right": true,
+    "top": 0.92,
+    "second": 0.08,
+    "runner_up": "link: Car rental",
+    "confidence": 0.91,
+    "seconds": 0.24,
+    "baseline": "menuitem: Car rental",
+    "options": 231
+  },
+  {
+    "page": "booking.com",
+    "request": "make an account",
+    "accepted": [
+      "link: Register an account"
+    ],
+    "missing": [],
+    "pick": "link: Register an account",
+    "right": true,
+    "top": 0.7,
+    "second": 0.22,
+    "runner_up": "link: Register",
+    "confidence": 0.69,
+    "seconds": 0.38,
+    "baseline": "link: Register an account",
+    "options": 231
+  },
+  {
+    "page": "booking.com",
+    "request": "this is a business trip",
+    "accepted": [
+      "checkbox: I'm traveling for work"
+    ],
+    "missing": [],
+    "pick": "checkbox: I'm traveling for work",
+    "right": true,
+    "top": 0.9,
+    "second": 0.09999999999999999,
+    "runner_up": "link: Booking.com for Business",
+    "confidence": 0.89,
+    "seconds": 0.38,
+    "baseline": "link: Save Quality Inn Panguitch near Bryce Canyon to a trip list Guesthouse This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It\u2019ll pay us a higher commission if you make a booking. blue Genius logo Quality Inn Panguitch near Bryce Canyon Panguitch, United States 7.4 Good 1,575 reviews Starting from Price $134",
+    "options": 231
+  },
+  {
+    "page": "booking.com",
+    "request": "talk to someone about my booking",
+    "accepted": [
+      "link: Customer support",
+      "link: Contact Customer Service"
+    ],
+    "missing": [],
+    "pick": "link: Contact Customer Service",
+    "right": true,
+    "top": 0.75,
+    "second": 0.21000000000000002,
+    "runner_up": "link: Customer support",
+    "confidence": 0.74,
+    "seconds": 0.26,
+    "baseline": "link: About Booking.com",
+    "options": 231
+  },
+  {
+    "page": "booking.com",
+    "request": "find a flight",
+    "accepted": [
+      "menuitem: Flights"
+    ],
+    "missing": [],
+    "pick": "menuitem: Flights",
+    "right": true,
+    "top": 0.78,
+    "second": 0.21000000000000002,
+    "runner_up": "link: Flight finder",
+    "confidence": 0.77,
+    "seconds": 0.35,
+    "baseline": "menuitem: Flight + Hotel",
+    "options": 231
+  },
+  {
+    "page": "en.wikipedia.org",
+    "request": "search for something",
+    "accepted": [
+      "searchbox: Search Wikipedia",
+      "button: Search"
+    ],
+    "missing": [],
+    "pick": "searchbox: Search Wikipedia",
+    "right": true,
+    "top": 0.98,
+    "second": 0.02,
+    "runner_up": "button: Search",
+    "confidence": 0.98,
+    "seconds": 0.24,
+    "baseline": "searchbox: Search Wikipedia",
+    "options": 255
+  },
+  {
+    "page": "en.wikipedia.org",
+    "request": "dark mode",
+    "accepted": [
+      "radio: Dark"
+    ],
+    "missing": [],
+    "pick": "radio: Dark",
+    "right": true,
+    "top": 0.93,
+    "second": 0.03,
+    "runner_up": "button: Tools",
+    "confidence": 0.92,
+    "seconds": 0.22,
+    "baseline": "radio: Dark",
+    "options": 255
+  },
+  {
+    "page": "en.wikipedia.org",
+    "request": "make the text bigger",
+    "accepted": [
+      "radio: Large"
+    ],
+    "missing": [],
+    "pick": "radio: Large",
+    "right": true,
+    "top": 0.88,
+    "second": 0.04,
+    "runner_up": "button: Tools",
+    "confidence": 0.87,
+    "seconds": 0.26,
+    "baseline": "button: Main menu",
+    "options": 255
+  },
+  {
+    "page": "en.wikipedia.org",
+    "request": "give them money",
+    "accepted": [
+      "link: Donate"
+    ],
+    "missing": [],
+    "pick": "link: Donate",
+    "right": true,
+    "top": 1.0,
+    "second": 0.0,
+    "runner_up": "link: prokaryotes",
+    "confidence": 0.99,
+    "seconds": 0.24,
+    "baseline": "button: Main menu",
+    "options": 255
+  },
+  {
+    "page": "en.wikipedia.org",
+    "request": "see older versions of this page",
+    "accepted": [
+      "link: View history"
+    ],
+    "missing": [],
+    "pick": "link: View history",
+    "right": true,
+    "top": 1.0,
+    "second": 0.0,
+    "runner_up": "link: Punjab Legislative Assembly",
+    "confidence": 0.99,
+    "seconds": 0.25,
+    "baseline": "link: Main Page",
+    "options": 255
+  },
+  {
+    "page": "en.wikipedia.org",
+    "request": "read this in Spanish",
+    "accepted": [
+      "button: 349 languages",
+      "link: Espa\u00f1ol"
+    ],
+    "missing": [],
+    "pick": "link: Espa\u00f1ol",
+    "right": true,
+    "top": 0.99,
+    "second": 0.01,
+    "runner_up": "link: 1884",
+    "confidence": 0.98,
+    "seconds": 0.21,
+    "baseline": "link: Read",
+    "options": 255
+  },
+  {
+    "page": "github.com",
+    "request": "sign in",
+    "accepted": [
+      "link: Sign in"
+    ],
+    "missing": [],
+    "pick": "link: Sign in",
+    "right": true,
+    "top": 1.0,
+    "second": 0.0,
+    "runner_up": "button: Solutions",
+    "confidence": 1.0,
+    "seconds": 0.22,
+    "baseline": "button: Sign up for GitHub",
+    "options": 100
+  },
+  {
+    "page": "github.com",
+    "request": "how much does it cost",
+    "accepted": [
+      "link: Pricing"
+    ],
+    "missing": [],
+    "pick": "link: Pricing",
+    "right": true,
+    "top": 0.99,
+    "second": 0.01,
+    "runner_up": "tab: Plan",
+    "confidence": 0.98,
+    "seconds": 0.23,
+    "baseline": "button: Platform",
+    "options": 100
+  },
+  {
+    "page": "github.com",
+    "request": "put in my email to join",
+    "accepted": [
+      "textbox: Enter your email"
+    ],
+    "missing": [],
+    "pick": "textbox: Enter your email",
+    "right": true,
+    "top": 0.63,
+    "second": 0.24,
+    "runner_up": "button: Sign up for GitHub",
+    "confidence": 0.61,
+    "seconds": 0.2,
+    "baseline": "textbox: Enter your email",
+    "options": 100
+  },
+  {
+    "page": "github.com",
+    "request": "stop the animation",
+    "accepted": [
+      "button: Pause animation",
+      "button: Pause",
+      "button: Pause video"
+    ],
+    "missing": [],
+    "pick": "button: Pause animation",
+    "right": true,
+    "top": 0.86,
+    "second": 0.12,
+    "runner_up": "button: Pause",
+    "confidence": 0.85,
+    "seconds": 0.26,
+    "baseline": "button: Pause animation",
+    "options": 100
+  },
+  {
+    "page": "github.com",
+    "request": "cookie settings",
+    "accepted": [
+      "button: Manage cookies"
+    ],
+    "missing": [],
+    "pick": "button: Manage cookies",
+    "right": true,
+    "top": 1.0,
+    "second": 0.0,
+    "runner_up": "link: Resources",
+    "confidence": 0.99,
+    "seconds": 0.21,
+    "baseline": "button: Platform",
+    "options": 100
+  },
+  {
+    "page": "github.com",
+    "request": "open the docs",
+    "accepted": [
+      "link: Docs"
+    ],
+    "missing": [],
+    "pick": "link: Docs",
+    "right": true,
+    "top": 1.0,
+    "second": 0.0,
+    "runner_up": "tab: By size",
+    "confidence": 0.99,
+    "seconds": 0.3,
+    "baseline": "button: Open Source",
+    "options": 100
+  },
+  {
+    "page": "news.ycombinator.com",
+    "request": "post a link",
+    "accepted": [
+      "link: submit"
+    ],
+    "missing": [],
+    "pick": "link: submit",
+    "right": true,
+    "top": 0.7,
+    "second": 0.2,
+    "runner_up": "link: new",
+    "confidence": 0.69,
+    "seconds": 0.21,
+    "baseline": "link: Hacker News",
+    "options": 146
+  },
+  {
+    "page": "news.ycombinator.com",
+    "request": "log in",
+    "accepted": [
+      "link: login"
+    ],
+    "missing": [],
+    "pick": "link: login",
+    "right": true,
+    "top": 1.0,
+    "second": 0.0,
+    "runner_up": "link: waymo.com",
+    "confidence": 1.0,
+    "seconds": 0.22,
+    "baseline": "link: Hacker News",
+    "options": 146
+  },
+  {
+    "page": "news.ycombinator.com",
+    "request": "the newest stories",
+    "accepted": [
+      "link: new"
+    ],
+    "missing": [],
+    "pick": "link: new",
+    "right": true,
+    "top": 0.99,
+    "second": 0.01,
+    "runner_up": "link: Hacker News",
+    "confidence": 0.98,
+    "seconds": 0.25,
+    "baseline": "link: Hacker News",
+    "options": 146
+  },
+  {
+    "page": "news.ycombinator.com",
+    "request": "open the comments on the Claude post",
+    "accepted": [
+      "link: 918 comments"
+    ],
+    "missing": [],
+    "pick": "link: Claude Opus 5.5 Intelligence, Performance and Price Analysis (Max)",
+    "right": false,
+    "top": 0.55,
+    "second": 0.11,
+    "runner_up": "link: comments",
+    "confidence": 0.54,
+    "seconds": 0.2,
+    "baseline": "link: comments",
+    "options": 146
+  },
+  {
+    "page": "stripe.com",
+    "request": "talk to sales",
+    "accepted": [
+      "link: Contact sales"
+    ],
+    "missing": [],
+    "pick": "link: Contact sales",
+    "right": true,
+    "top": 1.0,
+    "second": 0.0,
+    "runner_up": "link: Licenses",
+    "confidence": 0.99,
+    "seconds": 0.27,
+    "baseline": "link: Contact sales",
+    "options": 168
+  },
+  {
+    "page": "stripe.com",
+    "request": "switch country",
+    "accepted": [
+      "combobox: United States. Choose your country"
+    ],
+    "missing": [],
+    "pick": "combobox: United States. Choose your country",
+    "right": true,
+    "top": 1.0,
+    "second": 0.0,
+    "runner_up": "link: Agentic commerce",
+    "confidence": 0.99,
+    "seconds": 0.21,
+    "baseline": "combobox: United States. Choose your country",
+    "options": 168
+  }
+]

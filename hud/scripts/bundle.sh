@@ -5,7 +5,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-APP="build/BobHUD.app"
+APP="build/Kyber.app"
 CONFIG="release"
 # --universal builds both architectures and fuses them, so one download runs
 # on an Intel Mac and an Apple Silicon one. Off by default: a developer
@@ -39,10 +39,10 @@ if [ "$UNIVERSAL" -eq 1 ]; then
   for arch in arm64 x86_64; do
     swift build -c "$CONFIG" --arch "$arch" >/dev/null
   done
-  lipo -create -output "$APP/Contents/MacOS/BobHUD" \
-    "$(swift build -c "$CONFIG" --arch arm64 --show-bin-path)/BobHUD" \
-    "$(swift build -c "$CONFIG" --arch x86_64 --show-bin-path)/BobHUD"
-  echo "  $(lipo -info "$APP/Contents/MacOS/BobHUD" | sed 's/.*are: //')"
+  lipo -create -output "$APP/Contents/MacOS/Kyber" \
+    "$(swift build -c "$CONFIG" --arch arm64 --show-bin-path)/Kyber" \
+    "$(swift build -c "$CONFIG" --arch x86_64 --show-bin-path)/Kyber"
+  echo "  $(lipo -info "$APP/Contents/MacOS/Kyber" | sed 's/.*are: //')"
 else
   echo "Building ($CONFIG)…"
   swift build -c "$CONFIG" >/dev/null
@@ -53,8 +53,8 @@ else
   # already compiled cleanly. A machine nobody tests on is a machine this
   # has to work on, because it is the machine somebody else owns.
   BIN="$(swift build -c "$CONFIG" --show-bin-path)"
-  [ -x "$BIN/BobHUD" ] || { echo "no binary at $BIN/BobHUD" >&2; exit 1; }
-  cp "$BIN/BobHUD" "$APP/Contents/MacOS/BobHUD"
+  [ -x "$BIN/Kyber" ] || { echo "no binary at $BIN/Kyber" >&2; exit 1; }
+  cp "$BIN/Kyber" "$APP/Contents/MacOS/Kyber"
 fi
 
 # The commit count, so two builds of different code never share a version
@@ -67,12 +67,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key>            <string>Bob HUD</string>
+  <key>CFBundleName</key>            <string>Kyber</string>
   <!-- The identifier and executable stay: the microphone grant is keyed to
        the identifier. What the person sees is the assistant's name. -->
-  <key>CFBundleDisplayName</key>     <string>Chewbacca</string>
+  <key>CFBundleDisplayName</key>     <string>Kyber</string>
   <key>CFBundleIdentifier</key>      <string>dev.bobthebuilder.hud</string>
-  <key>CFBundleExecutable</key>      <string>BobHUD</string>
+  <key>CFBundleExecutable</key>      <string>Kyber</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>
   <key>CFBundleShortVersionString</key> <string>0.1.0</string>
   <key>CFBundleVersion</key>         <string>$BUILD</string>
@@ -88,12 +88,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
        2026-09-21 as correct Swift that could not start for exactly this
        reason. -->
   <key>NSCameraUsageDescription</key>
-  <string>Bob HUD watches for two hand gestures, an open palm to dismiss and a
+  <string>Kyber watches for two hand gestures, an open palm to dismiss and a
   pointed finger to say "this one". Frames are read on this Mac by Apple's
   Vision framework and never leave it, and the camera is off unless you turn
   hand control on in the menu.</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Bob HUD listens only while you hold the globe key, or on a wake word if you turn that on. Recognition runs on this Mac.</string>
+  <string>Kyber listens only while you hold the globe key, or on a wake word if you turn that on. Recognition runs on this Mac.</string>
   <key>NSSpeechRecognitionUsageDescription</key>
   <string>Speech is turned into text on this Mac so you can ask for something without typing. Nothing is sent anywhere.</string>
 </dict>
@@ -163,4 +163,4 @@ echo
 echo "  open $APP                    launch it"
 echo "  cp -r $APP /Applications/    keep it"
 echo
-echo "To launch at login: System Settings > General > Login Items, add Bob HUD."
+echo "To launch at login: System Settings > General > Login Items, add Kyber."

@@ -1,0 +1,1024 @@
+{
+  "url": "https://www.booking.com/",
+  "requested": "https://www.booking.com",
+  "title": "Booking.com | Official site | The best hotels, flights, car rentals & accommodations",
+  "blocked": null,
+  "counts": {
+    "link": 182,
+    "button": 44,
+    "menuitem": 7,
+    "combobox": 1,
+    "checkbox": 2,
+    "tab": 16
+  },
+  "controls": [
+    {
+      "role": "link",
+      "name": "Skip to main content"
+    },
+    {
+      "role": "link",
+      "name": "Booking.com"
+    },
+    {
+      "role": "button",
+      "name": "Prices in U.S. Dollar USD"
+    },
+    {
+      "role": "link",
+      "name": "Customer support"
+    },
+    {
+      "role": "link",
+      "name": "List your property"
+    },
+    {
+      "role": "link",
+      "name": "Register an account"
+    },
+    {
+      "role": "link",
+      "name": "Sign in"
+    },
+    {
+      "role": "menuitem",
+      "name": "Stays"
+    },
+    {
+      "role": "menuitem",
+      "name": "Flights"
+    },
+    {
+      "role": "menuitem",
+      "name": "Flight + Hotel"
+    },
+    {
+      "role": "menuitem",
+      "name": "Car rental"
+    },
+    {
+      "role": "menuitem",
+      "name": "Cruises"
+    },
+    {
+      "role": "menuitem",
+      "name": "Attractions"
+    },
+    {
+      "role": "menuitem",
+      "name": "Airport taxis"
+    },
+    {
+      "role": "combobox",
+      "name": "Enter destination"
+    },
+    {
+      "role": "button",
+      "name": "Select dates Check-in date — Check-out date"
+    },
+    {
+      "role": "button",
+      "name": "Search"
+    },
+    {
+      "role": "checkbox",
+      "name": "I'm traveling for work"
+    },
+    {
+      "role": "checkbox",
+      "name": "Add flights to my search"
+    },
+    {
+      "role": "link",
+      "name": "Learn more"
+    },
+    {
+      "role": "link",
+      "name": "Las Vegas, United States"
+    },
+    {
+      "role": "link",
+      "name": "Orlando, United States"
+    },
+    {
+      "role": "link",
+      "name": "New York, United States"
+    },
+    {
+      "role": "link",
+      "name": "Atlanta, United States"
+    },
+    {
+      "role": "link",
+      "name": "Tokyo, Japan"
+    },
+    {
+      "role": "link",
+      "name": "Hotels"
+    },
+    {
+      "role": "link",
+      "name": "Apartments"
+    },
+    {
+      "role": "link",
+      "name": "Resorts"
+    },
+    {
+      "role": "link",
+      "name": "Villas"
+    },
+    {
+      "role": "link",
+      "name": "Cabins"
+    },
+    {
+      "role": "link",
+      "name": "Cottages"
+    },
+    {
+      "role": "link",
+      "name": "Glamping Sites"
+    },
+    {
+      "role": "link",
+      "name": "Serviced apartments"
+    },
+    {
+      "role": "link",
+      "name": "Vacation Homes"
+    },
+    {
+      "role": "link",
+      "name": "Guest Houses"
+    },
+    {
+      "role": "link",
+      "name": "Hostels"
+    },
+    {
+      "role": "link",
+      "name": "Motels"
+    },
+    {
+      "role": "link",
+      "name": "B&Bs"
+    },
+    {
+      "role": "link",
+      "name": "Ryokans"
+    },
+    {
+      "role": "link",
+      "name": "Riads"
+    },
+    {
+      "role": "link",
+      "name": "Resort Villages"
+    },
+    {
+      "role": "link",
+      "name": "Homestays"
+    },
+    {
+      "role": "link",
+      "name": "Campgrounds"
+    },
+    {
+      "role": "link",
+      "name": "Country Houses"
+    },
+    {
+      "role": "link",
+      "name": "Farm stays"
+    },
+    {
+      "role": "link",
+      "name": "Boats"
+    },
+    {
+      "role": "link",
+      "name": "Luxury Tents"
+    },
+    {
+      "role": "link",
+      "name": "Self-Catering Accommodations"
+    },
+    {
+      "role": "link",
+      "name": "Tiny Houses"
+    },
+    {
+      "role": "tab",
+      "name": "City Shopping & Malls"
+    },
+    {
+      "role": "tab",
+      "name": "Nature & Relaxation"
+    },
+    {
+      "role": "tab",
+      "name": "Arts & Performances"
+    },
+    {
+      "role": "tab",
+      "name": "Music & Dance"
+    },
+    {
+      "role": "tab",
+      "name": "Beer & Wine Experiences"
+    },
+    {
+      "role": "tab",
+      "name": "Historical Expeditions"
+    },
+    {
+      "role": "tab",
+      "name": "Festivals & Events"
+    },
+    {
+      "role": "tab",
+      "name": "Heritage & Historic Sites"
+    },
+    {
+      "role": "tab",
+      "name": "Wildlife & Nature"
+    },
+    {
+      "role": "tab",
+      "name": "Outdoor Adventures"
+    },
+    {
+      "role": "link",
+      "name": "El Paso 543 mi away"
+    },
+    {
+      "role": "link",
+      "name": "Las Vegas 2,013 properties"
+    },
+    {
+      "role": "link",
+      "name": "Orlando 5,259 properties"
+    },
+    {
+      "role": "link",
+      "name": "New York 3,218 properties"
+    },
+    {
+      "role": "link",
+      "name": "Atlanta 2,368 properties"
+    },
+    {
+      "role": "link",
+      "name": "Myrtle Beach 7,453 properties"
+    },
+    {
+      "role": "link",
+      "name": "Los Angeles 4,961 properties"
+    },
+    {
+      "role": "link",
+      "name": "Chicago 1,823 properties"
+    },
+    {
+      "role": "link",
+      "name": "San Diego 2,563 properties"
+    },
+    {
+      "role": "button",
+      "name": "Save The Moran CITYCENTRE to a trip list"
+    },
+    {
+      "role": "button",
+      "name": "Save La Hacienda Inn near Alamodome & Riverwalk to a trip list"
+    },
+    {
+      "role": "button",
+      "name": "Save Rusk House Serviced Apartments to a trip list"
+    },
+    {
+      "role": "link",
+      "name": "Discover homes"
+    },
+    {
+      "role": "link",
+      "name": "Save NĒRO Boutique Hotel to a trip list NĒRO Boutique Hotel Greece, Imerovigli 9.7 Exceptional Starting from Price $446"
+    },
+    {
+      "role": "button",
+      "name": "Save NĒRO Boutique Hotel to a trip list"
+    },
+    {
+      "role": "link",
+      "name": "Save 7Seasons Apartments Budapest to a trip list 7Seasons Apartments Budapest 06. Terézváros, Hungary, Budapest 8.8 Excellent Starting from Price $144"
+    },
+    {
+      "role": "button",
+      "name": "Save 7Seasons Apartments Budapest to a trip list"
+    },
+    {
+      "role": "link",
+      "name": "Save Villa Domina to a trip list Villa Domina Split City Center, Croatia, Split 9.1 Wonderful Starting from Price $110"
+    },
+    {
+      "role": "button",
+      "name": "Save Villa Domina to a trip list"
+    },
+    {
+      "role": "link",
+      "name": "Save 3 Epoques Apartments by Adrez to a trip list 3 Epoques Apartments by Adrez Prague 1, Czech Republic, Prague 8.9 Excellent Starting from Price $166"
+    },
+    {
+      "role": "button",
+      "name": "Save 3 Epoques Apartments by Adrez to a trip list"
+    },
+    {
+      "role": "link",
+      "name": "Save New Sugar Loft Apartments to a trip list New Sugar Loft Apartments Santa Teresa, Brazil, Rio de Janeiro 8.0 Very Good Starting from Price $60"
+    },
+    {
+      "role": "button",
+      "name": "Save New Sugar Loft Apartments to a trip list"
+    },
+    {
+      "role": "link",
+      "name": "Save Oriente Palace Apartments to a trip list Oriente Palace Apartments Madrid City Center, Spain, Madrid 8.9 Excellent Starting from Price $350"
+    },
+    {
+      "role": "button",
+      "name": "Save Oriente Palace Apartments to a trip list"
+    },
+    {
+      "role": "link",
+      "name": "Save Luxury Apartments Villa Klara to a trip list Luxury Apartments Villa Klara Znjan, Croatia, Split 9.2 Wonderful Starting from Price $258"
+    },
+    {
+      "role": "button",
+      "name": "Save Luxury Apartments Villa Klara to a trip list"
+    },
+    {
+      "role": "link",
+      "name": "Save Flora Chiado Apartments to a trip list Flora Chiado Apartments Santa Maria Maior, Portugal, Lisbon 9.6 Exceptional Starting from Price $540"
+    },
+    {
+      "role": "button",
+      "name": "Save Flora Chiado Apartments to a trip list"
+    },
+    {
+      "role": "link",
+      "name": "Save Baranova Apartments to a trip list Baranova Apartments Prague 3, Czech Republic, Prague 9.7 Exceptional Starting from Price $184"
+    },
+    {
+      "role": "button",
+      "name": "Save Baranova Apartments to a trip list"
+    },
+    {
+      "role": "link",
+      "name": "Save Zoku Amsterdam to a trip list Zoku Amsterdam Amsterdam City Center, Netherlands, Amsterdam 8.9 Excellent Starting from Price $213"
+    },
+    {
+      "role": "button",
+      "name": "Save Zoku Amsterdam to a trip list"
+    },
+    {
+      "role": "link",
+      "name": "Save Quality Inn Panguitch near Bryce Canyon to a trip list Guesthouse This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking. blue Genius logo Quality Inn Panguitch near Bryce Canyon Panguitch, United States 7.4 Good 1,575 reviews Starting from Price $134"
+    },
+    {
+      "role": "button",
+      "name": "Save Quality Inn Panguitch near Bryce Canyon to a trip list"
+    },
+    {
+      "role": "button",
+      "name": "This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking."
+    },
+    {
+      "role": "link",
+      "name": "Save Hard Rock Hotel & Casino Biloxi to a trip list Resort blue Genius logo Hard Rock Hotel & Casino Biloxi Biloxi, United States 8.2 Very Good 5,036 reviews Starting from Price $104"
+    },
+    {
+      "role": "button",
+      "name": "Save Hard Rock Hotel & Casino Biloxi to a trip list"
+    },
+    {
+      "role": "link",
+      "name": "Save Ashland Hills Hotel & Suites to a trip list Hotel This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking. Ashland Hills Hotel & Suites Ashland, United States 8.3 Very Good 698 reviews Starting from Original price $149. Current price $136."
+    },
+    {
+      "role": "button",
+      "name": "Save Ashland Hills Hotel & Suites to a trip list"
+    },
+    {
+      "role": "button",
+      "name": "This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking."
+    },
+    {
+      "role": "link",
+      "name": "Save Paris Las Vegas Hotel & Casino to a trip list Resort This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking. blue Genius logo Paris Las Vegas Hotel & Casino Las Vegas, United States 8.1 Very Good 22,946 reviews Starting from Price $149"
+    },
+    {
+      "role": "button",
+      "name": "Save Paris Las Vegas Hotel & Casino to a trip list"
+    },
+    {
+      "role": "button",
+      "name": "This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking."
+    },
+    {
+      "role": "link",
+      "name": "Save Cambria Pines Lodge to a trip list Guesthouse This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking. Cambria Pines Lodge Cambria, United States 8.4 Very Good 1,218 reviews Starting from Price $169"
+    },
+    {
+      "role": "button",
+      "name": "Save Cambria Pines Lodge to a trip list"
+    },
+    {
+      "role": "button",
+      "name": "This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking."
+    },
+    {
+      "role": "link",
+      "name": "Save The Box House Hotel to a trip list Hotel This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking. blue Genius logo The Box House Hotel Brooklyn, United States 8.6 Excellent 3,331 reviews Starting from Original price $367. Current price $337."
+    },
+    {
+      "role": "button",
+      "name": "Save The Box House Hotel to a trip list"
+    },
+    {
+      "role": "button",
+      "name": "This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking."
+    },
+    {
+      "role": "link",
+      "name": "Save The Venetian® Resort Las Vegas to a trip list Resort The Venetian® Resort Las Vegas Las Vegas, United States 8.9 Excellent 9,775 reviews Starting from Original price $214. Current price $182."
+    },
+    {
+      "role": "button",
+      "name": "Save The Venetian® Resort Las Vegas to a trip list"
+    },
+    {
+      "role": "link",
+      "name": "Save B Ocean Resort Fort Lauderdale Beach to a trip list Hotel This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking. blue Genius logo B Ocean Resort Fort Lauderdale Beach Fort Lauderdale, United States 7.2 Good 1,960 reviews Starting from Price $170"
+    },
+    {
+      "role": "button",
+      "name": "Save B Ocean Resort Fort Lauderdale Beach to a trip list"
+    },
+    {
+      "role": "button",
+      "name": "This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking."
+    },
+    {
+      "role": "link",
+      "name": "Save The Society Hotel to a trip list Hotel This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking. blue Genius logo The Society Hotel Portland, United States 8.1 Very Good 879 reviews Starting from Original price $100. Current price $85."
+    },
+    {
+      "role": "button",
+      "name": "Save The Society Hotel to a trip list"
+    },
+    {
+      "role": "button",
+      "name": "This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking."
+    },
+    {
+      "role": "link",
+      "name": "Save Universal's Cabana Bay Beach Resort to a trip list Resort This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking. Universal's Cabana Bay Beach Resort Orlando, United States 8.6 Excellent 4,286 reviews Starting from Price $155"
+    },
+    {
+      "role": "button",
+      "name": "Save Universal's Cabana Bay Beach Resort to a trip list"
+    },
+    {
+      "role": "button",
+      "name": "This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking."
+    },
+    {
+      "role": "link",
+      "name": "Save Bellagio to a trip list Resort Bellagio Las Vegas, United States 8.6 Excellent 9,698 reviews Starting from Original price $265. Current price $212."
+    },
+    {
+      "role": "button",
+      "name": "Save Bellagio to a trip list"
+    },
+    {
+      "role": "link",
+      "name": "Save Little America Hotel Flagstaff to a trip list Hotel Little America Hotel Flagstaff Flagstaff, United States 9.4 Wonderful 4,059 reviews Starting from Price $149"
+    },
+    {
+      "role": "button",
+      "name": "Save Little America Hotel Flagstaff to a trip list"
+    },
+    {
+      "role": "link",
+      "name": "Save Boro Hotel to a trip list Hotel This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking. Boro Hotel Queens, United States 8.5 Very Good 916 reviews Starting from Price $284"
+    },
+    {
+      "role": "button",
+      "name": "Save Boro Hotel to a trip list"
+    },
+    {
+      "role": "button",
+      "name": "This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking."
+    },
+    {
+      "role": "link",
+      "name": "Save Anaheim Majestic Garden Hotel to a trip list Hotel This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking. blue Genius logo Anaheim Majestic Garden Hotel Anaheim, United States 8.1 Very Good 5,551 reviews Starting from Price $174"
+    },
+    {
+      "role": "button",
+      "name": "Save Anaheim Majestic Garden Hotel to a trip list"
+    },
+    {
+      "role": "button",
+      "name": "This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking."
+    },
+    {
+      "role": "link",
+      "name": "Save The Queen Mary to a trip list Hotel This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking. The Queen Mary Long Beach, United States 8.3 Very Good 2,904 reviews Starting from Price $267"
+    },
+    {
+      "role": "button",
+      "name": "Save The Queen Mary to a trip list"
+    },
+    {
+      "role": "button",
+      "name": "This property is part of our Preferred Partner Program. It's committed to providing excellent service and good value. It’ll pay us a higher commission if you make a booking."
+    },
+    {
+      "role": "link",
+      "name": "Sign in"
+    },
+    {
+      "role": "link",
+      "name": "Register"
+    },
+    {
+      "role": "tab",
+      "name": "Domestic cities"
+    },
+    {
+      "role": "tab",
+      "name": "International cities"
+    },
+    {
+      "role": "tab",
+      "name": "Regions"
+    },
+    {
+      "role": "tab",
+      "name": "Countries"
+    },
+    {
+      "role": "tab",
+      "name": "Places to stay"
+    },
+    {
+      "role": "tab",
+      "name": "Things to do"
+    },
+    {
+      "role": "link",
+      "name": "Las Vegas hotels"
+    },
+    {
+      "role": "link",
+      "name": "New York hotels"
+    },
+    {
+      "role": "link",
+      "name": "Los Angeles hotels"
+    },
+    {
+      "role": "link",
+      "name": "Orlando hotels"
+    },
+    {
+      "role": "link",
+      "name": "San Diego hotels"
+    },
+    {
+      "role": "link",
+      "name": "San Francisco hotels"
+    },
+    {
+      "role": "link",
+      "name": "Fort Lauderdale hotels"
+    },
+    {
+      "role": "link",
+      "name": "South Lake Tahoe hotels"
+    },
+    {
+      "role": "link",
+      "name": "Breckenridge hotels"
+    },
+    {
+      "role": "link",
+      "name": "Miami hotels"
+    },
+    {
+      "role": "link",
+      "name": "Atlanta hotels"
+    },
+    {
+      "role": "link",
+      "name": "Denver hotels"
+    },
+    {
+      "role": "link",
+      "name": "New Orleans hotels"
+    },
+    {
+      "role": "link",
+      "name": "Chicago hotels"
+    },
+    {
+      "role": "link",
+      "name": "Washington, D.C. hotels"
+    },
+    {
+      "role": "link",
+      "name": "Columbus hotels"
+    },
+    {
+      "role": "link",
+      "name": "Seattle hotels"
+    },
+    {
+      "role": "link",
+      "name": "Myrtle Beach hotels"
+    },
+    {
+      "role": "link",
+      "name": "Daytona Beach hotels"
+    },
+    {
+      "role": "link",
+      "name": "St. Augustine hotels"
+    },
+    {
+      "role": "link",
+      "name": "Phoenix hotels"
+    },
+    {
+      "role": "link",
+      "name": "Savannah hotels"
+    },
+    {
+      "role": "link",
+      "name": "Boston hotels"
+    },
+    {
+      "role": "link",
+      "name": "Charlotte hotels"
+    },
+    {
+      "role": "link",
+      "name": "Pigeon Forge hotels"
+    },
+    {
+      "role": "link",
+      "name": "Nashville hotels"
+    },
+    {
+      "role": "link",
+      "name": "Panama City Beach hotels"
+    },
+    {
+      "role": "link",
+      "name": "Santa Cruz hotels"
+    },
+    {
+      "role": "link",
+      "name": "Bakersfield hotels"
+    },
+    {
+      "role": "link",
+      "name": "Reno hotels"
+    },
+    {
+      "role": "link",
+      "name": "Brooklyn hotels"
+    },
+    {
+      "role": "link",
+      "name": "Oklahoma City hotels"
+    },
+    {
+      "role": "link",
+      "name": "Portland hotels"
+    },
+    {
+      "role": "link",
+      "name": "Tucson hotels"
+    },
+    {
+      "role": "link",
+      "name": "Miami Beach hotels"
+    },
+    {
+      "role": "link",
+      "name": "Springfield hotels"
+    },
+    {
+      "role": "link",
+      "name": "Gatlinburg hotels"
+    },
+    {
+      "role": "link",
+      "name": "Amarillo hotels"
+    },
+    {
+      "role": "link",
+      "name": "Jacksonville hotels"
+    },
+    {
+      "role": "link",
+      "name": "Sorrento hotels"
+    },
+    {
+      "role": "link",
+      "name": "Detroit hotels"
+    },
+    {
+      "role": "link",
+      "name": "Ocean City hotels"
+    },
+    {
+      "role": "link",
+      "name": "Saint Louis hotels"
+    },
+    {
+      "role": "link",
+      "name": "Raleigh hotels"
+    },
+    {
+      "role": "link",
+      "name": "Kissimmee hotels"
+    },
+    {
+      "role": "link",
+      "name": "Riverside hotels"
+    },
+    {
+      "role": "link",
+      "name": "Mammoth Lakes hotels"
+    },
+    {
+      "role": "link",
+      "name": "Tallahassee hotels"
+    },
+    {
+      "role": "link",
+      "name": "Cocoa Beach hotels"
+    },
+    {
+      "role": "link",
+      "name": "Destin hotels"
+    },
+    {
+      "role": "link",
+      "name": "Palm Springs hotels"
+    },
+    {
+      "role": "link",
+      "name": "San Jose hotels"
+    },
+    {
+      "role": "link",
+      "name": "Tampa hotels"
+    },
+    {
+      "role": "link",
+      "name": "Louisville hotels"
+    },
+    {
+      "role": "link",
+      "name": "Kansas City hotels"
+    },
+    {
+      "role": "link",
+      "name": "Countries"
+    },
+    {
+      "role": "link",
+      "name": "Regions"
+    },
+    {
+      "role": "link",
+      "name": "Cities"
+    },
+    {
+      "role": "link",
+      "name": "Districts"
+    },
+    {
+      "role": "link",
+      "name": "Airports"
+    },
+    {
+      "role": "link",
+      "name": "Hotels"
+    },
+    {
+      "role": "link",
+      "name": "Places of interest"
+    },
+    {
+      "role": "link",
+      "name": "Vacation Homes"
+    },
+    {
+      "role": "link",
+      "name": "Apartments"
+    },
+    {
+      "role": "link",
+      "name": "Resorts"
+    },
+    {
+      "role": "link",
+      "name": "Villas"
+    },
+    {
+      "role": "link",
+      "name": "Hostels"
+    },
+    {
+      "role": "link",
+      "name": "B&Bs"
+    },
+    {
+      "role": "link",
+      "name": "Guest Houses"
+    },
+    {
+      "role": "link",
+      "name": "Unique places to stay"
+    },
+    {
+      "role": "link",
+      "name": "All destinations"
+    },
+    {
+      "role": "link",
+      "name": "All flight destinations"
+    },
+    {
+      "role": "link",
+      "name": "All car rental locations"
+    },
+    {
+      "role": "link",
+      "name": "All vacation destinations"
+    },
+    {
+      "role": "link",
+      "name": "Guides"
+    },
+    {
+      "role": "link",
+      "name": "Discover"
+    },
+    {
+      "role": "link",
+      "name": "Discover monthly stays"
+    },
+    {
+      "role": "link",
+      "name": "Manage your trips"
+    },
+    {
+      "role": "link",
+      "name": "Contact Customer Service"
+    },
+    {
+      "role": "link",
+      "name": "Safety Resource Center"
+    },
+    {
+      "role": "link",
+      "name": "Genius Rewards Visa®"
+    },
+    {
+      "role": "link",
+      "name": "Genius loyalty program"
+    },
+    {
+      "role": "link",
+      "name": "Seasonal and holiday deals"
+    },
+    {
+      "role": "link",
+      "name": "Travel articles"
+    },
+    {
+      "role": "link",
+      "name": "Booking.com for Business"
+    },
+    {
+      "role": "link",
+      "name": "Traveller Review Awards"
+    },
+    {
+      "role": "link",
+      "name": "Car rental"
+    },
+    {
+      "role": "link",
+      "name": "Flight finder"
+    },
+    {
+      "role": "link",
+      "name": "Restaurant reservations"
+    },
+    {
+      "role": "link",
+      "name": "Booking.com for Travel Agents"
+    },
+    {
+      "role": "link",
+      "name": "Privacy Notice"
+    },
+    {
+      "role": "link",
+      "name": "Terms of Service"
+    },
+    {
+      "role": "link",
+      "name": "Accessibility Statement"
+    },
+    {
+      "role": "link",
+      "name": "Dispute resolution"
+    },
+    {
+      "role": "link",
+      "name": "Modern Slavery Statement"
+    },
+    {
+      "role": "link",
+      "name": "Human Rights Statement"
+    },
+    {
+      "role": "link",
+      "name": "Extranet login"
+    },
+    {
+      "role": "link",
+      "name": "Partner help"
+    },
+    {
+      "role": "link",
+      "name": "List your property"
+    },
+    {
+      "role": "link",
+      "name": "Become an affiliate"
+    },
+    {
+      "role": "link",
+      "name": "About Booking.com"
+    },
+    {
+      "role": "link",
+      "name": "How We Work"
+    },
+    {
+      "role": "link",
+      "name": "Sustainability"
+    },
+    {
+      "role": "link",
+      "name": "Press center"
+    },
+    {
+      "role": "link",
+      "name": "Careers"
+    },
+    {
+      "role": "link",
+      "name": "Investor relations"
+    },
+    {
+      "role": "link",
+      "name": "Corporate contact"
+    },
+    {
+      "role": "link",
+      "name": "Content guidelines and reporting"
+    },
+    {
+      "role": "button",
+      "name": "Prices in U.S. Dollar USD"
+    },
+    {
+      "role": "button",
+      "name": "Dismiss sign-in info."
+    },
+    {
+      "role": "link",
+      "name": "Sign in or register"
+    }
+  ]
+}

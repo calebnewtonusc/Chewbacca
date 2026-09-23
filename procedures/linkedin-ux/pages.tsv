@@ -1,0 +1,14 @@
+profile	https://www.linkedin.com/in/me/	your own profile page, with its sections and the edit pencils
+skills	https://www.linkedin.com/in/me/details/skills/	every skill, with an edit link per skill and Add a skill
+experience	https://www.linkedin.com/in/me/details/experience/	every job, with an edit link per job and add position
+education	https://www.linkedin.com/in/me/details/education/	schools, with edit and add
+intro	https://www.linkedin.com/in/me/edit/intro/	the form for name, headline, current position, location, contact info
+feed	https://www.linkedin.com/feed/	the home feed, and the box to start a post
+network	https://www.linkedin.com/mynetwork/	suggested people and the network summary
+invitations	https://www.linkedin.com/mynetwork/invitation-manager/received/	connection invitations: the ones you received, to accept or ignore, and a Sent tab for the ones you sent
+messaging	https://www.linkedin.com/messaging/	conversations, and the button to write a new message
+notifications	https://www.linkedin.com/notifications/	notifications
+views	https://www.linkedin.com/me/profile-views/	who viewed your profile
+jobs	https://www.linkedin.com/jobs/	job search and recommended jobs
+settings	https://www.linkedin.com/mypreferences/d/categories/account	account preferences: dark mode, language, name and location, sign in and security, password, hibernate or close the account
+privacy	https://www.linkedin.com/mypreferences/d/categories/privacy	data privacy settings: download your data, whether LinkedIn trains AI on your data, who can message or invite you, job application data

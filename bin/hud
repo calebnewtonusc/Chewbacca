@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # hud: put things on the screen.
 #
-# A thin wrapper over the Bob HUD socket. The wire format is the point of the
-# design and this does not hide it: `hud draw` takes Bob Lines on stdin and
+# A thin wrapper over the Kyber socket. The wire format is the point of the
+# design and this does not hide it: `hud draw` takes Kyber Lines on stdin and
 # passes them through untouched, so anything you can write by hand you can pipe,
 # and an agent streaming a surface gets it on screen at the rate it writes.
 #
@@ -14,7 +14,7 @@ SOCK="${BOB_HUD_SOCKET:-$HOME/.bob/hud.sock}"
 
 usage() {
   cat <<'USAGE'
-hud draw            read Bob Lines on stdin and draw them
+hud draw            read Kyber Lines on stdin and draw them
 hud close <name>    take one surface off the screen
 hud clear           take everything off
 hud listen          hear what is said to it and draw the answer
@@ -24,7 +24,7 @@ hud status          is the display running
 hud open            start the display
 hud doctor          why the border is not on this screen
 
-Bob Lines, in full:
+Kyber Lines, in full:
 
   @ <surface> [at=region] [w=380] [urgency=alert] [chrome=bare]
   m <id> <x> <y> <w> <h> [label="..."] [tone=bad] [life=30]
@@ -120,12 +120,12 @@ hud_doctor() {
   # other end every draw fails with a socket error that says nothing about
   # the real cause.
   local p
-  for p in /Applications/BobHUD.app "$HOME/Applications/BobHUD.app" "$repo/hud/build/BobHUD.app"; do
+  for p in /Applications/Kyber.app "$HOME/Applications/Kyber.app" "$repo/hud/build/Kyber.app"; do
     if [ -d "$p" ]; then app="$p"; break; fi
   done
   if [ -z "$app" ]; then
-    fail_ "BobHUD.app is not on this Mac, so there is nothing to draw on" \
-      "cd $repo/hud && ./scripts/bundle.sh && cp -r build/BobHUD.app /Applications/"
+    fail_ "Kyber.app is not on this Mac, so there is nothing to draw on" \
+      "cd $repo/hud && ./scripts/bundle.sh && cp -r build/Kyber.app /Applications/"
   else
     pass_ "app installed at $app"
 
@@ -154,7 +154,7 @@ hud_doctor() {
     case "$head" in ''|*[!0-9]*) head=0 ;; esac
     if [ "$head" -gt 0 ] && [ "$built" -lt "$head" ]; then
       fail_ "the installed display is build $built and the HUD moved at $head, so Swift merged since is not running" \
-        "cd $repo/hud && ./scripts/bundle.sh && cp -r build/BobHUD.app /Applications/ && killall BobHUD; open -a BobHUD"
+        "cd $repo/hud && ./scripts/bundle.sh && cp -r build/Kyber.app /Applications/ && killall Kyber; open -a Kyber"
     elif [ "$built" -gt 0 ]; then
       pass_ "build $built matches the repo"
     fi
@@ -171,12 +171,12 @@ hud_doctor() {
     if [ -d "$repo/hud/Sources" ]; then
       newest="$(find "$repo/hud/Sources" -name '*.swift' -print0 2>/dev/null |
         xargs -0 stat -f '%m' 2>/dev/null | sort -rn | head -1)"
-      binat="$(stat -f '%m' "$app/Contents/MacOS/BobHUD" 2>/dev/null || echo 0)"
+      binat="$(stat -f '%m' "$app/Contents/MacOS/Kyber" 2>/dev/null || echo 0)"
       case "$newest" in ''|*[!0-9]*) newest=0 ;; esac
       case "$binat" in ''|*[!0-9]*) binat=0 ;; esac
       if [ "$newest" -gt 0 ] && [ "$binat" -gt 0 ] && [ "$newest" -gt "$binat" ]; then
         fail_ "hud/Sources is $(( (newest - binat) / 86400 )) day(s) newer than the installed binary, so Swift changes are not running" \
-          "cd $repo/hud && ./scripts/bundle.sh && cp -R build/BobHUD.app /Applications/ && killall BobHUD; open -a BobHUD"
+          "cd $repo/hud && ./scripts/bundle.sh && cp -R build/Kyber.app /Applications/ && killall Kyber; open -a Kyber"
       elif [ "$binat" -gt 0 ]; then
         pass_ "the binary is at least as new as hud/Sources"
       fi
@@ -184,12 +184,12 @@ hud_doctor() {
   fi
 
   # Running, and running the copy that was just checked. Two copies on one
-  # Mac is normal here: hud/build/BobHUD.app is what bundle.sh writes and
+  # Mac is normal here: hud/build/Kyber.app is what bundle.sh writes and
   # /Applications is what gets launched, and they drift.
-  runbin="$(pgrep -lf 'BobHUD.app/Contents/MacOS/BobHUD' 2>/dev/null | head -1 | cut -d' ' -f2- || true)"
+  runbin="$(pgrep -lf 'Kyber.app/Contents/MacOS/Kyber' 2>/dev/null | head -1 | cut -d' ' -f2- || true)"
   if [ -z "$runbin" ]; then
     if [ -n "$app" ]; then
-      fail_ "the display is installed but not running" "hud open, and add Bob HUD to System Settings > General > Login Items"
+      fail_ "the display is installed but not running" "hud open, and add Kyber to System Settings > General > Login Items"
     fi
   else
     pass_ "running: $runbin"
@@ -210,12 +210,12 @@ hud_doctor() {
   # leaves the rest of the HUD working and writes a single line to the
   # system log. See the catch in PresenceField.swift.
   if [ -n "$runbin" ]; then
-    # `process == "BobHUD"` is load-bearing. Without it the query matches
+    # `process == "Kyber"` is load-bearing. Without it the query matches
     # itself: the `log` command writes its own argv into the log, predicate
     # text and all, so the check reported a shader failure on a Mac whose
     # shader was fine, forever, from its own first run.
     if log show --style compact --last 2h \
-         --predicate 'process == "BobHUD" AND eventMessage CONTAINS "presence field unavailable"' \
+         --predicate 'process == "Kyber" AND eventMessage CONTAINS "presence field unavailable"' \
          2>/dev/null | grep -q "presence field unavailable"; then
       fail_ "the field's Metal shader did not compile on this GPU, so the border cannot draw" \
         "send this to whoever built it: log show --last 2h --predicate 'eventMessage CONTAINS \"presence field\"'"
@@ -315,7 +315,7 @@ return "screen: " & (item 3 of b) & " x " & (item 4 of b) & " points, top-left o
 OSA
     ;;
   status) if running; then echo "running: $SOCK"; else echo "not running"; fi ;;
-  open)   open -a BobHUD 2>/dev/null || { echo "BobHUD.app is not installed" >&2; exit 1; }
+  open)   open -a Kyber 2>/dev/null || { echo "Kyber.app is not installed" >&2; exit 1; }
           for _ in 1 2 3 4 5 6 7 8 9 10; do running && break; sleep 0.3; done
           running && echo "running: $SOCK" || { echo "did not come up" >&2; exit 1; } ;;
   doctor) shift || true; rc=0; hud_doctor "$@" || rc=$?; exit "$rc" ;;

@@ -190,7 +190,7 @@ immediately, and after that anything you send that it could not use comes back
 as a problem:
 
 ```
-v! "bobhud/1 verbs=c,>,d,r,@,-,p,s,q,m,u,b,listen"
+v! "kyber/1 verbs=c,>,d,r,@,-,p,s,q,m,u,b,listen"
 ! "`c` needs an id and a type"
 ```
 
@@ -237,13 +237,13 @@ Nothing about it goes up the socket and no model reads it: the talk key without
 Control asks the assistant, and with Control it types. Do not draw anything for
 it and do not type on the person's behalf.
 
-It needs macOS Accessibility for BobHUD, to post key events. A rebuild can leave
+It needs macOS Accessibility for Kyber, to post key events. A rebuild can leave
 that switch on and the app untrusted, because macOS stores a code requirement
 and an ad-hoc signature names only the binary's hash; that happened on
 2026-09-21 (granted at 05:13:59, rebuilt at 13:40:12). `bin/lib/axgrant.py`
 names that state and `hud/scripts/signing-identity.sh` ends it by signing with a
 certificate that outlives the build. `dictation` and `whisper` lines in
-`log show --predicate 'subsystem == "bob.hud"'` say what each turn did, and a
+`log show --predicate 'subsystem == "kyber"'` say what each turn did, and a
 skipped correction says why (`reason=next_turn|app_changed|key_pressed|empty|
 short|too_long|repeating`). Use `/usr/bin/log`: a shell function named `log`
 shadows it in some shells and returns nothing.

@@ -84,14 +84,14 @@ def ask_app(app: str) -> str:
 
 # Where the display notes the app it took focus from. See `under_display`.
 FRONT_APP = Path(os.environ.get("BOB_DIR") or Path.home() / ".bob") / "front-app"
-OWN_APP = "BobHUD"
+OWN_APP = "Kyber"
 
 
 def under_display() -> str:
     """The app the display covered, when the display is what is in front.
 
     The conversation panel takes key, so for anything typed into it the
-    frontmost app is the display itself, and "they are looking at BobHUD" is
+    frontmost app is the display itself, and "they are looking at Kyber" is
     true and useless. The display writes the last other app it saw activate
     next to its socket; that is the one the person was in.
     """

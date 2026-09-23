@@ -7,7 +7,7 @@ import Vision
 /// Doctor Strange overlay: draws the hand skeleton on a transparent window.
 ///
 /// This is a demo. The production gestures live in HandTracker inside
-/// BobHUDKit and go through onGesture; this target exists so the skeleton
+/// KyberKit and go through onGesture; this target exists so the skeleton
 /// is visible on camera for a demo recording.
 ///
 /// Run: swift run HandDemo

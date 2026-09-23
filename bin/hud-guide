@@ -49,7 +49,7 @@ LOOK = BOB_DIR / "guide-look.json"
 # screen and must not read this machine's.
 SNAPSHOT_OVERRIDE = os.environ.get("HUD_GUIDE_SNAPSHOT")
 # The display's own name, which is never the app to guide somebody through.
-OWN_APP = "BobHUD"
+OWN_APP = "Kyber"
 # The one mark this tool owns. Re-sending an id moves the mark, so the next
 # step replaces the last instead of leaving a trail of bubbles.
 MARK = "guide"
