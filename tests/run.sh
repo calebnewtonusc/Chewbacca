@@ -361,6 +361,11 @@ if group "installer"; then
   check  "kit-route stays silent on long off-topic messages" \
     bash "$ROOT/tests/kit_route.sh" "$ROOT"
 
+  # A resume returned success for a dead agent on 2026-09-23 and the reply
+  # said it was running. The user caught it, not the kit.
+  check  "agent-claim-guard refuses an unlaunched agent claim" \
+    bash "$ROOT/tests/agent_claim_guard.sh" "$ROOT"
+
   # Six hooks were on disk and registered nowhere on 2026-09-22, including the
   # two built after Caleb had to ask for the same thing four times. A hook the
   # installer never registers is a feature that has never run.
