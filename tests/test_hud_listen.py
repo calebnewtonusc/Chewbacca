@@ -1998,8 +1998,53 @@ def test_terminal_loop(m) -> None:
     check("a strip click focuses the tab", "focus --tty /dev/ttys002" in Path(log).read_text(), Path(log).read_text())
 
 
+def test_accounts(m) -> None:
+    """The 2026-09-22 17:53 turn: one subscription spent, the other with room,
+    and the voice reading out the limit notice instead of answering."""
+    saved = (m.ACCOUNTS_FILE, m.ACCOUNT_STATE, m.DEFAULT_CONFIG)
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        first, second = root / ".claude", root / ".claude-2"
+        m.DEFAULT_CONFIG = first
+        m.ACCOUNTS_FILE = root / "accounts"
+        m.ACCOUNT_STATE = root / "account"
+        m.ACCOUNTS_FILE.write_text(f"# the two subscriptions\n{first}\n{second}\n")
+        try:
+            check("accounts are read in order, comments skipped",
+                  m.claude_accounts() == [first, second], f"got {m.claude_accounts()}")
+            check("the limit notice is recognised",
+                  m.is_limit_reply("You've hit your weekly limit · resets Sep 26 at 1pm"))
+            check("an answer mentioning a limit is not",
+                  not m.is_limit_reply("The speed limit on I-35 is 75."))
+            check("the default account runs with CLAUDE_CONFIG_DIR unset, never pointed at ~/.claude",
+                  "CLAUDE_CONFIG_DIR" not in m.account_env(first))
+            check("the second account is named",
+                  m.account_env(second).get("CLAUDE_CONFIG_DIR") == str(second))
+
+            listener = m.Listener("claude -p", False, False)
+            listener.log = lambda *a, **k: None
+            check("a fresh start answers from the first account", listener.account == 0)
+            listener.started, old = True, listener.session
+            check("a spent account switches", listener.switch_account())
+            check("to the other one", listener.account == 1)
+            check("in a fresh session, since the other account never saw this one",
+                  listener.session != old and not listener.started)
+            check("the switch is written down",
+                  m.ACCOUNT_STATE.read_text().strip() == str(second))
+            check("and the next launch starts on it",
+                  m.Listener("claude -p", False, False).account == 1)
+
+            m.ACCOUNTS_FILE.write_text(f"{first}\n")
+            alone = m.Listener("claude -p", False, False)
+            check("one account has nowhere to go", not alone.switch_account())
+        finally:
+            m.ACCOUNTS_FILE, m.ACCOUNT_STATE, m.DEFAULT_CONFIG = saved
+
+
 def main() -> int:
     module = load()
+    print("two subscriptions")
+    test_accounts(module)
     print("draw_lines")
     test_draw_lines(module)
     print("subtitle")

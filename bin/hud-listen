@@ -610,6 +610,56 @@ def prose(text: str) -> str:
     return "\n".join(out)
 
 
+# Two Claude subscriptions answer from this Mac, one config directory each
+# (`claude1` and `claude2` in ~/.zshrc). On 2026-09-22 at 17:53 the voice
+# answered "No" with "You've hit your weekly limit · resets Sep 26 at 1pm":
+# the account it happened to inherit was spent while the other had room, and
+# which one it inherited depended on who last restarted the display.
+ACCOUNTS_FILE = Path.home() / ".bob" / "accounts"
+ACCOUNT_STATE = Path.home() / ".bob" / "account"
+DEFAULT_CONFIG = Path.home() / ".claude"
+LIMIT_RE = re.compile(
+    r"hit your (?:weekly |session |daily |usage )?limit|usage limit reached", re.IGNORECASE)
+
+
+def claude_accounts() -> list[Path]:
+    """The config directories to answer from, in the order to try them.
+
+    `~/.bob/accounts` lists them one per line when it exists; otherwise the
+    default `~/.claude` and, when present, `~/.claude-2`.
+    """
+    if ACCOUNTS_FILE.exists():
+        found = [
+            Path(line.strip()).expanduser()
+            for line in ACCOUNTS_FILE.read_text().splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+        if found:
+            return found
+    second = Path.home() / ".claude-2"
+    return [DEFAULT_CONFIG] + ([second] if second.is_dir() else [])
+
+
+def is_limit_reply(text: str) -> bool:
+    return bool(LIMIT_RE.search(text or ""))
+
+
+def account_env(config: Path) -> dict[str, str]:
+    """The environment to run Claude Code as the account in `config`.
+
+    The default account runs with CLAUDE_CONFIG_DIR unset, never set to
+    `~/.claude`: Claude Code names its Keychain entry after the variable, and
+    an explicit default looked for an entry that did not exist, which is the
+    "keychain cannot be found" prompt fixed on 2026-09-22.
+    """
+    env = dict(os.environ)
+    if config.expanduser().resolve() == DEFAULT_CONFIG.resolve():
+        env.pop("CLAUDE_CONFIG_DIR", None)
+    else:
+        env["CLAUDE_CONFIG_DIR"] = str(config)
+    return env
+
+
 def subtitle(text: str, limit: int = SUBTITLE_LIMIT) -> str:
     """One subtitle: the first two sentences, cut to the pill.
 
@@ -1045,6 +1095,14 @@ class Listener:
         # the first request rather than staying the same.
         self.session = str(uuid.uuid4())
         self.started = False
+        # Which subscription answers. Kept in ~/.bob/account so a switch made
+        # because one ran out outlives a restart of the display.
+        self.accounts = claude_accounts()
+        try:
+            saved = Path(ACCOUNT_STATE.read_text().strip()).expanduser()
+            self.account = self.accounts.index(saved)
+        except (OSError, ValueError):
+            self.account = 0
 
         # The reply is said out loud, by this voice, unless it is None. A
         # Kokoro voice (`af_heart`, `am_michael`: two letters, underscore,
@@ -1635,6 +1693,35 @@ class Listener:
             report["usage"], report["tools"], report["turns"],
         ))
 
+    def switch_account(self) -> bool:
+        """Move to the next subscription after this one ran out.
+
+        A fresh session, because each account keeps its own transcripts and
+        `--resume` of an id the other account never saw is an error. The
+        choice is written down so the next launch starts on it. False when
+        there is nowhere to go.
+        """
+        if len(self.accounts) < 2:
+            return False
+        spent = self.accounts[self.account]
+        self.account = (self.account + 1) % len(self.accounts)
+        chosen = self.accounts[self.account]
+        try:
+            ACCOUNT_STATE.parent.mkdir(parents=True, exist_ok=True)
+            ACCOUNT_STATE.write_text(str(chosen) + "\n")
+        except OSError as err:
+            self.log("account: could not save the switch:", err)
+        proc = self.model
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+        self.model = None
+        self.session = str(uuid.uuid4())
+        self.started = False
+        self.turns = 0
+        self.last_usage = {}
+        self.log(f"account: {spent} hit its limit, answering from {chosen}")
+        return True
+
     def retire(self) -> None:
         """Close the session and open the next one, warm, before it is needed.
 
@@ -1747,7 +1834,7 @@ class Listener:
         if proc is not None and proc.poll() is None:
             proc.terminate()
 
-    def prime(self) -> None:
+    def prime(self, _hops: int = 0) -> None:
         """Open the session and have the skill and CLI usage read before the
         first spoken request, so that request does not pay for it.
 
@@ -1794,6 +1881,15 @@ class Listener:
                 reply = str(event.get("result") or "")
                 break
         killer.cancel()
+        if is_limit_reply(reply):
+            # Found at launch rather than under the first request. One hop
+            # per other account, so two spent accounts end here, not in a
+            # loop.
+            if _hops < len(self.accounts) - 1 and self.switch_account():
+                self.prime(_hops + 1)
+            else:
+                self.log("prime: every account is at its limit:", reply.strip()[:80])
+            return
         if proc.poll() is not None:
             self.log(f"prime failed: the model exited ({proc.returncode})")
             return
@@ -1826,6 +1922,7 @@ class Listener:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 text=True,
+                env=account_env(self.accounts[self.account]),
                 # Answer from home, never from wherever the listener was
                 # started. Started inside a repo, the answering agent reads
                 # that repo's CLAUDE.md and takes its doctrine as the job:
@@ -2643,6 +2740,15 @@ class Listener:
             ok, out, said, first, answer, voiced = self.run_streamed(
                 argv, prompt, typed=req.typed, asked_at=req.spoken_at, said=req.said
             )
+            # The account ran out under this request: the same request, once,
+            # on the next one, so the person gets the answer rather than the
+            # notice.
+            if is_limit_reply(answer or out) and self.switch_account():
+                self.send("s " + json.dumps("switching accounts"))
+                argv = self.command()
+                ok, out, said, first, answer, voiced = self.run_streamed(
+                    argv, prompt, typed=req.typed, asked_at=req.spoken_at, said=req.said
+                )
         else:
             ok, out, said = self.run_plain(argv, prompt)
             answer = prose(out).strip()
