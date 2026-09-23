@@ -148,14 +148,14 @@ def written_dirs(src):
 def prerequisites():
     wanted = [
         ("git", "required, everything is version controlled"),
-        ("claude", "required, this is a Claude Code kit"),
+        ("claude|codex", "required, one agent: Claude Code or Codex"),
         ("python3", "required, most tools are stdlib python"),
         ("jq", "required, every hook reads JSON"),
         ("brew", "optional, without it the mac tools are skipped"),
         ("node", "optional, needed by a few MCP servers"),
         ("swift", "optional, needed only for the HUD and the portal"),
     ]
-    return [(n, bool(shutil.which(n)), why) for n, why in wanted]
+    return [(n, any(shutil.which(alt) for alt in n.split("|")), why) for n, why in wanted]
 
 
 def main():

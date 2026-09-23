@@ -1,8 +1,11 @@
 #!/bin/bash
 # Chewbacca: the one line you paste.
 #
-#   curl -fsSL https://chewbacca.sh | bash
-#   curl -fsSL https://chewbacca.sh | bash -s -- --full-send
+#   curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/start.sh | bash -s -- --dry-run
+#   curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/start.sh | bash
+#
+# The first line only prints the plan. There is no short domain yet, see
+# docs/ONBOARDING.md, so the raw GitHub URL is the one that works.
 #
 # Written for someone who just put Claude on a laptop, has no GitHub account,
 # has never opened Terminal before today, and should not have to care about any

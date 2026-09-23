@@ -3,7 +3,18 @@
 Chewbacca shares context and skills across supported coding agents. Choose the
 small runtime setup first; add personal sources and machine tools when useful.
 
-From a checkout, preview the selected setup:
+On a Mac or Linux, with no checkout, see the plan and then install:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/start.sh | bash -s -- --dry-run
+curl -fsSL https://raw.githubusercontent.com/calebnewtonusc/Chewbacca/main/start.sh | bash
+```
+
+The first line changes nothing. Add `--fast` to the second for the core install
+in seconds, without the Mac tools. Never opened a terminal? Paste this README's
+link into the agent you already use and ask it to set Chewbacca up.
+
+From a checkout, the runtime-only setup:
 
 ```sh
 bash setup.sh --runtime codex --dry-run
@@ -51,7 +62,7 @@ publication. Use `skills/setup/SKILL.md` for a requested setup.
 
 <!-- BEGIN GENERATED: counts -->
 
-One command installs **57 slash commands, 106 skills (39 written here, 6 cloned from upstream, 61 from 2 skill packs), 12 MCP servers, 31 hooks, 4 subagents, 9 command-line tools and 12 always-on standards (plus 3 that load only when the work calls for them).** About 171,000 lines, every one of them plain text you can read.
+One command installs **57 slash commands, 106 skills (39 written here, 6 cloned from upstream, 61 from 2 skill packs), 12 MCP servers, 31 hooks, 4 subagents, 9 command-line tools and 12 always-on standards (plus 3 that load only when the work calls for them).** About 165,000 lines, every one of them plain text you can read.
 
 <!-- END GENERATED: counts -->
 
