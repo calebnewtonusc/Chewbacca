@@ -209,7 +209,7 @@ it off is `--session-opener none`. To write your own, add it to `OPENERS` in
 | Piece                   | Details                                                                                                                 |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | **macOS tools**         | 9 installed alongside the kit: Anki, bd, cap, mac, Maccy, mac-use, peekaboo, summarize, yt-transcript                        |
-| **Skills and plugins**  | 106 skills (39 shipped here, 6 cloned from upstream, 61 from 2 skill packs) plus 20 plugins across 4 marketplaces         |
+| **Skills and plugins**  | 108 skills (41 shipped here, 6 cloned from upstream, 61 from 2 skill packs) plus 20 plugins across 4 marketplaces         |
 | **Second brain**        | A private notes repo Claude reads at the start of every session and writes to as things change. Syncs to GitHub         |
 | **Coursework ledger**   | Your syllabi become deadlines, attendance budgets, and a per-course AI policy Claude checks before touching graded work |
 | **On-device dictation** | Builds `plynn/`: hold fn to type, hold left Option to ask Chewie. Speech and cleanup run on your Mac, nothing uploaded  |
@@ -744,6 +744,7 @@ fires, which is the thing that matters most.
 
 | Extension                                                                                                                  | Layer  | What it does                                                                                    |
 | -------------------------------------------------------------------------------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------- |
+| [skills/clay-navigation](../skills/clay-navigation) | Skill | Navigate Clay directly with the built-in UX engine, configure native enrichment and dynamic… |
 | [skills/agent-setup](../skills/agent-setup)                                                                                | Skill  | Finishing the install steps that need a browser or a permission dialog                          |
 | [skills/asa](../skills/asa)                                                                                                | Skill  | Answer from the A2A Spring 2026 course, 108 hours of workshops on building a business out of…   |
 | [skills/audio-brief](../skills/audio-brief)                                                                                | Skill  | Turn a piece of work into something the user can listen to instead of read.                     |

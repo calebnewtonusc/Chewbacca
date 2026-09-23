@@ -232,7 +232,10 @@ def main() -> int:
     # Stubbed: the suite never touches the network. The live numbers are in
     # tests/eval_route_jev.py.
     import types
+    sys.path.insert(0, str(ROOT / "bin" / "lib"))
+    import jev as real_jev
     stub = types.ModuleType("jev")
+    stub.validate_choice = real_jev.validate_choice
     seen_state = []
 
     def answering(choice, probs):
@@ -242,22 +245,25 @@ def main() -> int:
         return ask
     sys.modules["jev"] = stub
     _off = _os.environ.pop("HUD_CLASSIFY_JEV", None)
-    stub.ask = answering("terminal", {"terminal": 0.95, "assistant": 0.05})
+    stub.ask = answering("terminal", {"terminal": 0.95, "assistant": 0.05, "browser": 0.0})
     check("jev: a sure terminal answer goes to the terminal",
           r.classify_with_jev("rename that function", {"context": TERMINAL}) == "terminal")
     check("jev: the frontmost Claude tab is named in the state",
           seen_state[-1] == {"spoken": "rename that function", "frontmost_app": "Terminal (Claude Code)"}, str(seen_state[-1]))
     # "Create a bubble" came back terminal at 0.56 on 2026-09-23.
-    stub.ask = answering("terminal", {"terminal": 0.56, "assistant": 0.43})
+    stub.ask = answering("terminal", {"terminal": 0.56, "assistant": 0.43, "browser": 0.01})
     check("jev: an unsure terminal answer falls to the assistant",
           r.classify_with_jev("Create a bubble", {}) == "assistant")
-    stub.ask = answering("browser", {"browser": 0.72})
+    stub.ask = answering("browser", {"browser": 0.72, "terminal": 0.14, "assistant": 0.14})
     check("jev: a browser answer stands", r.classify_with_jev("look up Clay pricing", {}) == "browser")
+    for malformed in (float('nan'), float('inf'), True, '0.99'):
+        stub.ask = answering("terminal", {"terminal": malformed, "assistant": 0.005, "browser": 0.005})
+        check("jev: invalid probability abstains", r.classify_with_jev("ambiguous", {}) is None)
     stub.ask = answering(None, {})
     check("jev: no answer is no decision", r.classify_with_jev("hm", {}) is None)
     d = dest("what do you think of the design", NOBODY, COLD, classify=r.classify_with_jev)
     check("jev: no answer ends at the assistant, unsettled", d.dest == "assistant" and d.reason == "unsettled", str(d))
-    stub.ask = answering("terminal", {"terminal": 0.99})
+    stub.ask = answering("terminal", {"terminal": 0.99, "browser": 0.005, "assistant": 0.005})
     _os.environ["HUD_CLASSIFY_JEV"] = "off"
     check("jev: HUD_CLASSIFY_JEV=off switches the tier off", r.classify_with_jev("fix it", {}) is None)
     _os.environ.pop("HUD_CLASSIFY_JEV", None)

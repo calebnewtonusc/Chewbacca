@@ -72,6 +72,19 @@ def main() -> int:
         return None, {}
 
 
+    # Invalid typed values must take the existing review path, not become negatives.
+    for bad in (float('nan'), float('inf'), True, '0.99', None, 10**400):
+        def malformed(state, questions):
+            return {pid: {"noul": bad} for pid in questions}, {}
+        oracle = Oracle()
+        run = fanout.run_arm("C", events, preds, jev=malformed, claude=oracle)
+        check("malformed Jev probability falls through to review",
+              len(oracle.asked) == len(events) * len(preds) and
+              fanout.score(run, labels, preds)["recall"] == 1.0)
+
+    check("wrong explicit Noul type is rejected", fanout.jev_probability({"type": "choice", "noul": .95}) is None)
+    check("explicit Noul type preserves value", fanout.jev_probability({"type": "noul", "noul": .95}) == .95)
+
     # A: an oracle Claude over everything is perfect, and asks every pair.
     o = Oracle()
     run_a = fanout.run_arm("A", events, preds, claude=o)

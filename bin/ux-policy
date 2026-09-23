@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+"""Run offline UX policy learning from a checkout or installed symlink."""
+from pathlib import Path
+import runpy
+import sys
+
+root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(root / 'tools'))
+runpy.run_path(str(root / 'tools' / 'ux_policy.py'), run_name='__main__')

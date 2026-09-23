@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+"""Run fresh-observation UX decision support from this checkout."""
+from pathlib import Path
+import sys
+sys.path.insert(0,str(Path(__file__).resolve().parent.parent / 'tools'))
+from ux_decision import main
+raise SystemExit(main())

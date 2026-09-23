@@ -27,8 +27,6 @@ import re
 import shlex
 import subprocess
 import time
-import urllib.error
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -119,31 +117,17 @@ def rule_hits(ev: dict, preds: list[dict]) -> list[str]:
 
 
 def jev_call(state: dict, questions: dict) -> tuple[dict | None, dict]:
-    """One Jev request. Returns (answers or None, usage). Retries 429 and 529,
-    which the docs say to back off on, and the 5xx its edge returns under load."""
-    if not jev.allowed() or not jev.api_key():
+    """Shared transport, retaining this caller's explicit retry policy."""
+    result = jev.ask_result(state, questions, timeout=JEV_TIMEOUT_S,
+                            max_attempts=4, retry_codes=JEV_RETRY_CODES)
+    if result is None:
         return None, {}
-    body = json.dumps({"state": state, "model": jev.MODEL, "questions": questions}).encode()
-    for attempt in range(4):
-        req = urllib.request.Request(jev.URL, data=body, method="POST", headers={
-            "Authorization": f"Bearer {jev.api_key()}", "Content-Type": "application/json",
-        })
-        try:
-            with urllib.request.urlopen(req, timeout=JEV_TIMEOUT_S) as resp:
-                payload = json.loads(resp.read())
-            answers = payload.get("answers")
-            return (answers if isinstance(answers, dict) else None), payload.get("usage", {})
-        except urllib.error.HTTPError as e:
-            if e.code in JEV_RETRY_CODES and attempt < 3:
-                time.sleep(2 ** attempt)
-                continue
-            return None, {}
-        except (OSError, ValueError):
-            if attempt < 3:
-                time.sleep(2 ** attempt)
-                continue
-            return None, {}
-    return None, {}
+    usage = result.get("usage")
+    return result["answers"], usage if isinstance(usage, dict) else {}
+
+
+def jev_probability(answer):
+    return jev.probability(answer.get("noul")) if isinstance(answer, dict) and answer.get("type", "noul") == "noul" else None
 
 
 def claude_prompt(items: list[tuple[dict, list[str]]], preds_by_id: dict) -> str:
@@ -265,13 +249,16 @@ def run_arm(arm: str, events: list[dict], preds: list[dict],
                     stats["jev_failures"] += 1
                     band.append((ev, all_ids))
                     continue
-                p_of = {pid: float((answers.get(pid) or {}).get("noul", 0.0)) for pid in all_ids}
+                # Missing/malformed probabilities need review, never a silent negative.
+                p_of = {pid: jev_probability(answers.get(pid)) for pid in all_ids}
+                invalid = [pid for pid, value in p_of.items() if value is None]
+                p_of = {pid: value for pid, value in p_of.items() if value is not None}
                 scores[ev["id"]] = p_of
                 sure = {pid for pid, p in p_of.items() if p >= preds_by_id[pid]["accept"]}
                 unsure = [pid for pid, p in p_of.items()
                           if preds_by_id[pid]["review"] <= p < preds_by_id[pid]["accept"]]
                 positives[ev["id"]] |= sure
-                band.append((ev, unsure))
+                band.append((ev, invalid + unsure))
         found = _claude_over(band, preds_by_id, claude, stats)
         for k, v in found.items():
             positives[k] |= v

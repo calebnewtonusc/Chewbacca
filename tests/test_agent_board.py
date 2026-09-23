@@ -85,18 +85,29 @@ def main() -> int:
           ab.pick("run the tests", one, ask=fake(None))["session"] == "s1" and not calls)
     two = ab.fold(one, ev("PermissionRequest", "s2", "/code/clay-map", 2, summary="git push"))
     got = ab.pick("tell the clay one to push", two,
-                  ask=fake({"agent": {"choice": "agent_1", "probabilities": {"agent_1": 0.92}}}))
+                  ask=fake({"agent": {"choice": "agent_1", "probabilities": {"agent_1": 0.92, "agent_2": 0.04, "none": 0.04}}}))
     check("a confident choice maps back to its session", got["session"] == "s2", str(got))
     criteria = calls[-1][1]["agent"]["criteria"]
     check("the menu is built from the live board plus none",
           set(criteria) == {"agent_1", "agent_2", "none"} and "clay-map" in criteria["agent_1"], str(criteria))
     check("only the sentence is sent as state", calls[-1][0] == {"spoken": "tell the clay one to push"})
-    low = ab.pick("do it", two, ask=fake({"agent": {"choice": "agent_1", "probabilities": {"agent_1": 0.5}}}))
+    low = ab.pick("do it", two, ask=fake({"agent": {"choice": "agent_1", "probabilities": {"agent_1": 0.5, "agent_2": 0.3, "none": 0.2}}}))
     check("under the floor: nobody", low["session"] is None and low["confidence"] == 0.5, str(low))
-    check("none: nobody", ab.pick("hi", two, ask=fake({"agent": {"choice": "none", "probabilities": {"none": 0.9}}}))["session"] is None)
+    check("none: nobody", ab.pick("hi", two, ask=fake({"agent": {"choice": "none", "probabilities": {"none": 0.9, "agent_1": 0.05, "agent_2": 0.05}}}))["session"] is None)
     check("Jev down: nobody", ab.pick("hi", two, ask=fake(None))["session"] is None)
     check("an option Jev invented: nobody",
           ab.pick("hi", two, ask=fake({"agent": {"choice": "agent_9", "probabilities": {"agent_9": 1.0}}}))["session"] is None)
+
+    for malformed in (float('nan'), float('inf'), True, '0.99'):
+        result = ab.pick("ambiguous", two, ask=fake({"agent": {"choice": "agent_1", "probabilities": {
+            "agent_1": malformed, "agent_2": 0.005, "none": 0.005}}}))
+        check("invalid confidence never chooses an agent", result["session"] is None)
+    from unittest.mock import patch
+    with patch.object(ab.jev, "ask", return_value={"agent": {"choice": "agent_1", "probabilities": {
+            "agent_1": .92, "agent_2": .04, "none": .04}}}) as provider:
+        result = ab.pick("the clay one", two)
+        check("native board pick keeps the upstream timeout", provider.call_args.kwargs["timeout"] == ab.PICK_TIMEOUT_S)
+        check("native board pick retains strict validated selection", result["session"] == "s2")
 
     print("tabs and topics")
     with tempfile.TemporaryDirectory() as tmp:

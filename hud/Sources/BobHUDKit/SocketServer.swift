@@ -41,6 +41,13 @@ public final class SocketServer: @unchecked Sendable {
     private let path: String
     private let onEvent: @Sendable (Event) -> Void
     private var listenFD: Int32 = -1
+    private var ownershipFD: Int32 = -1
+    private struct EndpointIdentity {
+        let device: dev_t
+        let inode: ino_t
+    }
+    private var endpointIdentity: EndpointIdentity?
+    private let lifecycle = NSLock()
     private let queue = DispatchQueue(label: "bob.hud.socket")
 
     /// Guards `clients` and `subscribers`, which reader threads mutate and the
@@ -124,29 +131,51 @@ public final class SocketServer: @unchecked Sendable {
     }
 
     public func start() throws {
+        lifecycle.lock()
+        defer { lifecycle.unlock() }
+        guard ownershipFD < 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(EALREADY))
+        }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let maxLength = MemoryLayout.size(ofValue: address.sun_path)
+        guard !path.utf8.contains(0), path.utf8.count < maxLength else {
+            throw NSError(
+                domain: "BobHUD", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid socket path: \(path)"])
+        }
         let directory = (path as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(
             atPath: directory, withIntermediateDirectories: true)
 
-        // A socket file left by a crashed process makes bind fail with
-        // EADDRINUSE forever, so clear it. Nothing else owns this path.
-        unlink(path)
-
-        listenFD = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard listenFD >= 0 else {
-            throw NSError(
-                domain: NSPOSIXErrorDomain, code: Int(errno),
-                userInfo: [NSLocalizedDescriptionKey: "Could not create the socket."])
+        // Keep the lock file in place: unlinking it would let a contender lock
+        // a different inode. The kernel releases ownership after a crash.
+        let owner = open(path + ".lock", O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0o600)
+        guard owner >= 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        guard flock(owner, LOCK_EX | LOCK_NB) == 0 else {
+            let error = errno
+            close(owner)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(error),
+                          userInfo: [NSLocalizedDescriptionKey: "Socket already owned: \(path)"])
+        }
+        var started = false
+        var boundIdentity: EndpointIdentity?
+        var fd: Int32 = -1
+        defer {
+            if !started {
+                if fd >= 0 { close(fd) }
+                removeEndpoint(matching: boundIdentity)
+                flock(owner, LOCK_UN)
+                close(owner)
+            }
+        }
+        fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
         }
 
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        let maxLength = MemoryLayout.size(ofValue: address.sun_path)
-        guard path.utf8.count < maxLength else {
-            throw NSError(
-                domain: "BobHUD", code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Socket path is too long: \(path)"])
-        }
         _ = withUnsafeMutablePointer(to: &address.sun_path) { pointer in
             path.withCString { source in
                 strncpy(
@@ -155,44 +184,103 @@ public final class SocketServer: @unchecked Sendable {
             }
         }
 
+        // Older builds do not hold the ownership lock. Probe without waiting;
+        // only connection refusal establishes a stale socket. Other errors
+        // (including a full backlog) must leave the existing endpoint alone.
+        if let existing = try endpoint() {
+            let probe = socket(AF_UNIX, SOCK_STREAM, 0)
+            guard probe >= 0 else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            }
+            defer { close(probe) }
+            guard fcntl(probe, F_SETFL, O_NONBLOCK) == 0 else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            }
+            let connected = withUnsafePointer(to: &address) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    Darwin.connect(probe, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+                }
+            }
+            let error = errno
+            guard connected < 0 && error == ECONNREFUSED else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(EADDRINUSE))
+            }
+            removeEndpoint(matching: existing)
+        }
+
         let size = socklen_t(MemoryLayout<sockaddr_un>.size)
         let bound = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(listenFD, $0, size)
+                bind(fd, $0, size)
             }
         }
         guard bound == 0 else {
-            close(listenFD)
             throw NSError(
                 domain: NSPOSIXErrorDomain, code: Int(errno),
                 userInfo: [NSLocalizedDescriptionKey: "Could not bind \(path)."])
         }
 
+        boundIdentity = try endpoint()
+        guard boundIdentity != nil else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENOENT))
+        }
+
         // Only the user who owns it may draw on their own screen.
         chmod(path, 0o600)
 
-        guard listen(listenFD, 16) == 0 else {
-            close(listenFD)
+        guard listen(fd, 16) == 0 else {
             throw NSError(
                 domain: NSPOSIXErrorDomain, code: Int(errno),
                 userInfo: [NSLocalizedDescriptionKey: "Could not listen on \(path)."])
         }
 
+        listenFD = fd
+        ownershipFD = owner
+        endpointIdentity = boundIdentity
+        started = true
         running = true
         queue.async { [weak self] in self?.acceptLoop() }
     }
 
     public func stop() {
+        lifecycle.lock()
+        defer { lifecycle.unlock() }
+        guard ownershipFD >= 0 else { return }
         running = false
         lock.lock()
-        // Closing each client's descriptor is what unblocks its reader: `recv`
-        // returns 0 and the reader unwinds. Without this, quitting would leave
-        // a thread parked on a socket that nobody was ever going to write to.
-        for fd in clients { close(fd) }
-        clients.removeAll()
+        // Wake readers, which own the final close. Closing here as well would
+        // let a late reader close a descriptor reused by a successor server.
+        for fd in clients { shutdown(fd, SHUT_RDWR) }
+        subscribers.removeAll()
         lock.unlock()
-        if listenFD >= 0 { close(listenFD) }
+        if listenFD >= 0 {
+            shutdown(listenFD, SHUT_RDWR)
+            close(listenFD)
+        }
         listenFD = -1
+        removeEndpoint(matching: endpointIdentity)
+        endpointIdentity = nil
+        flock(ownershipFD, LOCK_UN)
+        close(ownershipFD)
+        ownershipFD = -1
+    }
+
+    private func endpoint() throws -> EndpointIdentity? {
+        var info = stat()
+        guard lstat(path, &info) == 0 else {
+            if errno == ENOENT { return nil }
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        guard info.st_mode & S_IFMT == S_IFSOCK else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(EEXIST),
+                          userInfo: [NSLocalizedDescriptionKey: "Not a socket: \(path)"])
+        }
+        return EndpointIdentity(device: info.st_dev, inode: info.st_ino)
+    }
+
+    private func removeEndpoint(matching expected: EndpointIdentity?) {
+        guard let expected, let current = try? endpoint(),
+              current.device == expected.device, current.inode == expected.inode else { return }
         unlink(path)
     }
 

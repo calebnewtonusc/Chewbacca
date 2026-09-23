@@ -182,6 +182,34 @@ class RuntimeTests(unittest.TestCase):
                 runtime.setup('codex')
         self.assertEqual(list(self.home.iterdir()), [])
 
+    def test_shared_guidance_is_discoverable_without_hooks_for_each_runtime(self):
+        for key in ('claude-code', 'codex'):
+            block = runtime.instruction_block(runtime.registry()['runtimes'][key])
+            self.assertIn(str(ROOT / 'instructions/agent-neutral.md'), block)
+        source = (ROOT / 'setup.sh').read_text()
+        helper = source.split('install_agent_neutral_rule() {', 1)[1].split('\n}', 1)[0]
+        self.assertNotIn('paths:', helper)
+        self.assertIn('instructions/agent-neutral.md', helper)
+
+    def test_codex_home_explicit_isolation_preserves_configured_paths_otherwise(self):
+        with patch.dict(os.environ, {'CODEX_HOME': '/synthetic/account/.codex',
+                                     'CHEWBACCA_ISOLATED_HOME': '1'}):
+            self.assertEqual(context.codex_home(), self.home / '.codex')
+        with patch.dict(os.environ, {'CODEX_HOME': str(self.home / 'explicit-codex'),
+                                     'CHEWBACCA_ISOLATED_HOME': '1'}):
+            self.assertEqual(context.codex_home(), self.home / 'explicit-codex')
+        with patch.dict(os.environ, {'CODEX_HOME': '/synthetic/explicit-shared-codex',
+                                     'CHEWBACCA_ISOLATED_HOME': '0'}):
+            self.assertEqual(context.codex_home(), Path('/synthetic/explicit-shared-codex'))
+
+    def test_codex_home_without_posix_pwd_module(self):
+        with patch.dict(sys.modules, {'pwd': None}):
+            with patch.dict(os.environ, {'CODEX_HOME': ''}):
+                self.assertEqual(context.codex_home(), self.home / '.codex')
+            with patch.dict(os.environ, {'CODEX_HOME': str(self.home / 'custom'),
+                                         'CHEWBACCA_ISOLATED_HOME': '0'}):
+                self.assertEqual(context.codex_home(), self.home / 'custom')
+
     def test_export_keeps_private_brain_out_and_preserves_user_content(self):
         output = self.home / 'export'
         output.mkdir()
