@@ -69,119 +69,83 @@ public enum Presence: String, Sendable, CaseIterable {
     }
 }
 
-/// The ring.
+/// The mark: an asterisk.
 ///
-/// Sized at 16pt, drawn with plain SwiftUI shape animations rather than a
-/// per-frame timeline. That is a deliberate performance choice: this runs for
-/// the entire life of the session, and a `TimelineView(.animation)` redrawing at
-/// 60fps forever is a battery bug that ships to everyone. Repeating animations
-/// are handed to Core Animation and cost nothing while they run.
+/// Gavin, 2026-09-23, looking at the green ring: "i hate how it looks, can you
+/// make it a * symbol and just have it pulsate and change color and spin when
+/// thinking." So the mark is six arms from one centre, and the states keep
+/// their motion signatures on it: still when dormant or done, breathing when
+/// attentive, swelling with the voice, and spinning while it works. Thinking
+/// adds a pulse and a slow walk around the colour wheel, because it is the one
+/// state that has to be readable from the corner of an eye.
+///
+/// Drawn with plain SwiftUI animations rather than a per-frame timeline. This
+/// runs for the entire life of the session, and a `TimelineView(.animation)`
+/// redrawing at 60fps forever is a battery bug that ships to everyone.
+/// Repeating animations are handed to Core Animation and cost nothing while
+/// they run.
 struct PresenceRing: View {
     let presence: Presence
-    /// 0 to 1, only read in `.hearing`. Input amplitude.
+    /// 0 to 1, only read in `.hearing` and `.speaking`. Voice amplitude.
     let amplitude: Double
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var breathing = false
     @State private var spinning = false
+    @State private var pulsing = false
+    @State private var hueWalk = false
     @State private var pulses = 0
 
     private let size: CGFloat = 16
 
     var body: some View {
-        ZStack {
-            // The track. Always there, so the ring never disappears entirely:
-            // dormant has to still read as *running*, or it is indistinguishable
-            // from dead, which is the thing this surface exists to prevent.
-            Circle()
-                .stroke(presence.tint.opacity(0.22), lineWidth: 1.5)
-
-            // A glass bead inside the ring, lit from the top left like every
-            // slab it sits on, so the one object that is always on screen
-            // has a volume and not just an outline. Static: the motion
-            // signature stays the arc's alone.
-            Circle()
-                .fill(EllipticalGradient(
-                    colors: [.white.opacity(0.55), presence.tint.opacity(0.45), presence.tint.opacity(0.08)],
-                    center: UnitPoint(x: 0.34, y: 0.3),
-                    startRadiusFraction: 0, endRadiusFraction: 0.75))
-                .padding(4)
-
-            arc
-        }
-        .frame(width: size, height: size)
-        .opacity(presence == .dormant ? 0.25 : 1)
-        .scaleEffect(breathScale)
-        .shadow(color: presence.tint.opacity(glow), radius: 6)
-        .animation(Motion.fade(0.35, reduced: reduceMotion), value: presence)
-        .onAppear { restart() }
-        .onChange(of: presence) { _, _ in restart() }
-        .accessibilityLabel("Chewbacca \(presence.rawValue)")
+        Asterisk(arms: 6)
+            .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+            .frame(width: size, height: size)
+            .rotationEffect(.degrees(spinning ? 360 : 0))
+            .animation(spinAnimation, value: spinning)
+            .scaleEffect(scale)
+            .hueRotation(.degrees(hueWalk ? 360 : 0))
+            .animation(
+                Motion.repeating(.linear(duration: 3).repeatForever(autoreverses: false),
+                                 reduced: reduceMotion),
+                value: hueWalk)
+            .opacity(presence == .dormant ? 0.3 : 1)
+            .shadow(color: tint.opacity(glow), radius: 6)
+            .animation(Motion.fade(0.35, reduced: reduceMotion), value: presence)
+            .animation(.linear(duration: 0.06), value: amplitude)
+            .onAppear { restart() }
+            .onChange(of: presence) { _, _ in restart() }
+            .accessibilityLabel("Chewbacca \(presence.rawValue)")
     }
 
-    /// The moving part, which is what actually distinguishes the states.
-    @ViewBuilder
-    private var arc: some View {
+    private var tint: Color { presence.tint }
+
+    private var voice: Double { presence.voiced ? min(max(amplitude, 0), 1) : 0 }
+
+    private var lineWidth: CGFloat {
         switch presence {
-        case .dormant, .attentive:
-            EmptyView()
-
-        case .done:
-            // A closed ring, not moving. Every other lit state here is in
-            // motion, so stillness is the signature: the errand is over.
-            Circle()
-                .stroke(presence.tint, lineWidth: 1.8)
-
-        case .hearing, .speaking:
-            // Thickness modulates with the voice, the person's or its own.
-            // Nothing rotates, because rotation would read as thinking, and
-            // the difference between "I am hearing you" and "I am working on
-            // it" is exactly the distinction a person needs mid-sentence.
-            Circle()
-                .stroke(presence.tint, lineWidth: 1.5 + 2.5 * min(max(amplitude, 0), 1))
-                .animation(.linear(duration: 0.06), value: amplitude)
-
-        case .thinking, .acting:
-            // One arc, eased rather than linear. A linear spinner reads as a
-            // progress bar that is not progressing.
-            //
-            // Acting is the same view with the arc grown to segments, stepping.
-            // Distinct from thinking on purpose: the person should be able to
-            // tell that something is being *done* to their machine, not
-            // merely considered. One view for both rather than one each,
-            // because the bridge goes thinking, acting, thinking, acting
-            // through a run and a fresh view starts its turn from zero: the
-            // arc snapped back to the top on every tool call.
-            let acting = presence == .acting
-            Circle()
-                .trim(from: 0, to: acting ? 0.62 : 0.3)
-                .stroke(
-                    presence.tint,
-                    style: StrokeStyle(
-                        lineWidth: 1.8, lineCap: acting ? .butt : .round,
-                        dash: acting ? [2.4, 2.4] : []))
-                .rotationEffect(.degrees(spinning ? 360 : 0))
-                .animation(
-                    Motion.repeating(
-                        .easeInOut(duration: 1.2).repeatForever(autoreverses: false),
-                        reduced: reduceMotion),
-                    value: spinning)
-                .animation(Motion.snappy(reduced: reduceMotion), value: acting)
-
-        case .attention, .failed:
-            // Two pulses, then hold at high contrast. Never more than two: a
-            // thing that pulses forever is a thing people learn to ignore, and
-            // then it cannot do its job on the day it matters.
-            Circle()
-                .stroke(presence.tint, lineWidth: 2)
-                .opacity(pulses >= 2 ? 1 : 0.35)
-                .animation(.easeInOut(duration: 0.45), value: pulses)
+        case .attention, .failed: return 2.4
+        default: return 2.0 + 1.2 * voice
         }
     }
 
-    private var breathScale: CGFloat {
-        guard presence == .attentive else { return 1 }
-        return breathing ? 1.08 : 0.92
+    private var scale: CGFloat {
+        switch presence {
+        case .attentive: return breathing ? 1.08 : 0.92
+        case .hearing, .speaking: return 1 + 0.3 * voice
+        case .thinking, .acting: return pulsing ? 1.14 : 0.86
+        case .attention, .failed: return pulses % 2 == 1 ? 1.25 : 1
+        default: return 1
+        }
+    }
+
+    /// Thinking turns steadily; acting turns faster, so something being done
+    /// to the machine reads differently from something being considered.
+    private var spinAnimation: Animation? {
+        let period = presence == .acting ? 1.0 : 2.4
+        return Motion.repeating(.linear(duration: period).repeatForever(autoreverses: false),
+                                reduced: reduceMotion)
     }
 
     private var glow: Double {
@@ -193,34 +157,59 @@ struct PresenceRing: View {
     }
 
     private func restart() {
-        // Only stop the turn when the next state does not turn. Stopping and
-        // starting it on the way from thinking to acting is the snap the
-        // shared spinner above exists to remove.
-        if presence != .thinking && presence != .acting { spinning = false }
+        // Only stop the turn when the next state does not turn, so going from
+        // thinking to acting keeps spinning instead of snapping back to zero.
+        let turning = presence == .thinking || presence == .acting
+        if !turning { spinning = false; pulsing = false }
+        if presence != .thinking { hueWalk = false }
         pulses = 0
         breathing = false
+        guard !reduceMotion else { return }
 
         switch presence {
         case .attentive:
-            // Four-second period, plus or minus eight percent. Slow enough to
-            // read as breathing rather than as throbbing.
-            // A ring that breathes forever is movement that never stops, which
-            // is the exact thing the setting exists to prevent.
-            guard !reduceMotion else { break }
+            // A four-second breath: slow enough to read as breathing.
             withAnimation(.easeInOut(duration: 2).repeatForever(autoreverses: true)) {
                 breathing = true
             }
         case .thinking, .acting:
             if !spinning { spinning = true }
+            if !pulsing {
+                withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
+                    pulsing = true
+                }
+            }
+            if presence == .thinking && !hueWalk { hueWalk = true }
         case .attention, .failed:
+            // Two pulses, then hold. A thing that pulses forever is a thing
+            // people learn to ignore.
             Task { @MainActor in
-                for _ in 0..<2 {
-                    try? await Task.sleep(for: .milliseconds(450))
-                    pulses += 1
+                for _ in 0..<4 {
+                    withAnimation(.easeInOut(duration: 0.22)) { pulses += 1 }
+                    try? await Task.sleep(for: .milliseconds(240))
                 }
             }
         default:
             break
         }
+    }
+}
+
+/// Arms from the centre to the edge, evenly spaced, the first pointing up.
+struct Asterisk: Shape {
+    let arms: Int
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let centre = CGPoint(x: rect.midX, y: rect.midY)
+        // Inset by half the widest stroke so round caps are not clipped.
+        let radius = min(rect.width, rect.height) / 2 - 1.6
+        for arm in 0..<arms {
+            let angle = Double(arm) / Double(arms) * 2 * .pi - .pi / 2
+            path.move(to: centre)
+            path.addLine(to: CGPoint(x: centre.x + radius * cos(angle),
+                                     y: centre.y + radius * sin(angle)))
+        }
+        return path
     }
 }
