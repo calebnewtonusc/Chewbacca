@@ -9,7 +9,10 @@ holds the prompt while the voice asks.
 
 Every session, whatever its folder, also gets a line in `agent-events.jsonl`:
 that is the board bin/lib/agent_board.py folds, so one voice can see and run
-many agents. Only the remembered tab's prompts are ever held.
+many agents. Only the remembered tab's prompts are ever held. Each board line
+carries the Terminal tty the session runs on (found once per session, see
+`session_tty`) and its transcript path, which is where the board reads the
+session's title.
 
 It never grants on its own. The only `allow` it can return is one it read
 from an answer file hud-listen wrote after a person said yes.
@@ -31,6 +34,7 @@ MEMORY = Path(os.environ.get("BOB_MEMORY_DIR", str(Path.home() / ".bob" / "memor
 EVENTS = MEMORY / "terminal-events.jsonl"
 AGENT_EVENTS = MEMORY / "agent-events.jsonl"
 ASKS = MEMORY / "asks"
+TTYS = MEMORY / "agent-ttys"
 PROJECT = MEMORY / "project.json"
 
 HANDLED = frozenset({
@@ -61,6 +65,17 @@ ASK_POLL_S = 0.25
 HOOK_TIMEOUT_S = 45.0
 # One System Events call takes well under a second on this machine.
 FRONT_TIMEOUT_S = 2.0
+
+# Hops from the hook up to the claude process that ran it. Counted from the
+# scripts on 2026-09-23, not observed live: python under chewie (bash) under
+# terminal-loop.sh under claude is four, five if Claude Code wraps hooks in a
+# shell. Eight leaves room for that without walking up to launchd.
+TTY_HOPS = 8
+# A session's cached tty outlives the session by this much, then the next
+# first-sight write clears it. Guessed, never measured: a day is well past
+# agent_board.STALE_AFTER_S, so a file is never cleared under a live session.
+TTY_KEEP_S = 86400.0
+SESSION_ID = re.compile(r"[0-9A-Za-z-]{1,64}")
 
 FRONT_SCRIPT = 'tell application "System Events" to get name of first application process whose frontmost is true'
 
@@ -117,9 +132,69 @@ def entry_for(event: dict, ask: str = "", held: bool = False) -> dict:
         "summary": summary(event),
         "session": str(event.get("session_id") or ""),
         "cwd": str(event.get("cwd") or ""),
+        "transcript": str(event.get("transcript_path") or ""),
         "ask": ask,
         "held": held,
     }
+
+
+def tty_of_claude(start: int, table: str) -> str:
+    """The tty of the nearest `claude` above `start` in a `ps -A -o
+    pid=,ppid=,tty=,comm=` table, as `/dev/ttysNNN`, or "" when that claude
+    has no terminal (`claude -p` under hud-listen, the desktop app) or none
+    is found within TTY_HOPS."""
+    rows = {}
+    for line in table.splitlines():
+        parts = line.split(None, 3)
+        if len(parts) == 4 and parts[0].isdigit() and parts[1].isdigit():
+            rows[int(parts[0])] = (int(parts[1]), parts[2], parts[3].strip())
+    pid = start
+    for _ in range(TTY_HOPS):
+        row = rows.get(pid)
+        if row is None:
+            return ""
+        ppid, tty, comm = row
+        if Path(comm).name == "claude":
+            return "" if tty in ("??", "-", "") else f"/dev/{tty}"
+        pid = ppid
+    return ""
+
+
+def session_tty(session: str, ps=None) -> str:
+    """Which Terminal tab this session is in, so the voice can type into it.
+
+    Hooks run with no controlling terminal (`/dev/tty` fails with ENXIO), so
+    the tty is read off the claude process above this one. That is one `ps`,
+    paid on the session's first event only: the answer, empty or not, is
+    cached in `agent-ttys/<session>`, because every hook sits on the tool
+    call's critical path.
+    """
+    if not SESSION_ID.fullmatch(session):
+        return ""
+    path = TTYS / session
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        pass
+    if ps is None:
+        try:
+            ps = subprocess.run(
+                ["ps", "-A", "-o", "pid=,ppid=,tty=,comm="], capture_output=True, text=True,
+                timeout=FRONT_TIMEOUT_S,
+            ).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+    tty = tty_of_claude(os.getpid(), ps)
+    try:
+        TTYS.mkdir(parents=True, exist_ok=True)
+        cutoff = time.time() - TTY_KEEP_S
+        for old in TTYS.iterdir():
+            if old.stat().st_mtime < cutoff:
+                old.unlink()
+        path.write_text(tty, encoding="utf-8")
+    except OSError:
+        pass
+    return tty
 
 
 def append(entry: dict, path: Path | None = None) -> None:
@@ -260,7 +335,8 @@ def handle(raw: str, front=front_app, sleep=time.sleep, clock=time.monotonic) ->
     if not isinstance(event, dict) or event.get("hook_event_name") not in HANDLED:
         return ""
     try:
-        append(entry_for(event), AGENT_EVENTS)
+        tty = session_tty(str(event.get("session_id") or ""))
+        append({**entry_for(event), "tty": tty}, AGENT_EVENTS)
     except OSError as err:
         print(f"terminal hook: could not write {AGENT_EVENTS}: {err}", file=sys.stderr)
     if not matches(event, read_json(PROJECT)):

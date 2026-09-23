@@ -12,6 +12,11 @@ Result 2026-09-23: 19/20, none sent to the wrong agent, worst latency 0.58 s.
 The miss: "The heads up display one" chose none at 0.90, because nothing on the
 menu says the Chewbacca session is building the HUD. The menu needs each
 session's topic, not only its folder and current tool call.
+Topics are on the menu now (each session's transcript `ai-title`), and the
+board below carries the titles Claude Code would have written.
+Result 2026-09-23 afternoon, with topics: 20/20, the heads-up-display sentence
+included, p50 0.66 s, worst 6.12 s. At Jev's default 2.5 s timeout 4 of the 20
+timed out and fell to "which one?", which is why pick waits PICK_TIMEOUT_S.
 """
 import pathlib
 import sys
@@ -29,6 +34,13 @@ for entry in [
     {"event": "PreToolUse", "session": "quant", "cwd": "/code/jev-trading-bot", "t": 4, "summary": "python3 backtest.py"},
 ]:
     BOARD = ab.fold(BOARD, entry)
+TOPICS = {
+    "hud": "Kyber HUD presence field",
+    "clay": "Clay enrichment table for investors",
+    "site": "Landing page hero redesign",
+    "quant": "Jev 8-K dilution backtest",
+}
+BOARD = {k: {**v, "topic": TOPICS[k]} for k, v in BOARD.items()}
 
 CASES = [
     ("Tell the Clay one it can push", "clay"),

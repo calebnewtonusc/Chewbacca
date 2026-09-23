@@ -126,6 +126,22 @@ TERMINAL_STOP_WORDS = frozenset({
     "cancel the terminal", "stop it in the terminal",
 })
 
+# "What are my agents doing": answered from the agent board, no model. Exact
+# phrasings plus one shape (a question word, an agent noun, a doing word), so
+# an order that merely mentions agents ("tell the agents to commit") is not
+# taken for a question.
+AGENT_STATUS_WORDS = frozenset({
+    "agent status", "agents status", "status of my agents", "status of the agents",
+    "what's running", "whats running", "what is running",
+    "who's waiting on me", "whos waiting on me", "who is waiting on me",
+    "is anything waiting on me", "is anyone waiting on me", "anything waiting on me",
+})
+AGENT_STATUS_SHAPE = re.compile(
+    r"^(what|how|what's|whats|are|is)\b.*\b(agents?|sessions?|terminals?|claudes?)\b"
+    r".*\b(doing|up to|going|status|working on|done|finished)$"
+    r"|^(what's|whats|what is) the status of (my|the) (agents?|sessions?|terminals?|claudes?)$"
+)
+
 
 @dataclass
 class Decision:
@@ -172,6 +188,11 @@ def answer_word(said: str) -> str | None:
 
 def terminal_stop_word(said: str) -> bool:
     return _norm(said) in TERMINAL_STOP_WORDS
+
+
+def agent_status_word(said: str) -> bool:
+    words = _norm(said)
+    return words in AGENT_STATUS_WORDS or bool(AGENT_STATUS_SHAPE.match(words))
 
 
 def seen_app(seen: str) -> str:

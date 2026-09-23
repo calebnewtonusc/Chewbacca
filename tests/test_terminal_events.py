@@ -33,6 +33,7 @@ def point_at(tmp: str) -> None:
     te.AGENT_EVENTS = Path(tmp) / "agent-events.jsonl"
     te.ASKS = Path(tmp) / "asks"
     te.PROJECT = Path(tmp) / "project.json"
+    te.TTYS = Path(tmp) / "agent-ttys"
 
 
 def event(name: str, cwd: str, **extra) -> dict:
@@ -227,6 +228,32 @@ def main() -> int:
                     front=lambda: "", sleep=clock.sleep, clock=clock)
     check("stop is appended with its sentence", out == "" and entries()[-1]["event"] == "Stop"
           and entries()[-1]["summary"] == "All green.")
+
+    print("session tty")
+    table = "\n".join([
+        "  900     1 ttys002  /opt/homebrew/bin/claude",
+        "  910   900 ttys002  /bin/bash",
+        "  920   910 ttys002  /Users/me/.local/bin/chewie",
+        "  930   920 ttys002  python3",
+        "  800     1 ??       claude",
+        "  810   800 ??       /bin/bash",
+    ])
+    check("the tty is the nearest claude's", te.tty_of_claude(930, table) == "/dev/ttys002")
+    check("claude -p with no terminal has no tty", te.tty_of_claude(810, table) == "")
+    check("no claude above means no tty", te.tty_of_claude(1, table) == "")
+    check("a walk never passes TTY_HOPS",
+          te.tty_of_claude(930, table.replace("/opt/homebrew/bin/claude", "zsh")) == "")
+    check("the first sight walks ps", te.session_tty("sess-1", ps=table) == "")
+    check("the answer is cached, empty or not", (te.TTYS / "sess-1").exists())
+    (te.TTYS / "sess-1").write_text("/dev/ttys009")
+    check("later events read the cache, not ps", te.session_tty("sess-1", ps="") == "/dev/ttys009")
+    check("a session id is never a path", te.session_tty("../../etc", ps=table) == ""
+          and not (te.TTYS.parent / "etc").exists())
+    te.handle(json.dumps(event("PreToolUse", "/elsewhere", session_id="sess-1", tool_name="Bash",
+                                    tool_input={"command": "ls"})), front=lambda: "", sleep=clock.sleep, clock=clock)
+    last = json.loads(te.AGENT_EVENTS.read_text().splitlines()[-1])
+    check("the board line carries the tty and the transcript",
+          last["tty"] == "/dev/ttys009" and last["transcript"] == "/x", str(last))
 
     print(f"\n{PASSED} passed, {FAILED} failed")
     return 1 if FAILED else 0
