@@ -508,30 +508,12 @@ install_backend_launchers() {
   log "Chewbacca backend launchers refreshed in ~/.local/bin"
 }
 
-# agent-neutral.md is written for the OTHER agent. Its own text says so: "The
-# detailed standards live in .claude/rules/ and in the user's global
-# instructions, both of which already load for the primary agent. Nothing here
-# restates them." Claude was loading all 1,176 tokens of it in every session
-# anyway, because a rule with no `paths:` frontmatter is always-on, and the
-# source file has none on purpose: it is also the source for AGENTS.md, where
-# Claude-specific frontmatter would be noise.
-#
-# So the scoping is added here, on the way into ~/.claude/rules, and the source
-# stays agent-neutral. The rule now loads when the work is actually about
-# another agent, and Codex's export is unchanged.
+# Shared standards apply to every runtime even when lifecycle hooks are disabled.
+# Keep one installed source; do not scope universal guidance to Codex file paths.
 install_agent_neutral_rule() {
   local dst="$HOME/.claude/rules/agent-neutral.md"
   mkdir -p "$HOME/.claude/rules"
-  {
-    printf '%s\n' '---'
-    printf '%s\n' 'paths:'
-    printf '%s\n' '  - "**/AGENTS.md"'
-    printf '%s\n' '  - "**/.codex/**"'
-    printf '%s\n' '  - "**/*codex*"'
-    printf '%s\n' '  - "**/instructions/agent-neutral.md"'
-    printf '%s\n' '---'
-    cat "$SCRIPT_DIR/instructions/agent-neutral.md"
-  } > "$dst"
+  cp "$SCRIPT_DIR/instructions/agent-neutral.md" "$dst"
 }
 
 install_agent_instructions() {
@@ -973,7 +955,7 @@ fi
 # list-audit is pure stdlib python, no venv and no network, so it installs with
 # no dependency check at all. list-gate ships with it: audit reads a bought file,
 # gate refuses to ship a generated one, and the Stop hook calls the gate by name.
-for _tool in list-audit list-gate kit-debt handoff-check learn durable-check corpus preflight gtme-graph gtme-math gtme-library gtme-learning clay-fixture-check review-gate task-graph graph-fuse work-ledger ux-learning; do
+for _tool in list-audit list-gate kit-debt handoff-check learn durable-check corpus preflight gtme-graph gtme-math gtme-library gtme-learning clay-fixture-check review-gate task-graph graph-fuse work-ledger ux-learning jev decision-lab ux-decision ux-policy clay-review; do
   if [ -f "$SCRIPT_DIR/bin/$_tool" ]; then
     link_tool "$_tool"
     log "$_tool installed to ~/.local/bin/"

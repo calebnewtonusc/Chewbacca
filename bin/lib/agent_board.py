@@ -14,6 +14,7 @@ is not called.
 """
 import json
 import os
+import jev
 from pathlib import Path
 
 MEMORY = Path(os.environ.get("BOB_MEMORY_DIR", str(Path.home() / ".bob" / "memory")))
@@ -142,7 +143,6 @@ def pick(said: str, board: dict, ask=None) -> dict:
     if len(rows) == 1:
         return {"session": rows[0]["session"], "confidence": 1.0, "why": "only one agent"}
     if ask is None:
-        import jev
         ask = jev.ask
     criteria, keys = menu(board)
     answers = ask({"spoken": said}, {"agent": {
@@ -155,11 +155,11 @@ def pick(said: str, board: dict, ask=None) -> dict:
         },
         "criteria": criteria,
     }})
-    answer = (answers or {}).get("agent") or {}
-    choice = answer.get("choice")
-    if choice not in criteria:
-        return {"session": None, "confidence": 0.0, "why": "jev did not answer"}
-    confidence = float((answer.get("probabilities") or {}).get(choice, 0.0))
+    answer = answers.get("agent") if isinstance(answers, dict) else None
+    validated = jev.validate_choice(answer, criteria)
+    if validated is None:
+        return {"session": None, "confidence": 0.0, "why": "jev did not provide a valid choice"}
+    choice, confidence = validated
     if choice == "none" or confidence < PICK_FLOOR:
         return {"session": None, "confidence": confidence, "why": f"jev chose {choice} at {confidence:.2f}"}
     return {"session": keys[choice], "confidence": confidence, "why": f"jev chose {choice}"}

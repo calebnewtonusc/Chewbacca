@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+"""Evaluate typed questions with TypeSafe Jev."""
+from pathlib import Path
+import runpy
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+runpy.run_path(str(Path(__file__).resolve().parent.parent / "tools/jev.py"), run_name="__main__")

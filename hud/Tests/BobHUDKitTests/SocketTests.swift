@@ -45,7 +45,165 @@ struct SocketTests {
                 Darwin.connect(fd, $0, size)
             }
         }
-        return ok == 0 ? fd : -1
+        if ok != 0 { close(fd); return -1 }
+        return fd
+    }
+
+    private func legacyListener(at path: String) throws -> Int32 {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let capacity = MemoryLayout.size(ofValue: address.sun_path)
+        _ = withUnsafeMutablePointer(to: &address.sun_path) { pointer in
+            path.withCString { strncpy(UnsafeMutableRawPointer(pointer).assumingMemoryBound(to: CChar.self), $0, capacity - 1) }
+        }
+        let result = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard result == 0 && listen(fd, 16) == 0 else {
+            let error = errno
+            close(fd)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(error))
+        }
+        return fd
+    }
+
+    @Test("an older listener without a lock keeps its endpoint")
+    func legacyOwner() throws {
+        let path = temporaryPath()
+        defer { try? FileManager.default.removeItem(atPath: (path as NSString).deletingLastPathComponent) }
+        let legacy = try legacyListener(at: path)
+        defer { close(legacy) }
+        let newcomer = SocketServer(path: path) { _ in }
+        #expect(throws: (any Error).self) { try newcomer.start() }
+        newcomer.stop()
+        let fd = connect(to: path)
+        #expect(fd >= 0)
+        if fd >= 0 { close(fd) }
+    }
+
+    @Test("ordinary files are never removed as stale sockets")
+    func preservesFile() throws {
+        let path = temporaryPath()
+        defer { try? FileManager.default.removeItem(atPath: (path as NSString).deletingLastPathComponent) }
+        try Data("keep".utf8).write(to: URL(fileURLWithPath: path))
+        let server = SocketServer(path: path) { _ in }
+        #expect(throws: (any Error).self) { try server.start() }
+        server.stop()
+        #expect(try String(contentsOfFile: path, encoding: .utf8) == "keep")
+    }
+
+    @Test("stop preserves a replacement endpoint owned by another listener")
+    func preservesReplacement() throws {
+        let path = temporaryPath()
+        defer { try? FileManager.default.removeItem(atPath: (path as NSString).deletingLastPathComponent) }
+        let server = SocketServer(path: path) { _ in }
+        try server.start()
+        defer { server.stop() }
+        // Model an older process that does not cooperate with the new lock.
+        unlink(path)
+        let replacement = try legacyListener(at: path)
+        defer { close(replacement) }
+        server.stop()
+        let fd = connect(to: path)
+        #expect(fd >= 0)
+        if fd >= 0 { close(fd) }
+    }
+
+    @Test("a contender and repeated stop cannot remove the owner's endpoint")
+    func exclusiveOwnership() async throws {
+        let path = temporaryPath()
+        defer { try? FileManager.default.removeItem(atPath: (path as NSString).deletingLastPathComponent) }
+        let owner = SocketServer(path: path) { _ in }
+        let lines = Mailbox()
+        let contender = SocketServer(path: path) { event in
+            if case .line(let line) = event.kind { lines.add(line) }
+        }
+        try owner.start()
+        defer { owner.stop(); contender.stop() }
+        #expect(throws: (any Error).self) { try owner.start() }
+        #expect(throws: (any Error).self) { try contender.start() }
+        contender.stop()
+        let first = connect(to: path)
+        #expect(first >= 0)
+        if first >= 0 { close(first) }
+        owner.stop()
+        try contender.start()
+        owner.stop()
+        let second = connect(to: path)
+        #expect(second >= 0)
+        if second >= 0 {
+            let payload = "r successor\n"
+            _ = payload.withCString { send(second, $0, strlen($0), 0) }
+            try await Task.sleep(for: .milliseconds(100))
+            close(second)
+        }
+        #expect(lines.all.contains("r successor"))
+    }
+
+    @Test("failed startup releases ownership for a later server")
+    func failedStartReleasesOwnership() throws {
+        let path = temporaryPath()
+        let directory = (path as NSString).deletingLastPathComponent
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        // An existing directory is rejected after obtaining the ownership lock.
+        try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: false)
+        let failed = SocketServer(path: path) { _ in }
+        #expect(throws: (any Error).self) { try failed.start() }
+        try FileManager.default.removeItem(atPath: path)
+        let successor = SocketServer(path: path) { _ in }
+        try successor.start()
+        defer { successor.stop() }
+        failed.stop()
+        let fd = connect(to: path)
+        #expect(fd >= 0)
+        if fd >= 0 { close(fd) }
+    }
+
+    @Test("kernel ownership survives contention and is released after process death")
+    func processOwnership() throws {
+        let path = temporaryPath()
+        defer { try? FileManager.default.removeItem(atPath: (path as NSString).deletingLastPathComponent) }
+        // Independent process holds the same kernel contract and leaves a stale
+        // bound socket after SIGKILL; no HUD application or private socket is used.
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = ["-c", """
+        import fcntl, os, signal, socket, sys
+        fd = os.open(sys.argv[1] + '.lock', os.O_CREAT | os.O_RDWR, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        sock = socket.socket(socket.AF_UNIX)
+        sock.bind(sys.argv[1])
+        sock.listen()
+        os.write(1, b'R')
+        signal.pause()
+        """, path]
+        let ready = Pipe()
+        process.standardOutput = ready
+        try process.run()
+        defer {
+            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            process.waitUntilExit()
+        }
+        var descriptor = pollfd(fd: ready.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
+        try #require(poll(&descriptor, 1, 5000) == 1)
+        #expect(try ready.fileHandleForReading.read(upToCount: 1) == Data([82]))
+        let server = SocketServer(path: path) { _ in }
+        #expect(throws: (any Error).self) { try server.start() }
+        server.stop()
+        let stillOwned = connect(to: path)
+        #expect(stillOwned >= 0)
+        if stillOwned >= 0 { close(stillOwned) }
+        kill(process.processIdentifier, SIGKILL)
+        process.waitUntilExit()
+        try server.start()
+        defer { server.stop() }
+        let recovered = connect(to: path)
+        #expect(recovered >= 0)
+        if recovered >= 0 { close(recovered) }
     }
 
     @Test("a second client is served while the first stays connected")

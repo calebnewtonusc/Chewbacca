@@ -1,0 +1,32 @@
+{
+  "source": "preexisting local Chewbacca CLI; no credentials or private inputs copied",
+  "recorded_at": "2026-09-23",
+  "original_files": [
+    {
+      "file": "bin/jev",
+      "sha256": "483190e7b2686f7854fd107b255b44fa53a0916b6f5ff0003dcbcf480bf3df03"
+    },
+    {
+      "file": "tools/jev.py",
+      "sha256": "f2f339afc5aee491e4c32af562ea0ad616270d3a9065e55c6085ac20a64d0e5d"
+    },
+    {
+      "file": "tests/test_jev.py",
+      "sha256": "7e5bc1fe6cd420eb1320c7d1611fc90a29b596075932b3be7e23c5409618be24"
+    },
+    {
+      "file": "skills/jev/SKILL.md",
+      "sha256": "1855ea5be19be353b240076e6485f6f2fc33f5c1e41c95cf32a160a934280e7b"
+    }
+  ],
+  "compatibility": [
+    "status",
+    "auth",
+    "evaluate",
+    "route",
+    "smoke"
+  ],
+  "checks": "Offline tests only; no credential access or live calls",
+  "offline_parity_tests": 20,
+  "verified": "Original files unchanged; all five commands retained; mocked transport/auth, strict limits, model preservation and shared consent tests passed."
+}

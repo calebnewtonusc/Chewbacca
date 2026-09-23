@@ -42,6 +42,11 @@ COMMANDS=(
   "setup|full setup on this machine (asks nothing)"
   "agent|plan, install, inspect or launch a runtime adapter"
   "ux-learning|record UX evidence and inspect portable navigation maps"
+  "jev|typed TypeSafe decisions and semantic skill suggestions"
+  "decision-lab|compare bounded Jev decisions with verified outcomes"
+  "ux-decision|recommend controls from fresh observed and permitted states"
+  "ux-policy|learn offline action rewards and plan evidence-backed graph routes"
+  "clay-review|verify at most five held Clay draft records without model calls"
   "task-graph|manage durable agent jobs and verification dependencies"
   "work-ledger|preserve workspace commitments across messages and runtimes"
   "graph-fuse|inspect possible entity matches without merging records"
@@ -95,7 +100,7 @@ repo_version() { cat "$ROOT/VERSION" 2>/dev/null || echo "unknown"; }
 installed_version() { cat "$STATE/version" 2>/dev/null || echo "unrecorded"; }
 
 case "${1:-}" in
-task-graph|graph-fuse|review-gate|work-ledger|ux-learning)
+task-graph|graph-fuse|review-gate|work-ledger|ux-learning|jev|decision-lab|ux-decision|ux-policy|clay-review)
   tool="$1"
   shift
   exec python3 "$ROOT/bin/$tool" "$@"

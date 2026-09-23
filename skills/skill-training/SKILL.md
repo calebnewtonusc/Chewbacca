@@ -8,6 +8,8 @@ description: Improve skills from real corrections and develop expertise in new d
 For developing expertise in a new domain or improving the learning process itself,
 read [learning-transfer.md](references/learning-transfer.md). It separates source
 coverage, procedural change, held-out performance, cross-domain transfer and retention.
+Apply [the decision standards](../../docs/DECISION-STANDARDS.md): measure improvement,
+test meaningful alternatives, and retain authorized private evidence with provenance.
 
 A skill that is never updated from real runs decays: the world moves and the
 file does not. The correction the user just made is the training data, and it
@@ -31,8 +33,9 @@ miss because the work still got done.
    Guessing here is how a skill acquires rules nobody wanted.
    If the user has already explicitly said to persist the lesson, use that answer;
    do not ask them to repeat it.
-3. **Edit the skill file**, not the output. Fixing the artifact solves today.
-   Fixing the file solves the next twenty.
+3. **Apply the correction, then persist its mechanism.** Repair the active work
+   and update the owning skill or regression test. A saved rule is a candidate
+   improvement until a later task retrieves and successfully applies it.
 4. **Append a dated changelog line** to the skill saying what changed and
    what prompted it. A rule whose reason is lost gets removed by whoever
    finds it unconvincing.
@@ -80,3 +83,5 @@ Training note, 2026-09-23: a site task repeated across many items (28 LinkedIn s
 one hand-driven click at a time until the person said "go faster". After the first item works
 by hand, script the rest: poll the page instead of sleeping, and prove the result by rereading.
 Keep the script as a procedure (`procedures/linkedin-skills`) so the lesson is code, not prose.
+
+Training note, 2026-09-23: mathematical, creative and proprietary standards now require measured transfer, discriminating alternatives and private verified assets. Saving a lesson alone no longer implies future behavior changed.

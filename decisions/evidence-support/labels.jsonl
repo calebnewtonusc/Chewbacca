@@ -1,0 +1,5 @@
+{"example_id": "current-role", "label": "supported", "reason": "Same person, current role, and firm stated explicitly.", "verifier": "Human-reviewable source entailment fixture fixed before provider calls"}
+{"example_id": "prior-context", "label": "unsupported", "reason": "Old association does not establish a current role or partner title.", "verifier": "Human-reviewable source entailment fixture fixed before provider calls"}
+{"example_id": "regional-mandate", "label": "unsupported", "reason": "The India vehicle mandate does not establish the US vehicle mandate.", "verifier": "Human-reviewable source entailment fixture fixed before provider calls"}
+{"example_id": "projected-revenue", "label": "unsupported", "reason": "A future forecast is not achieved current revenue.", "verifier": "Human-reviewable source entailment fixture fixed before provider calls"}
+{"example_id": "personal-ownership", "label": "unsupported", "reason": "Firm portfolio and partner membership do not establish individual deal ownership.", "verifier": "Human-reviewable source entailment fixture fixed before provider calls"}

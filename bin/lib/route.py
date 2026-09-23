@@ -501,11 +501,12 @@ def classify_with_jev(said: str, memory: dict) -> str | None:
     if app == "Terminal" and context.get("claude_tab"):
         app = "Terminal (Claude Code)"
     answers = jev.ask({"spoken": said, "frontmost_app": app}, JEV_QUESTION, timeout=CLASSIFY_TIMEOUT_S)
-    answer = (answers or {}).get("dest") or {}
-    choice = answer.get("choice")
-    if choice not in DESTS:
+    answer = answers.get("dest") if isinstance(answers, dict) else None
+    validated = jev.validate_choice(answer, JEV_QUESTION["dest"]["criteria"])
+    if validated is None:
         return None
-    if choice == "terminal" and (answer.get("probabilities") or {}).get("terminal", 0.0) < JEV_TERMINAL_FLOOR:
+    choice, confidence = validated
+    if choice == "terminal" and confidence < JEV_TERMINAL_FLOOR:
         return "assistant"
     return choice
 

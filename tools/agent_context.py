@@ -50,7 +50,21 @@ def source_names(root):
 
 
 def codex_home():
-    return Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))).expanduser()
+    """Honor configured paths; explicit isolated-home mode confines inherited paths.
+
+    HOME can legitimately differ from the account database (containers, network
+    homes and launchers), so that difference alone never changes CODEX_HOME.
+    """
+    home = Path.home()
+    configured = os.environ.get('CODEX_HOME')
+    if not configured:
+        return home / '.codex'
+    chosen = Path(configured).expanduser()
+    if os.environ.get('CHEWBACCA_ISOLATED_HOME') == '1':
+        root, target = home.resolve(), chosen.resolve()
+        if target != root and root not in target.parents:
+            return home / '.codex'
+    return chosen
 
 
 def initialize(root, name=None):

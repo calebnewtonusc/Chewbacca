@@ -188,9 +188,6 @@ def remove(name):
 
 
 def instruction_block(spec):
-    if spec['adapter'] == 'claude':
-        return (f'{BEGIN}\nChewbacca runtime requirements: `{ROOT / "docs/RUNTIMES.md"}`. '
-                'Read when setting up or switching hosts.\n' + END)
     notes = '\n'.join('- ' + note for note in spec['notes'])
     return (f'{BEGIN}\n## Chewbacca runtime: {spec["label"]}\n\n'
             f'Read `{ROOT / "instructions/agent-neutral.md"}` for shared guidance.\n'

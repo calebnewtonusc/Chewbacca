@@ -222,6 +222,22 @@ if group "ux-learning"; then
   check "shared instruction export is current" python3 "$ROOT/tools/agents_md.py" --check
 fi
 
+# Explicit decision learning; fixture tests never call models or browsers.
+if group "decision-learning"; then
+  check "preserved explicit Jev CLI contract" python3 "$ROOT/tests/test_jev.py"
+  for tool in jev decision-lab ux-decision ux-policy clay-review; do
+    check "$tool dispatches" bash "$ROOT/bin/chewbacca" "$tool" --help
+    ln -s "$ROOT/bin/$tool" "$TMP/$tool"
+    check "$tool resolves installed symlink" "$TMP/$tool" --help
+  done
+  check "decision contracts and outcome accounting" python3 "$ROOT/tests/test_decision_lab.py"
+  check "fresh observed UI recommendations" python3 "$ROOT/tests/test_ux_decision.py"
+  check "graph optimization and offline reinforcement learning" python3 "$ROOT/tests/test_ux_policy.py"
+  check "bounded Clay replay and stale rejection" python3 "$ROOT/tests/test_clay_review.py"
+  check "Jev transport shape and credential compatibility" python3 "$ROOT/tests/test_jev_transport.py"
+  check "shared instruction export stays current" python3 "$ROOT/tools/agents_md.py" --check
+fi
+
 # ── GTM engineering ───────────────────────────────────────────────────────────
 if group "gtme"; then
   check "workflow graph validates evidence and bounds execution" python3 "$ROOT/tests/test_gtme_graph.py"

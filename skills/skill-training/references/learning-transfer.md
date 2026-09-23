@@ -2,6 +2,10 @@
 
 Use this protocol when learning a new domain or improving how the agent learns.
 It is a proposed operating method. Its effectiveness requires comparative tests.
+The [decision standards](../../../docs/DECISION-STANDARDS.md) apply throughout:
+mathematical evidence, creative alternatives and authorized private accumulation.
+The current registry and runtime are generic infrastructure. An outcome advantage
+remains a hypothesis until comparative and later-session tests demonstrate it.
 
 ## Define the competence before collecting material
 
@@ -38,6 +42,9 @@ domain skill. Keep reusable principles here only when their scope is justified.
 2. Run untouched tasks from the same domain and the existing regression set.
 3. Run a separately prepared task in another environment or domain to test transfer.
 4. Recheck after a later session to test persistence and successful retrieval.
+   Record the lesson version actually retrieved, the action it changed and the
+   independently checked outcome. Compare against the earlier failure; merely
+   finding the lesson in storage does not pass this test.
 
 Use a verifier separate from the generator, anchored to actual output. Freeze task
 selection and judging criteria before candidate results. Report every assigned
@@ -49,6 +56,13 @@ Compare equal-budget alternatives: the unchanged agent, a simpler checklist or
 retrieval method, and the candidate procedure. Ablate the supposed learning
 mechanism. Extra context, tools or spending can explain a gain without improved
 learning. Report what changed instead of attributing every improvement to expertise.
+
+Keep authorized private records of task identity, observed state, decision, action,
+outcome, correction and source provenance. Minimize personal data and exclude
+credentials. Record rights and publication scope before promoting a private example
+into a shared procedure. Synthetic fixtures are shareable only when they disclose
+no client facts; they do not establish live performance. A Jev recommendation is
+an input to evaluation, never an independent outcome witness or permission grant.
 
 ## Promotion and rollback
 
