@@ -1,6 +1,6 @@
 ---
 name: gtm-engineering
-description: Build and evaluate GTM workflows in Clay: ICP, signals, list building, qualification, enrichment, sequencing, CRM routing, and outcome measurement. Use for operating or learning Clay and testing GTM automation reliability.
+description: "Build and evaluate GTM workflows in Clay: ICP, signals, list building, qualification, enrichment, sequencing, CRM routing, and outcome measurement. Use for operating or learning Clay and testing GTM automation reliability."
 ---
 
 # GTM engineering
