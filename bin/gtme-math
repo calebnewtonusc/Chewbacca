@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+"""Run offline GTM arithmetic from a checkout or a symlinked installation."""
+from pathlib import Path
+import runpy
+
+runpy.run_path(str(Path(__file__).resolve().parent.parent / "tools" / "gtme_math.py"),
+               run_name="__main__")

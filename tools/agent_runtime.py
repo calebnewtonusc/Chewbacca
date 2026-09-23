@@ -2,6 +2,7 @@
 """Install shared Chewbacca assets through explicit native runtime adapters."""
 import argparse
 import base64
+import copy
 import hashlib
 import json
 import os
@@ -95,12 +96,60 @@ def snapshot(path):
             'sha256': hashlib.sha256(contents).hexdigest(), 'mode': path.stat().st_mode & 0o777}
 
 
+def codex_capacity_config(original):
+    """Insert missing defaults only when TOML parsing proves the exact change."""
+    try:
+        import tomllib
+    except ImportError as error:
+        raise ValueError('Codex capacity setup requires Python 3.11+; no adapter files changed') from error
+    try:
+        data = tomllib.loads(original)
+    except tomllib.TOMLDecodeError as error:
+        raise ValueError('Codex config.toml is invalid; no adapter files changed') from error
+    agents = data.get('agents', {})
+    if not isinstance(agents, dict):
+        raise ValueError('Codex agents must be a TOML table; no adapter files changed')
+    additions = {}
+    features = data.get('features', {})
+    legacy_disabled = isinstance(features, dict) and any(features.get(key) is False for key in ('multi_agent', 'collab'))
+    if 'enabled' not in agents and not legacy_disabled:
+        additions['enabled'] = True
+    if not {'max_concurrent_threads_per_session', 'max_threads'} & agents.keys():
+        additions['max_concurrent_threads_per_session'] = 100  # Product default, not a measured safe fan-out.
+    if not additions:
+        return original
+    expected = copy.deepcopy(data)
+    expected.setdefault('agents', {}).update(additions)
+    newline = '\r\n' if '\r\n' in original else '\n'
+    values = [f'{key} = {str(value).lower()}' for key, value in additions.items()]
+    bare = newline.join(values) + newline
+    dotted = newline.join('agents.' + value for value in values) + newline
+    table = '[agents]' + newline + bare
+    # Trying line boundaries and validating the whole parsed tree avoids
+    # mistaking a quoted key or a multiline string for a table header.
+    boundaries = [0] + [index + 1 for index, char in enumerate(original) if char == '\n']
+    if len(original) not in boundaries:
+        boundaries.append(len(original))
+    candidates = [(len(original), table), (0, dotted)]
+    candidates.extend((offset, bare) for offset in boundaries)
+    for offset, insertion in candidates:
+        separator = newline if offset and original[offset - 1] != '\n' else ''
+        updated = original[:offset] + separator + insertion + original[offset:]
+        try:
+            if tomllib.loads(updated) == expected:
+                return updated
+        except tomllib.TOMLDecodeError:
+            continue
+    raise ValueError('Cannot safely extend this Codex agents TOML layout; no adapter files changed. '
+                     'Use a standard [agents] table or set the desired values explicitly.')
+
+
 def native_paths(key):
     if key == 'codex':
         home = context.codex_home()
         override = home / 'AGENTS.override.md'
         instruction = override if override.is_file() and override.read_text().strip() else home / 'AGENTS.md'
-        return [instruction, home / 'hooks.json', home / 'chewbacca-context.json']
+        return [instruction, home / 'hooks.json', home / 'chewbacca-context.json', home / 'config.toml']
     home = claude_home()
     return [home / 'CLAUDE.md', home / 'settings.json']
 
@@ -188,6 +237,12 @@ def setup(name, brain=None, import_claude_skills=False, person_name=None):
     planned = plan(name)
     if any(spec['install_mode'] != 'native' for spec in planned['runtimes']):
         raise ValueError('This target supports export only. Use agent export --runtime NAME --destination PATH; shell hooks need a supported local runtime.')
+    codex_config = context.codex_home() / 'config.toml'
+    capacity_config = None
+    codex_original = None
+    if any(spec['id'] == 'codex' for spec in planned['runtimes']):
+        codex_original = codex_config.read_bytes().decode('utf-8') if codex_config.exists() else None
+        capacity_config = codex_capacity_config(codex_original or '')
     brain = (brain or context.brain_root(context.codex_home())).expanduser().resolve()
     created_context = context.initialize(brain, person_name)
     shared = shared_home()
@@ -208,6 +263,11 @@ def setup(name, brain=None, import_claude_skills=False, person_name=None):
         before = [snapshot(path) for path in native_paths(key)]
         if key == 'codex':
             import codex_hooks
+            current_config = codex_config.read_bytes().decode('utf-8') if codex_config.exists() else None
+            if current_config != codex_original:
+                raise ValueError('Codex config.toml changed during setup; concurrent edit preserved. Rerun setup.')
+            if capacity_config != current_config:
+                context.atomic_write(codex_config.resolve(), capacity_config)
             target = context.install(context.codex_home(), brain)
             hook_path = codex_hooks.install(context.codex_home())
             skill_path = Path.home() / spec['skills_dir']

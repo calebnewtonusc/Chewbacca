@@ -40,7 +40,11 @@ CHECK="$ROOT/bin/durable-check"
 [ -x "$CHECK" ] || CHECK="$(command -v durable-check || true)"
 [ -x "$CHECK" ] || exit 0
 
-if OUT=$(printf '%s' "$USER_TEXT" | "$CHECK" --session "$SESSION" 2>&1); then
+SINCE=$(printf '%s' "$INPUT" | jq -r '.durable_since // empty')
+ARGS=(--session "$SESSION")
+[ -z "$SINCE" ] || ARGS+=(--since "$SINCE")
+
+if OUT=$(printf '%s' "$USER_TEXT" | "$CHECK" "${ARGS[@]}" 2>&1); then
   exit 0
 fi
 

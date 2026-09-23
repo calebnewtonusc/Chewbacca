@@ -18,6 +18,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import codex_context as context
+from work_ledger import context_for
 
 ROOT = Path(__file__).resolve().parents[1]
 EVENTS = ('SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop')
@@ -122,8 +123,16 @@ def turn_state(payload):
         state = json.loads(row[0]) if row else {}
         event = payload.get('hook_event_name')
         if event == 'UserPromptSubmit':
-            state = {'prompt': payload.get('prompt', ''), 'sequence': 0,
-                     'last_write': 0, 'last_success': -1}
+            state = {'prompt': payload.get('prompt', ''), 'prompt_started_at': time.time(), 'sequence': 0,
+                     'last_write': 0, 'last_success': -1,
+                     'review_required': state.get('review_required', []),
+                     'review_before': state.get('review_before', {}),
+                     'review_inflight': state.get('review_inflight', {})}
+        elif event == 'PreToolUse':
+            key = review_tool_key(payload)
+            state.setdefault('review_before', {}).setdefault(key, review_snapshots(payload))
+            inflight = state.setdefault('review_inflight', {})
+            inflight[key] = inflight.get(key, 0) + 1
         elif event == 'PostToolUse':
             sequence = state.get('sequence', 0) + 1
             state['sequence'] = sequence
@@ -132,25 +141,159 @@ def turn_state(payload):
                 state['last_write'] = sequence
             elif isinstance(response, dict) and response.get('exit_code') == 0:
                 state['last_success'] = sequence
+            required = set(state.get('review_required', []))
+            key = review_tool_key(payload)
+            before = state.setdefault('review_before', {}).get(key, {})
+            for repo, digest in review_snapshots(payload).items():
+                if repo not in before and not digest.startswith('unavailable:'):
+                    import review_gate
+                    if review_gate.repo_root(repo) is not None:
+                        try:
+                            if review_gate.scope_path(repo).exists():
+                                review_gate.current_scope(repo)
+                            else:
+                                review_gate.capture_scope(repo, base='UNBORN')
+                        except (OSError, ValueError, subprocess.TimeoutExpired):
+                            try:
+                                review_gate.mark_scope_failure(repo)
+                            except OSError:
+                                pass
+                            required.add(repo)
+                if digest.startswith('unavailable:') or repo not in before or digest != before[repo]:
+                    required.add(repo)
+            state['review_required'] = sorted(required)
+            finish_review_observation(state, key)
+        elif event == 'ReviewScopeFailed':
+            state['review_required'] = sorted(set(state.get('review_required', [])) | {payload['review_repo']})
+        elif event == 'ToolDenied':
+            finish_review_observation(state, review_tool_key(payload))
         else:
             return state
         db.execute('INSERT OR REPLACE INTO turns VALUES (?, ?)', (sid, json.dumps(state)))
         return state
 
 
+
+def finish_review_observation(state, key):
+    inflight = state.setdefault('review_inflight', {})
+    remaining = inflight.get(key, 1) - 1
+    if remaining > 0:
+        inflight[key] = remaining
+    else:
+        inflight.pop(key, None)
+        state.setdefault('review_before', {}).pop(key, None)
+
+
+def review_tool_key(payload):
+    identity = payload.get('tool_use_id') or payload.get('tool_call_id')
+    if identity:
+        return str(identity)
+    raw = json.dumps([payload.get('tool_name'), payload.get('tool_input')], sort_keys=True)
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def review_snapshots(payload):
+    """Observe candidate repositories without interpreting shell programs."""
+    import review_gate
+    tool_input = payload.get('tool_input') or {}
+    if not isinstance(tool_input, dict):
+        tool_input = {}
+    cwd = Path(payload.get('cwd') or os.getcwd())
+    candidates = [cwd]
+    workdir = tool_input.get('workdir')
+    if isinstance(workdir, str):
+        candidates.append(cwd / workdir)
+    candidates.extend(Path(path).parent for path in changed_paths(payload))
+    # Literal paths cover shell edits and outer orchestration payloads. Dynamic
+    # programs can construct other paths; this is observation, not a sandbox.
+    for value in tool_input.values():
+        if not isinstance(value, str):
+            continue
+        for match in re.finditer(r'''(["'])(/[^\n"']{1,4096})\1''', value):
+            candidates.append(Path(match.group(2)))
+        try:
+            candidates.extend(Path(token) for token in shlex.split(value)
+                              if token.startswith('/') and len(token) <= 4096)
+        except ValueError:
+            pass
+    snapshots = {}
+    for candidate in candidates:
+        while not candidate.is_dir() and candidate != candidate.parent:
+            candidate = candidate.parent
+        try:
+            result = subprocess.run(['git', '-C', str(candidate), 'rev-parse', '--show-toplevel'],
+                                    capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            snapshots[str(candidate.resolve())] = 'unavailable: repository discovery failed'
+            continue
+        if result.returncode:
+            continue
+        repo = Path(result.stdout.strip()).resolve()
+        if repo == Path.home() or str(repo) in snapshots:
+            continue
+        try:
+            snapshots[str(repo)] = review_gate.snapshot(repo)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            snapshots[str(repo)] = 'unavailable: repository snapshot failed'
+    return snapshots
+
+
+def review_stop(state):
+    import review_gate
+    failures = []
+    for repo in state.get('review_required', []):
+        valid, reason = review_gate.check(Path(repo))
+        if not valid:
+            command = shlex.join([str(ROOT / 'bin/review-gate'), 'run', '--repo', repo])
+            failures.append(f'{repo}: {reason}. Run {command}, resolve findings, and rerun '
+                            'relevant tests and review. Do this yourself; do not ask the user '
+                            'to review the diff. If review cannot run, report it as incomplete.')
+    return '\n'.join(failures)
+
+
 def dispatch(payload):
     try:
         return dispatch_event(payload)
     except HookDenied as error:
+        denied = dict(payload, hook_event_name='ToolDenied')
+        turn_state(denied)
+        reason = str(error)
+        try:
+            shared_hook('write-log.sh', denied, payload.get('cwd') or os.getcwd())
+        except (HookDenied, OSError, RuntimeError, subprocess.TimeoutExpired):
+            reason += ' Write observation cleanup was unavailable; the operation remains denied.'
         return {'hookSpecificOutput': {'hookEventName': 'PreToolUse',
-                'permissionDecision': 'deny', 'permissionDecisionReason': str(error)}}
+                'permissionDecision': 'deny', 'permissionDecisionReason': reason}}
 
 
 def dispatch_event(payload):
+    try:
+        return dispatch_event_body(payload)
+    finally:
+        if payload.get('hook_event_name') == 'PostToolUse':
+            turn_state(payload)
+
+
+def dispatch_event_body(payload):
     event = payload.get('hook_event_name')
     cwd = payload.get('cwd') or os.getcwd()
-    state = turn_state(payload)
+    state = turn_state(dict(payload, hook_event_name='Stop')) if event == 'PostToolUse' else turn_state(payload)
     parts = []
+    if event == 'PreToolUse':
+        import review_gate
+        for repo in state.get('review_before', {}).get(review_tool_key(payload), {}):
+            if review_gate.repo_root(repo) is not None:
+                try:
+                    review_gate.capture_scope(repo)
+                except (OSError, ValueError, subprocess.TimeoutExpired):
+                    try:
+                        review_gate.mark_scope_failure(repo)
+                    except OSError:
+                        pass
+                    state = turn_state(dict(payload, hook_event_name='ReviewScopeFailed', review_repo=repo))
+                    parts.append('Review scope could not be frozen. Review remains required; repair the scope with an explicit base before claiming completion.')
+    if event in ('SessionStart', 'UserPromptSubmit'):
+        parts.append(context_for(cwd))
     if event == 'SessionStart':
         root = context.brain_root(context.codex_home())
         with contextlib.redirect_stdout(io.StringIO()) as output:
@@ -201,12 +344,30 @@ def dispatch_event(payload):
                     parts.append(invoke(['bash', str(optional)], translated, cwd))
                 parts.append(shared_hook('prose-guard.sh', translated, cwd))
     elif event == 'Stop':
+        review_feedback = review_stop(state)
+        if review_feedback:
+            import review_gate
+            if not review_gate.allows_incomplete(state, payload):
+                command = shlex.join([str(ROOT / 'bin/review-gate'), 'report-incomplete',
+                                      '--session-id', str(payload.get('session_id', '')),
+                                      '--turn-id', str(payload.get('turn_id', ''))])
+                report = ''
+                try:
+                    incomplete = review_gate.prepare_incomplete(
+                        state.get('review_required', []), payload.get('session_id'),
+                        payload.get('turn_id'), state.get('sequence', 0))
+                    report = '\nIf further repair cannot proceed, the exact incomplete report is:\n' + incomplete['report']
+                except (OSError, ValueError, TypeError, KeyError, subprocess.TimeoutExpired):
+                    pass
+                return {'decision': 'block', 'reason': review_feedback +
+                        '\nAfter a recorded failed review, ' + command +
+                        ' prepares an incomplete report. This never clears review obligations.' + report}
         # Codex provides turn_id; session_id alone suppresses every later turn.
         if not payload.get('stop_hook_active'):
             identity = str(payload.get('session_id', '')) + ':' + str(payload.get('turn_id', ''))
             translated = dict(payload, prompt_id=hashlib.sha256(identity.encode()).hexdigest(),
                               user_message=payload.get('user_message', state.get('prompt', '')),
-                              agent='codex', codex_evidence_after_write=(
+                              agent='codex', durable_since=state.get('prompt_started_at'), codex_evidence_after_write=(
                                   state.get('last_success', -1) > state.get('last_write', 0)))
             feedback = '\n\n'.join(filter(None, (
                 shared_hook(name, translated, cwd)

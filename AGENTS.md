@@ -68,9 +68,47 @@ Use `ai-scan` and `slop-check` for prose and `code-slop` for code when installed
 Read back generated files and verify the edit landed. Report observed outcomes,
 failures, and skipped checks accurately.
 
+Own routine code review without requiring the user to inspect diffs. Before
+claiming a code change complete, use reviewing-changes and an independent reviewer,
+repair substantiated findings, and rerun affected checks. Local review-gate receipts
+must match the current repository state. Escalate genuine product choices or missing
+authority, not ordinary review labor. Automated review is not a no-defects guarantee.
+
 Run independent reads in parallel. Delegate only substantial independent tracks
 when the active agent supports delegation. Keep file ownership clear and preserve
 other workers' edits. Small tasks do not need subagents.
+
+For ongoing work with multiple commitments, maintain concise tasks in `work-ledger`
+under the current workspace scope. Add new requests without replacing unfinished
+tasks, and record the next action. The shared context reader and Codex prompt adapter
+surface that scope's open tasks. Completion requires evidence; cancellation requires
+the user's cancellation or a documented scope decision. The ledger does not spawn
+workers. Dispatch dependency-ready jobs within the host's actual concurrency and
+resource limits, and retain waiting jobs for later waves.
+
+For substantial new work, reassess after each phase: observed result against the
+baseline and falsifier, reusable capabilities, alternative approaches, mathematical
+assumptions, and the next discriminating test. Choose continue, revise, or stop.
+Record novelty as existing, adaptation, or unverified; do not claim originality or
+superiority without comparative evidence. Routine small edits need no ceremony.
+
+Treat missing capabilities as engineering questions. Before declaring a task
+impossible or blocked, inspect the actual interface, existing tools and relevant
+implementations; test supported alternatives and build a bounded adapter when
+authorized. Distinguish unavailable in this interface, failed in this experiment,
+and demonstrated infeasibility. Preserve permission boundaries and real resource
+limits. Never invent success, bypass a denial, or promise that every problem has a
+solution. Record the concrete blocker and the next experiment that could resolve it.
+
+When developing expertise in a new domain, use skill-training's learning-transfer
+reference. Preserve reusable lessons about learning separately from domain recipes.
+Test unfamiliar tasks and retention before claiming transfer or durable expertise;
+relative improvement alone does not establish an acceptable success rate.
+
+Research across relevant media, especially repositories for technical questions.
+Use the deep-research skill to inspect code, tests and issues alongside papers,
+documentation, videos and practitioner evidence. Record coverage and access gaps;
+downloaded or indexed material must not be reported as read, tested or applied.
 
 ## Private context and second brain
 

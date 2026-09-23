@@ -45,6 +45,32 @@ git commit -q -m x >/dev/null 2>&1 && no "two sessions: absorbed a bare commit" 
 stage
 git commit -q -m x -- a.txt b.txt >/dev/null 2>&1 && ok "two sessions: pathspec commit allowed" || no "two sessions: refused a pathspec commit"
 
+# Explicitly scoped work can legitimately span hours; age is not ownership.
+stage
+python3 -c 'import os,time; old=time.time()-7200; os.utime("a.txt", (old,old))'
+git commit -q -m scoped-old -- a.txt b.txt >/dev/null 2>&1 && ok "pathspec admits old and new owned files" || no "pathspec rejected by mtime heuristic"
+
+stage
+python3 -c 'import os,time; old=time.time()-7200; os.utime("a.txt", (old,old))'
+export CHEWBACCA_FAKE_SESSIONS=1
+if git commit -q -m bare-old >"$WLDIR/stale-output" 2>&1; then
+  no "bare commit bypassed stale heuristic"
+elif grep -q "last touched over" "$WLDIR/stale-output"; then
+  ok "bare commit retains stale heuristic"
+else
+  no "bare commit failed for another reason"
+fi
+export CHEWBACCA_FAKE_SESSIONS=2
+printf '%s\tS1\t%s/a.txt\n%s\tS2\t%s/b.txt\n' "$(now)" "$T" "$(now)" "$T" > "$CHEWBACCA_WRITE_LOG"
+git commit -q -m mixed-scoped -- a.txt b.txt >/dev/null 2>&1 && no "pathspec bypassed mixed authors" || ok "pathspec retains mixed-author check"
+rm -f "$CHEWBACCA_WRITE_LOG"
+mkdir -p tools
+printf 'raise SystemExit(1)\n' > tools/manifest_guard.py
+git commit -q -m manifest-scoped -- a.txt b.txt >/dev/null 2>&1 && no "pathspec bypassed manifest" || ok "pathspec retains manifest check"
+rm tools/manifest_guard.py
+rmdir tools
+git commit -q -m finish-scoped -- a.txt b.txt >/dev/null 2>&1 || no "could not finish fixture scoped change"
+
 # A real, conflict-free merge, concluded with a bare commit.
 git checkout -q -b base 2>/dev/null || git checkout -q base
 echo base > m.txt; git add m.txt; git commit -q -m base -- m.txt

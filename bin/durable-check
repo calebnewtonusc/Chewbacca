@@ -35,12 +35,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import os
 import re
 import sys
 import time
 from pathlib import Path
 
-WRITE_LOG = Path.home() / ".chewbacca" / "write-log.tsv"
+WRITE_LOG = Path(os.environ.get("CHEWBACCA_WRITE_LOG") or
+                 (Path(os.environ.get("CHEWBACCA_HOME") or Path.home() / ".chewbacca").expanduser() / "write-log.tsv")).expanduser()
 
 # A correction, not a request. Same vocabulary the corpus reader uses.
 # NOT "bro" or "bruh". Measured in core/voice.md at 3,330 uses, they are how
@@ -78,13 +81,17 @@ def wrote_policy(session_id, since=None, log=WRITE_LOG):
             ts, sid, path = parts[0], parts[1], parts[2]
             if sid != session_id:
                 continue
-            if since:
-                try:
-                    if float(ts) < since:
-                        continue
-                except ValueError:
-                    pass
-            if any(m in path for m in POLICY):
+            try:
+                observed = float(ts)
+            except ValueError:
+                continue
+            if not math.isfinite(observed) or (since is not None and observed < since):
+                continue
+            kit = Path(__file__).resolve().parents[1]
+            target = Path(path).resolve()
+            runtime_surface = any(root == target.parent or root in target.parents
+                                  for root in (kit / "tools", kit / "instructions"))
+            if runtime_surface or any(m in path for m in POLICY):
                 out.append(path)
     except OSError:
         return []

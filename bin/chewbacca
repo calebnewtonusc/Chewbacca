@@ -41,6 +41,10 @@ COMMANDS=(
   "version|version installed here and in the repo"
   "setup|full setup on this machine (asks nothing)"
   "agent|plan, install, inspect or launch a runtime adapter"
+  "task-graph|manage durable agent jobs and verification dependencies"
+  "work-ledger|preserve workspace commitments across messages and runtimes"
+  "graph-fuse|inspect possible entity matches without merging records"
+  "review-gate|run independent code review and check its current receipt"
   "update|pull the latest, show what changed, re-run setup"
   "changelog|what changed between versions"
   "skills|list, search, or show a skill"
@@ -90,6 +94,11 @@ repo_version() { cat "$ROOT/VERSION" 2>/dev/null || echo "unknown"; }
 installed_version() { cat "$STATE/version" 2>/dev/null || echo "unrecorded"; }
 
 case "${1:-}" in
+task-graph|graph-fuse|review-gate|work-ledger)
+  tool="$1"
+  shift
+  exec python3 "$ROOT/bin/$tool" "$@"
+  ;;
 agent)
   shift
   exec python3 "$ROOT/tools/agent_runtime.py" "$@"

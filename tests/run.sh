@@ -211,6 +211,15 @@ if group "doctor"; then
     bash -c "grep -q 'MIN_RUNS_FOR_VERDICT' '$ROOT/doctor.sh'"
 fi
 
+# ── GTM engineering ───────────────────────────────────────────────────────────
+if group "gtme"; then
+  check "workflow graph validates evidence and bounds execution" python3 "$ROOT/tests/test_gtme_graph.py"
+  check "GTM arithmetic validates assumptions and heldout labels" python3 "$ROOT/tests/test_gtme_math.py"
+  check "research library preserves source and reading status" python3 "$ROOT/tests/test_gtme_library.py"
+  check "learning promotion requires paired holdouts and preserved regressions" python3 "$ROOT/tests/test_gtme_learning.py"
+  check "Clay exports match the frozen fixture by stable identity" python3 "$ROOT/tests/test_clay_fixture_check.py"
+fi
+
 # ── tools ─────────────────────────────────────────────────────────────────────
 if group "tools"; then
   check  "counts --check passes on a clean tree" python3 "$ROOT/tools/counts.py" --check
@@ -220,6 +229,7 @@ if group "tools"; then
   check  "the evolve merge gate refuses a regression" python3 "$ROOT/tests/test_evolve_gate.py"
   check  "a reply that hands over a command is refused" python3 "$ROOT/tests/test_handoff_check.py"
   check  "a correction must change the kit, not just the reply" python3 "$ROOT/tests/test_durable_check.py"
+  check  "native write tracking observes content and workspace changes" python3 "$ROOT/tests/test_write_log.py"
   check  "preflight describes setup.sh accurately" python3 "$ROOT/tests/test_preflight.py"
   check  "context cost --json is valid" bash -c "python3 '$ROOT/tools/context_cost.py' --json | python3 -m json.tool"
   # Not --check: every commit made after the last regeneration invalidates it,
@@ -1020,6 +1030,11 @@ if group "reasoning backends"; then
   check "Codex shared instructions and optional health" python3 "$ROOT/tests/test_codex.py"
   check "Codex personal context startup" python3 "$ROOT/tests/test_codex_context.py"
   check "Codex native lifecycle hooks" python3 "$ROOT/tests/test_codex_hooks.py"
+  check "Codex review baselines expire after tool completion" python3 "$ROOT/tests/test_codex_review_baselines.py"
+  check "independent code review receipts reject stale and failed reviews" python3 "$ROOT/tests/test_review_gate.py"
+  check "task DAG preserves dependencies, capacity and independent verification" python3 "$ROOT/tests/test_task_graph.py"
+  check "work ledger reaches shared startup and Codex prompt context" python3 "$ROOT/tests/test_work_ledger_context.py"
+  check "shared work ledger preserves commitments across requests and runtimes" python3 "$ROOT/tests/test_work_ledger.py"
   check "newcomer setup preserves identity and privacy choices" python3 "$ROOT/tests/test_onboarding.py"
   check "a sandboxed HOME never reaches the real Claude config" python3 "$ROOT/tests/test_sandbox_config.py"
   check "runtime adapters work independently in fresh homes" python3 "$ROOT/tests/test_agent_runtime.py"

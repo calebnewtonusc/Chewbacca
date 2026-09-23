@@ -20,6 +20,52 @@ start. Do not ask permission to begin.
 
 ## The source contract
 
+Research across media. At planning time, map repositories, official documentation,
+papers and datasets, videos and talks, practitioner writing, forums and issue
+discussions, and authorized first-hand material to the questions they can answer.
+Search each relevant medium; record unavailable or inapplicable ones explicitly.
+Do not silently reduce research to web articles or treat a search result as read.
+
+Repositories are a required search track for technical research.
+When the user supplies a repository URL, clone it into the task's research workspace
+before analysis, or reuse an existing checkout after verifying its origin and revision.
+Record clone failures and access gaps. Topic and search pages are discovery lists,
+not repositories; inventory their candidates and clone those selected for inspection.
+Cloning does not authorize installation, execution, credential access or publication.
+Keep downloaded separate from read, tested and applied in the coverage ledger.
+
+Inspect relevant
+implementation, tests, examples, issues, and commit history beyond the README.
+Record the revision and inspected paths. Distinguish working code from scaffolds,
+test claims from tests actually run, and vendor promises from observed behavior.
+Inspect dependencies and side effects before executing unfamiliar code. Preserve
+licenses and attribution when reusing it; a public repository is not proprietary
+work of this kit. Search the existing kit before adding another implementation.
+
+Keep a coverage ledger with source, medium, question, inspected scope, date or
+revision, finding, limitation, and resulting action. Distinguish discovered,
+downloaded, read, tested, and applied. A transcript supports spoken content; visual
+UI claims require inspecting the relevant video frames or the live interface.
+Prioritize sources by the uncertainty they can resolve. Stop expanding a track
+when additional sources no longer change the decision, and disclose the remainder.
+
+For a user-specified corpus or request to study everything, keep an explicit queue
+of every supplied resource and its unread sections. A relevance stopping rule does
+not override that scope. Work through bounded reading batches; brief progress or
+new links do not close the research assignment. Before declaring research complete,
+reconcile the requested queue against inspected coverage and report any remaining
+items. Do not substitute building retrieval tools for reading the material.
+
+After each reading batch, extract the decision it changes, its evidence and limits,
+and a case that could falsify it. When application is requested, connect the lesson
+to an actual procedure change or executable test and report the observed result.
+If no application has been tested, call it a lesson extracted, not a capability
+learned. Re-reading and self-scoring cannot establish transfer to unfamiliar tasks.
+
+Training note, 2026-09-23: a large research run repeatedly stopped after shallow
+repository reviews while most supplied resources remained unread. Queue closure
+and learning evidence are now separate from discovery and indexing.
+
 - **A floor on sources.** More than three, from more than one kind of place.
   One vendor's own site is marketing, not evidence.
 - **Go where complaints live**, not only where the pitch lives. Forums,
