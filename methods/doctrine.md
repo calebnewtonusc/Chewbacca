@@ -36,7 +36,7 @@ Translated to this kit, and it is barely a translation:
 **What am I doing in the presentation of this tool that turns help into burden?
 What of my culture am I requiring before someone gets the benefit?**
 
-This is not abstract. On 2026-09-20 Sagar installed Chewbacca, a browser tab
+This is not abstract. On 2026-09-20 Sam installed Chewbacca, a browser tab
 reopened itself, and he wrote *"this seems extremely dangerous to have on my
 computer, i don't even know how to remove this agent"* and *"seems like
 malware."* The good news became bad news at the install step. Erik's question,

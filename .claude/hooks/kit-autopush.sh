@@ -73,7 +73,7 @@ git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1 || exit 0
 AHEAD="$(git rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
 [ "$AHEAD" -gt 0 ] 2>/dev/null || exit 0
 
-# THE UPSTREAM MUST BE ORIGIN. A contributor's guard, from his fork's
+# THE UPSTREAM MUST BE ORIGIN. A contributor's guard, from their fork's
 # .claude/hooks/auto-push.sh. A fork has both origin and upstream, the
 # ahead-count above is computed against whatever the branch tracks, and the
 # push below goes to origin. When those are different remotes the count does

@@ -28,7 +28,7 @@ The score is rating times ten, plus reviews up to 200 counted a tenth each, plus
 
 ## Origin
 
-Distilled from the first run on 2026-09-20 for Gavin: one city, a group, a budget, a month from November 1. The city, dates, guests and budget were literals then; they became parameters here because the doc's rule (parameters only from evidence) was met by the request itself naming all four as the things that vary. See origin.jsonl.
+Distilled from a first real run on 2026-09-20: one city, a group, a budget, a month-long stay. The city, dates, guests and budget were literals then; they became parameters here because the doc's rule (parameters only from evidence) was met by the request itself naming all four as the things that vary.
 
 ## Not yet
 

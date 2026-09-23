@@ -102,7 +102,7 @@ chat is not a person.
 When the user asks about someone whose thread is unlinked:
 
 ```bash
-people texts link "Sagar Tiwari" sagar
+people texts link "Sam Rivera" sam
 ```
 
 That attaches the history and updates their last-contact date. Offer it once,

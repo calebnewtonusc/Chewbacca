@@ -14,7 +14,7 @@ Messages window.
 
 ```bash
 chewie texts --days 7 --unanswered --direct   # 1:1 threads where they spoke last
-chewie texts --days 14 --who "Sagar"          # one person
+chewie texts --days 14 --who "Sam"          # one person
 chewie texts --days 3 --json                  # structured, for your own processing
 ```
 
@@ -72,7 +72,7 @@ Nobody acts on a list of forty.
 chewie run 'tell application "Reminders" to make new reminder with properties {name:"Reply to Emma about the unasked-questions prompt", body:"Asked Sep 2"}'
 
 # a dated one
-chewie run 'tell application "Reminders" to make new reminder with properties {name:"Check in with Sagar", due date:date "Friday, September 12, 2026 9:00 AM"}'
+chewie run 'tell application "Reminders" to make new reminder with properties {name:"Check in with Sam", due date:date "Friday, September 12, 2026 9:00 AM"}'
 
 # a calendar event
 chewie run 'tell application "Calendar" to tell calendar "Home" to make new event with properties {summary:"Coffee with Sid", start date:date "..."}'

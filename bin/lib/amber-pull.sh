@@ -1,5 +1,5 @@
 #!/bin/bash
-# What Karthik and Sagar shipped in Amber since you last looked.
+# What the Amber authors shipped since you last looked.
 #
 # Chewbacca's people layer is a port of Amber's, with their permission, so their
 # architecture decisions are upstream of ours. This tells you what moved without

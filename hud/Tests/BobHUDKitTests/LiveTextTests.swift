@@ -24,7 +24,7 @@ struct LiveTextTests {
 
     @Test("an edit deletes only the tail that differs")
     func editIsMinimal() {
-        let edit = LiveText.edit(from: "Hey Sagar", to: "Hey Sagar, can you")
+        let edit = LiveText.edit(from: "Hey Sam", to: "Hey Sam, can you")
         #expect(edit.delete == 0)
         #expect(edit.insert == ", can you")
         let fix = LiveText.edit(from: "deck for Northwynd", to: "deck for Northwind.")

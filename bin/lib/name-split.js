@@ -4,7 +4,7 @@
  *
  * People type annotations into the name field, because Apple Contacts gives
  * them nowhere else to put it: "Dev Malhotra A2F USC IYA", "Mateo Ruiz Muir
- * Hs CC Prez", "Nina Park USC BTG". The label is real information and the
+ * Hs CC Prez", "Nina Park UCLA BTG". The label is real information and the
  * user wrote it themselves, so it must not be thrown away. It is also not their
  * name, so it must not be shown as one.
  *

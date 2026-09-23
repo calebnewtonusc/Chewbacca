@@ -5,7 +5,7 @@ and answers with a destination and why. Three tiers, cheapest first:
 a correction of the last decision, then rules, then whatever HUD_CLASSIFY_CMD
 names for what the rules cannot settle, and the assistant when nothing does.
 The design and the evidence for each rule are in
-docs/superpowers/specs/2026-09-20-voice-routing-design.md.
+the voice-routing design notes.
 
 Tier 3 ships off. The frontmost application is a prior here and not a
 destination: `_work_shaped` is the gate that made it one, and `_classify_cmd`

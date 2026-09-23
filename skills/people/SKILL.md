@@ -411,7 +411,7 @@ propagates a fact to every member:
 ```bash
 people circle create "Japan 2026" --desc "the trip crew"
 people circle classify "Japan 2026" --kind experience --fact "was on the Japan trip in 2026"
-people circle add "Japan 2026" maggie declan sagar
+people circle add "Japan 2026" maggie declan sam
 ```
 
 `--kind` is `interest`, `experience`, `affiliation`, or `other`. The `--fact`
@@ -454,7 +454,7 @@ night, so a trajectory had nothing in it but message frequency.
 
 ```
 people events scan --since 2025-01-01     read the messages, log what happened
-people events list "Sagar"                what you did together, newest first
+people events list "Sam"                what you did together, newest first
 people events reset                       forget which days were read, not the events
 ```
 
@@ -475,11 +475,11 @@ Two things it does that are easy to miss:
 
 - **Other people named as present get the event on their record too**, as
   `third_party` rather than `told_directly`, because it came from somebody
-  else's message. A contact saved as "Sagar Tiwari GOAT" still resolves from
-  "Sagar", but only when exactly one person matches. Two people named Chris is
+  else's message. A contact saved as "Sam Rivera GOAT" still resolves from
+  "Sam", but only when exactly one person matches. Two people named Chris is
   a reason to record neither.
-- **The person's own name is stripped from their own row.** "met Sagar at
-  village" reads wrong on Sagar's record, so it becomes "met at village". This
+- **The person's own name is stripped from their own row.** "met Sam at
+  village" reads wrong on Sam's record, so it becomes "met at village". This
   is done deterministically after the model answers, not by asking it again
   more firmly.
 
@@ -501,7 +501,7 @@ Everything else answers "where does this stand today". These three answer "is it
 getting better or worse", which is the question that changes what they do.
 
 ```
-people history "Sagar" --days 365 --steps 12   one person's trajectory
+people history "Sam" --days 365 --steps 12   one person's trajectory
 people trend --days 90                         who is warming, who is cooling
 people snapshot                                freeze today's numbers
 ```

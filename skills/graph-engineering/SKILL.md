@@ -279,7 +279,7 @@ so whatever it cites gets reached too.
 
 **Aryaa SK** (Trinity College, Cambridge; building Zoral), 130 posts read in
 full 2026-09-20, distilled with attribution in
-[../../research/aryaa-memory-architecture.md](../../research/aryaa-memory-architecture.md).
+the team's internal notes.
 Caleb's own caveat on that file, which belongs here too: _"don't just assume he
 is the truth lol bro is smart but he's not Jesus."_ Its section 9 marks where
 he is contestable, one claim conflated and one number that does not check out.

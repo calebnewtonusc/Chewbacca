@@ -233,7 +233,7 @@ real commit; nothing here is written by hand.
 - alias: rank by recency, and stop listing robots
 - README: the real numbers, and the half that was missing
 - identify writes as it goes, not at the end
-- amber-pull: what Karthik and Sagar shipped since you last looked
+- amber-pull: what the Amber authors shipped since you last looked
 - stop-check: a home directory under git is not unfinished work
 - test: render every surface to a bitmap, and fix what that showed
 - setup: --skip, and say what did not run

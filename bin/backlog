@@ -15,19 +15,32 @@ He was right. ~/.chewbacca/session-state/ records which files a session WROTE.
 Nothing recorded what a session DECIDED, so every intent lived in one context
 window and died with it.
 
-BACKLOG.md is the store and it sits in the repo rather than in ~/.chewbacca, so
-it survives a machine and is shared with everyone else building here.
+BACKLOG.md is the store. It lives in the team's private repo, not the public
+one, because a backlog names people, clients and deals. `backlog` reads it from
+$CHEWBACCA_PRIVATE, else ~/chewbacca-private, else a BACKLOG.md beside this
+checkout (a fork keeping its own). With none of those it says so and exits 0,
+so a fresh public install and the session briefing are both quiet.
 """
 import json, os, re, sys, pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-FILE = ROOT / "BACKLOG.md"
+
+
+def backlog_file():
+    for base in (os.environ.get("CHEWBACCA_PRIVATE"), pathlib.Path.home() / "chewbacca-private", ROOT):
+        if base and (pathlib.Path(base) / "BACKLOG.md").is_file():
+            return pathlib.Path(base) / "BACKLOG.md"
+    return None
+
+
+FILE = backlog_file()
 
 
 def sections():
     """Split on H2, keeping order. Returns [(title, [lines])]."""
-    if not FILE.is_file():
-        sys.exit(f"no {FILE}")
+    if FILE is None:
+        print("No backlog on this machine. It lives in the private repo, see `backlog --help`.")
+        sys.exit(0)
     out, cur, buf = [], None, []
     for line in FILE.read_text(encoding="utf-8").split("\n"):
         if line.startswith("## "):
@@ -88,7 +101,7 @@ def inbox(limit=40):
     if not store.is_file():
         print("  nothing captured yet")
         return 0
-    text = FILE.read_text(encoding="utf-8").lower() if FILE.is_file() else ""
+    text = FILE.read_text(encoding="utf-8").lower() if FILE else ""
     stop = {"the","and","for","that","this","with","you","chewbacca","make",
             "need","should","have","just","into","from","what","bro","also",
             "can","how","its","it's","not","but","are","get","all","out"}

@@ -2,9 +2,9 @@
 // course-ingest: read a Blackboard Ultra term into data, and put its graded
 // deadlines on Apple Calendar.
 //
-//   course-ingest --host lms.example.edu --school acc --calendar "Fall 2026"
-//   course-ingest --school acc --signin            # first run, or when the session dies
-//   course-ingest --school acc --dry-run           # read and report, write nothing
+//   course-ingest --host lms.example.edu --school example --calendar "Fall 2026"
+//   course-ingest --school example --signin            # first run, or when the session dies
+//   course-ingest --school example --dry-run           # read and report, write nothing
 //
 // The split is deliberate and it is the rule in review-discipline.md: reading
 // creates nothing. --dry-run prints exactly the events a real run would add,
@@ -21,9 +21,14 @@ const flag = (n, d = null) => { const i = argv.indexOf(`--${n}`); return i < 0 ?
 const has  = (n) => argv.includes(`--${n}`);
 const expand = (p) => p.replace(/^~/, homedir());
 
+// The school is the user's, so it never defaults in this file. The first run
+// names it and ~/.chewbacca/course-ingest.json remembers it.
+const localPath = expand('~/.chewbacca/course-ingest.json');
+const local = existsSync(localPath) ? JSON.parse(readFileSync(localPath, 'utf8')) : {};
+
 const cfg = {
-  host: flag('host', 'lms.example.edu'),
-  school: flag('school', 'acc'),
+  host: flag('host', local.host ?? null),
+  school: flag('school', local.school ?? null),
   calendar: flag('calendar'),
   courses: (flag('courses', '') || '').split(',').map((s) => s.trim()).filter(Boolean),
   since: flag('since') ?? new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10),
@@ -32,6 +37,14 @@ const cfg = {
   headed: has('headed') || has('signin'),
 };
 const dryRun = has('dry-run');
+if (!cfg.host || !cfg.school) {
+  console.error('Which school? Run once with --host <Blackboard Ultra hostname> --school <short name>.');
+  process.exit(2);
+}
+if (local.host !== cfg.host || local.school !== cfg.school) {
+  mkdirSync(expand('~/.chewbacca'), { recursive: true });
+  writeFileSync(localPath, JSON.stringify({ host: cfg.host, school: cfg.school }, null, 2) + '\n', { mode: 0o600 });
+}
 cfg.out = `${cfg.out}/${cfg.school}`;
 for (const d of ['raw', 'docs', 'files']) mkdirSync(`${cfg.out}/${d}`, { recursive: true });
 

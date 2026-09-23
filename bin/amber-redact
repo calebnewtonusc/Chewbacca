@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """amber-redact - take the private parts out before a request leaves the machine.
 
-The PAPILLON boundary from docs/PAPILLON.md, first layer. A request is
+The PAPILLON boundary (privacy-conscious delegation), first layer. A request is
 rewritten with placeholders ([PERSON_1], [EMAIL_1]) before it goes to the
 frontier model, and the model's answer has the real values put back on the
 way in. The map between them never leaves the person's own root.

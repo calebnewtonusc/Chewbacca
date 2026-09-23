@@ -7,7 +7,7 @@ import os
 /// Apple's on-device recogniser is what makes words appear while talking,
 /// because it streams and Whisper does not. Whisper is what gets names and
 /// punctuation right. Measured 2026-09-22 on an M4 Pro with large-v3-turbo q5:
-/// with "Northwind, Sagar" as its prompt it wrote "Northwind" where it wrote "Northwynd"
+/// with "Northwind, Sam" as its prompt it wrote "Northwind" where it wrote "Northwynd"
 /// without, and a resident server answered in 0.5s against 1.2s for a cold
 /// `whisper-cli` that loads the model every call. So the server is kept
 /// running, on localhost only.

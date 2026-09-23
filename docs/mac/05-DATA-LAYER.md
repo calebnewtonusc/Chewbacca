@@ -50,7 +50,7 @@ running.
 
 ```bash
 chewie texts --days 7 --unanswered     # threads where they spoke last
-chewie texts --who "Sagar" --json      # one person, structured
+chewie texts --who "Sam" --json      # one person, structured
 ```
 
 Contact names come from `~/Library/Application Support/AddressBook/Sources/*/AddressBook-v22.abcddb`.

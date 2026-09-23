@@ -129,7 +129,7 @@ a breadcrumb while you work, the answer when you are done.
 
 ```
 s "Reading your calendar"
-s "Friday 3pm is free. Sagar has been texted."
+s "Friday 3pm is free. Sam has been texted."
 ```
 
 A spoken reply is one to two sentences and at most 140 characters, because the
@@ -427,7 +427,7 @@ spaces inside them: `points=[31,28,44]`, not `points=[31, 28, 44]`.
 - **Bars** Ranked rows, scaled against the largest rather than against zero, so four values within ten percent of each other still read as different. Horizontal because the labels are words. `display` is what gets printed; `value` only sets the length.
 
   ```
-  c b Bars caption="Time since last reply" rows=[{"label":"Sagar","value":2,"display":"2h"},{"label":"Ava","value":31,"display":"1d"}]
+  c b Bars caption="Time since last reply" rows=[{"label":"Sam","value":2,"display":"2h"},{"label":"Ava","value":31,"display":"1d"}]
   ```
 
 - **Ring** A proportion, and only ever a proportion: value runs 0 to 1 and the thing must have a real ceiling. A ring around an unbounded number is decoration, and decoration costs the same attention as information while carrying none.
@@ -506,8 +506,8 @@ d /counts/unread 12
 @ people at=topRight w=400
 c s Screen title="RELATIONSHIPS"
 c a Sparkline label="Messages this week" points=[31,28,44,39,58,52,71] value="71"
-c b Bars caption="Time since last reply" rows=[{"label":"Sagar","value":2,"display":"2h"},{"label":"Ava","value":31,"display":"1d"}]
-c e Events caption="Needs a reply" items=[{"time":"9:04","text":"Sagar sent the gates","accent":true}]
+c b Bars caption="Time since last reply" rows=[{"label":"Sam","value":2,"display":"2h"},{"label":"Ava","value":31,"display":"1d"}]
+c e Events caption="Needs a reply" items=[{"time":"9:04","text":"Sam sent the gates","accent":true}]
 > s a b e
 r s
 ```

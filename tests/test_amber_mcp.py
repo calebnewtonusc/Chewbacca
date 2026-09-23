@@ -135,9 +135,9 @@ def main():
     check("a second import of the same file adds nobody", "0 new people to add" in again, again[:300])
 
     print("isolation")
-    (other,) = call(home, "sagar", ("amber_summary", {}))
+    (other,) = call(home, "sam", ("amber_summary", {}))
     check("another user's Amber is empty", count(other) == 0, other)
-    (found,) = call(home, "sagar", ("search_contacts", {"query": "Person 00001"}))
+    (found,) = call(home, "sam", ("search_contacts", {"query": "Person 00001"}))
     check("another user cannot search this user's people", "No one" in found, found)
 
     print("two people who share a name")

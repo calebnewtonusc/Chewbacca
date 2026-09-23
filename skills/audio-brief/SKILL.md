@@ -63,7 +63,7 @@ bearing in audio, because they are the only structure a listener gets.
 **Short sentences, because there is no re-reading.** A clause that needs a second
 pass is a clause that is lost.
 
-**Say who is who.** "Sagar texted you" not "he said". Pronouns drift fast when
+**Say who is who.** "Sam texted you" not "he said". Pronouns drift fast when
 nothing is on screen to anchor them.
 
 **Length follows the activity.** Laundry or a walk is four to six minutes, which

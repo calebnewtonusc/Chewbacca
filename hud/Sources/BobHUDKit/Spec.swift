@@ -235,7 +235,7 @@ public enum Op: Sendable, Equatable {
     /// How many requests are waiting behind the one in flight.
     case queued(Int)
     /// The strip under the pill: what the remembered Claude Code tab is
-    /// doing. See docs/superpowers/specs/2026-09-20-terminal-loop-design.md.
+    /// doing.
     case terminal(text: String, state: TerminalState)
     /// Take the strip down: the tab is idle or gone.
     case terminalOff

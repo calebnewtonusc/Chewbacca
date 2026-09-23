@@ -1,9 +1,9 @@
 # Amber contacts demo
 
-A three-minute walkthrough for Karthik. It shows deliverable 3 working, plus
-the on-device, one-person-per-store shape behind deliverables 1 and 2.
+A three-minute walkthrough. It shows a contact list landing in one person's
+Amber, on device, one person per store.
 
-## Before the call
+## Before the demo
 
 1. Run `mcp/amber/amber-mcp install`, then quit and reopen Claude Desktop.
 2. Put a real contact export in `~/Downloads`, such as a CSV from LinkedIn,
@@ -33,7 +33,7 @@ the on-device, one-person-per-store shape behind deliverables 1 and 2.
   rows each take about 0.1s in the test.
 - It runs in Claude Desktop, Claude Code and Perplexity for Mac today. The
   ChatGPT path (OpenAI's tunnel plus OAuth) is the next build.
-- The redaction boundary (PAPILLON) and per-user profiles are in
-  [docs/AMBER-PLAN.md](../../docs/AMBER-PLAN.md), not in this demo.
+- The redaction boundary (`bin/amber-redact`) and per-user roots
+  (`bin/amber-user`) are separate tools, not in this demo.
 
 Built with Chewbacca

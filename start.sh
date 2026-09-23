@@ -165,7 +165,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   # A dry run that only says "nothing was changed" answers the wrong
   # question. The question a careful person has is what WOULD change, and
   # this script is 440 lines in front of another 2,404 arriving from a URL.
-  # Sagar called this installer malware and quit after two hours, which is a
+  # Sam called this installer malware and quit after two hours, which is a
   # reasonable response to being asked to trust that much unseen shell.
   #
   # So: fetch only the two files needed to describe the install, into a temp
@@ -413,10 +413,10 @@ fi
 # WHICH AGENT THIS PERSON ACTUALLY HAS.
 #
 # This screen used to say "Claude" three times and then exec claude, on a
-# machine that might not have it. Sagar hit exactly that on 2026-09-19: the
+# machine that might not have it. Sam hit exactly that on 2026-09-19: the
 # install finished, told him to type `claude`, and Claude Code asked him to buy
 # credits. His reply was "how is this model agnostic? i don't want to add
-# claude credits", and he stopped there. Karthik seconded it. That is the whole
+# claude credits", and he stopped there. A second tester said the same. That is the whole
 # product claim failing on the last screen of the install.
 #
 # The kit already runs on Codex: tools/codex_context.py and tools/codex_hooks.py

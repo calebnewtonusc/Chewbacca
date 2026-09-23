@@ -1,8 +1,7 @@
 """Two people on one machine, through bin/amber-user.
 
-The acceptance tests for deliverable 1 in docs/AMBER-LOCAL.md, at the storage
-layer: Identity, Durable recall and Isolation. Adaptation is a model behaviour
-and is not tested here. Every call is a fresh process, so anything recalled
+The multi-tenancy acceptance tests, at the storage layer: Identity, Durable
+recall and Isolation. Adaptation is a model behaviour and is not tested here. Every call is a fresh process, so anything recalled
 came off disk, not out of memory.
 
 The control runs the isolation probe with both people pointed at one store, and

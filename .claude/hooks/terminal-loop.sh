@@ -1,5 +1,5 @@
 #!/bin/bash
-# Claude Code -> the terminal loop (docs/superpowers/specs/2026-09-20-terminal-loop-design.md).
+# Claude Code -> the terminal loop.
 #
 # Not sourcing lib.sh on purpose: its helpers read stdin, and the event JSON
 # on stdin is the whole point here. Hooks run without a login shell, so PATH

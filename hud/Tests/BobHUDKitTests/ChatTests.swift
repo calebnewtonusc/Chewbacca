@@ -59,7 +59,7 @@ struct ChatTests {
     @Test("a failure closes the answer with what went wrong")
     func failureSettles() {
         let model = OverlayModel()
-        model.asked("text Sagar", typed: false)
+        model.asked("text Sam", typed: false)
         model.setPresence(.failed, amplitude: 0)
         model.fail("Nothing is listening. Run: hud listen", hold: 1)
         #expect(model.turns[1].done)

@@ -53,7 +53,7 @@ not of the matcher.** Generated initialisms across 12,000 investment firms are r
 `gv` matches Global Ventures, Greylock V and General Venture, so the rule gets rejected
 and someone hand-writes an alias table instead. Inside a block keyed on the corporate
 email domain there are two candidates, and the same rule is decisive. Measured on the
-Northgate investor file, 2026-09-22: a hand-written acronym table caught 3 merges, and the
+An investor file, 2026-09-22: a hand-written acronym table caught 3 merges, and the
 identical generated rule applied inside a domain block caught 12 with no false positives
 on a hand-checked sample.
 

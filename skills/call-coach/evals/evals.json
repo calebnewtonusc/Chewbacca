@@ -2,7 +2,7 @@
   "skill": "call-coach",
   "cases": [
     {
-      "prompt": "Here's the transcript from my call with Sagar, how did I do?",
+      "prompt": "Here's the transcript from my call with Sam, how did I do?",
       "expect_tools": [
         "call-coach"
       ],

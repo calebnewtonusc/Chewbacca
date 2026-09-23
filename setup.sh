@@ -2054,10 +2054,10 @@ UPSTREAM_SKILLS
 # INSTALL AN AGENT ONLY IF THEY HAVE NONE.
 #
 # This used to install Claude Code whenever `claude` was missing, full
-# stop. On 2026-09-19 that put Sagar, who runs Codex, in front of a
+# stop. On 2026-09-19 that put Sam, who runs Codex, in front of a
 # Claude credits purchase during the install of a kit sold as model
 # agnostic. He said so and stopped: "how is this model agnostic? i
-# don't want to add claude credits." Karthik seconded it. Neither has
+# don't want to add claude credits." A second tester said the same. Neither has
 # onboarded since. Installing a second paid subscription nobody asked
 # for is not a missing-dependency fix, it is the product contradicting
 # its own claim on the last screen.
@@ -2684,7 +2684,7 @@ fi
 # needing a should_run guard, and on 2026-09-21 this block was written with
 # one and failed the suite.
 #
-# THE FAILURE THIS EXISTS FOR, 2026-09-20. Sagar installed the kit, a browser
+# THE FAILURE THIS EXISTS FOR, 2026-09-20. Sam installed the kit, a browser
 # tab kept reopening, and he wrote: "this seems extremely dangerous to have on
 # my computer. i don't even know how to remove this agent", then "seems like
 # malware". The same afternoon, without having seen that, someone else said

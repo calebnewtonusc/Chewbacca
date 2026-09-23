@@ -5,7 +5,7 @@
 #
 # Nothing this kit installs may open a window or a browser tab on somebody's
 # machine without being asked. Serena's upstream default does exactly that: it
-# starts a web dashboard and opens a browser tab the first time it runs. Sagar
+# starts a web dashboard and opens a browser tab the first time it runs. Sam
 # installed Chewbacca on 2026-09-19, a browser window appeared on his computer
 # on its own, and his conclusion was that the kit is dangerous. That is the
 # correct conclusion to draw about software that opens windows unannounced, and

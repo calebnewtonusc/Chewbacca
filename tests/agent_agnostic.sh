@@ -2,11 +2,11 @@
 # The install must not reach for Claude on a machine that already has an agent.
 #
 # On 2026-09-19 setup.sh installed Claude Code whenever `claude` was missing,
-# and start.sh's last screen said "type claude" and then exec'd it. Sagar runs
+# and start.sh's last screen said "type claude" and then exec'd it. Sam runs
 # Codex. The install finished, sent him to Claude Code, and Claude Code asked
 # him to buy credits. He said "how is this model agnostic? i don't want to add
-# claude credits" and stopped. Karthik seconded it. Both of them still have not
-# onboarded. That is the product claim breaking on the last screen.
+# claude credits" and stopped. A second tester said the same. Neither has
+# onboarded since. That is the product claim breaking on the last screen.
 set -uo pipefail
 ROOT="${1:?path to repo root}"
 FAKE="$(mktemp -d)"

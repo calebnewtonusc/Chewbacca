@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """amber-user - one data root per person, so one Amber never reads another's.
 
-Deliverable 1 in docs/AMBER-PLAN.md. Every per-person store in this kit already
+One agent per person, on one machine. Every per-person store in this kit already
 takes a directory from the environment (PEOPLE_DIR, SUPERASSISTANT_DIR,
 CHEWBACCA_LOG_DIR, and AMBER_HOME plus AMBER_USER for mcp/amber/amber-mcp).
 This picks one root per person and points all of them into it, so isolation is

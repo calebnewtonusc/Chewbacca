@@ -684,7 +684,7 @@ function findPerson(needle, { required = true } = {}) {
 // The test is token containment, not string similarity: every token of the
 // shorter name appears in the longer one, and at least two tokens are shared.
 // That catches the decorated-contact-name pattern this address book is full of
-// ("Sagar Tiwari GOAT", "Owen Marsh IYA") without matching two strangers who
+// ("Sam Rivera GOAT", "Owen Marsh IYA") without matching two strangers who
 // happen to share a first name. A shared phone, email or LinkedIn URL counts on
 // its own, because those identify rather than describe.
 const nameTokens = (n) =>
@@ -1463,8 +1463,8 @@ async function pool(jobs, n, onDone) {
 }
 
 /// The model is told not to name the person whose record this is, and it does
-/// it anyway often enough that the rule cannot be the only defence. "met Sagar
-/// at village" reads wrong on Sagar's own row, so strip his name out of it
+/// it anyway often enough that the rule cannot be the only defence. "met Sam
+/// at village" reads wrong on Sam's own row, so strip his name out of it
 /// here where the answer is certain rather than asking again more firmly.
 function stripOwnerName(body, fullName) {
   const parts = String(fullName)
@@ -1474,7 +1474,7 @@ function stripOwnerName(body, fullName) {
   let out = body;
   for (const name of parts) {
     const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // "with Sagar and Nina" -> "with Nina";  "with Sagar" -> ""
+    // "with Sam and Nina" -> "with Nina";  "with Sam" -> ""
     out = out.replace(new RegExp(`\\bwith ${n} and\\b`, "gi"), "with");
     out = out.replace(new RegExp(`\\band ${n}\\b`, "gi"), "");
     out = out.replace(new RegExp(`\\bwith ${n}\\b`, "gi"), "");
@@ -1484,7 +1484,7 @@ function stripOwnerName(body, fullName) {
   return out.replace(/\s{2,}/g, " ").replace(/\s+([,.])/g, "$1").replace(/^[\s,]+|[\s,]+$/g, "").trim();
 }
 
-/// Contacts are saved as "Sagar Tiwari GOAT", and the model writes "Sagar", so
+/// Contacts are saved as "Sam Rivera GOAT", and the model writes "Sam", so
 /// an exact match resolves nobody. Match on a whole word inside the stored
 /// name, and only accept an unambiguous hit: two people called Chris is a
 /// reason to record neither, not to guess.
@@ -2916,7 +2916,7 @@ async function identifyOne(d, handle, model) {
 // ("Facts have a shelf life", 2026-08-25), with his and Sagar's standing
 // permission to lift Amber's people architecture into Chewbacca.
 //
-// The problem it names: "Sagar is visiting SF for a month" and "Sagar moved to
+// The problem it names: "Sam is visiting SF for a month" and "Sam moved to
 // SF" are the same sentence to anything that only reads text. One is true
 // forever and one is true for five weeks, and nobody ever sends a correction
 // when a trip ends.
@@ -3757,7 +3757,7 @@ function matchContacts(contacts, conns) {
     // carries context in the name field: "Owen Marsh IYA", "Arcadia FCA
     // Prez", "Benitez Suitemate". Those labels are how somebody recognises a
     // caller, so they are never edited, but reading only the final word makes
-    // Leo Reid's surname "IYA" and loses the match. Every word is a
+    // Leo Hart's surname "IYA" and loses the match. Every word is a
     // candidate, and the one that hits is remembered so the remainder can be
     // kept as what it actually is: how they are known.
     const cands = [];
@@ -7220,7 +7220,7 @@ function cmdTexts(argv) {
   if (sub === "link") {
     const who = rest.shift();
     const target = rest.join(" ");
-    if (!who || !target) die('Try: people texts link "Sagar Tiwari" sagar');
+    if (!who || !target) die('Try: people texts link "Sam Rivera" sam');
     const p = findPerson(target);
     const n = d.prepare("UPDATE messages SET person_id=? WHERE who=? AND person_id IS NULL").run(p.id, who);
     say(`${c.grn("linked")} ${n.changes} messages from ${c.b(who)} to ${c.b(p.name)}`);
@@ -7359,7 +7359,7 @@ const HELP = `${c.b("people")} ${c.dim("- everything you know about the people i
   ${c.b("people tune")} [saturation_k 0.5]
   ${c.b("people score")}
 
-  ${c.b("people history")} "Sagar" [--days 365] [--steps 12]   how it changed
+  ${c.b("people history")} "Sam" [--days 365] [--steps 12]   how it changed
   ${c.b("people trend")} [--days 90]                           who is warming, who is cooling
   ${c.b("people snapshot")}                                    freeze today so the curve keeps it
 

@@ -4,7 +4,7 @@
 # Everything else here is a SKILL.md read off disk, a hook in a process
 # lifecycle, or an 8,000-line CLI. All three need a terminal, which is why the
 # honest answer to "can a non-technical person use this from Claude in a
-# browser" was zero percent. Sagar, a technical co-founder, bounced off the
+# browser" was zero percent. A technical co-founder bounced off the
 # terminal install twice and then said "it's not a product I need to work for
 # me". MCP is the one transport a browser client can reach a local machine
 # through, and the kit consumed twelve MCP servers while exposing none.

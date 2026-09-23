@@ -64,7 +64,7 @@ SPOTIFY_APP = Path("/Applications/Spotify.app")
 # Names already resolved to Spotify URIs without keys, so the second "play
 # Mac DeMarco" is one AppleScript rather than three lookups.
 MUSIC_CACHE = BOB_DIR / "music-cache.json"
-USER_AGENT = "hud-music/0.1 (+https://github.com/gavinjmunroe/Chewbacca)"
+USER_AGENT = "hud-music/0.1 (+https://github.com/calebnewtonusc/Chewbacca)"
 # Deezer answered in 0.3 s, Wikidata in 0.1 to 0.4 s and MusicBrainz in 0.5 s
 # on 2026-09-20. Five is a slow network, and three of them in a row is still
 # under the time a person gives a request before repeating it.

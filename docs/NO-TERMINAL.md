@@ -10,7 +10,7 @@ need a shell. So the answer to "can somebody use this from Claude or ChatGPT
 in a browser" was **zero percent**, not partially: a browser client has no
 filesystem and no shell, and there was no subset that worked.
 
-Sagar Tiwari, a technical co-founder, tried the terminal install twice on
+A technical co-founder tried the terminal install twice on
 2026-09-19 and 09-20 and stopped at *"it's not a product I need to work for
 me."* That is the bar this fails, and it fails it for a reason that is
 structural rather than cosmetic.

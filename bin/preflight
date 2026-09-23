@@ -3,7 +3,7 @@
 
 WHY THIS EXISTS. `setup.sh` is 2,404 lines, `start.sh` another 440, and the
 documented way in is to pipe them into bash from a URL. It asks three
-questions and makes its first write on line 57. Sagar onboarded on
+questions and makes its first write on line 57. Sam onboarded on
 2026-09-20, called the installer malware, and quit after two hours: "It's
 not a product I need to work for me." He was not being difficult. A
 technical person is right to refuse 2,844 unseen lines of shell.

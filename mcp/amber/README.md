@@ -1,10 +1,9 @@
 # amber-mcp
 
-Amber's contacts over MCP. It's Karthik's deliverable 3 from
-[docs/AMBER-LOCAL.md](../../docs/AMBER-LOCAL.md): attach it to Claude, ChatGPT or
-Perplexity, hand it a contact list, and the people land deduplicated in one
-person's Amber on their own machine. The plan for the other three deliverables
-is in [docs/AMBER-PLAN.md](../../docs/AMBER-PLAN.md).
+Amber's contacts over MCP. Attach it to Claude, ChatGPT or Perplexity, hand it a
+contact list, and the people land deduplicated in one person's Amber on their
+own machine. Per-person roots come from `bin/amber-user`, and the redaction
+layer for model calls is `bin/amber-redact`.
 
 ## What it does
 

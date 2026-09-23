@@ -281,7 +281,7 @@ c g Stack direction=grid cols=2 gap=3
 c m1 Metric label="Unread" value=12 thresholds=[{"at":10,"tone":"warn"}]
 c m2 Metric label="Overdue" value=4 thresholds=[{"at":1,"tone":"bad"}]
 c sp Sparkline label="Messages" points=[31,28,44,39,58,52,71] value="71"
-c br Bars caption="Time since last reply" rows=[{"label":"Sagar","value":2,"display":"2h"},{"label":"Leo","value":9,"display":"9h"},{"label":"Ava","value":31,"display":"1d"}]
+c br Bars caption="Time since last reply" rows=[{"label":"Sam","value":2,"display":"2h"},{"label":"Leo","value":9,"display":"9h"},{"label":"Ava","value":31,"display":"1d"}]
 c ev Events caption="Due" items=[{"time":"Sep 9","text":"Origin Story","accent":true},{"time":"Sep 10","text":"Two assignments"}]
 > s g sp br ev
 > g m1 m2

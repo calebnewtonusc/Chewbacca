@@ -8,7 +8,7 @@
  * line CLI. All three need a shell, which means the answer to "can my grandma
  * use this in Claude in the browser" is zero percent. Not partially: there is
  * no subset that works, because a browser client has no filesystem and no
- * shell. Sagar, a technical co-founder, bounced off the terminal install.
+ * shell. A technical co-founder bounced off the terminal install.
  *
  * MCP is the one surface a browser client can reach into a local machine
  * through. The kit already CONSUMES twelve MCP servers and had never exposed

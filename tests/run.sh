@@ -345,7 +345,7 @@ if group "installer"; then
   # match SHA256SUMS.txt, so a manifest that does not describe its own commit
   # breaks every fresh install. The working-tree check cannot see it.
   # The install must not reach for Claude on a machine that already has an
-  # agent. Sagar runs Codex, hit a Claude credits purchase on the last screen
+  # agent. Sam runs Codex, hit a Claude credits purchase on the last screen
   # of a kit sold as model agnostic, and stopped. He has still not onboarded.
   check  "the install uses the agent already on the machine" \
     bash "$ROOT/tests/agent_agnostic.sh" "$ROOT"
@@ -514,7 +514,7 @@ if group "installer"; then
   # was still there: "brew install node" printed to someone with no brew.
   check  "a bare Mac gets no dead ends" bash "$ROOT/tests/bare_machine.sh"
 
-  # Sagar installed this on 2026-09-19 and a browser window opened on his
+  # Sam installed this on 2026-09-19 and a browser window opened on his
   # computer by itself, because Serena's upstream default starts a web
   # dashboard and opens a tab on first run. He concluded the kit was dangerous.
   # That is the right conclusion to draw about software that opens windows
@@ -563,7 +563,7 @@ if group "installer"; then
   check  "SessionStart injects the backlog" \
     grep -q "bin/backlog" "$ROOT/.claude/hooks/session-context.sh"
 
-  # Sagar, 2026-09-20, after installing: "i don't even know how to remove this
+  # Sam, 2026-09-20, after installing: "i don't even know how to remove this
   # agent", "seems like malware". uninstall.sh existed the whole time. The
   # closing screen listed what Claude could now read and never said how to undo
   # it, so the capability might as well not have shipped.

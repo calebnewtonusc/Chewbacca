@@ -140,7 +140,7 @@ struct SnapshotTests {
             #"c m1 Metric label="Unread" value=12 thresholds=[{"at":10,"tone":"warn"}]"#,
             #"c m2 Metric label="Overdue" value=4 thresholds=[{"at":1,"tone":"bad"}]"#,
             #"c spark Sparkline label="Messages" points=[31,28,44,39,58,52,71] value="71""#,
-            #"c bars Bars caption="Since last reply" rows=[{"label":"Sagar","value":2,"display":"2h"},{"label":"Ava","value":31,"display":"1d"}]"#,
+            #"c bars Bars caption="Since last reply" rows=[{"label":"Sam","value":2,"display":"2h"},{"label":"Ava","value":31,"display":"1d"}]"#,
             #"c events Events caption="Due" items=[{"time":"Sep 9","text":"Origin Story","accent":true}]"#,
         ])
     }
@@ -543,7 +543,7 @@ struct SnapshotTests {
         for phase in PillState.Phase.allCases where phase != .hidden {
             var state = PillState()
             state.phase = phase
-            state.heard = "text Sagar I am running late"
+            state.heard = "text Sam I am running late"
             state.saying = "reading your calendar"
             state.startedAt = Date().addingTimeInterval(-42)
             state.queued = phase == .working ? 2 : 0

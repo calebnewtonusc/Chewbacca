@@ -12,7 +12,7 @@ never speaking first, are done. What remains is listed honestly rather than
 quietly closed.
 
 What is left is filed as work rather than left as a list:
-[the backlog](BACKLOG.md), and in `bd` at `~/Desktop/2026-Code/.beads`.
+the backlog.
 
 The point of writing it down is that a HUD fails quietly. It draws something,
 you glance at it, and you never find out what it left out.

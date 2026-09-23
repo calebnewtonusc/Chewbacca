@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """preflight must describe setup.sh accurately, or not at all.
 
-Sagar called the installer malware and quit after two hours. He was right to:
+Sam called the installer malware and quit after two hours. He was right to:
 2,844 lines of shell, piped from a URL, three questions asked, first write on
 line 57. A tool only one person can install has one user.
 

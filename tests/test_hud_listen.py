@@ -147,8 +147,8 @@ def test_subtitle(m) -> None:
     check("one paragraph is kept whole", m.subtitle("Sent.") == "Sent.")
     check(
         "only the first two sentences survive",
-        m.subtitle("Sent. Sagar has it as of 6:14. Lunch is on the calendar too.")
-        == "Sent. Sagar has it as of 6:14.",
+        m.subtitle("Sent. Sam has it as of 6:14. Lunch is on the calendar too.")
+        == "Sent. Sam has it as of 6:14.",
     )
     check("newlines inside a paragraph become spaces",
           m.subtitle("one\ntwo") == "one two")
@@ -745,13 +745,13 @@ def test_translate_deltas(m) -> None:
 
     # No deltas at all: a model command that does not stream partial messages.
     run = m.Run()
-    lines = run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": "Sent. Sagar has it."}]}}, 1.0)
+    lines = run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": "Sent. Sam has it."}]}}, 1.0)
     check("a whole block is spoken and written and subtitled",
-          run.take_voice() == ["Sent. Sagar has it."] and lines == ['w "Sent. Sagar has it."', 's "Sent. Sagar has it."'],
+          run.take_voice() == ["Sent. Sam has it."] and lines == ['w "Sent. Sam has it."', 's "Sent. Sam has it."'],
           f"got {lines}")
     # Two blocks around a tool call are two paragraphs of one answer.
     run.translate({"type": "assistant", "message": {"content": [{"type": "text", "text": "Also booked."}]}}, 2.0)
-    check("blocks join as paragraphs", run.answer() == "Sent. Sagar has it.\n\nAlso booked.")
+    check("blocks join as paragraphs", run.answer() == "Sent. Sam has it.\n\nAlso booked.")
 
 
 def test_long_answer_switch(m) -> None:

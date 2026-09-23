@@ -42,7 +42,7 @@ const BOOK = [
   { name: "Grace Yoon Muir Hs" },
   { name: "Maia IYA" },
   { name: "Lucas Brandt IYA" },
-  { name: "Caleb Newton" },
+  { name: "Caleb Stone" },
   { name: "Ava Stone" },
   { name: "Josh Stone" },
   { name: "Sela Stone" },
@@ -88,10 +88,10 @@ test("the sticky tail needs no vocabulary for what follows a label", () => {
 });
 
 test("a family surname is never reported as a label", () => {
-  // Four Newtons is what a family looks like. Frequency alone would take it.
-  for (const n of ["Caleb Newton", "Ava Stone", "Josh Stone"]) {
+  // Four Stones is what a family looks like. Frequency alone would take it.
+  for (const n of ["Caleb Stone", "Ava Stone", "Josh Stone"]) {
     const s = splitName(n, corpus);
-    assert.match(s.name, /Newton/, `${n} lost its surname`);
+    assert.match(s.name, /Stone/, `${n} lost its surname`);
     assert.deepEqual(s.tags, []);
   }
 });
@@ -156,8 +156,8 @@ test("the vocabulary is discovered, not declared", () => {
 
 test("no corpus degrades to position and shape, and stays conservative", () => {
   // Callers without a book still get something sane rather than a crash.
-  const s = splitName("Caleb Newton");
-  assert.equal(s.name, "Caleb Newton");
+  const s = splitName("Caleb Stone");
+  assert.equal(s.name, "Caleb Stone");
   assert.equal(buildNameCorpus([]).size, 0);
   assert.deepEqual(splitName("", null), {
     name: null,

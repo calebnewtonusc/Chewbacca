@@ -41,7 +41,7 @@ $Step = 0
 function Step ($m) { $script:Step++; Write-Host ""; Say "[$script:Step/4] $m" }
 
 # ── Say what this is before doing any of it ──────────────────────────────────
-# Karthik's note on 2026-09-19: "if you were to say, hey, just paste this into
+# A tester's note on 2026-09-19: "if you were to say, hey, just paste this into
 # your terminal and you'll get results, a lot of people wouldn't do that." He
 # is right, and the answer is not to hide it. Say exactly what it touches.
 Write-Host @"

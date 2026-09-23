@@ -17,7 +17,7 @@ will not finish. Records are bucketed by a cheap key first, and only
 within-bucket pairs are scored. Two keys are used because either alone misses a
 real class of duplicate: sorted significant tokens catches "Acme Corp" against
 "Corp, Acme", and a phonetic-ish consonant skeleton of the longest token catches
-"Munroe" against "Monroe", which is the failure that started this on 2026-09-21.
+"Thomsen" against "Thomson", which is the failure that started this on 2026-09-21.
 
 MATCHING. A normalized similarity on the key field, plus agreement on any
 supporting field. Agreement promotes, disagreement demotes: two people named
@@ -56,7 +56,7 @@ def norm(value: str) -> str:
 
 
 def skeleton(word: str) -> str:
-    """Consonant skeleton, so Munroe and Monroe land in one bucket.
+    """Consonant skeleton, so Thomsen and Thomson land in one bucket.
 
     Vowels after the first character are dropped and runs are collapsed. Crude
     on purpose: blocking only has to avoid missing a candidate, and precision

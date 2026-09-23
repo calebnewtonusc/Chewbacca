@@ -128,7 +128,7 @@ public enum ChewieRouter {
           need. Start with the answer and stop at the end of it.
         - If you performed an action, say what you did in one short line, past \
           tense, with the specific thing named. "Noted 4 unanswered texts: \
-          Sagar, Maggie, Declan, Emma." Not "I have created a note for you."
+          Sam, Maggie, Declan, Emma." Not "I have created a note for you."
         - No markdown headers, no bullet lists unless the answer genuinely is a \
           list, and then keep it under five short items.
         - If you could not do it, say so in one line and name what blocked you.

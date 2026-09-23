@@ -6,7 +6,7 @@
     consolidate --decay          report scars nothing has touched in N days
     consolidate --days 120
 
-WHY THIS EXISTS. research/what-is-actually-proprietary.md measured it: every
+WHY THIS EXISTS. An internal measurement found every
 idea in this kit is public and copyable in an afternoon, so the only moat
 available to a public repo is ACCUMULATION. And nothing accumulates. scars
 grows, the trial log has one entry, the design prior has ten samples. A fresh
@@ -14,7 +14,7 @@ install is as good as a two-year-old one, which means there is no moat at any
 level of secrecy and no reason for the kit to get better by being used.
 
 THE ARCHITECTURE IS BORROWED AND ATTRIBUTED. Aryaa SK's influence ladder, read
-in full and critiqued in research/aryaa-memory-architecture.md: hold new things
+in full and critiqued: hold new things
 in the high-plasticity layer, then consolidate DOWNWARD into lower-plasticity
 layers as they prove themselves. Same shape as hippocampus to neocortex to
 basal ganglia.

@@ -137,7 +137,7 @@ struct PillView: View {
     /// the drawn one cannot drift apart.
     static let pillLift: CGFloat = 14
     /// 440 fits about 70 characters of 13pt rounded, and the longest demo
-    /// answer ("Texted Sagar, put Friday 3pm on the calendar, and Ava is who
+    /// answer ("Texted Sam, put Friday 3pm on the calendar, and Ava is who
     /// to call") is 66. The card it replaces was 460 with a title row.
     static let maxWidth: CGFloat = 440
     /// Never full before the run is. A bar that reaches its end and sits there

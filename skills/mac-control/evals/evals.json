@@ -4,7 +4,7 @@
     {"prompt": "Click the Sign In button in Safari", "expect_layer": 3,
      "expect_tools": ["chewie see", "chewie click"],
      "reject": ["screenshot as the first action"]},
-    {"prompt": "What did Sagar text me last week?", "expect_layer": 1,
+    {"prompt": "What did Sam text me last week?", "expect_layer": 1,
      "expect_tools": ["sqlite3"],
      "reject": ["opening the Messages window", "screenshot"]},
     {"prompt": "What URL is open in Safari?", "expect_layer": 2,

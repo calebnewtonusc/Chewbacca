@@ -94,7 +94,7 @@ Everywhere else, pick the most likely reading, do it, and say which reading you
 took so he can correct you in four words.
 
 - Several people match a name: if one is far more likely from who he actually
-  talks to, use that one and name your choice. "Sending to A contributor."
+  talks to, use that one and name your choice. "Sending to Maya Thomsen."
 - **"Don't ask questions" or "just get to it" removes the option entirely.**
   Choose and go. He said it because he already knows there is ambiguity and has
   decided he would rather you guess than stall.
@@ -181,9 +181,9 @@ still one of these, go straight to the skill's own folder and read its
 When a command returns nothing, that is a result about your search, not about
 the world. Try again before you say you cannot.
 
-Caleb asked this agent to text Gavin. It ran `mac contacts find Monroe`, got
-nothing, and gave up. He is spelled **Munroe**, and searching `Gavin` alone
-returns him plus three others. A working path was one keystroke away.
+Asked to text a friend, this agent ran `mac contacts find Thompson`, got
+nothing, and gave up. The name is spelled **Thomsen**, and searching the first
+name alone returns her plus three others. A working path was one keystroke away.
 
 So: a name you heard spoken is a guess at a spelling. Search the other half of
 it, or a fragment, or the first name alone. Several matches is a good outcome,

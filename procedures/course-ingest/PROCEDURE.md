@@ -7,8 +7,8 @@ Run it:
 
 ```
 course-ingest --school acc --signin                      # once, a human signs in
-course-ingest --school acc --calendar "Fall 2026"    # every time after
-course-ingest --school acc --calendar "Fall 2026" --dry-run
+course-ingest --school example --calendar "Fall 2026"    # every time after
+course-ingest --school example --calendar "Fall 2026" --dry-run
 ```
 
 It writes `~/coursework/.ingest/<school>/`: `deliverables.json` (every dated
@@ -129,4 +129,4 @@ questions, and getting any of them wrong costs more than a missed file.
 
 Built 2026-09-21, the morning two ACC courses opened, from the request to read
 the courses, learn how each instructor runs their class, and put every graded
-deadline on Apple Calendar. See origin.jsonl.
+deadline on Apple Calendar.

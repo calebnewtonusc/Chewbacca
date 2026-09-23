@@ -10,8 +10,8 @@ This procedure already exists. Run it rather than rebuilding it.
 
 ```
 course-ingest --school acc --signin                      # once, a human signs in
-course-ingest --school acc --calendar "Fall 2026"    # every time after
-course-ingest --school acc --calendar "Fall 2026" --dry-run
+course-ingest --school example --calendar "Fall 2026"    # every time after
+course-ingest --school example --calendar "Fall 2026" --dry-run
 node ~/Chewbacca/procedures/course-ingest/verify.mjs acc
 ```
 

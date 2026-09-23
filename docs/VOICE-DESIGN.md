@@ -273,7 +273,7 @@ prosody control, so the words carry all of it):
 Since 2026-09-20 a sentence is routed before it is answered. The rules live in
 `bin/lib/route.py` and the table that pins them is `tests/test_route.py`; the
 design and the evidence are in
-`docs/superpowers/specs/2026-09-20-voice-routing-design.md`.
+the voice-routing design notes.
 
 The short version: "in terminal" or "in chrome" at the start wins; a
 correction ("no, the terminal") inside fifteen seconds re-routes the last
