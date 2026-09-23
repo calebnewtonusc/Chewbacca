@@ -1362,6 +1362,17 @@ h["Stop"] = [{"hooks": [{
     "timeout": 15,
     "statusMessage": "Checking the reply against the writing rules...",
 }]}, {"hooks": [{
+    # SendMessage returning success means a message was accepted, not that an
+    # agent is alive. On 2026-09-23 a resume of a subagent from a dead session
+    # returned {"success": true}, nothing started, and the reply went out
+    # saying it was running. Caleb caught it; ListAgents then showed zero
+    # subagents. This refuses a reply claiming background work is in flight
+    # unless something in the turn actually launched or a listing shows it.
+    "type": "command",
+    "command": hooks_dir + "/agent-claim-guard.sh",
+    "timeout": 15,
+    "statusMessage": "Checking claims about running agents...",
+}]}, {"hooks": [{
     # A claim of a verified state needs evidence in the session, not
     # confidence. On 2026-09-21 a fix was reported as done three times and the
     # next screenshot showed the same bug, and several more "fixed" claims were
