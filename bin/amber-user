@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""amber-user - one data root per person, so one Amber never reads another's.
+
+Deliverable 1 in docs/AMBER-PLAN.md. Every per-person store in this kit already
+takes a directory from the environment (PEOPLE_DIR, SUPERASSISTANT_DIR,
+CHEWBACCA_LOG_DIR, and AMBER_HOME plus AMBER_USER for mcp/amber/amber-mcp).
+This picks one root per person and points all of them into it, so isolation is
+a property of the paths a process was started with, not of code remembering to
+filter by owner.
+
+    amber-user init caleb --name "Caleb Newton"   make the root and the profile
+    amber-user run caleb -- people list           run anything as that person
+    amber-user env caleb                          the exports, for a shell
+    amber-user whoami                             who this process is, from its env
+    amber-user list                               every root on this machine
+
+The root is $AMBER_HOME/<user>, ~/.chewbacca/users/<user> by default, mode 0700.
+"""
+
+import os
+import re
+import sys
+from pathlib import Path
+
+# A user id becomes a directory name. Anything that could climb out of the
+# users directory ("..", a slash) or hide ("." first) is refused rather than
+# rewritten, because a rewritten id can collide with someone else's.
+USER_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+
+
+def users_dir():
+    return Path(os.environ.get("AMBER_HOME") or Path.home() / ".chewbacca" / "users")
+
+
+def root_for(user):
+    if not USER_ID.match(user):
+        sys.exit(f"amber-user: '{user}' is not a user id. Use lowercase letters, digits, - and _, up to 32.")
+    return users_dir() / user
+
+
+def environment(user):
+    root = root_for(user)
+    return {
+        "AMBER_USER": user,
+        "AMBER_HOME": str(users_dir()),
+        "AMBER_ROOT": str(root),
+        "PEOPLE_DIR": str(root / "people"),
+        "SUPERASSISTANT_DIR": str(root / "superassistant"),
+        "CHEWBACCA_LOG_DIR": str(root / "logs"),
+    }
+
+
+def init(user, name):
+    root = root_for(user)
+    for sub in ("", "people", "superassistant", "logs"):
+        (root / sub).mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(root / sub, 0o700)
+    profile = root / "profile.md"
+    if not profile.exists():
+        profile.write_text(f"---\nuser: {user}\nname: {name or user}\n---\n")
+        os.chmod(profile, 0o600)
+    print(root)
+
+
+def profile_name(user):
+    profile = root_for(user) / "profile.md"
+    if not profile.exists():
+        return None
+    match = re.search(r"^name: (.+)$", profile.read_text(), re.M)
+    return match.group(1).strip() if match else None
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    command, rest = argv[0], argv[1:]
+    if command == "init" and rest:
+        name = rest[rest.index("--name") + 1] if "--name" in rest[1:-1] else None
+        init(rest[0], name)
+    elif command == "env" and rest:
+        for key, value in environment(rest[0]).items():
+            print(f"export {key}={value!r}")
+    elif command == "run" and len(rest) >= 3 and rest[1] == "--":
+        user = rest[0]
+        if not root_for(user).is_dir():
+            sys.exit(f"amber-user: no root for '{user}'. Run: amber-user init {user}")
+        os.execvpe(rest[2], rest[2:], {**os.environ, **environment(user)})
+    elif command == "whoami":
+        user = os.environ.get("AMBER_USER")
+        if not user:
+            sys.exit("amber-user: no AMBER_USER in this environment")
+        print(f"{user}\t{profile_name(user) or '(no profile)'}")
+    elif command == "list":
+        base = users_dir()
+        for entry in sorted(base.iterdir()) if base.is_dir() else []:
+            if entry.is_dir() and USER_ID.match(entry.name):
+                print(f"{entry.name}\t{profile_name(entry.name) or '(no profile)'}")
+    else:
+        sys.exit("amber-user: unknown command. amber-user --help")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
