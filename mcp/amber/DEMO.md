@@ -12,6 +12,11 @@ Amber, on device, one person per store.
 
 ## The walkthrough
 
+0. **"Hi."** Claude calls `hello` and greets the person by name, leading with
+   what they owe and who is worth a message. Then **"Remember that Sam just
+   started at Ramp, and that I like short answers."** Quit Claude, reopen it,
+   and ask **"what do you know about Sam?"**: it comes back from disk. Run
+   the same with a second `AMBER_USER` and it knows nothing about Sam.
 1. **"Add the contacts in Downloads/<file>.csv to Amber."** Claude calls the
    preview and reads out the numbers: new, already known, duplicates
    collapsed, rejected. Point out that nothing has been saved yet.
@@ -33,7 +38,8 @@ Amber, on device, one person per store.
   rows each take about 0.1s in the test.
 - It runs in Claude Desktop, Claude Code and Perplexity for Mac today. The
   ChatGPT path (OpenAI's tunnel plus OAuth) is the next build.
-- The redaction boundary (`bin/amber-redact`) and per-user roots
-  (`bin/amber-user`) are separate tools, not in this demo.
+- The redaction boundary (`bin/amber-redact`) is a separate tool, not in this
+  demo. Jev, the cloud judgment API, is off for every user until they run
+  `amber-user consent <user> jev on`.
 
 Built with Chewbacca

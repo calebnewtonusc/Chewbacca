@@ -1959,6 +1959,7 @@ function cmdMe(argv) {
     sql += " ORDER BY observed_at DESC LIMIT ?";
     args.push(Number(flags.limit) || 40);
     const rows = d.prepare(sql).all(...args);
+    if (flags.json) return say(JSON.stringify(rows.map((r) => ({ said: r.body, at: r.observed_at }))));
     if (!rows.length) {
       say(c.dim("nothing recorded about you yet"));
       say(c.dim('  people me "starting the neuro sequence this fall"'));
@@ -2253,12 +2254,26 @@ function cmdRank(argv) {
 }
 
 function cmdSearch(argv) {
-  const { rest } = parseArgs(argv);
+  const { rest, flags } = parseArgs(argv);
   const q = rest.join(" ").trim();
-  if (!q) die('Search for what? people search "hiking"');
   const d = db();
   let rows;
-  try {
+  // --person narrows to one person's observations, newest first, with or
+  // without words: "what do I know about Sam" has no search term.
+  if (flags.person) {
+    const p = findPerson(String(flags.person));
+    rows = d
+      .prepare(
+        `SELECT o.*, p.name AS person, NULL AS circle FROM observations o
+           JOIN people p ON p.id = o.person_id
+          WHERE o.person_id = ? AND o.deleted_at IS NULL
+            AND (? = '' OR o.body LIKE ?)
+          ORDER BY o.observed_at DESC LIMIT 40`,
+      )
+      .all(p.id, q, `%${q}%`);
+  }
+  if (!rows && !q) die('Search for what? people search "hiking"');
+  if (!rows) try {
     rows = d
       .prepare(
         `SELECT o.*, p.name AS person, ci.name AS circle
@@ -2282,6 +2297,11 @@ function cmdSearch(argv) {
       )
       .all(`%${q}%`);
   }
+  if (flags.json)
+    return say(JSON.stringify(rows.map((r) => ({
+      about: r.person || (r.circle ? `${r.circle} (circle)` : "you"),
+      said: r.body, modality: r.modality, source: r.source, at: r.observed_at,
+    }))));
   if (!rows.length) return say(c.dim(`nothing matches "${q}"`));
   say("");
   for (const r of rows) {
@@ -6404,7 +6424,8 @@ function cmdBirthdays(argv) {
   say("");
 }
 
-function cmdToday() {
+function cmdToday(argv = []) {
+  const { flags } = parseArgs(argv);
   const dates = upcomingDates(7);
   const checks = dueChecks();
   const tasks = openTasks(7);
@@ -6415,6 +6436,17 @@ function cmdToday() {
     )
     .all();
   const over = overdueList(5);
+  if (flags.json) {
+    const n = db().prepare("SELECT count(*) n FROM people WHERE deleted_at IS NULL").get().n;
+    return say(JSON.stringify({
+      people: n,
+      dates: dates.map((b) => ({ name: b.name, label: b.label, in_days: b.away })),
+      check_in: checks.map((r) => ({ name: r.name, reason: r.next_check_reason || null })),
+      you_owe: tasks.map((t) => ({ title: t.title, person: t.person || null, due_at: t.due_at || null })),
+      outstanding: loans.map((l) => ({ what: l.what, who: l.name, direction: l.direction })),
+      worth_a_message: over.map((r) => ({ name: r.name, days: r.days === null ? null : Math.round(r.days) })),
+    }));
+  }
   let printed = false;
   say("");
 

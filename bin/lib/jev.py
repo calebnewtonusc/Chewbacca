@@ -44,7 +44,29 @@ def api_key() -> str | None:
     return _key or None
 
 
+def allowed() -> bool:
+    """Whether this process may send anything to Jev at all.
+
+    Jev is a cloud API, so every call is data leaving the machine. Inside an
+    Amber user's root (AMBER_ROOT, set by bin/amber-user and amber-mcp) that
+    needs the person's own yes, recorded by `amber-user consent <user> jev on`
+    in <root>/consent.json. A new user has no file, so Jev is off for them
+    until they choose it. Outside any root is the machine owner's own install,
+    where having put a TypeSafe key on the machine is the choice.
+    """
+    root = os.environ.get("AMBER_ROOT")
+    if not root:
+        return True
+    try:
+        with open(os.path.join(root, "consent.json")) as f:
+            return json.load(f).get("jev") is True
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
 def ask(state, questions: dict, timeout: float = TIMEOUT_S) -> dict | None:
+    if not allowed():
+        return None
     key = api_key()
     if not key:
         return None
