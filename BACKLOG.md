@@ -11,3 +11,21 @@ These two tasks are for a future contributor using Codex. The user reports Claud
 ## Completed prerequisite
 
 The disconnected-hook fix adds a current-registration check in tools/codex_hooks.py before dispatch or receipt writes. Two regression tests cover removal and event-specific registration. All 33 adapter tests passed, and the exact installed Stop command returned exit 0 with empty stdout/stderr against the disabled configuration. Independent scoped review found no blocker. This does not certify all remaining native integration behavior.
+
+## Broader session failures to prevent
+
+These are open regression targets, not completed repairs. Keep domain execution moving while Codex-specific repair is delegated.
+
+- [ ] Preserve prior commitments when new user steering arrives. Test a multi-goal session with interruptions; completed work, deferred tasks and next actions must remain explicit.
+- [ ] Separate plan, clone, read, test, apply and verified outcome statuses. Later source reviews must update the central coverage ledger; old summaries must be labeled historical.
+- [ ] Make agent-capacity claims from actual overlapping worker receipts. A capacity setting, queue length or DAG is not proof of simultaneous execution. Preserve runtime/model neutrality.
+- [ ] Prioritize live user outcomes over expanding infrastructure. A prepared CSV or fixture is not a successful destination workflow; verify stable IDs and postconditions.
+- [ ] Turn repository/media insights into selected behavioral tests. Preserve every explicitly supplied source in a coverage index, including unread links and failed transcript fetches.
+- [ ] Test graph, math and learning additions against baselines and unfamiliar tasks. Do not claim novelty, retained expertise or superiority from corpus size or unit tests alone.
+- [ ] Validate tool isError and business-level result before writing success receipts. Direct server calls and native host calls need separate evidence.
+- [ ] Stop dependent publication commands after commit failure; verify remote HEAD equals the intended commit. Publish only scoped work and preserve unrelated dirty changes.
+- [ ] Prevent hook feedback from becoming another user correction. Test ordinary status questions, keyword false positives and repeated hook-generated feedback, with bounded termination.
+- [ ] Make disconnect/reconnect cover config, discovery, instructions and live process/transport state. Never report config presence as operational success.
+- [ ] Keep status replies concise and accurate. Do not repeatedly ask the user to review routine code or respond to a malfunctioning checker instead of fixing its mechanism.
+
+Detailed client-specific request/resource traceability is kept in the user's private GTM workspace, not this public repository.
