@@ -21,7 +21,7 @@ process.removeAllListeners("warning");
  *    every blank it fills is logged, so `undo_import` removes that batch and
  *    touches nothing typed by hand or added by another import.
  *
- * 3. ONE PROCESS, ONE PERSON. The store is ~/.amber/users/<user>/contacts.db,
+ * 3. ONE PROCESS, ONE PERSON. The store is ~/.chewbacca/users/<user>/contacts.db,
  *    mode 0600 in a 0700 directory. The user is fixed when the server starts
  *    (AMBER_USER, default the OS account) and no tool takes a user argument, so
  *    no call can reach anyone else's contacts. That is deliverables 1 and 2 in
@@ -51,8 +51,10 @@ const { DatabaseSync } = require("node:sqlite");
 
 const PROTOCOL = "2025-06-18";
 const USER = (process.env.AMBER_USER || os.userInfo().username).replace(/[^A-Za-z0-9._-]/g, "_");
-const ROOT = process.env.AMBER_HOME || path.join(os.homedir(), ".amber");
-const DIR = path.join(ROOT, "users", USER);
+// One root per person, shared with the rest of Amber (profile, people store,
+// log), so a tenant test that isolates a user isolates their contacts too.
+const ROOT = process.env.AMBER_HOME || path.join(os.homedir(), ".chewbacca", "users");
+const DIR = path.join(ROOT, USER);
 const PLANS = path.join(DIR, "plans");
 
 // ── Store ────────────────────────────────────────────────────────────────────

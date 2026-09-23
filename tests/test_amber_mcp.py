@@ -126,7 +126,7 @@ def main():
     check("apply saves exactly the previewed 8,500", "8500 added" in applied and "8500 people in total" in applied, applied)
     print(f"        preview {t_prev:.1f}s, apply {t_apply:.1f}s")
 
-    db = home / "users" / "gavin" / "contacts.db"
+    db = home / "gavin" / "contacts.db"
     check("store is readable by its owner only", stat.S_IMODE(db.stat().st_mode) == 0o600, oct(db.stat().st_mode))
     check("store directory is private", stat.S_IMODE(db.parent.stat().st_mode) == 0o700)
 
@@ -219,8 +219,8 @@ def main():
     srv = subprocess.Popen(["node", str(SERVER), "--http", str(port)], env=env, stderr=subprocess.PIPE, text=True)
     try:
         srv.stderr.readline()
-        secret = (home / "users" / "gavin" / "token").read_text().strip()
-        tok = home / "users" / "gavin" / "token"
+        secret = (home / "gavin" / "token").read_text().strip()
+        tok = home / "gavin" / "token"
         check("the token file is owner-only", stat.S_IMODE(tok.stat().st_mode) == 0o600)
         body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 

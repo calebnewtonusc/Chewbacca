@@ -23,7 +23,7 @@ one.
 
 ## Where the data lives
 
-`~/.amber/users/<user>/contacts.db`. The file is mode 0600 and its directory 0700. The user is fixed when the server starts (`AMBER_USER`, default the macOS
+`~/.chewbacca/users/<user>/contacts.db`. The file is mode 0600 and its directory 0700. The user is fixed when the server starts (`AMBER_USER`, default the macOS
 account), and no tool takes a user argument, so one process can only ever
 reach one person's contacts.
 
@@ -35,7 +35,7 @@ reach one person's contacts.
   folder. The path comes from a model, and a document can steer a model into
   asking for `~/.ssh`.
 - **Answer a web page.** Over HTTP, every request needs the bearer token in
-  `~/.amber/users/<user>/token` (mode 0600). Host must be localhost, which stops
+  `~/.chewbacca/users/<user>/token` (mode 0600). Host must be localhost, which stops
   DNS rebinding. A browser Origin is refused unless it is listed in
   `AMBER_ALLOWED_ORIGINS`.
 
