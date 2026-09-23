@@ -103,6 +103,9 @@ def load():
     # a test installs a fake by rebinding `music` itself.
     module.MUSIC = Path('/nonexistent/hud-music')
     module._music, module._music_stamp = None, 0.0
+    # Nor the real agent board: a "yes" with a real session waiting would
+    # press Return in that session's tab. Tests that want a board write one.
+    module.agent_board.EVENTS = Path('/nonexistent/agent-events.jsonl')
     return module
 
 
@@ -1998,6 +2001,114 @@ def test_terminal_loop(m) -> None:
     check("a strip click focuses the tab", "focus --tty /dev/ttys002" in Path(log).read_text(), Path(log).read_text())
 
 
+def test_agent_board_voice(m) -> None:
+    """Many agents from one voice: the status question, yes and no for any
+    waiting tab, and a terminal-bound sentence sent to the session Jev picks."""
+    import tempfile
+    mem = tempfile.mkdtemp()
+    m.voice_memory.MEMORY = Path(mem)
+    m.voice_memory.TRANSCRIPT = Path(mem) / "transcript.jsonl"
+    m.voice_memory.PROJECT = Path(mem) / "project.json"
+    m.voice_memory.DRAFT = Path(mem) / "draft.json"
+    Path(mem, "project.json").write_text(json.dumps({"tty": "/dev/ttys002", "cwd": mem}))
+    log = os.path.join(mem, "terminal.log")
+    Path(log).write_text("")
+    m.TERMINAL_CMD = ["sh", "-c", f'echo "$0 $* gate=${{CHEWIE_TERMINAL_ANSWER:-unset}}" >> {log}']
+    m.ROUTE = True
+    board_file = Path(mem) / "agent-events.jsonl"
+    saved = (m.agent_board.EVENTS, m.agent_board.pick)
+    m.agent_board.EVENTS = board_file
+    listener = m.Listener("claude -p", False, False)
+    sent: list[str] = []
+    listener.send = sent.append  # type: ignore[method-assign]
+    spoken: list[str] = []
+    listener.speak = spoken.append  # type: ignore[method-assign]
+    listener.settle_unless_running = lambda state, hold: sent.append(f"settle {state}")  # type: ignore[method-assign]
+
+    def board(*entries: dict) -> None:
+        now = time.time()
+        board_file.write_text("".join(json.dumps({"t": now, **e}) + "\n" for e in entries))
+
+    def wait_for_log(text: str) -> bool:
+        for _ in range(60):
+            if text in Path(log).read_text():
+                return True
+            time.sleep(0.05)
+        return False
+
+    try:
+        board(
+            {"event": "PreToolUse", "session": "s1", "cwd": "/code/chewbacca", "tty": "/dev/ttys002", "summary": "ls"},
+            {"event": "PermissionRequest", "session": "s2", "cwd": "/code/rig", "tty": "/dev/ttys004",
+             "summary": "git push"},
+            {"event": "PreToolUse", "session": listener.session, "cwd": "/code/chewbacca", "summary": "Read"},
+        )
+        check("the status question is answered from the board",
+              listener.handle_agents_word("What are my agents doing?"))
+        check("it names every agent but the voice's own session",
+              spoken == ["2 agents. rig is waiting on you to git push. chewbacca is working."], str(spoken))
+        spoken.clear()
+        check("an order that mentions agents is not a status question",
+              not listener.handle_agents_word("tell the agents to commit"))
+
+        check("'yes' with one board session waiting is consumed", listener.handle_terminal_word("yes"))
+        check("and presses yes in that session's tab, through the gate",
+              wait_for_log("answer yes --tty /dev/ttys004 gate=1"), Path(log).read_text())
+
+        board(
+            {"event": "PermissionRequest", "session": "s1", "cwd": "/code/chewbacca", "tty": "/dev/ttys002",
+             "summary": "rm build"},
+            {"event": "PermissionRequest", "session": "s2", "cwd": "/code/rig", "tty": "/dev/ttys004",
+             "summary": "git push"},
+        )
+        Path(log).write_text("")
+        check("'no' with two waiting is consumed", listener.handle_terminal_word("no"))
+        time.sleep(0.2)
+        check("but presses nothing, since a bare no cannot say which", Path(log).read_text() == "")
+        check("and says who is waiting", spoken and spoken[-1].startswith("2 are waiting"), str(spoken))
+
+        board({"event": "PermissionRequest", "session": "s2", "cwd": "/code/rig", "tty": "/dev/ttys004",
+               "summary": "git push", "t": time.time() - m.agent_board.ANSWERABLE_S - 60})
+        check("a prompt too old to trust is not answered", not listener.handle_terminal_word("yes"))
+        board({"event": "PermissionRequest", "session": "s3", "cwd": "/code/x", "summary": "git push"})
+        check("a waiting session with no tab is not answered", not listener.handle_terminal_word("yes"))
+
+        board(
+            {"event": "PreToolUse", "session": "s1", "cwd": "/code/chewbacca", "tty": "/dev/ttys002", "summary": "ls"},
+            {"event": "Stop", "session": "s2", "cwd": "/code/rig", "tty": "/dev/ttys004", "summary": "Done."},
+        )
+        m.agent_board.pick = lambda said, b, ask=None: {"session": "s2", "confidence": 0.97, "why": "jev chose agent_2"}
+        req = m.Request(said="rerun the rig", spoken_at=time.monotonic(), pointed=None, dest="terminal")
+        check("a picked session carries on", listener.choose_agent(req))
+        check("with that session's tab and name", req.tty == "/dev/ttys004" and req.agent == "rig", str(req))
+        prompt = listener.prompt_for(req, "")
+        check("the prompt drafts into that tab", "chewie terminal draft" in prompt and "--tty /dev/ttys004" in prompt)
+        check("and never tells the model to submit", "Never run chewie terminal submit" in prompt)
+
+        m.agent_board.pick = lambda said, b, ask=None: {"session": None, "confidence": 0.5, "why": "jev chose none"}
+        spoken.clear()
+        req = m.Request(said="commit it", spoken_at=time.monotonic(), pointed=None, dest="terminal")
+        check("an unsure pick stops the sentence", not listener.choose_agent(req) and not req.tty)
+        check("and asks which one", spoken == ["Which one: chewbacca or rig?"], str(spoken))
+
+        asked: list[tuple] = []
+        listener.ask = lambda said, **kw: asked.append((said, kw))  # type: ignore[method-assign]
+        m.agent_board.pick = lambda said, b, ask=None: {"session": "s2", "confidence": 0.99, "why": "jev chose agent_2"}
+        check("the answer to which one is consumed", listener.handle_agent_answer("the rig one"))
+        for _ in range(40):
+            if asked:
+                break
+            time.sleep(0.05)
+        check("and sends the held sentence to that tab",
+              asked == [("commit it", {"dest": "terminal", "tty": "/dev/ttys004", "agent": "rig"})], str(asked))
+        check("the question is asked once", listener.agent_question is None)
+
+        listener.agent_question = {"said": "commit it", "board": {}, "t": time.time() - 3600}
+        check("a stale question is not an answer", not listener.handle_agent_answer("the rig one"))
+    finally:
+        m.agent_board.EVENTS, m.agent_board.pick = saved
+
+
 def test_accounts(m) -> None:
     """The 2026-09-22 17:53 turn: one subscription spent, the other with room,
     and the voice reading out the limit notice instead of answering."""
@@ -2057,6 +2168,8 @@ def main() -> int:
     test_terminal_replay(module)
     print("terminal loop")
     test_terminal_loop(module)
+    print("the agent board by voice")
+    test_agent_board_voice(module)
     print("breadcrumb")
     test_breadcrumb(module)
     print("the recorded stream")

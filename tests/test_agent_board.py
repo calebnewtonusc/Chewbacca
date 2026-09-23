@@ -54,7 +54,7 @@ def main() -> int:
     check("two hours of silence drops a session", "old" not in live and len(live) == 3)
     check("waiting first, then running, then done", [s["session"] for s in ab.ordered(live)] == ["w", "r", "a"])
     check("the summary leads with who is blocked on you",
-          ab.summary(live) == "3 agents. w is waiting on you to rm build. r is working: pytest. a is done: Done.",
+          ab.summary(live) == "3 agents. w is waiting on you to rm build. r is working. a is done: Done.",
           ab.summary(live))
     check("no agents says so", ab.summary({}) == "No agents are running.")
 
@@ -102,6 +102,45 @@ def main() -> int:
         result = ab.pick("ambiguous", two, ask=fake({"agent": {"choice": "agent_1", "probabilities": {
             "agent_1": malformed, "agent_2": 0.005, "none": 0.005}}}))
         check("invalid confidence never chooses an agent", result["session"] is None)
+    from unittest.mock import patch
+    with patch.object(ab.jev, "ask", return_value={"agent": {"choice": "agent_1", "probabilities": {
+            "agent_1": .92, "agent_2": .04, "none": .04}}}) as provider:
+        result = ab.pick("the clay one", two)
+        check("native board pick keeps the upstream timeout", provider.call_args.kwargs["timeout"] == ab.PICK_TIMEOUT_S)
+        check("native board pick retains strict validated selection", result["session"] == "s2")
+
+    print("tabs and topics")
+    with tempfile.TemporaryDirectory() as tmp:
+        transcript = Path(tmp) / "s1.jsonl"
+        transcript.write_text("\n".join([
+            json.dumps({"type": "ai-title", "aiTitle": "Old title"}),
+            json.dumps({"type": "user", "message": {"content": "the ai-title word in a prompt"}}),
+            json.dumps({"type": "ai-title", "aiTitle": "Kyber voice wiring"}),
+            json.dumps({"type": "assistant", "message": {"content": "ok"}}),
+        ]) + "\n")
+        check("the newest title wins", ab.topic_of(str(transcript)) == "Kyber voice wiring")
+        check("no transcript, no topic", ab.topic_of("") == "" and ab.topic_of("/nope/x.jsonl") == "")
+        check("only a .jsonl is read", ab.topic_of(str(Path(tmp))) == "")
+        b = {}
+        b = ab.fold(b, ev("PreToolUse", "s1", "/code/chewbacca", 100, tty="/dev/ttys002",
+                          transcript=str(transcript), summary="npm test"))
+        b = ab.fold(b, ev("PostToolUse", "s1", "/code/chewbacca", 101))
+        b = ab.fold(b, ev("PreToolUse", "hud", "/code/chewbacca", 102, summary="Read x"))
+        b = ab.fold(b, ev("PermissionRequest", "s3", "/code/rig", 103, tty="/dev/ttys004", summary="git push"))
+        check("a later line without a tty keeps the session's tty", b["s1"]["tty"] == "/dev/ttys002")
+        b = ab.with_topics(b)
+        check("the topic is the transcript's title", b["s1"]["topic"] == "Kyber voice wiring")
+        check("the voice names a session by its topic, else its folder",
+              ab.name(b["s1"]) == "Kyber voice wiring" and ab.name(b["s3"]) == "rig")
+        criteria, _ = ab.menu(b)
+        check("the menu carries the topic", any("Kyber voice wiring" in c for c in criteria.values()))
+        check("a session with no tab cannot be typed into", set(ab.typeable(b)) == {"s1", "s3"})
+        check("the caller's own session is left out", set(ab.typeable(b, exclude="s1")) == {"s3"})
+        check("a fresh prompt in a tab is answerable",
+              [s["session"] for s in ab.answerable(b, now=110)] == ["s3"])
+        check("an old prompt is not", ab.answerable(b, now=103 + ab.ANSWERABLE_S + 1) == [])
+        check("the spoken summary leaves out raw commands",
+              "npm test" not in ab.summary(b) and "waiting on you to git push" in ab.summary(b), ab.summary(b))
 
     print(f"\n{PASSED} passed, {FAILED} failed")
     return 1 if FAILED else 0

@@ -31,8 +31,8 @@ voice turn.
 | Decision                                                | Today                          | Jev question                                                |
 | ------------------------------------------------------- | ------------------------------ | ----------------------------------------------------------- |
 | Where does a sentence go (terminal, browser, assistant) | Word lists, then Jev tier 3    | Choice, live since 2026-09-23 (30/30 on its eval)           |
-| Which agent is it for                                   | Only one remembered tab exists | Choice over the live board (built)                          |
-| Is it asking for status rather than giving an order     | Nothing                        | Noul, answered from the board with no model turn            |
+| Which agent is it for                                   | Choice over the live board     | Choice over the live board, wired to the voice 2026-09-23   |
+| Is it asking for status rather than giving an order     | Phrase match, board answers    | Noul, later, if the phrase match misses real questions      |
 | Is a waiting permission prompt safe to allow            | Only the person, by voice      | Noul, used to rank and phrase the ask, never to grant alone |
 | Speak the answer or write it to the hyper bar           | Length rule                    | Choice, later                                               |
 | What to click next in guide mode                        | Word match on control names    | Choice over the controls on screen, rebuilt every step      |
@@ -49,17 +49,29 @@ voice turn.
 - `tests/test_agent_board.py` (21 checks) and two new checks in
   `tests/test_terminal_events.py`.
 - `tests/eval_agent_board_jev.py`: 19/20 on 2026-09-23, none sent to the wrong
-  agent, worst latency 0.58 s. The miss is recorded in the file.
+  agent, worst latency 0.58 s. With topics on the menu, 20/20 the same afternoon.
+- **Topics on the menu** (2026-09-23). Each board line carries the session's
+  transcript path, and the board reads the newest `ai-title` Claude Code writes
+  there. No UserPromptSubmit hook needed. The voice names a session by it.
+- **Tabs.** The hook finds each session's Terminal tty once, from the claude
+  process above it, and caches it in `agent-ttys/<session>`. Only a session with
+  a tab can be typed into or answered.
+- **Voice wiring** (2026-09-23), in `hud-listen`:
+  - "What are my agents doing" (`route.agent_status_word`) speaks the board,
+    minus the voice's own session. No model turn.
+  - A terminal-bound sentence goes to the one tab there is, or to the one
+    `pick` chooses, drafted with `--tty`. Below the floor the voice asks
+    "Which one: A or B?" and hears the next sentence (within 30 s) as the answer.
+  - Yes and no answer the remembered tab's held prompt as before; otherwise the
+    one board session waiting in a tab, by key press. Several waiting: it says
+    who and presses nothing. Prompts older than 15 minutes are left alone.
 
 ## Next, in order
 
-1. **Topics on the menu.** The eval's one miss was "the heads up display one": the
-   menu said the folder and the current tool call, not what the session is for. Record
-   each session's first prompt (the UserPromptSubmit hook) and put it on the menu.
-2. **Voice wiring.** In `hud-listen`: a status question speaks `agents say`; a sentence
-   routed to the terminal goes through `pick` to the chosen session's tab, found by
-   matching its `cwd` against `chewie terminal tabs`. Yes and no answer the session
-   that is waiting, not only the remembered one.
+1. **Announce other sessions' prompts.** Only the remembered tab's permission
+   prompts are spoken and held. Others are heard only through the status question.
+   Tail `agent-events.jsonl` in hud-listen and speak a new wait, rate-limited.
+2. **"Yes to rig."** An answer that names the session, for when several wait.
 3. **One parallel call.** Fold the router's destination question and the agent question
    into one `jev.ask` with both, so a sentence costs one round trip.
 4. **Permission triage.** A Noul per waiting prompt, "safe to allow without review",

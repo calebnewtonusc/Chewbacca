@@ -43,6 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 import route  # noqa: E402
 import voice_memory  # noqa: E402
 import terminal_state  # noqa: E402
+import agent_board  # noqa: E402
 
 # HUD_ROUTE=off: every sentence goes to the assistant and nothing is written
 # to ~/.bob/memory, which is how the fake-display test runs without a
@@ -372,6 +373,11 @@ class Request:
     dest: str | None = None
     reason: str = ""
     confidence: float = 0.0
+    # The Terminal tab a terminal-bound sentence is typed into, and what the
+    # voice calls that session. Set when the agent board picked one; empty
+    # leaves `chewie terminal` to use the remembered tab, as before the board.
+    tty: str = ""
+    agent: str = ""
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:6])
 
 
@@ -1197,6 +1203,10 @@ class Listener:
         # (inode, offset) into the events file, not a bare offset: the hook
         # rotates the file past its size cap. See terminal_state.tail.
         self.terminal_cursor = terminal_state.START
+        # "Which one?" asked about a terminal-bound sentence Jev could not
+        # place: {"said", "board", "t"}. The next sentence is heard as the
+        # answer while it is fresh. Read and cleared on the reader thread.
+        self.agent_question: dict | None = None
 
     def log(self, *args) -> None:
         if self.verbose:
@@ -1960,7 +1970,8 @@ class Listener:
         except (BrokenPipeError, OSError, AssertionError):
             return False
 
-    def ask(self, said: str, typed: bool = False, relayed: bool = False, dest: str | None = None) -> None:
+    def ask(self, said: str, typed: bool = False, relayed: bool = False, dest: str | None = None,
+            tty: str = "", agent: str = "") -> None:
         self.hush()
         words = normalise(said)
         if words in STOP_WORDS or (words in BARGE_WORDS and self.in_flight()):
@@ -1977,13 +1988,17 @@ class Listener:
             return
         # A relayed event (a click the display reported) and a request already
         # routed by a correction skip the draft and terminal words.
+        if not typed and not relayed and dest is None and self.handle_agent_answer(said):
+            return
         if not typed and not relayed and dest is None and self.handle_draft_word(said):
             return
         if not typed and not relayed and dest is None and self.handle_terminal_word(said):
             return
+        if not typed and not relayed and dest is None and self.handle_agents_word(said):
+            return
         req = Request(
             said=said, spoken_at=time.monotonic(), pointed=self.pointing(),
-            typed=typed, relayed=relayed, dest=dest,
+            typed=typed, relayed=relayed, dest=dest, tty=tty, agent=agent,
         )
         with self.state:
             waiting = self.current is not None
@@ -2594,8 +2609,10 @@ class Listener:
             threading.Thread(target=stop_work, daemon=True).start()
             return True
         action = route.answer_word(said)
-        if action is None or state["state"] != "waiting":
+        if action is None:
             return False
+        if state["state"] != "waiting":
+            return self.answer_board(said, action)
 
         def work() -> None:
             self.send("p acting")
@@ -2624,6 +2641,111 @@ class Listener:
             except OSError as err:
                 self.log("memory unwritable:", err)
             self.settle_unless_running("done" if delivered else "failed", self.STOP_HOLD)
+
+        threading.Thread(target=work, daemon=True).start()
+        return True
+
+    def answer_board(self, said: str, action: str) -> bool:
+        """"yes" or "no" for a session other than the remembered tab.
+
+        Only the remembered tab's prompts are held by the hook, so every
+        other session shows its own dialog and the answer is the key press
+        in that session's tab. One waiting: answer it. Several: say who, and
+        press nothing, because a bare "yes" cannot say which.
+        """
+        waiting = agent_board.answerable(agent_board.load(), time.time(), exclude=self.session)
+        if not waiting:
+            return False
+        if len(waiting) > 1:
+            names = [agent_board.name(s) for s in waiting]
+            line = f"{len(names)} are waiting: {', '.join(names)}. Answer that one in its tab."
+            self.send("s " + json.dumps(line))
+            self.speak(line)
+            self.settle_unless_running("done", self.STOP_HOLD)
+            return True
+        target = waiting[0]
+        who = agent_board.name(target)
+
+        def work() -> None:
+            self.send("p acting")
+            delivered = self.terminal("answer", target["tty"], "yes" if action == "allow" else "no")
+            granted = "allowed" if action == "allow" else "denied"
+            self.send("s " + json.dumps(f"{granted}: {who}" if delivered else f"couldn't answer {who}"))
+            try:
+                voice_memory.append({
+                    "t": voice_memory.now_iso(), "via": "voice", "text": said, "dest": "terminal",
+                    "confidence": 1.0, "reason": "answer word, agent board", "reply": None,
+                    "project": target["folder"], "answer": action, "session": target["session"],
+                    "delivered": delivered,
+                })
+            except OSError as err:
+                self.log("memory unwritable:", err)
+            self.settle_unless_running("done" if delivered else "failed", self.STOP_HOLD)
+
+        threading.Thread(target=work, daemon=True).start()
+        return True
+
+    def handle_agents_word(self, said: str) -> bool:
+        """"What are my agents doing": read off the board, no model turn."""
+        if not ROUTE or not route.agent_status_word(said):
+            return False
+        board = agent_board.load()
+        board.pop(self.session, None)
+        line = agent_board.summary(board)
+        self.log("agents:", line)
+        self.send("s " + json.dumps(line))
+        self.speak(line)
+        self.settle_unless_running("done", self.LEAVE_AFTER)
+        return True
+
+    def choose_agent(self, req: Request) -> bool:
+        """Which Claude Code tab a terminal-bound sentence goes to.
+
+        None in a tab: the remembered-tab path, which opens one if it has to.
+        One: that one. Several: Jev picks from the live board (agent_board.
+        pick); below its floor the person is asked, and False comes back,
+        because a sentence typed into the wrong agent is an instruction run
+        in the wrong repo.
+        """
+        board = agent_board.typeable(agent_board.load(), exclude=self.session)
+        if not board:
+            return True
+        got = agent_board.pick(req.said, board)
+        self.log("agent:", got["why"], f"{got['confidence']:.2f}")
+        chosen = board.get(got["session"] or "")
+        if chosen:
+            req.tty, req.agent = chosen["tty"], agent_board.name(chosen)
+            return True
+        names = [agent_board.name(s) for s in agent_board.ordered(board)]
+        question = "Which one: " + ", ".join(names[:-1]) + " or " + names[-1] + "?"
+        self.agent_question = {"said": req.said, "board": board, "t": time.time()}
+        self.send("s " + json.dumps(question))
+        self.speak(question)
+        return False
+
+    # Guessed, never measured: long enough to hear "which one" and answer,
+    # short enough that an unrelated sentence a minute later is not taken
+    # for the answer.
+    AGENT_QUESTION_S = 30.0
+
+    def handle_agent_answer(self, said: str) -> bool:
+        """The answer to "which one?": the held sentence goes to that tab.
+
+        An answer that names none of them drops the question and is heard as
+        a request of its own. Jev is called off the reader thread.
+        """
+        question, self.agent_question = self.agent_question, None
+        if not question or time.time() - question["t"] > self.AGENT_QUESTION_S:
+            return False
+
+        def work() -> None:
+            got = agent_board.pick(said, question["board"])
+            chosen = question["board"].get(got["session"] or "")
+            self.log("agent answer:", got["why"], f"{got['confidence']:.2f}")
+            if chosen:
+                self.ask(question["said"], dest="terminal", tty=chosen["tty"], agent=agent_board.name(chosen))
+            else:
+                self.ask(said)
 
         threading.Thread(target=work, daemon=True).start()
         return True
@@ -2729,8 +2851,11 @@ class Listener:
             outcome = "done" if opened else "failed"
             self.record(req, decision, None, outcome)
             return outcome
+        if decision.dest == "terminal" and not req.tty and not self.choose_agent(req):
+            self.record(req, decision, None, "done")
+            return "done"
         if decision.dest == "terminal":
-            self.send("s " + json.dumps("to terminal"))
+            self.send("s " + json.dumps(f"to {req.agent}" if req.agent else "to terminal"))
         prompt = self.prompt_for(req, seen)
         self.log("->", req.said, f"[{req.id}, spoken {time.monotonic() - req.spoken_at:.0f}s ago]")
         argv = self.command()
@@ -2872,7 +2997,20 @@ class Listener:
             else ""
         )
         terminal = ""
-        if req.dest == "terminal":
+        if req.dest == "terminal" and req.tty:
+            if req.tty != project.get("tty"):
+                building = ""
+            terminal = (
+                f"Route: this sentence is for the Claude Code session {req.agent!r}, in the tab "
+                f"{req.tty}. Say exactly one line first, 'On it, sending it to {req.agent}.' Then "
+                "draft the prompt that session should receive: if what they said is already a "
+                "specific instruction, use it as said; if it is vague or large, write one paragraph "
+                "saying what to build, where, and the constraints they would state if asked. No "
+                "headings, no code fences, one paragraph. Place it with: chewie terminal draft "
+                f"\"<the prompt>\" --tty {req.tty}. Then stop: say nothing more, the draft is on "
+                "their screen. Never run chewie terminal submit; only they send it.\n\n"
+            )
+        elif req.dest == "terminal":
             terminal = (
                 "Route: this sentence is for the terminal. Say exactly one line first, "
                 "'On it, working in the terminal.' Then draft the prompt Claude Code should "

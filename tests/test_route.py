@@ -320,6 +320,13 @@ def main() -> int:
                        ("cancel the terminal", True), ("stop", False), ("stop the music", False)]:
         check(f"terminal_stop_word({said!r}) is {want}", r.terminal_stop_word(said) is want)
 
+    for said, want in [("What are my agents doing?", True), ("how are the sessions going", True),
+                       ("are my agents done", True), ("Who is waiting on me?", True), ("agent status", True),
+                       ("what's the status of my terminals", True), ("what is running", True),
+                       ("tell the agents to commit", False), ("what are you doing", False),
+                       ("are the tests done", False), ("run the agents", False)]:
+        check(f"agent_status_word({said!r}) is {want}", r.agent_status_word(said) is want)
+
     print(f"\n{PASSED} passed, {FAILED} failed")
     return 1 if FAILED else 0
 

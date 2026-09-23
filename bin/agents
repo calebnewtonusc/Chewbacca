@@ -45,7 +45,8 @@ def main(argv: list[str]) -> int:
         print("No agents yet. A session shows up here after its first tool call.")
         return 0
     for s in rows:
-        print(f"{s['state']:8} {s['folder']:24} {s.get('text') or ''}")
+        tab = (s.get("tty") or "no tab").replace("/dev/", "")
+        print(f"{s['state']:8} {s['folder']:16} {tab:8} {agent_board.name(s)[:40]:40} {s.get('text') or ''}")
     return 0
 
 
