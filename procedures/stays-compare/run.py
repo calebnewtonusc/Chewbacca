@@ -2,7 +2,7 @@
 """stays-compare: places to stay in a city, from the booking sites, as one table.
 
     run.py "Valencia, Spain" --from 2026-11-01 --to 2026-12-01 --guests 3 \
-        --budget 3500 --out ~/Desktop/stays
+        --budget 3500 --out ~/Desktop/stays-example
 
 Reads the public search results of Airbnb and Booking.com in a headless
 browser (Playwright), keeps entire places only, and writes:

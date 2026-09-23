@@ -6,5 +6,5 @@
   "budget":   {"type": "number", "example": 3500, "note": "for the whole stay, in --currency"},
   "currency": {"type": "string", "example": "USD", "default": "USD"},
   "sites":    {"type": "list",   "example": ["airbnb", "booking"], "default": ["airbnb", "booking"]},
-  "out":      {"type": "path",   "example": "~/Desktop/stays", "default": "~/Desktop/stays"}
+  "out":      {"type": "path",   "example": "~/Desktop/stays-example", "default": "~/Desktop/stays"}
 }
