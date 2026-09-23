@@ -270,6 +270,7 @@ if group "tools"; then
   check  "inventory parses frontmatter and holds house style" python3 "$ROOT/tests/test_inventory.py"
   check  "amber-mcp imports 10,000 contacts deduplicated, one user per store" python3 "$ROOT/tests/test_amber_mcp.py"
   check  "amber-user: two people, each recalls their own and never the other's" python3 "$ROOT/tests/test_amber_tenants.py"
+  check  "amber-redact: known and pattern values never leak, the gap is measured" python3 "$ROOT/tests/test_amber_redact.py"
   # The craft gate is the only thing making the demo rules fire rather than sit
   # in a markdown file, so its fail-closed behaviour is the property to pin.
   check  "craft-gate refuses a craft nobody studied" bash -c "! CRAFT_DIR='$TMP/craft-empty' python3 '$ROOT/bin/craft-gate' pitch-deck >/dev/null 2>&1"

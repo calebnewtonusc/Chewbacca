@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+"""amber-redact - take the private parts out before a request leaves the machine.
+
+The PAPILLON boundary from docs/PAPILLON.md, first layer. A request is
+rewritten with placeholders ([PERSON_1], [EMAIL_1]) before it goes to the
+frontier model, and the model's answer has the real values put back on the
+way in. The map between them never leaves the person's own root.
+
+    amber-redact redact < request.txt            JSON: id, redacted text, counts
+    amber-redact redact --text < request.txt     the redacted text only, id on stderr
+    amber-redact restore <id> < answer.txt       the answer with the values back
+    amber-redact forget <id>                     delete one map
+    amber-redact entities                        how many known values, by source
+
+What it knows is what this person's own stores know: the names, nicknames,
+emails and phones in their people store and their Amber contacts, plus their
+own name from the profile. On top of that, patterns: emails, phone numbers,
+card numbers that pass Luhn, US social security numbers, street addresses.
+
+What it cannot know is a name it has never seen ("my friend Priya"). That is
+the job of the second layer, a small local model, which is not built. The
+leakage test in tests/test_amber_redact.py measures exactly that gap, so the
+case for the model is a number rather than an assumption.
+
+The root is the one amber-user sets: $AMBER_ROOT, else $AMBER_HOME/$AMBER_USER.
+"""
+
+import json
+import os
+import re
+import secrets
+import sqlite3
+import sys
+from pathlib import Path
+
+USER_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+
+# Order matters: a card number or SSN is also a run of digits a phone pattern
+# would half-match, so the stricter shapes go first and claim their span.
+PATTERNS = [
+    ("EMAIL", re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")),
+    ("SSN", re.compile(r"\b\d{3}-\d{2}-\d{4}\b")),
+    ("CARD", re.compile(r"\b(?:\d[ -]?){12,18}\d\b")),
+    ("PHONE", re.compile(r"(?<![\w-])(?:\+?\d{1,3}[ .-]?)?(?:\(\d{3}\)|\d{3})[ .-]?\d{3}[ .-]?\d{4}\b")),
+    ("ADDRESS", re.compile(
+        r"\b\d{1,6}\s+(?:[A-Z][a-z]+\s){1,3}"
+        r"(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Dr|Drive|Ln|Lane|Ct|Court|Way|Pl|Place)\b\.?")),
+]
+
+# A first or last name alone is redacted too, because "tell Sam" leaks Sam as
+# surely as "tell Sam Lee". Under three letters the false positives ("Al",
+# "Jo" inside ordinary prose) cost more than they protect.
+MIN_PART = 3
+
+
+def root():
+    if os.environ.get("AMBER_ROOT"):
+        return Path(os.environ["AMBER_ROOT"])
+    user = os.environ.get("AMBER_USER") or os.environ.get("USER", "")
+    if not USER_ID.match(user):
+        sys.exit(f"amber-redact: '{user}' is not a user id. Start it through amber-user.")
+    base = Path(os.environ.get("AMBER_HOME") or Path.home() / ".chewbacca" / "users")
+    return base / user
+
+
+def luhn(digits):
+    total = 0
+    for index, char in enumerate(reversed(digits)):
+        value = int(char)
+        if index % 2:
+            value = value * 2 - 9 if value > 4 else value * 2
+        total += value
+    return total % 10 == 0
+
+
+def rows(db, query):
+    if not db.exists():
+        return []
+    try:
+        connection = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            return connection.execute(query).fetchall()
+        finally:
+            connection.close()
+    except sqlite3.Error:
+        return []
+
+
+def known(base):
+    """Every private value this person's stores hold, as (kind, value, source)."""
+    people_dir = Path(os.environ.get("PEOPLE_DIR") or base / "people")
+    found = []
+    for name, nickname, email, phone in rows(
+            people_dir / "people.db",
+            "select name, nickname, email, phone from people where deleted_at is null"):
+        found += [("PERSON", name, "people"), ("PERSON", nickname, "people"),
+                  ("EMAIL", email, "people"), ("PHONE", phone, "people")]
+    for name, email, phone in rows(base / "contacts.db", "select name, email, phone from contacts"):
+        found += [("PERSON", name, "contacts"), ("EMAIL", email, "contacts"),
+                  ("PHONE", phone, "contacts")]
+    profile = base / "profile.md"
+    if profile.exists():
+        match = re.search(r"^name: (.+)$", profile.read_text(), re.M)
+        if match:
+            found.append(("PERSON", match.group(1).strip(), "profile"))
+    return [(kind, value.strip(), source) for kind, value, source in found
+            if value and value.strip()]
+
+
+def name_forms(full):
+    parts = [p for p in re.split(r"\s+", full) if len(p) >= MIN_PART]
+    return [full] + (parts if len(parts) > 1 else [])
+
+
+def redact(text, base):
+    """Returns (redacted text, {placeholder: original})."""
+    spans = []  # (start, end, kind, canonical)
+    taken = [False] * len(text)
+
+    def claim(start, end, kind, canonical):
+        if any(taken[start:end]):
+            return
+        for index in range(start, end):
+            taken[index] = True
+        spans.append((start, end, kind, canonical))
+
+    # Known values first, longest first, so "Sam Lee" wins over "Sam".
+    names = {}
+    for kind, value, _ in known(base):
+        if kind == "PERSON":
+            for form in name_forms(value):
+                names.setdefault(form.lower(), value)
+        elif kind == "PHONE":
+            digits = re.sub(r"\D", "", value)
+            if len(digits) >= 7:
+                names.setdefault(("phone", digits[-10:]), value)
+        else:
+            names.setdefault(value.lower(), value)
+    for form in sorted((k for k in names if isinstance(k, str)), key=len, reverse=True):
+        for match in re.finditer(r"(?<!\w)" + re.escape(form) + r"(?!\w)", text, re.I):
+            kind = "EMAIL" if "@" in form else "PERSON"
+            claim(match.start(), match.end(), kind, names[form])
+
+    for kind, pattern in PATTERNS:
+        for match in pattern.finditer(text):
+            value = match.group(0)
+            if kind == "CARD" and not luhn(re.sub(r"\D", "", value)):
+                continue
+            canonical = value
+            if kind == "PHONE":
+                key = ("phone", re.sub(r"\D", "", value)[-10:])
+                canonical = names.get(key, value)
+            claim(match.start(), match.end(), kind, canonical)
+
+    # One placeholder per distinct value, so the model can still tell that
+    # "Sam" and "Sam Lee" are the same person and two emails are two people.
+    placeholders, mapping, counters = {}, {}, {}
+    for start, end, kind, canonical in sorted(spans):
+        key = (kind, canonical.lower())
+        if key not in placeholders:
+            counters[kind] = counters.get(kind, 0) + 1
+            placeholders[key] = f"[{kind}_{counters[kind]}]"
+            mapping[placeholders[key]] = canonical
+    out, cursor = [], 0
+    for start, end, kind, canonical in sorted(spans):
+        out.append(text[cursor:start])
+        out.append(placeholders[(kind, canonical.lower())])
+        cursor = end
+    out.append(text[cursor:])
+    return "".join(out), mapping
+
+
+def restore(text, mapping):
+    # Models drop the brackets or change case now and then; accept both.
+    for placeholder, value in sorted(mapping.items(), key=lambda item: -len(item[0])):
+        bare = placeholder.strip("[]")
+        text = re.sub(r"\[?\b" + re.escape(bare) + r"\b\]?", lambda _m: value, text, flags=re.I)
+    return text
+
+
+def maps_dir(base):
+    path = base / "redact"
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return path
+
+
+def map_path(base, request_id):
+    if not re.fullmatch(r"[a-f0-9]{16}", request_id):
+        sys.exit(f"amber-redact: '{request_id}' is not a request id")
+    return maps_dir(base) / f"{request_id}.json"
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    base = root()
+    command = argv[0]
+    if command == "redact":
+        text, mapping = redact(sys.stdin.read(), base)
+        request_id = secrets.token_hex(8)
+        path = map_path(base, request_id)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as handle:
+            json.dump(mapping, handle)
+        counts = {}
+        for placeholder in mapping:
+            kind = placeholder.strip("[]").rsplit("_", 1)[0]
+            counts[kind] = counts.get(kind, 0) + 1
+        if "--text" in argv:
+            print(request_id, file=sys.stderr)
+            sys.stdout.write(text)
+        else:
+            print(json.dumps({"id": request_id, "text": text, "counts": counts}))
+    elif command == "restore" and len(argv) == 2:
+        path = map_path(base, argv[1])
+        if not path.exists():
+            sys.exit(f"amber-redact: no map for {argv[1]}")
+        sys.stdout.write(restore(sys.stdin.read(), json.loads(path.read_text())))
+    elif command == "forget" and len(argv) == 2:
+        map_path(base, argv[1]).unlink(missing_ok=True)
+    elif command == "entities":
+        counts = {}
+        for kind, _, source in known(base):
+            counts[f"{source} {kind.lower()}"] = counts.get(f"{source} {kind.lower()}", 0) + 1
+        for label, count in sorted(counts.items()):
+            print(f"{count:>6}  {label}")
+    else:
+        sys.exit("amber-redact: unknown command. amber-redact --help")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
