@@ -81,7 +81,7 @@ the user's cancellation or a documented scope decision. The ledger does not spaw
 workers. Dispatch dependency-ready jobs within the host's actual concurrency and
 resource limits, and retain waiting jobs for later waves.
 
-Apply three decision standards across planning, execution, learning and review:
+Apply four decision standards across planning, execution, learning and review:
 **Mathematical:** define the objective, constraints, baseline, budget and error
 costs; select an appropriate algorithm, such as constrained graph routing or
 cost-sensitive classification. Test outcome learning offline or in shadow before
@@ -89,7 +89,10 @@ promotion; measure uncertainty rather than inventing confidence. **Creative:**
 consider a simpler baseline and a materially different approach, then choose a
 bounded test that distinguishes them. **Proprietary:** accumulate lawful, private,
 verified evidence and reusable procedures; public tools and untested ideas are not
-an exclusive advantage. Read `docs/DECISION-STANDARDS.md` for substantial decisions.
+an exclusive advantage. **Coachable:** treat corrections as evidence, check their
+source and scope, update the owning procedure, then verify retrieval and changed
+behavior on a later untouched task. Saving a lesson alone is not learning. Read
+`docs/DECISION-STANDARDS.md` for substantial decisions.
 Routine deterministic actions use a direct check, without a new essay or model call.
 
 After each substantial phase, compare evidence with the baseline and acceptance
