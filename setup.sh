@@ -1551,8 +1551,9 @@ h["Notification"] = [{"hooks": [{
 
 # The terminal loop: hud-listen hears when the remembered Claude Code tab is
 # waiting on a permission, answers it by voice, and says when a turn ends.
-# One wrapper for six events; the wrapper itself filters to the remembered
-# tab and exits at once for every other session. 45 s: the hook holds a
+# One wrapper for six events. Every session gets one line in
+# agent-events.jsonl for the agent board (bin/agents); only the remembered
+# tab's events reach the voice, and only its prompts are held. 45 s: the hook holds a
 # permission prompt for 30 s while the voice asks, and needs room above that.
 for _event in ("PermissionRequest", "PreToolUse", "PostToolUse", "PermissionDenied", "Stop", "SessionEnd"):
     _register(_event, hooks_dir + "/terminal-loop.sh", timeout=45)

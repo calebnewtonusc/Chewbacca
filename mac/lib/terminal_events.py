@@ -7,6 +7,10 @@ events from the tab `project.json` remembers, appends one line per event to
 `terminal-events.jsonl` for hud-listen to tail, and on a permission prompt
 holds the prompt while the voice asks.
 
+Every session, whatever its folder, also gets a line in `agent-events.jsonl`:
+that is the board bin/lib/agent_board.py folds, so one voice can see and run
+many agents. Only the remembered tab's prompts are ever held.
+
 It never grants on its own. The only `allow` it can return is one it read
 from an answer file hud-listen wrote after a person said yes.
 
@@ -25,6 +29,7 @@ from pathlib import Path
 
 MEMORY = Path(os.environ.get("BOB_MEMORY_DIR", str(Path.home() / ".bob" / "memory")))
 EVENTS = MEMORY / "terminal-events.jsonl"
+AGENT_EVENTS = MEMORY / "agent-events.jsonl"
 ASKS = MEMORY / "asks"
 PROJECT = MEMORY / "project.json"
 
@@ -111,12 +116,13 @@ def entry_for(event: dict, ask: str = "", held: bool = False) -> dict:
         "tool": str(event.get("tool_name") or ""),
         "summary": summary(event),
         "session": str(event.get("session_id") or ""),
+        "cwd": str(event.get("cwd") or ""),
         "ask": ask,
         "held": held,
     }
 
 
-def append(entry: dict) -> None:
+def append(entry: dict, path: Path | None = None) -> None:
     """One line, appended. Never a rewrite.
 
     Claude Code runs tool calls concurrently and waits on every hook, so this
@@ -125,12 +131,13 @@ def append(entry: dict) -> None:
     next append starts a fresh one, so the reader sees a new inode rather
     than bytes that moved under it. Only one generation is kept.
     """
+    path = path or EVENTS
     MEMORY.mkdir(parents=True, exist_ok=True)
-    with EVENTS.open("a", encoding="utf-8") as f:
+    with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     try:
-        if EVENTS.stat().st_size > EVENTS_MAX_BYTES:
-            os.replace(EVENTS, EVENTS.with_name(EVENTS.name + ".1"))
+        if path.stat().st_size > EVENTS_MAX_BYTES:
+            os.replace(path, path.with_name(path.name + ".1"))
     except OSError:
         pass
 
@@ -252,6 +259,10 @@ def handle(raw: str, front=front_app, sleep=time.sleep, clock=time.monotonic) ->
         return ""
     if not isinstance(event, dict) or event.get("hook_event_name") not in HANDLED:
         return ""
+    try:
+        append(entry_for(event), AGENT_EVENTS)
+    except OSError as err:
+        print(f"terminal hook: could not write {AGENT_EVENTS}: {err}", file=sys.stderr)
     if not matches(event, read_json(PROJECT)):
         return ""
     try:
