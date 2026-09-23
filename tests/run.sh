@@ -269,6 +269,7 @@ if group "tools"; then
   check  "code-slop scores its own tests" python3 "$ROOT/tests/test_code_slop.py"
   check  "inventory parses frontmatter and holds house style" python3 "$ROOT/tests/test_inventory.py"
   check  "amber-mcp imports 10,000 contacts deduplicated, one user per store" python3 "$ROOT/tests/test_amber_mcp.py"
+  check  "site finds what the kit knows and snaps a page by role" python3 "$ROOT/tests/test_site.py"
   check  "amber-user: two people, each recalls their own and never the other's" python3 "$ROOT/tests/test_amber_tenants.py"
   check  "amber-redact: known and pattern values never leak, the gap is measured" python3 "$ROOT/tests/test_amber_redact.py"
   # The craft gate is the only thing making the demo rules fire rather than sit

@@ -1,0 +1,292 @@
+#!/usr/bin/env python3
+"""site: what Chewbacca knows about a website, and a way to learn one it doesn't.
+
+    site find "places to stay in lisbon"      # procedures and maps that fit, best first
+    site snap https://www.airbnb.com          # the page as an agent reads it, saves nothing
+    site snap https://www.airbnb.com --save   # same, filed under maps/<host>/pages/
+    site show airbnb.com                      # the map and every page read so far
+
+WHY FIND COMES FIRST. docs/LEARNING-TO-ACT.md names "retrieval before acting"
+as missing: nothing checked for a procedure before exploring, so the second
+attempt at a task was the first attempt again. Stagehand, Skyvern and
+browser-use all converged on the same fix in 2025 and 2026: explore once with
+the model, keep what worked, and run it with the model out of the path next
+time. That only pays if something looks before exploring. That is `find`.
+
+WHY THE ACCESSIBILITY TREE. It is what the leading agents read (browser-use
+reached 89.1% on WebVoyager with it; Mariner uses it beside screenshots). It
+lists every control by role and visible name, which are also the locators
+LEARNING-TO-ACT.md says procedures must use, so a saved snapshot is already
+written in the vocabulary a procedure clicks by. Raw DOM runs to hundreds of
+thousands of tokens on a real page; this is a few thousand.
+
+WHY FTS AND NOT EMBEDDINGS. The corpus is a few dozen short files written by
+this kit in its own words. BM25 over them needs no model, no key and no
+index on disk, and answers in milliseconds. Embeddings earn their place when
+the corpus is a shared registry of thousands of procedures written by
+strangers in different words; that is the point to switch, not before.
+
+WHAT IT WILL NOT DO. A page that answers a headless browser with a human
+check is reported as blocked and left alone. The kit does not try to look
+human; the task moves into the person's own Chrome through chrome-js.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import re
+import sqlite3
+import sys
+from pathlib import Path
+from urllib.parse import urlparse
+
+ROOT = Path(__file__).resolve().parent.parent
+MAPS = Path(os.environ.get("SITE_MAPS", ROOT / "maps"))
+PROCEDURES = Path(os.environ.get("SITE_PROCEDURES", ROOT / "procedures"))
+
+CONTROL_ROLES = (
+    "button", "link", "textbox", "searchbox", "combobox", "checkbox", "radio",
+    "tab", "menuitem", "option", "switch", "slider", "spinbutton",
+)
+
+# Titles and phrases seen on pages that refuse headless browsers. "Bot or Not?"
+# is Vrbo's, read 2026-09-20 on the stays-compare run; the rest are the stock
+# Cloudflare, Akamai and reCAPTCHA interstitials.
+BLOCK_SIGNS = (
+    "bot or not", "just a moment", "attention required", "access denied",
+    "verify you are human", "are you a robot", "captcha", "unusual traffic",
+    "too many requests",
+)
+
+# Vrbo answered a second visit on 2026-09-23 with a 429 page titled "Too Many
+# Requests" and no controls at all, so an empty page is its own warning.
+
+# Query words that match every document and rank nothing. "order pizza" scored
+# 0.63 against the Clay map on "order" before these went in.
+STOP = {
+    "a", "an", "and", "the", "to", "in", "on", "of", "for", "is", "it", "my",
+    "me", "what", "whats", "how", "do", "i", "can", "you", "get", "find",
+    "show", "some", "with", "from", "at", "this", "that", "order", "make",
+}
+
+# BM25 here is relative to a corpus of a few dozen files. Measured 2026-09-23
+# on the real maps: true matches scored 1.2 to 6.7, unrelated words 0.6 and
+# below, so 0.9 is the floor. Re-measure when the corpus grows past ~100 files.
+MIN_SCORE = 0.9
+
+# A saved snapshot is read back into a model's context, so it has a ceiling.
+# Guessed, never measured: 60k characters is roughly 15k tokens, about the
+# cost of one lean voice turn, which is the budget a map read should fit in.
+SNAPSHOT_CAP = 60_000
+
+
+def host_of(url: str) -> str:
+    host = (urlparse(url).hostname or "").lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def slug_of(url: str) -> str:
+    path = urlparse(url).path.strip("/") or "home"
+    return re.sub(r"[^a-z0-9]+", "-", path.lower()).strip("-")[:80] or "home"
+
+
+# ---------------------------------------------------------------- find
+
+def documents():
+    """Every procedure and map the kit has, as (kind, name, path, text)."""
+    for p in sorted(PROCEDURES.glob("*/PROCEDURE.md")):
+        yield "procedure", p.parent.name, p, p.read_text(errors="ignore")
+    for p in sorted(MAPS.glob("*/MAP.md")):
+        yield "map", p.parent.name, p, p.read_text(errors="ignore")
+    for p in sorted(MAPS.glob("*/pages/*.md")):
+        yield "page", f"{p.parent.parent.name}/{p.stem}", p, p.read_text(errors="ignore")
+
+
+def summary_line(text: str) -> str:
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith(("#", "---", "```", "|", ">")) and ":" not in line[:12]:
+            return line[:140]
+    return ""
+
+
+def find(query: str, limit: int):
+    db = sqlite3.connect(":memory:")
+    db.execute("create virtual table docs using fts5(kind, name, path, body, tokenize='porter')")
+    rows = list(documents())
+    db.executemany("insert into docs values (?,?,?,?)",
+                   [(k, n, str(p), t) for k, n, p, t in rows])
+    words = [w for w in re.findall(r"[a-z0-9]+", query.lower()) if w not in STOP]
+    if not words:
+        return []
+    match = " OR ".join(f'"{w}"' for w in words)
+    # Name matches weigh most: "airbnb" in a query should find the airbnb map
+    # before a procedure that mentions Airbnb in passing.
+    hits = db.execute(
+        "select kind, name, path, body, bm25(docs, 0, 8, 0, 1) as score "
+        "from docs where docs match ? order by score limit ?",
+        (match, limit),
+    ).fetchall()
+    out = [{"kind": k, "name": n, "path": p, "summary": summary_line(b), "score": round(-s, 2)}
+           for k, n, p, b, s in hits]
+    if not out:
+        return out
+    floor = max(MIN_SCORE, out[0]["score"] * 0.25)
+    return [h for h in out if h["score"] >= floor]
+
+
+# ---------------------------------------------------------------- snap
+
+def snapshot(url: str, timeout_ms: int):
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            try:
+                page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 8000))
+            except Exception:
+                pass  # busy pages never go idle; what has rendered is still worth reading
+            title = page.title()
+            tree = page.locator("body").aria_snapshot(timeout=timeout_ms)
+            final = page.url
+        finally:
+            browser.close()
+
+    controls = []
+    for line in tree.splitlines():
+        m = re.match(r'\s*-\s*(\w+)(?:\s+"([^"]*)")?', line)
+        if m and m.group(1) in CONTROL_ROLES:
+            controls.append({"role": m.group(1), "name": m.group(2) or ""})
+    counts = {}
+    for c in controls:
+        counts[c["role"]] = counts.get(c["role"], 0) + 1
+    text = (title + "\n" + tree[:4000]).lower()
+    blocked = next((s for s in BLOCK_SIGNS if s in text), None)
+    return {
+        "url": final, "requested": url, "title": title, "blocked": blocked,
+        "counts": counts, "controls": controls, "tree": tree,
+    }
+
+
+def save(snap):
+    host = host_of(snap["url"])
+    folder = MAPS / host
+    pages = folder / "pages"
+    pages.mkdir(parents=True, exist_ok=True)
+    tree = snap["tree"]
+    cut = len(tree) > SNAPSHOT_CAP
+    today = dt.date.today().isoformat()
+    body = [
+        "---",
+        f"url: {snap['url']}",
+        f"read: {today}",
+        "via: headless Chromium, accessibility tree",
+        f"controls: {sum(snap['counts'].values())}",
+        "---",
+        "",
+        f"# {snap['title'] or host}",
+        "",
+        "Controls by role: " + ", ".join(f"{n} {r}" for r, n in sorted(snap["counts"].items(), key=lambda x: -x[1])) + ".",
+        "",
+        "```yaml",
+        tree[:SNAPSHOT_CAP],
+        "```",
+    ]
+    if cut:
+        body.append(f"\nCut at {SNAPSHOT_CAP} characters of {len(tree)}.")
+    out = pages / f"{slug_of(snap['url'])}.md"
+    out.write_text("\n".join(body) + "\n")
+    map_md = folder / "MAP.md"
+    if not map_md.exists():
+        map_md.write_text(
+            f"# {host}\n\n"
+            f"First read {today} by `site snap`. Pages read so far are in `pages/`, each\n"
+            "an accessibility snapshot: every control by role and visible name.\n\n"
+            "## How to reach each page\n\n## Quirks\n\n## How a logged-out page looks\n"
+        )
+    return out
+
+
+# ---------------------------------------------------------------- cli
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="site", description=__doc__.split("\n\n")[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    f = sub.add_parser("find", help="procedures and maps that fit a task")
+    f.add_argument("query")
+    f.add_argument("--limit", type=int, default=5)
+    f.add_argument("--json", action="store_true")
+    s = sub.add_parser("snap", help="read a page as an agent reads it")
+    s.add_argument("url")
+    s.add_argument("--save", action="store_true", help="file it under maps/<host>/pages/")
+    s.add_argument("--timeout", type=int, default=30, help="seconds")
+    s.add_argument("--json", action="store_true")
+    s.add_argument("--tree", action="store_true", help="print the whole snapshot")
+    w = sub.add_parser("show", help="the map and pages for one site")
+    w.add_argument("host")
+    a = ap.parse_args(argv)
+
+    if a.cmd == "find":
+        hits = find(a.query, a.limit)
+        if a.json:
+            print(json.dumps(hits, indent=2))
+            return 0
+        if not hits:
+            print("Nothing known for that. Explore it, then `site snap <url> --save` "
+                  "so the next time starts from a map.")
+            return 1
+        for h in hits:
+            print(f"{h['kind']:<10} {h['name']:<32} {h['summary']}")
+            print(f"{'':<10} {h['path']}")
+        return 0
+
+    if a.cmd == "snap":
+        url = a.url if "://" in a.url else "https://" + a.url
+        snap = snapshot(url, a.timeout * 1000)
+        if a.json:
+            print(json.dumps({k: v for k, v in snap.items() if k != "tree" or a.tree}, indent=2))
+        else:
+            print(f"{snap['title']}  ({snap['url']})")
+            total = sum(snap["counts"].values())
+            print(f"{total} controls: " + ", ".join(
+                f"{n} {r}" for r, n in sorted(snap["counts"].items(), key=lambda x: -x[1])))
+            named = [c for c in snap["controls"] if c["name"] and c["role"] != "link"][:15]
+            for c in named:
+                print(f"  {c['role']:<10} {c['name'][:70]}")
+            if a.tree:
+                print(snap["tree"])
+        if not snap["blocked"] and not snap["controls"]:
+            snap["blocked"] = "no controls on the page"
+        if snap["blocked"]:
+            print(f"BLOCKED: the page answered with a human check ({snap['blocked']}). "
+                  "Read it in the person's own Chrome with chrome-js instead; "
+                  "this does not try to get past it.", file=sys.stderr)
+            return 3
+        if a.save:
+            print(f"saved {save(snap)}")
+        return 0
+
+    if a.cmd == "show":
+        folder = MAPS / host_of("https://" + a.host.split("://")[-1])
+        if not folder.is_dir():
+            print(f"No map for {a.host}. `site snap https://{a.host} --save` starts one.")
+            return 1
+        map_md = folder / "MAP.md"
+        if map_md.exists():
+            print(map_md.read_text())
+        pages = sorted((folder / "pages").glob("*.md")) if (folder / "pages").is_dir() else []
+        if pages:
+            print("Pages read:")
+            for p in pages:
+                print(f"  {p}")
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
