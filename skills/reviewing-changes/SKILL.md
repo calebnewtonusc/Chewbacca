@@ -9,6 +9,33 @@ requires: [git]
 Find real problems. Style opinions waste the one pass someone will actually read,
 and a review that opens on naming teaches the author that reviews are noise.
 
+The agent owns routine review and repair. Do not hand the diff to the user as a
+required code-review step. Use a separate reviewer context, fix substantiated
+findings within scope, rerun affected checks, and review the changed result.
+Ask the user only for a genuine unresolved product decision or required authority.
+Independent automated review reduces risk; it does not guarantee bug-free code.
+
+For a local Git checkout, `review-gate run --repo PATH` starts a separate read-only
+Codex reviewer. `review-gate check --repo PATH` checks whether its receipt still
+matches the current files. A changed file invalidates the receipt. Review errors,
+incomplete coverage and findings are not clean reviews. Read the report, resolve
+concrete findings, then run again. After three unsuccessful repair cycles, diagnose
+the unresolved cause and report it plainly instead of claiming completion or
+asking the user to perform the review. Preserve unrelated edits.
+
+If a native Codex Stop cannot finish because review remains unresolved, use
+`review-gate report-incomplete --session-id ID --turn-id ID` after a recorded
+failed review attempt. Return the exact generated report. This permits truthful
+status reporting only: it never creates a clean receipt or clears review duties.
+Changed files, a different turn, or missing failure evidence invalidate it.
+
+Native tool observation freezes the repository revision before changes so a
+commit cannot remove work from the review scope. For a standalone review of
+already committed work without native observation, supply `--base COMMIT` to
+`review-gate run`. Without an existing scope or explicit base, the initial
+standalone review covers uncommitted changes from the current HEAD. An
+existing frozen base cannot silently be narrowed by a later invocation.
+
 ## Get the code first
 
 Never review from memory of what was written. Read the actual diff.

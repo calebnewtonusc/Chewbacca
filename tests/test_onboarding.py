@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from unittest.mock import patch
 
@@ -35,7 +36,10 @@ class OnboardingTests(unittest.TestCase):
             self.assertEqual(target.stat().st_mode & 0o777, 0o600)
             self.assertNotIn('UnrelatedAccountOwner', target.read_text())
         self.assertFalse((self.home / '.claude').exists())
-        self.assertFalse((self.home / '.codex/config.toml').exists())
+        config = tomllib.loads((self.home / '.codex/config.toml').read_text())
+        self.assertEqual(config['agents'], {'enabled': True, 'max_concurrent_threads_per_session': 100})
+        self.assertNotIn('model', config)
+        self.assertNotIn('model_provider', config)
         self.assertFalse((self.home / '.chewbacca/people').exists())
         self.assertFalse((self.home / '.chewbacca/preferences.json').exists())
 

@@ -3,6 +3,7 @@ import importlib.util
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -82,8 +83,12 @@ class IntegrationTests(unittest.TestCase):
             runtime.mkdir()
             sentinel = runtime / 'sentinel'
             sentinel.write_text('unchanged upstream')
-            # System PATH excludes the installed Codex and any package managers.
-            env = dict(os.environ, HOME=temp, PATH='/usr/bin:/bin', MACOS_USE_HOME=str(runtime))
+            # Codex capacity setup needs Python 3.11+. Keep the test interpreter
+            # available without exposing installed Codex or package managers.
+            test_bin = Path(temp) / 'test-bin'
+            test_bin.mkdir()
+            (test_bin / 'python3').symlink_to(sys.executable)
+            env = dict(os.environ, HOME=temp, PATH=str(test_bin) + ':/usr/bin:/bin', MACOS_USE_HOME=str(runtime))
             for _ in range(2):
                 result = subprocess.run(['bash', str(ROOT / 'setup.sh'), '--only', 'agents'], env=env, check=True, capture_output=True, text=True)
                 self.assertIn('Codex absent (optional)', result.stdout)

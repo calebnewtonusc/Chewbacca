@@ -1,9 +1,13 @@
 ---
 name: skill-training
-description: Update a skill from how a real run actually went. Use right after a skill produces output the user corrects, rejects, or edits before using. Also use when the user says a skill keeps making the same mistake, or asks to make something remember a preference. This is the loop that makes skills improve instead of drifting.
+description: Improve skills from real corrections and develop expertise in new domains. Use for repeated mistakes, learning how to learn, transferring procedures across tools, and verifying that learned behavior persists. Separate source reading from tested competence.
 ---
 
 # skill-training
+
+For developing expertise in a new domain or improving the learning process itself,
+read [learning-transfer.md](references/learning-transfer.md). It separates source
+coverage, procedural change, held-out performance, cross-domain transfer and retention.
 
 A skill that is never updated from real runs decays: the world moves and the
 file does not. The correction the user just made is the training data, and it
@@ -25,6 +29,8 @@ miss because the work still got done.
    - **One-off.** This case was special, change nothing.
    - **Always ask.** Put a question in the skill at this point.
    Guessing here is how a skill acquires rules nobody wanted.
+   If the user has already explicitly said to persist the lesson, use that answer;
+   do not ask them to repeat it.
 3. **Edit the skill file**, not the output. Fixing the artifact solves today.
    Fixing the file solves the next twenty.
 4. **Append a dated changelog line** to the skill saying what changed and
@@ -59,3 +65,13 @@ If a correction produces none of those, it was a typo. Fix it and move on.
 Every training pass wants to add a line. Length is what stops a skill being
 obeyed, so a pass that adds should also look for what the addition makes
 redundant.
+
+Training note, 2026-09-23: domain learning must improve and test the reusable learning
+method too. Added a transfer protocol and explicit absolute-readiness requirements;
+the protocol itself remains subject to comparative evaluation.
+
+Training note, 2026-09-23: repeated corrections produced notes while the requested
+workflow stayed unfinished. Apply the behavioral correction to the active work
+before reporting it learned. Answer status questions briefly and continue authorized
+work; a saved lesson is not completion. If a hook claims no durable change after a
+verified edit, inspect its accounting instead of generating duplicate notes.

@@ -81,8 +81,8 @@ fi
 # A pathspec commit is already the safe form this hook exists to encourage,
 # so it is let straight through.
 case "$(basename "${GIT_INDEX_FILE:-index}")" in
-  next-index*) PATHSPEC_COMMIT=1 ;;
-  *)           PATHSPEC_COMMIT=0 ;;
+  next-index*) PATHSPEC_COMMIT=1; EXPLICIT_PATHSPEC=1 ;;
+  *)           PATHSPEC_COMMIT=0; EXPLICIT_PATHSPEC=0 ;;
 esac
 
 # A merge, cherry-pick or revert is legitimately a whole-index commit and
@@ -198,6 +198,9 @@ MIXEDMSG
   fi
 fi
 
+# An explicit path list already excludes unrelated staged paths. Keep the
+# manifest and mixed-author checks above, but do not infer ownership from age.
+[ "$EXPLICIT_PATHSPEC" -eq 1 ] && exit 0
 [ -z "$STALE" ] && exit 0
 
 cat >&2 <<MSG

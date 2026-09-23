@@ -8,6 +8,7 @@ import subprocess
 from unittest.mock import patch
 from pathlib import Path
 import tempfile
+import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,7 +39,10 @@ class ContextTests(unittest.TestCase):
             self.assertEqual((brain / 'core/identity.md').read_text(), 'PRIVATE_CANARY')
             self.assertFalse((home / 'dev').exists())
             self.assertFalse((brain / 'YOU.md').exists())
-            self.assertEqual((codex / 'config.toml').read_text(), 'model = "existing-user-model"\n')
+            self.assertEqual(tomllib.loads((codex / 'config.toml').read_text()), {
+                'model': 'existing-user-model',
+                'agents': {'enabled': True, 'max_concurrent_threads_per_session': 100},
+            })
             self.assertIn('existing-app-hook', (codex / 'hooks.json').read_text())
             self.assertNotIn('PRIVATE_CANARY', (codex / 'AGENTS.md').read_text())
             self.assertEqual((codex / 'hooks.json').read_text().count('codex_hooks.py'), 5)

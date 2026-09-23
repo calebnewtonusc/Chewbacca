@@ -18,6 +18,28 @@ competitor, write one draft, check one claim). Draw an arrow only when a job nee
 job's _result_ before it can start. The drawing is the plan; agents flow through it.
 A small state object (what was found, what was decided, what remains) travels with the work.
 
+## Executable shared queue
+
+Use `task-graph --help` for the local durable queue shared by Codex and Claude.
+Initialize a frozen plan, inspect ready jobs, claim a job with its assigned worker,
+then finish the exact attempt with an artifact or failure reason. Dependencies,
+attempt limits, worker-slot capacity, overlapping file/workspace resources and
+separate verification owners are checked at transitions. Keep state outside shared
+deliverables. The host still starts agents and executes jobs; the queue does not
+raise host concurrency limits or launch additional model processes.
+
+Record the actual host slot limit and reserve coordinator slots. A ten-job queue
+does not mean ten active agents. A successful artifact hash establishes bytes,
+not correctness; a verifier must inspect the output against the acceptance criteria.
+Worker identities are local declarations, not authenticated security identities.
+
+For a simultaneous-agent demonstration, record distinct execution identities and
+an interval when all requested workers were running. A saved capacity setting,
+queued jobs, resumed workers or successful configuration parsing does not prove
+concurrent execution. If the host exposes fewer slots than requested, report the
+experiment as not executed at that scale; do not present configuration acceptance
+as an increase in the live session's capacity.
+
 This is a DAG, the pattern that has run data infrastructure for decades (Airflow, Prefect,
 Temporal) now applied to agents (LangGraph, CrewAI, AutoGen). The age of the pattern is a
 feature: trust your business to machinery with decades of production history.

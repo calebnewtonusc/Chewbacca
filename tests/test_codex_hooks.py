@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -16,9 +17,279 @@ class HookTests(unittest.TestCase):
     def setUp(self):
         self.state_directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.state_directory.cleanup)
+        private_review = patch.dict(os.environ, {'CHEWBACCA_HOME': str(Path(self.state_directory.name) / 'private')})
+        private_review.start()
+        self.addCleanup(private_review.stop)
         self.state_patch = patch.object(hooks.context, 'codex_home', return_value=Path(self.state_directory.name))
         self.state_patch.start()
         self.addCleanup(self.state_patch.stop)
+
+    def test_removed_native_hook_does_not_dispatch_or_write_receipt(self):
+        import io
+        home = hooks.context.codex_home()
+        (home / 'hooks.json').write_text(json.dumps({'hooks': {'Stop': [
+            {'hooks': [{'type': 'command', 'command': 'other-hook'}]}]}}))
+        with patch.object(sys, 'argv', ['codex_hooks.py', 'run']), \
+             patch.object(sys, 'stdin', io.StringIO(json.dumps({'hook_event_name': 'Stop'}))), \
+             patch.object(hooks, 'dispatch') as dispatch, \
+             patch('sys.stdout', new_callable=io.StringIO) as output:
+            hooks.main()
+        dispatch.assert_not_called()
+        self.assertEqual(output.getvalue(), '')
+        self.assertFalse((home / 'chewbacca-hook-status.json').exists())
+
+    def test_registration_is_specific_to_adapter_and_event(self):
+        home = hooks.context.codex_home()
+        self.assertFalse(hooks.registered_for_event(home, 'Stop'))
+        hooks.install(home)
+        self.assertTrue(hooks.registered_for_event(home, 'Stop'))
+        data = json.loads((home / 'hooks.json').read_text())
+        data['hooks']['Stop'] = []
+        (home / 'hooks.json').write_text(json.dumps(data))
+        self.assertFalse(hooks.registered_for_event(home, 'Stop'))
+        self.assertTrue(hooks.registered_for_event(home, 'UserPromptSubmit'))
+
+    def test_review_observes_real_repository_writes_across_tool_shapes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            repo, outside = root / 'repo with spaces', root / 'outside'
+            repo.mkdir()
+            outside.mkdir()
+            subprocess.run(['git', 'init', '-q', str(repo)], check=True, capture_output=True)
+            subprocess.run(['git', '-C', str(repo), '-c', 'user.name=Test',
+                            '-c', 'user.email=test@example.invalid', 'commit',
+                            '--allow-empty', '-qm', 'init'], check=True, capture_output=True)
+            existing = repo / 'existing.py'
+            existing.write_text('value = 0\n')
+            new_file = repo / 'new directory' / 'new.py'
+            cases = [
+                ('workdir', 'exec_command', {'workdir': str(repo), 'cmd': 'write'}, existing),
+                ('absolute_patch', 'apply_patch',
+                 {'command': f'*** Update File: {existing}\n+value = 1'}, existing),
+                ('new_directory', 'apply_patch',
+                 {'command': f'*** Add File: {new_file}\n+value = 1'}, new_file),
+                ('formatter', 'apply_patch',
+                 {'command': f'*** Update File: {existing}\n+value = 1'}, existing),
+                ('absolute_shell', 'exec_command',
+                 {'cmd': f'echo changed > "{existing}"'}, existing),
+                ('nested_exec', 'functions.exec', {'code':
+                 'await tools.exec_command(' + json.dumps({'workdir': str(repo), 'cmd': 'write'}) + ')'}, existing),
+            ]
+            for index, (name, tool, tool_input, target) in enumerate(cases, 1):
+                with self.subTest(name=name), patch.object(hooks, 'shared_hook', return_value=''), \
+                        patch.object(hooks, 'invoke', return_value=''):
+                    base = {'session_id': name, 'cwd': str(outside), 'tool_name': tool,
+                            'tool_input': tool_input, 'tool_use_id': name}
+                    hooks.dispatch(dict(base, hook_event_name='PreToolUse'))
+
+                    def mutate(*_):
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_text(f'value = {index}\n')
+
+                    if name != 'formatter':
+                        mutate()
+                    with patch.object(hooks, 'format_file', side_effect=mutate if name == 'formatter' else None):
+                        hooks.dispatch(dict(base, hook_event_name='PostToolUse'))
+                    state = hooks.turn_state(dict(base, hook_event_name='Stop'))
+                    self.assertEqual(state['review_required'], [str(repo)])
+
+    def test_post_failure_still_accounts_for_final_bytes_once(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp).resolve()
+            subprocess.run(['git', 'init', '-q', str(repo)], check=True, capture_output=True)
+            target = repo / 'code.py'
+            target.write_text('original\n')
+            for stage in ('formatter', 'post_hook'):
+                with self.subTest(stage=stage):
+                    base = {'session_id': stage, 'cwd': str(repo), 'tool_name': 'Edit',
+                            'tool_use_id': stage, 'tool_input': {'file_path': str(target)}}
+                    with patch.object(hooks, 'shared_hook', return_value=''):
+                        hooks.dispatch(dict(base, hook_event_name='PreToolUse'))
+                    target.write_text('tool changed ' + stage + '\n')
+                    def formatter(*args):
+                        if stage == 'formatter':
+                            target.write_text('formatter changed bytes then failed\n')
+                            raise ValueError('malformed formatter output')
+                    def shared(name, *args):
+                        if stage == 'post_hook':
+                            raise RuntimeError('post hook failed')
+                        return ''
+                    with patch.object(hooks, 'format_file', side_effect=formatter), \
+                            patch.object(hooks, 'shared_hook', side_effect=shared), \
+                            patch.object(hooks, 'invoke', return_value=''):
+                        with self.assertRaises((ValueError, RuntimeError)):
+                            hooks.dispatch(dict(base, hook_event_name='PostToolUse'))
+                    state = hooks.turn_state(dict(base, hook_event_name='Stop'))
+                    self.assertEqual(state['sequence'], 1)
+                    self.assertEqual(state['review_required'], [str(repo)])
+                    self.assertEqual(state['review_before'], {})
+                    self.assertEqual(state['review_inflight'], {})
+
+    def test_repository_initialized_inside_tool_creates_review_obligation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp).resolve()
+            base = {'session_id': 'new-repo', 'cwd': str(repo), 'tool_name': 'exec_command',
+                    'tool_use_id': 'init-and-write', 'tool_input': {'cmd': 'git init and write'}}
+            with patch.object(hooks, 'shared_hook', return_value=''):
+                hooks.dispatch(dict(base, hook_event_name='PreToolUse'))
+                subprocess.run(['git', 'init', '-q', str(repo)], check=True, capture_output=True)
+                (repo / 'new.py').write_text('new repository content\n')
+                hooks.dispatch(dict(base, hook_event_name='PostToolUse'))
+            state = hooks.turn_state(dict(base, hook_event_name='Stop'))
+            self.assertEqual(state['review_required'], [str(repo)])
+            self.assertEqual(state['sequence'], 1)
+            import review_gate
+            self.assertEqual(review_gate.current_scope(repo)['base'], 'UNBORN')
+
+    def test_pre_scope_failure_keeps_obligation_and_allows_repair(self):
+        import review_gate
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp).resolve()
+            subprocess.run(['git', 'init', '-q', str(repo)], check=True, capture_output=True)
+            payload = {'session_id': 'scope-failure', 'hook_event_name': 'PreToolUse',
+                       'cwd': str(repo), 'tool_name': 'exec_command', 'tool_use_id': 'scope',
+                       'tool_input': {'cmd': 'write'}}
+            with patch.object(review_gate, 'capture_scope', side_effect=OSError('disk full')), \
+                    patch.object(hooks, 'shared_hook', return_value=''):
+                result = hooks.dispatch(payload)
+            self.assertNotEqual(result.get('hookSpecificOutput', {}).get('permissionDecision'), 'deny')
+            state = hooks.turn_state(dict(payload, hook_event_name='Stop'))
+            self.assertEqual(state['review_required'], [str(repo)])
+            with patch.object(hooks, 'shared_hook', return_value=''):
+                repair = dict(payload, tool_use_id='repair')
+                result = hooks.dispatch(repair)
+                self.assertNotEqual(result.get('hookSpecificOutput', {}).get('permissionDecision'), 'deny')
+                self.assertEqual(review_gate.capture_scope(repo, base='UNBORN')['base'], 'UNBORN')
+                hooks.dispatch(dict(repair, hook_event_name='PostToolUse'))
+            self.assertEqual(hooks.turn_state(dict(payload, hook_event_name='Stop'))['review_required'], [str(repo)])
+
+    def test_post_scope_failure_keeps_obligation_and_records_sentinel(self):
+        import review_gate
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp).resolve()
+            base = {'session_id': 'post-scope-failure', 'cwd': str(repo),
+                    'tool_name': 'exec_command', 'tool_use_id': 'init', 'tool_input': {'cmd': 'init'}}
+            with patch.object(hooks, 'shared_hook', return_value=''):
+                hooks.dispatch(dict(base, hook_event_name='PreToolUse'))
+                subprocess.run(['git', 'init', '-q', str(repo)], check=True, capture_output=True)
+                with patch.object(review_gate, 'capture_scope', side_effect=OSError('scope write failed')):
+                    hooks.dispatch(dict(base, hook_event_name='PostToolUse'))
+            state = hooks.turn_state(dict(base, hook_event_name='Stop'))
+            self.assertEqual(state['review_required'], [str(repo)])
+            with self.assertRaises(ValueError):
+                review_gate.capture_scope(repo)
+            self.assertEqual(review_gate.capture_scope(repo, base='UNBORN')['base'], 'UNBORN')
+
+    def test_review_keeps_baseline_for_overlapping_identical_calls(self):
+        for identity in ({}, {'tool_use_id': 'duplicate'}):
+            with self.subTest(identity=identity):
+                base = {'session_id': 'overlap-' + str(identity),
+                        'cwd': self.state_directory.name, 'tool_name': 'exec_command',
+                        'tool_input': {'cmd': 'same'}, **identity}
+                observations = [{'/repo': 'before'}, {'/repo': 'before'},
+                                {'/repo': 'before'}, {'/repo': 'after'}]
+                with patch.object(hooks, 'review_snapshots', side_effect=observations):
+                    for event in ('PreToolUse', 'PreToolUse', 'PostToolUse', 'PostToolUse'):
+                        state = hooks.turn_state(dict(base, hook_event_name=event))
+                self.assertEqual(state['review_required'], ['/repo'])
+
+    def test_review_keeps_earliest_baseline_when_second_call_starts_after_write(self):
+        base = {'session_id': 'overlap-after-write', 'cwd': self.state_directory.name,
+                'tool_name': 'exec_command', 'tool_input': {'cmd': 'same'}}
+        observations = [{'/repo': 'before'}, {'/repo': 'after'},
+                        {'/repo': 'after'}, {'/repo': 'after'}]
+        with patch.object(hooks, 'review_snapshots', side_effect=observations):
+            for event in ('PreToolUse', 'PreToolUse', 'PostToolUse', 'PostToolUse'):
+                state = hooks.turn_state(dict(base, hook_event_name=event))
+        self.assertEqual(state['review_required'], ['/repo'])
+
+    def test_unavailable_snapshot_preserves_guards_and_review_obligation(self):
+        import review_gate
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp).resolve()
+            subprocess.run(['git', 'init', '-q', str(repo)], check=True, capture_output=True)
+            base = {'session_id': 'unavailable', 'cwd': str(repo),
+                    'tool_name': 'exec_command', 'tool_input': {'cmd': 'read'}}
+            with patch.object(review_gate, 'snapshot', side_effect=ValueError('unmerged index')), \
+                    patch.object(hooks, 'shared_hook', return_value='') as shared:
+                hooks.dispatch(dict(base, hook_event_name='PreToolUse'))
+                self.assertIn('submit-guard.sh', [call.args[0] for call in shared.call_args_list])
+                hooks.dispatch(dict(base, hook_event_name='PostToolUse'))
+            state = hooks.turn_state(dict(base, hook_event_name='UserPromptSubmit', prompt='Continue'))
+            self.assertEqual(state['review_required'], [str(repo)])
+            with patch.object(review_gate, 'check', return_value=(False, 'snapshot unavailable')):
+                result = hooks.dispatch(dict(base, hook_event_name='Stop', stop_hook_active=True))
+            self.assertEqual(result['decision'], 'block')
+            self.assertIn('snapshot unavailable', result['reason'])
+
+    def test_review_tracks_parallel_tools_and_survives_next_prompt(self):
+        base = {'session_id': 'review-test', 'cwd': self.state_directory.name}
+        hooks.turn_state(dict(base, hook_event_name='UserPromptSubmit', prompt='Fix it'))
+        with patch.object(hooks, 'review_snapshots', return_value={'/repo-a': 'before-a'}):
+            hooks.turn_state(dict(base, hook_event_name='PreToolUse', tool_use_id='a'))
+        with patch.object(hooks, 'review_snapshots', return_value={'/repo-b': 'before-b'}):
+            hooks.turn_state(dict(base, hook_event_name='PreToolUse', tool_use_id='b'))
+        with patch.object(hooks, 'review_snapshots', return_value={'/repo-a': 'after-a'}):
+            hooks.turn_state(dict(base, hook_event_name='PostToolUse', tool_use_id='a'))
+        with patch.object(hooks, 'review_snapshots', return_value={'/repo-b': 'before-b'}):
+            hooks.turn_state(dict(base, hook_event_name='PostToolUse', tool_use_id='b'))
+        state = hooks.turn_state(dict(base, hook_event_name='UserPromptSubmit', prompt='Continue'))
+        self.assertEqual(state['review_required'], ['/repo-a'])
+
+    def test_stop_accepts_only_bound_incomplete_report_and_preserves_obligations(self):
+        import review_gate
+        with tempfile.TemporaryDirectory() as temp, \
+                patch.dict(os.environ, {'CHEWBACCA_HOME': temp}), \
+                patch.object(review_gate, 'snapshot', return_value='fixture-snapshot'), \
+                patch.object(review_gate, 'check', return_value=(False, 'no clean review')), \
+                patch.object(hooks, 'shared_hook', return_value=''), \
+                patch.object(hooks, 'git_notice', return_value=''):
+            repo = Path(temp).resolve() / 'repo'
+            repo.mkdir()
+            review_gate.failed_outcome(repo, 'fixture-snapshot', 'incomplete',
+                                       {'status': 'incomplete', 'summary': 'Missing callers', 'findings': []})
+            state = {'review_required': [str(repo)], 'sequence': 2}
+            base = {'hook_event_name': 'Stop', 'session_id': 's', 'turn_id': 't',
+                    'cwd': str(repo), 'stop_hook_active': True}
+            with patch.object(hooks, 'turn_state', return_value=state):
+                rejected = hooks.dispatch(dict(base, last_assistant_message='Complete and ready.'))
+                self.assertEqual(rejected['decision'], 'block')
+                prepared = json.loads(review_gate.disposition_path('s', 't').read_text())
+                self.assertIn(prepared['report'], rejected['reason'])
+                self.assertNotIn('decision', hooks.dispatch(dict(base, last_assistant_message=prepared['report'])))
+                self.assertEqual(state['review_required'], [str(repo)])
+                self.assertFalse(review_gate.receipt_path(repo).exists())
+                self.assertEqual(hooks.dispatch(dict(base, turn_id='next', last_assistant_message=prepared['report']))['decision'], 'block')
+                self.assertEqual(hooks.dispatch(dict(base, last_assistant_message='Incomplete. Everything passed.'))['decision'], 'block')
+
+    def test_unavailable_snapshot_report_survives_reporting_tool_post_event(self):
+        import review_gate
+        with tempfile.TemporaryDirectory() as temp, \
+                patch.dict(os.environ, {'CHEWBACCA_HOME': temp}), \
+                patch.object(review_gate, 'snapshot', side_effect=ValueError('unmerged')), \
+                patch.object(review_gate, 'check', return_value=(False, 'snapshot unavailable')), \
+                patch.object(hooks, 'shared_hook', return_value=''), \
+                patch.object(hooks, 'git_notice', return_value=''):
+            repo = Path(temp).resolve() / 'repo'
+            repo.mkdir()
+            review_gate.failed_outcome(repo, None, 'snapshot_unavailable')
+            prepared = review_gate.prepare_incomplete([repo], 's', 't', 4)
+            state = {'review_required': [str(repo)], 'sequence': 5}
+            payload = {'hook_event_name': 'Stop', 'session_id': 's', 'turn_id': 't',
+                       'cwd': str(repo), 'stop_hook_active': True, 'last_assistant_message': prepared['report']}
+            with patch.object(hooks, 'turn_state', return_value=state):
+                self.assertEqual(hooks.dispatch(payload)['decision'], 'block')
+                self.assertNotIn('decision', hooks.dispatch(payload))
+                self.assertEqual(state['review_required'], [str(repo)])
+                self.assertFalse(review_gate.receipt_path(repo).exists())
+
+    def test_review_stop_is_not_skipped_on_retry(self):
+        payload = {'hook_event_name': 'Stop', 'cwd': self.state_directory.name,
+                   'stop_hook_active': True}
+        with patch.object(hooks, 'review_stop', return_value='Independent review missing'):
+            result = hooks.dispatch(payload)
+        self.assertEqual(result['decision'], 'block')
+        self.assertIn('Independent review missing', result['reason'])
 
     def test_verification_guard_uses_completed_success_after_patch(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {'HOME': temp, 'TMPDIR': temp}):
@@ -67,7 +338,7 @@ class HookTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {
                 'HOME': temp, 'CHEWBACCA_WRITE_LOG': temp + '/writes.tsv',
                 'CHEWBACCA_SESSION_STATE': temp + '/state'}):
-            repo = Path(temp) / 'repo'
+            repo = Path(temp).resolve() / 'repo'
             repo.mkdir()
             subprocess.run(['git', 'init', '-q', str(repo)], check=True)
             payload = {'hook_event_name': 'PreToolUse', 'tool_name': 'Bash',

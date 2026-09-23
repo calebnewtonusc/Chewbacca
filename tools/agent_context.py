@@ -12,6 +12,7 @@ import re
 import shlex
 from pathlib import Path
 import tempfile
+from work_ledger import context_for
 
 BEGIN = '<!-- CHEWBACCA PERSONAL CONTEXT BEGIN -->'
 END = '<!-- CHEWBACCA PERSONAL CONTEXT END -->'
@@ -244,6 +245,9 @@ def main():
         return 0
     if args.command == 'read':
         print('## Shared Chewbacca guidance\n\n' + (REPO / 'instructions/agent-neutral.md').read_text())
+        pending = context_for(os.getcwd())
+        if pending:
+            print('\n' + pending)
     return read_sources(root, manifest=args.command == 'status')
 
 

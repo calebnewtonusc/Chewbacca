@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+"""Run the repository's independent code review receipt gate."""
+from pathlib import Path
+import runpy
+
+runpy.run_path(str(Path(__file__).resolve().parent.parent / "tools/review_gate.py"), run_name="__main__")

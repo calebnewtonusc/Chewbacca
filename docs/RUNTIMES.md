@@ -7,6 +7,14 @@ The original `codex_context.py` entry point remains compatible with existing hoo
 
 Choose the host already installed on the machine:
 
+Chewbacca has no preferred runtime, model or provider. The user chooses them.
+Automatic detection discovers installed hosts; it does not designate a default
+or switch someone from their chosen host. Capacity settings belong to the selected
+host's adapter and must not change that choice.
+
+Codex adapter setup requires Python 3.11 or newer to validate native TOML without
+rewriting unrelated configuration. Other adapters do not require that TOML parser.
+
 ```sh
 chewbacca agent plan --runtime auto
 chewbacca setup --runtime codex
@@ -60,6 +68,16 @@ with owner-only file permissions. Missing context sources and dependencies appea
 in setup's result; existing private notes are never replaced with templates.
 
 ## Native details
+
+When the user selects Codex, its adapter configures enabled subagents and a ceiling of 100
+concurrent subagents per session. Re-running setup applies these defaults to
+existing installations where the corresponding settings are absent. Explicit
+user settings, including a disabled agent feature or a legacy `max_threads`
+limit, take precedence. This is a capacity policy, not a runtime preference or a measured
+optimal fleet size. It does not start 100 workers or change an active host's
+exposed capacity. Dispatch only useful independent work within actual runtime,
+resource and account limits. Other hosts retain their native concurrency controls;
+the Codex setting does not configure Claude or browser agents.
 
 Claude's adapter preserves existing native hooks and adds missing shared checks.
 Claude-only plugins, slash commands, subagents, permission UI and opt-in sync hooks
