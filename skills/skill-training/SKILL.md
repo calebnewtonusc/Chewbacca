@@ -75,3 +75,8 @@ workflow stayed unfinished. Apply the behavioral correction to the active work
 before reporting it learned. Answer status questions briefly and continue authorized
 work; a saved lesson is not completion. If a hook claims no durable change after a
 verified edit, inspect its accounting instead of generating duplicate notes.
+
+Training note, 2026-09-23: a site task repeated across many items (28 LinkedIn skills) ran
+one hand-driven click at a time until the person said "go faster". After the first item works
+by hand, script the rest: poll the page instead of sleeping, and prove the result by rereading.
+Keep the script as a procedure (`procedures/linkedin-skills`) so the lesson is code, not prose.

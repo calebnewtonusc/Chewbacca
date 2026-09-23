@@ -28,6 +28,11 @@ and the ads column, the three things that cost turns when navigating by clicks.
   experiences to attach the skill to, **Delete skill** and **Save**.
 - Removing (2026-09-23): **Delete skill**, then a confirm with **No thanks** and
   **Delete**. Only the second click removes it. Reload the list to check.
+- **Use `procedures/linkedin-skills/run.sh`** to list or delete; it carries the fixes below.
+- The edit form renders only when its link is clicked from the list. Loading the edit
+  URL directly gives an empty page.
+- After a delete, the page ignores `location.href`. Navigate through Chrome
+  (AppleScript `set URL of tab`), or every later step acts on a stale page.
 - Before a bulk removal, scroll the list until it stops growing and show the whole
   list to the person: a profile that showed 10 skills held 28+ once scrolled.
 - The list renders about 10 rows at first and loads the rest on scroll. A read
@@ -55,3 +60,5 @@ and the ads column, the three things that cost turns when navigating by clicks.
 - 2026-09-23: `chrome-js --open` without `--profile` opened the empty Default
   profile, not the signed-in one. Pick the profile first (see
   `bin/hud-agent.md`, "A task on a website").
+- 2026-09-23: a delete loop reported success on a skill that was still there, because it
+  clicked on a page that had not navigated. Only a reread of the list proves a deletion.
