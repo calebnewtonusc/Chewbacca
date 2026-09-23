@@ -162,3 +162,8 @@ Each of these cost a turn once. Each is a check now.
 3. Turn table auto-run off before adding any column.
 4. Add one Claygent column, run it on 10 rows, read the cost from Usage,
    then ask before the rest.
+- 2026-09-23: "Allow JavaScript from Apple Events" was on, then off again
+  later in the same Chrome session, and a second Clay tab in another profile
+  was picked first because `chrome-js` takes the first match in window order.
+  **Check:** run one harmless read (`document.title`) right before any build
+  step, and keep exactly one Clay tab open.
