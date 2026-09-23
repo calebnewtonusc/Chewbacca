@@ -140,3 +140,25 @@ Each of these cost a turn once. Each is a check now.
 - 2026-09-23: a direct read of Clay's `api.clay.com/v3` from the page was
   blocked by the permission layer. It needs a person's decision, not a
   workaround.
+- 2026-09-23: a full-text search ranked a contact database by word hits and
+  put weak matches first. **Check:** score on the fields that matter (sector,
+  seniority, check size, reachability) before anything goes into Clay.
+- 2026-09-23: 48 of 50 shortlisted investors already had an email, so paying
+  Clay to find emails would have bought nothing. **Check:** count what's
+  already filled before choosing an enrichment. Clay's value then moves to
+  verifying (still in the role?) and researching (does the fund back this
+  kind of company?).
+- 2026-09-23: this machine's permission layer blocks two things even after
+  the person says go: clicking "Import data" (a change to a shared workspace)
+  and putting local contact data into Clay (counted as exfiltration). **Check:**
+  plan for the person to do the import, or get a permission rule added,
+  before promising an end-to-end build.
+
+## Fastest path for a list build
+
+1. Filter and score for free against local data first.
+2. The person imports the CSV: Home > "Import data", into a new folder they
+   own.
+3. Turn table auto-run off before adding any column.
+4. Add one Claygent column, run it on 10 rows, read the cost from Usage,
+   then ask before the rest.
