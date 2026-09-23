@@ -167,3 +167,8 @@ Each of these cost a turn once. Each is a check now.
   was picked first because `chrome-js` takes the first match in window order.
   **Check:** run one harmless read (`document.title`) right before any build
   step, and keep exactly one Clay tab open.
+- 2026-09-23: with an allow rule for `chrome-js --match app.clay.com:*` in
+  place, creating a folder worked (Home > "New" > "Folder..." > name >
+  "Create" lands you inside it at `home/<folderId>`), but clicking "Import
+  data" was still refused as data exfiltration. **Check:** the CSV import is
+  the person's step. Hand it over right away instead of retrying.
