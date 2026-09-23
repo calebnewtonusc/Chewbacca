@@ -2422,6 +2422,34 @@ if [ -d "$PACK_DIR/skills" ]; then
   done
   log "agent-scripts: $PACK_N skills linked"
 fi
+
+# Skill pack: gtm-engineer-skills. Linked per skill, not copied, so `git pull` in
+# the clone updates every skill at once.
+#
+# Sent by Caleb 2026-09-23. MIT. Its scripts read SERPAPI_KEY from the
+# environment when set, and fetch only Google autocomplete, SerpAPI and
+# the site being audited.
+PACK_DIR="$HOME/Projects/gtm-engineer-skills"
+PACK_SKIP=""
+if [ -d "$PACK_DIR/.git" ]; then
+  log "gtm-engineer-skills already cloned, left alone"
+elif git clone -q --depth 1 "https://github.com/onvoyage-ai/gtm-engineer-skills.git" "$PACK_DIR" 2>/dev/null; then
+  log "gtm-engineer-skills cloned"
+else
+  warn "could not clone gtm-engineer-skills"
+fi
+if [ -d "$PACK_DIR/." ]; then
+  PACK_N=0
+  for SK in "$PACK_DIR"/./*/; do
+    SK_NAME="$(basename "$SK")"
+    [ -f "$SK/SKILL.md" ] || continue
+    case " $PACK_SKIP " in *" $SK_NAME "*) continue;; esac
+    [ -e "$GLOBAL_CLAUDE/skills/$SK_NAME" ] && continue
+    ln -s "$SK" "$GLOBAL_CLAUDE/skills/$SK_NAME"
+    PACK_N=$((PACK_N+1))
+  done
+  log "gtm-engineer-skills: $PACK_N skills linked"
+fi
 # END GENERATED: cli
 fi
 

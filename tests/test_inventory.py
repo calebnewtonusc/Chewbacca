@@ -92,6 +92,19 @@ check(
 )
 
 
+# ── skill packs whose skills are not under skills/ ───────────────────────────
+
+# gtm-engineer-skills (2026-09-23) keeps its skills at the repo root. The
+# generated loop hardcoded "$PACK_DIR"/skills/*/, which would have linked
+# nothing and logged "0 skills linked" as if that were success.
+root_pack = {"name": "p", "url": "https://x/p", "skip": [], "subdir": ".", "note": []}
+nested_pack = {"name": "q", "url": "https://x/q", "skip": [], "subdir": "skills", "note": ["hello"]}
+block = inv.cli_block({}, [root_pack, nested_pack])
+check("a root-level pack loops over the clone root", '"$PACK_DIR"/./*/' in block, block)
+check("a nested pack still loops over skills/", '"$PACK_DIR"/skills/*/' in block, block)
+check("a pack's note becomes a comment", "# hello" in block, block)
+
+
 # ── the generated files themselves ───────────────────────────────────────────
 
 for rel in ("docs/REFERENCE.md", "README.md", "settings/toolkit.json"):

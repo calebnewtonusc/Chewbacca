@@ -189,6 +189,25 @@ PACKS = {
         # same name, which has far more behind it. Two skills answering to one
         # name makes routing a coin flip.
         "skip": ["codex-first", "frontend-design"],
+        "note": [
+            "Its own installer (scripts/sync-skills) repoints ~/.claude/CLAUDE.md at the",
+            "pack's AGENTS.MD, which would replace your global instructions. Do not run",
+            "it. The loop below does the linking and touches nothing else.",
+        ],
+    },
+    "gtm-engineer-skills": {
+        "root": HOME / "Projects/gtm-engineer-skills",
+        "url": "https://github.com/onvoyage-ai/gtm-engineer-skills",
+        "description": "OnVoyage's SEO, AEO and GEO skills: keyword research, AI-search audits, content, backlinks, Reddit",
+        # The skills sit at the repo root, not under skills/. evals/ and assets/
+        # sit beside them and carry no SKILL.md, so the loop passes over them.
+        "subdir": ".",
+        "skip": [],
+        "note": [
+            "Sent by Caleb 2026-09-23. MIT. Its scripts read SERPAPI_KEY from the",
+            "environment when set, and fetch only Google autocomplete, SerpAPI and",
+            "the site being audited.",
+        ],
     },
 }
 
@@ -606,6 +625,8 @@ def collect_skills():
             "count": len(skills),
             "skills": sorted(skills),
             "skip": PACKS[n].get("skip", []),
+            "subdir": PACKS[n].get("subdir", "skills"),
+            "note": PACKS[n].get("note", []),
         }
         for n, skills in sorted(packs.items())
     ]
@@ -859,10 +880,10 @@ def cli_block(cli, packs):
             "",
             f"# Skill pack: {k['name']}. Linked per skill, not copied, so `git pull` in",
             "# the clone updates every skill at once.",
-            "#",
-            "# Its own installer (scripts/sync-skills) repoints ~/.claude/CLAUDE.md at the",
-            "# pack's AGENTS.MD, which would replace your global instructions. Do not run",
-            "# it. The loop below does the linking and touches nothing else.",
+        ]
+        if k["note"]:
+            lines += ["#"] + [f"# {n}" for n in k["note"]]
+        lines += [
             f'PACK_DIR="$HOME/Projects/{k["name"]}"',
             f'PACK_SKIP="{skip}"',
             'if [ -d "$PACK_DIR/.git" ]; then',
@@ -872,9 +893,9 @@ def cli_block(cli, packs):
             "else",
             f'  warn "could not clone {k["name"]}"',
             "fi",
-            'if [ -d "$PACK_DIR/skills" ]; then',
+            f'if [ -d "$PACK_DIR/{k["subdir"]}" ]; then',
             '  PACK_N=0',
-            '  for SK in "$PACK_DIR"/skills/*/; do',
+            f'  for SK in "$PACK_DIR"/{k["subdir"]}/*/; do',
             '    SK_NAME="$(basename "$SK")"',
             '    [ -f "$SK/SKILL.md" ] || continue',
             '    case " $PACK_SKIP " in *" $SK_NAME "*) continue;; esac',

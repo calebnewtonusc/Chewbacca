@@ -44,6 +44,7 @@ def counts():
         "skills_own": vendored,
         "skills_upstream": upstream,
         "skills_packed": packed,
+        "packs": len(toolkit.get("packs", [])),
         "skills_total": vendored + upstream + packed,
         "mcp": len(toolkit["mcp"]),
         "cli": len(toolkit["cli"]),
@@ -77,7 +78,7 @@ def sentence(c):
     return (
         f"One command installs **{c['commands']} slash commands, {c['skills_total']} skills "
         f"({c['skills_own']} written here, {c['skills_upstream']} cloned from upstream, "
-        f"{c['skills_packed']} from a skill pack), {c['mcp']} MCP servers, {c['hooks']} hooks, "
+        f"{c['skills_packed']} from {'a skill pack' if c['packs'] == 1 else str(c['packs']) + ' skill packs'}), {c['mcp']} MCP servers, {c['hooks']} hooks, "
         f"{c['subagents']} subagents, {c['cli']} command-line tools and {c['rules']} always-on "
         f"standards (plus {c['rules_on_demand']} that load only when the work calls for them).** About {c['lines']:,} lines, every one of them plain text you can read."
     )

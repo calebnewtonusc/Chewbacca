@@ -27,6 +27,7 @@ Shipped inside this repo, or cloned onto the machine by `setup.sh`.
 | [steipete/summarize](https://github.com/steipete/summarize) | Peter Steinberger | MIT | The `summarize` command for pages and PDFs |
 | [steipete/macos-automator-mcp](https://github.com/steipete/macos-automator-mcp) | Peter Steinberger | MIT | AppleScript and JXA over MCP with a callable script knowledge base |
 | [steipete/agent-scripts](https://github.com/steipete/agent-scripts) | Peter Steinberger | MIT | A skill pack, linked per skill rather than copied |
+| [onvoyage-ai/gtm-engineer-skills](https://github.com/onvoyage-ai/gtm-engineer-skills) | OnVoyage AI | MIT | Twelve SEO, AEO and GEO skills (keyword research, AI-search audits, content, backlinks, Reddit), linked per skill from a clone by `setup.sh` |
 | [browser-use/macOS-use](https://github.com/browser-use/macOS-use) | browser-use | MIT | The runtime under `mac-use`. Chewbacca owns the provider adapters, macOS-use supplies the agent loop |
 | [lahfir/agent-desktop](https://github.com/lahfir/agent-desktop) | lahfir | Apache-2.0 | The accessibility-tree driver. Stable element refs, JSON out |
 | [BlueM/cliclick](https://github.com/BlueM/cliclick) | BlueM | custom | Synthetic input. Does one thing and has since forever |
