@@ -1647,7 +1647,8 @@ async function cmdEvents(argv) {
           personId: ep.person_id,
           body,
           flags: { kind: ev.kind === "fact" ? "fact" : "experience", modality,
-                   source: "imported", at, dim: "social" },
+                   source: "imported", at, dimFallback: "social" },
+          judge: true,
         });
         written++;
         // Someone else named as present was there too, and their record should
@@ -1662,7 +1663,8 @@ async function cmdEvents(argv) {
           insertObservation({
             personId: otherId,
             body: otherBody,
-            flags: { kind: "experience", modality, source: "third_party", at, dim: "social" },
+            flags: { kind: "experience", modality, source: "third_party", at, dimFallback: "social" },
+            judge: true,
           });
           written++;
         }
@@ -1769,9 +1771,13 @@ function insertObservation({ personId, circleId, body, flags = {}, sourceCircleI
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean)
-    : judged
+    : judged?.dims.length
       ? judged.dims
-      : inferDimensions(body);
+      : flags.dimFallback
+        ? [flags.dimFallback]
+        : judged
+          ? []
+          : inferDimensions(body);
   const link = d.prepare(
     "INSERT INTO observation_dimensions (observation_id, dimension_id, weight) VALUES (?,?,?) ON CONFLICT DO NOTHING",
   );
@@ -1790,8 +1796,11 @@ function insertObservation({ personId, circleId, body, flags = {}, sourceCircleI
 //
 // TypeSafe's Jev answers those three judgments as typed questions in one call
 // of about a third of a second. It fills only what the caller left unset, and
-// only for notes the user typed or said (`note`, `me`), never for text pulled
-// out of message threads: that waits on the brain's privacy choice. No key, a
+// for notes the user typed or said (`note`, `me`) and for facts pulled out of
+// message threads (events, identify). Gavin chose on 2026-09-23 to give Jev full
+// access, with Karthik's permission for the Amber side, so those bodies leave the
+// Mac for TypeSafe. Events used to be tagged `social` whatever they were; social
+// is now the fallback when Jev finds no dimension or cannot answer. No key, a
 // timeout, or PEOPLE_JEV=off, and it returns null and the keyword path runs.
 
 const JEV_LIB = path.join(__dirname, "lib");
@@ -3263,7 +3272,7 @@ function applyIdentity(d, f) {
     .prepare("SELECT 1 FROM observations WHERE person_id=? AND body=? AND deleted_at IS NULL")
     .get(pid, body);
   if (!dupe)
-    insertObservation({ personId: pid, circleId: null, body, flags: { source: "inferred", kind: "note" } });
+    insertObservation({ personId: pid, circleId: null, body, flags: { source: "inferred", kind: "note" }, judge: true });
   return { pid, moved, existed: !!existing };
 }
 

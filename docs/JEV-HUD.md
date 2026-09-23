@@ -75,5 +75,6 @@ voice turn.
   scores and ranks; code and the person act.
 - Every threshold carries the eval run that set it. A floor with no run behind it
   says so in its comment.
-- Personal text (messages, mail) does not go to Jev until the privacy choice for the
-  brain is made.
+- Personal text (messages, mail) may go to Jev: Gavin chose full access on
+  2026-09-23, with Karthik's permission for the Amber side. `PEOPLE_JEV=off` and
+  `HUD_CLASSIFY_JEV=off` still switch it off.

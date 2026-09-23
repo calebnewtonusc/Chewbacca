@@ -91,7 +91,7 @@ triage, guide mode and the cost line. These go further.
   talks at the wrong moment gets muted within a week.
 - **Addressed to me.** Noul on each sentence: "is this said to the assistant or to
   someone in the room". Audio never leaves the Mac; only the transcript line would.
-  Gated by the privacy choice below.
+  Allowed since the privacy choice below.
 - **Proactive agents.** A session waiting on a permission while he is idle, a meeting
   in five minutes with an agent mid-edit, a build that failed while he was away: each
   is a Noul on the board state, spoken once.
@@ -109,7 +109,8 @@ triage, guide mode and the cost line. These go further.
 The fan-out engine from `research/jevbacca/BRAIN-PLAN.md` in the context repo belongs on the same registry: every heard sentence, message and calendar change gets
 the same batch of questions (worth remembering, which person, which project, is it a
 commitment, is it a deadline). JevBacca's Opportunity Book is that batch pointed at a
-business. None of it runs on personal text until the A/B/C choice is made.
+business. Gavin chose full access to his own data on 2026-09-23, with Karthik's
+permission for the Amber side, so the fan-out may run on personal text.
 
 ## Built
 
@@ -118,6 +119,8 @@ business. None of it runs on personal text until the A/B/C choice is made.
   Before this, every observation in the live store was `actual`, so the modality
   weights in Amber's design never fired. `tests/eval_people_jev.py`: dimensions
   22/24, modality 24/24, source 22/24, against 9, 13 and 20 for the keyword path.
+  Events and speaker facts pulled from texts go through the same questions since the
+  full-access choice; events used to be tagged `social` whatever they were.
 
 ## Order
 
@@ -128,7 +131,7 @@ business. None of it runs on personal text until the A/B/C choice is made.
 4. **The JEV-HUD.md list**, starting with voice wiring for the agent board.
 5. Model routing, permission triage, test selection, commit gate.
 6. Onboarding: first win, permission at first use, doctor fixes.
-7. The brain fan-out, once the privacy choice is made.
+7. The brain fan-out, now that personal text is allowed.
 
 ## Falsifier
 
@@ -142,5 +145,6 @@ whole calibration approach needs rethinking before anything graduates.
 - Jev picks, scores and ranks. It never grants a permission, sends a message or posts
   anything on its own.
 - Irreversible external actions confirm per instance, whatever the record says.
-- No personal text goes to Jev before the brain privacy choice.
+- Personal text goes to Jev by Gavin's choice of 2026-09-23. That choice covers his
+  own data; another user's data needs that user's own yes.
 - Every floor carries the run that set it, or says it was never measured.
