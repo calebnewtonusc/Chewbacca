@@ -206,7 +206,35 @@ def export(name, destination):
     destination.mkdir(parents=True, exist_ok=True)
     target = destination / spec['instruction_file']
     context.merge_block(target, BEGIN + '\n' + text + END, BEGIN, END)
+    if name == 'perplexity-computer':
+        package_skills(destination / 'skills')
     return str(target)
+
+
+def package_skills(destination, source=None):
+    """Zip each repo skill for upload to a hosted agent such as Perplexity.
+
+    One zip per skill with SKILL.md at the root. Skills whose frontmatter would
+    be rejected are skipped and reported, never silently truncated."""
+    import zipfile
+    sys.path.insert(0, str(ROOT / 'tools'))
+    import frontmatter
+    source = source or ROOT / 'skills'
+    destination.mkdir(parents=True, exist_ok=True)
+    packaged, skipped = [], {}
+    for skill_md in sorted(source.glob('*/SKILL.md')):
+        folder = skill_md.parent
+        issues = frontmatter.problems(skill_md)
+        if issues:
+            skipped[folder.name] = issues
+            continue
+        target = destination / f'{folder.name}.zip'
+        with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(folder.rglob('*')):
+                if path.is_file() and '__pycache__' not in path.parts and path.name != '.DS_Store':
+                    archive.write(path, path.relative_to(folder))
+        packaged.append(str(target))
+    return {'packaged': packaged, 'skipped': skipped}
 
 
 def claude_hooks():

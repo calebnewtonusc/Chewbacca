@@ -273,6 +273,12 @@ if group "tools"; then
     bash -c "python3 '$ROOT/tools/frontmatter.py' '$TMP/fmcheck/skills' 2>&1 || true"
   exits  "and the checker exits non-zero" 1 \
     bash -c "python3 '$ROOT/tools/frontmatter.py' '$TMP/fmcheck/skills'"
+  LONG="$TMP/fmcheck-long/skills/long"; mkdir -p "$LONG"
+  printf -- '---\nname: long\ndescription: "%s"\n---\n\n# x\n' "$(printf 'a%.0s' $(seq 1 1100))" > "$LONG/SKILL.md"
+  expect "a description over 1024 characters is caught" "the limit is 1024" \
+    bash -c "python3 '$ROOT/tools/frontmatter.py' '$TMP/fmcheck-long/skills' 2>&1 || true"
+  # Perplexity imports skills as zips; every repo skill must package cleanly.
+  check  "every skill packages for Perplexity" bash -c "python3 '$ROOT/tools/agent_runtime.py' export --runtime perplexity-computer --destination '$TMP/px' >/dev/null && [ \"\$(ls '$TMP/px/skills' | wc -l)\" -eq \"\$(ls -d '$ROOT'/skills/*/SKILL.md | wc -l)\" ] && ! grep -q '/Users/' '$TMP/px/CHEWBACCA.md'"
   check  "AGENTS.md exports for other agents" python3 "$ROOT/tools/agents_md.py" "$TMP"
   check  "the export leaks no @imports" bash -c "! grep -q '^@' '$TMP/AGENTS.md'"
   check  "slop check holds the line" python3 "$ROOT/bin/slop-check" "$ROOT/docs" "$ROOT/skills" --max 60

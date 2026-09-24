@@ -62,13 +62,14 @@ publication. Use `skills/setup/SKILL.md` for a requested setup.
 
 <!-- BEGIN GENERATED: counts -->
 
-One command installs **57 slash commands, 107 skills (40 written here, 6 cloned from upstream, 61 from 2 skill packs), 12 MCP servers, 33 hooks, 4 subagents, 9 command-line tools and 12 always-on standards (plus 3 that load only when the work calls for them).** About 181,000 lines, every one of them plain text you can read.
+One command installs **57 slash commands, 107 skills (40 written here, 6 cloned from upstream, 61 from 2 skill packs), 12 MCP servers, 33 hooks, 4 subagents, 9 command-line tools and 12 always-on standards (plus 3 that load only when the work calls for them).** About 182,000 lines, every one of them plain text you can read.
 
 <!-- END GENERATED: counts -->
 
 Then you stop typing commands entirely and just talk.
 
 Choose Claude Code, Codex, or both with `chewbacca setup --runtime NAME`.
+Perplexity Computer imports the same skills and reads the same brain; see [Perplexity](docs/PERPLEXITY.md).
 The adapters share one private brain and skill library, while preserving each
 host's hooks, model settings and permissions. Other apps can receive public
 instruction exports. [Runtime and platform setup](docs/RUNTIMES.md).

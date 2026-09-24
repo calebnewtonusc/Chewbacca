@@ -6,6 +6,8 @@ real commit; nothing here is written by hand.
 ## Unreleased
 
 ### Added
+- Perplexity Computer runtime: `agent export --runtime perplexity-computer` writes shared guidance and one upload-ready zip per skill
+- the frontmatter check now rejects skill descriptions over 1024 characters; graph-engineering and people were over and are trimmed
 - guide mode puts a bubble on the control they need to click
 - superassistant, the voice's memory both ways
 - a switch on the panel for speech off for long answers
