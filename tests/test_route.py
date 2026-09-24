@@ -151,8 +151,16 @@ def main() -> int:
               d.dest == "assistant", str(d))
     d = dest("write the readme", SHELL_ONLY, classify=classifier("assistant"))
     check("Terminal with no claude tab is not a workspace", d.dest == "assistant" and calls[-1] == "write the readme")
-    d = dest("how do i center a div", CHROME)
-    check("in front of Chrome, the browser", d.dest == "browser" and d.confidence == 0.8, str(d))
+    # 2026-09-24: Chrome in front no longer decides. It sent "summarize this
+    # page" and fourteen more to a Google search of themselves.
+    calls.clear()
+    d = dest("how do i center a div", CHROME, classify=classifier(None))
+    check("in front of Chrome, a plain sentence is judged, not searched",
+          d.dest == "assistant" and calls == ["how do i center a div"], str((d, calls)))
+    d = dest("search for how to center a div", CHROME)
+    check("in front of Chrome, a search by its own words goes to the browser", d.dest == "browser", str(d))
+    d = dest("summarize this page", CHROME, classify=classifier("browser"))
+    check("in front of Chrome, the classifier may still pick the browser", d.dest == "browser", str(d))
     calls.clear()
     d = dest("write the readme", CHROME, mem("terminal", 30), classify=classifier("terminal"))
     check("Chrome in front but terminal warm and not browser-shaped: the classifier decides",
@@ -164,8 +172,9 @@ def main() -> int:
     check("classifier says browser for a task on a site: the assistant", d.dest == "assistant", str(d))
     d = dest("go to my linkedin and edit my skills", NOBODY)
     check("'go to <site> and <task>' is not browser-shaped", d.dest == "assistant", str(d))
-    d = dest("add python to my skills", CHROME)
-    check("Chrome in front and a task: the assistant", d.dest == "assistant" and d.reason == "a task on a site", str(d))
+    d = dest("add python to my skills", CHROME, classify=classifier("browser"))
+    check("Chrome in front and a task: the assistant, even when the classifier says browser",
+          d.dest == "assistant", str(d))
     d = dest("search for how to delete my account", NOBODY)
     check("a search that mentions a task verb is still a search", d.dest == "browser", str(d))
     d = dest("go to github.com", NOBODY)

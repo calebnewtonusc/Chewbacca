@@ -243,6 +243,15 @@ For what `mac` does not cover, the rest of the machine is there: `open -a <App>`
 
 A new Terminal window is `osascript -e 'tell application "Terminal" to do script ""'`, or `chewie terminal ensure` when it should be running claude. Never `open -a Terminal -n`: `-n` starts a second Terminal.app carrying your environment, every window it opens afterwards inherits that, and the next `claude` run in one of them draws a block under every word and saves no transcript (2026-09-20, twice).
 
+Any app's controls, Chrome's page included, are yours to press by what they meant, not by the words on the button. `ux-do` reads the window through the accessibility tree, has Jev pick the control, and presses it without moving their mouse or bringing anything to the front:
+
+```
+ux-do "<what they said>" [--app "<App>"]         press or toggle what they meant
+ux-do "<the field>" --app "<App>" --type "<text>"  type into it
+```
+
+It prints one JSON line. `done`: say it in a few words. `ask`: it names two candidates, ask which in one line. `yours to press`: a send, pay, delete or submit, found and left for them; say where it is. `not found`: read the window (`chewie see --app`) and try once with the control's real name, then say what you could not find. Reach for it before `chewie click` or `peekaboo`, and before any search.
+
 Chrome is theirs to drive when they ask for something on a page. `chrome-js` works inside their own logged-in Chrome, through the page itself, so nothing on the screen moves and it never takes a screenshot:
 
 ```

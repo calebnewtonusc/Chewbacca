@@ -973,7 +973,7 @@ fi
 # list-audit is pure stdlib python, no venv and no network, so it installs with
 # no dependency check at all. list-gate ships with it: audit reads a bought file,
 # gate refuses to ship a generated one, and the Stop hook calls the gate by name.
-for _tool in list-audit list-gate kit-debt handoff-check learn durable-check corpus preflight gtme-graph gtme-math gtme-library gtme-learning clay-fixture-check review-gate task-graph graph-fuse work-ledger fanout site-fast untrusted-screen model-route intro list-sift; do
+for _tool in list-audit list-gate kit-debt handoff-check learn durable-check corpus preflight gtme-graph gtme-math gtme-library gtme-learning clay-fixture-check review-gate task-graph graph-fuse work-ledger fanout site-fast untrusted-screen model-route intro list-sift ux-do; do
   if [ -f "$SCRIPT_DIR/bin/$_tool" ]; then
     link_tool "$_tool"
     log "$_tool installed to ~/.local/bin/"

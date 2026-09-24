@@ -936,6 +936,7 @@ if group "hud"; then
   check  "untrusted-screen flags text aimed at the agent, and only that" python3 "$ROOT/tests/test_screen.py"
   check  "model-route maps Jev's class to the router's targets" python3 "$ROOT/tests/test_model_route.py"
   check  "intro walks you, a person, an org, and nothing else" python3 "$ROOT/tests/test_intro.py"
+  check  "ux-do acts on what was meant, asks when unsure, never presses send" python3 "$ROOT/tests/test_ux.py"
   check  "list-sift judges only what survives the facts" python3 "$ROOT/tests/test_list_sift.py"
   # The same file has a pytest-only path (the fixtures at its top) that no
   # runner ever exercised: none of the python3 interpreters on the dev Macs,

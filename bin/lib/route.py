@@ -332,11 +332,20 @@ def route(
     if app == "Terminal" and context.get("claude_tab") and _work_shaped(said):
         return Decision("terminal", 0.8, "terminal in front, about the work")
     if app in BROWSER_APPS:
-        if warm == "terminal" and not browser_shaped:
-            return _classified(said, {**memory, "context": context}, classify)
-        if site_task:
-            return Decision("assistant", 0.8, "a task on a site")
-        return Decision("browser", 0.8, "browser in front")
+        # Chrome in front says where they are looking, not what they want.
+        # Taken as a destination it sent every sentence without one of
+        # SITE_TASK_WORDS to the browser, which turns what it cannot open into
+        # a Google search of the whole sentence: on 2026-09-24 "summarize this
+        # page", "sort these by price", "close this tab" and twelve more of
+        # tests/eval_route_front.py became searches. Only a sentence that is a
+        # search or an open by its own words goes straight there; the rest is
+        # judged, with the app in the state.
+        # A site task needs no early exit: `_classified` already refuses the
+        # browser for one, and going to the classifier first keeps "write the
+        # readme" with Chrome in front able to reach the terminal.
+        if browser_shaped:
+            return Decision("browser", 0.8, "browser in front, browser-shaped")
+        return _classified(said, {**memory, "context": context}, classify)
 
     if browser_shaped:
         return Decision("browser", 0.8, "browser-shaped")
@@ -528,6 +537,12 @@ def classify_with_jev(said: str, memory: dict) -> str | None:
     if choice not in DESTS:
         return None
     if choice == "terminal" and (answer.get("probabilities") or {}).get("terminal", 0.0) < JEV_TERMINAL_FLOOR:
+        return "assistant"
+    # The same asymmetry on the browser side: a sentence sent to the browser
+    # by mistake becomes a Google search of itself, while the assistant can
+    # open the page as well as answer. Guessed at the terminal floor, never
+    # measured on its own.
+    if choice == "browser" and (answer.get("probabilities") or {}).get("browser", 0.0) < JEV_TERMINAL_FLOOR:
         return "assistant"
     return choice
 

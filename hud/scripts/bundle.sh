@@ -96,6 +96,24 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <string>Kyber listens only while you hold the globe key, or on a wake word if you turn that on. Recognition runs on this Mac.</string>
   <key>NSSpeechRecognitionUsageDescription</key>
   <string>Speech is turned into text on this Mac so you can ask for something without typing. Nothing is sent anywhere.</string>
+  <!-- The voice runs as Kyber's child, so macOS asks on Kyber's behalf, and
+       without these keys it never asks at all: the request is denied and the
+       status stays "not requested" for good. On 2026-09-23 and 24 that made
+       "text Elias", "add call with Otis" and "what do I have today" all fail
+       with Contacts and Calendar access missing, while `mac doctor` in a
+       terminal said granted, because the terminal is a different app. -->
+  <key>NSContactsUsageDescription</key>
+  <string>Kyber looks up the person you name, so "text Sam" reaches the right number.</string>
+  <key>NSCalendarsUsageDescription</key>
+  <string>Kyber reads and adds events when you ask what is on today or to put something on the calendar.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key>
+  <string>Kyber reads and adds events when you ask what is on today or to put something on the calendar.</string>
+  <key>NSRemindersUsageDescription</key>
+  <string>Kyber reads and adds reminders when you ask it to remind you of something.</string>
+  <key>NSRemindersFullAccessUsageDescription</key>
+  <string>Kyber reads and adds reminders when you ask it to remind you of something.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Kyber sends the texts and emails you ask for through Messages and Mail, and drives the app you name.</string>
 </dict>
 </plist>
 PLIST
