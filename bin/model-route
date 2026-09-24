@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""model-route: which model and effort a prompt wants, judged by Jev.
+
+    model-route "the login test fails on CI"     one JSON line
+    model-route --hook < event.json              UserPromptSubmit hook mode
+
+Hook mode stays silent when claude-model-router-hook's own keywords are
+confident, so it only speaks where that router would have waited on its slow
+CLI fallback. It advises and never switches: the plugin owns the settings.
+"""
+import glob
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import model_route  # noqa: E402
+
+
+def plugin_confident(prompt: str) -> bool:
+    """True when the installed router's heuristic decides this prompt alone,
+    or would abstain as not-a-task. Absent plugin: never confident."""
+    home = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    found = sorted(glob.glob(str(home / "plugins/cache/claude-model-router-hook/*/*/hooks")))
+    if not found:
+        return False
+    sys.path.insert(0, found[-1])
+    try:
+        from router import config, taxonomy
+        cfg = config.load_config(global_path=config.global_config_path(), cwd=os.getcwd())
+        result = taxonomy.score(prompt, cfg)
+        if result.word_count == 0 or not taxonomy.has_task_intent(prompt):
+            return True
+        margin = cfg.get("thresholds", {}).get("confident_margin", 3)
+        return result.margin >= margin and result.scores[result.top] >= 3
+    except Exception:
+        return False
+
+
+def main(argv: list[str]) -> int:
+    if argv[:1] == ["--hook"]:
+        if os.environ.get("CLAUDE_MODEL_ROUTER_CHILD"):
+            return 0
+        try:
+            event = json.load(sys.stdin)
+        except ValueError:
+            return 0
+        prompt = event.get("prompt") if isinstance(event, dict) else None
+        if not isinstance(prompt, str) or prompt.lstrip().startswith(("~", "/")):
+            return 0
+        if plugin_confident(prompt):
+            return 0
+        r = model_route.classify(prompt)
+        if not r["class"]:
+            return 0
+        effort = f" at {r['effort']} effort" if r["effort"] else ""
+        note = (f"Jev reads this prompt as {r['class']} work ({r['confidence']:.2f}): "
+                f"{r['model']}{effort}. The keyword router was not confident here. Use this "
+                f"tier for any subagent this prompt spawns.")
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                                                 "additionalContext": note}}))
+        return 0
+    if not argv:
+        print(__doc__.strip(), file=sys.stderr)
+        return 2
+    print(json.dumps(model_route.classify(" ".join(argv))))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -15,8 +15,9 @@ import urllib.request
 
 URL = "https://api.typesafe.ai/v1/systemone"
 MODEL = os.environ.get("TYPESAFE_MODEL", "jev-latest")
-# Measured 2026-09-23 from this Mac: 0.18 to 0.32 s per single-question call.
-# Ten times the worst of those still leaves the router's 3 s budget intact.
+# Well above the single-question call times seen from this Mac on 2026-09-23
+# (kept private under TypeSafe's agreement 2.3(f)), and inside the router's
+# 3 s budget.
 TIMEOUT_S = 2.5
 
 _key: str | None = None

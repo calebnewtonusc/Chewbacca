@@ -973,7 +973,7 @@ fi
 # list-audit is pure stdlib python, no venv and no network, so it installs with
 # no dependency check at all. list-gate ships with it: audit reads a bought file,
 # gate refuses to ship a generated one, and the Stop hook calls the gate by name.
-for _tool in list-audit list-gate kit-debt handoff-check learn durable-check corpus preflight gtme-graph gtme-math gtme-library gtme-learning clay-fixture-check review-gate task-graph graph-fuse work-ledger; do
+for _tool in list-audit list-gate kit-debt handoff-check learn durable-check corpus preflight gtme-graph gtme-math gtme-library gtme-learning clay-fixture-check review-gate task-graph graph-fuse work-ledger fanout site-fast untrusted-screen model-route intro list-sift; do
   if [ -f "$SCRIPT_DIR/bin/$_tool" ]; then
     link_tool "$_tool"
     log "$_tool installed to ~/.local/bin/"
@@ -1510,6 +1510,10 @@ _register("UserPromptSubmit", hooks_dir + "/design-context.sh", timeout=8)
 
 _register("UserPromptSubmit", hooks_dir + "/ask-capture.sh", timeout=5)
 
+# Jev's read of the task class where claude-model-router-hook's keywords are
+# unsure, in 0.3 s instead of that router's 8 s haiku fallback. Advice only.
+_register("UserPromptSubmit", hooks_dir + "/model-route.sh", timeout=6)
+
 _register("Stop", hooks_dir + "/kit-autopush.sh", timeout=30,
           status="Pushing the kit...")
 
@@ -1542,6 +1546,13 @@ _register("SessionStart", hooks_dir + "/kit-autopull.sh", timeout=20,
 _register("PostToolUse", hooks_dir + "/prose-guard.sh", timeout=20,
           matcher="Write|Edit",
           status="Checking the prose against the writing rules...")
+
+# The untrusted-content rule, checked instead of hoped for. A page, a text or a
+# mail body that addresses the agent gets its excerpt put in front of the model
+# with the rule attached. Warns, never blocks. See the hook for the tool list.
+_register("PostToolUse", hooks_dir + "/untrusted-screen.sh", timeout=15,
+          matcher="WebFetch|Bash|mcp__claude-in-chrome__.*|mcp__plugin_playwright_playwright__.*",
+          status="Screening what was just read for instructions aimed at the agent...")
 
 h["Notification"] = [{"hooks": [{
     "type": "command",
@@ -2488,6 +2499,20 @@ else
     fi
   else
     warn "npm missing, so the accessibility driver and web bridge are skipped"
+  fi
+
+  # site-fast: browser-use's jev-ultrafast agent, one Jev call per step. It
+  # lives outside the repo because it pins its own Python environment.
+  SITE_FAST_HOME="${SITE_FAST_HOME:-$HOME/dev/jev-ultrafast}"
+  if command -v uv &>/dev/null; then
+    if [ ! -d "$SITE_FAST_HOME/.git" ]; then
+      git clone --quiet https://github.com/browser-use/jev-ultrafast "$SITE_FAST_HOME" \
+        || warn "could not clone jev-ultrafast, so site-fast will not run"
+    fi
+    [ -d "$SITE_FAST_HOME/.git" ] && (cd "$SITE_FAST_HOME" && uv sync --quiet &>/dev/null) \
+      && log "site-fast ready (jev-ultrafast in $SITE_FAST_HOME)"
+  else
+    warn "uv missing, so site-fast is skipped"
   fi
 
   if command -v claude &>/dev/null; then

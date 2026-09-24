@@ -1854,9 +1854,9 @@ function jevQuestions() {
   return q;
 }
 
-// Set before any run. tests/eval_people_jev.py on 2026-09-23, 24 labelled
-// notes: dimensions 22/24 (keywords 9), modality 24/24 (the old default 13),
-// source 22/24 (20), worst note 0.58 s. The floors were not tuned on that run.
+// Set before any run and not tuned on tests/eval_people_jev.py, whose results
+// stay private: TypeSafe's customer agreement (2.3(f)) bars publishing Jev
+// performance results.
 const JEV_DIM_FLOOR = 0.5;
 const JEV_CHOICE_FLOOR = 0.5;
 

@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+"""intro: warm-intro paths from the people you know to a goal.
+
+    intro "a seed investor in fintech in Texas"           paths, best first
+    intro "Sequoia" --query "sequoia"                     your own FTS query
+    intro "..." --json                                    for another tool
+
+Reads people.db (PEOPLE_DIR) and the contacts index (CONTACTS_DB, found if
+unset), both read-only. A `fact` path is a person whose company is a target
+organization; a `jev` path is a judgment. It lists paths and contacts nobody.
+"""
+import argparse
+import json
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import intro  # noqa: E402
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("goal")
+    ap.add_argument("--query", help="FTS5 query for the contacts index; default is built from the goal")
+    ap.add_argument("--json", action="store_true")
+    args = ap.parse_args()
+    pdb, cdb = intro.people_db(), intro.contacts_db()
+    if not pdb.is_file():
+        print(f"intro: no people.db at {pdb}", file=sys.stderr)
+        return 1
+    if not cdb:
+        print("intro: no contacts index (set CONTACTS_DB)", file=sys.stderr)
+        return 1
+    orgs = intro.targets(intro.ro(cdb), args.query or intro.fts_query(args.goal))
+    paths = intro.walk(args.goal, intro.bridges(intro.ro(pdb)), orgs)
+    if args.json:
+        print(json.dumps(paths, indent=2))
+        return 0
+    if not paths:
+        print(f"no path found ({len(orgs)} target organizations matched)")
+        return 0
+    for x in paths:
+        print(f"[{x['via']} {x['score']:.2f}] you -> {x['person']} -> {x['org'] or '?'}   ({x['why']})")
+        for c in x["contacts"]:
+            print(f"      {c['full_name']} · {c['title'] or ''} · grade {c['grade'] or '-'}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

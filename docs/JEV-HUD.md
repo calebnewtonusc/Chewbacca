@@ -7,9 +7,8 @@ Steps" (2026-09-18). Started 2026-09-23. The wider plan, beyond the HUD, is
 
 The rule the whole plan follows, from the article: **if an operation creates text,
 it stays with the LLM. If it picks from a list, scores, or answers yes or no, it
-goes to Jev. An exact rule goes in code.** Jev answers in 0.2 to 0.6 s and costs
-$0.042 per million input tokens, so a decision stops being the slow part of a
-voice turn.
+goes to Jev. An exact rule goes in code.** A Jev answer comes back well inside a
+voice turn's budget, so a decision stops being the slow part of it.
 
 ## Where each step lands
 
@@ -30,7 +29,7 @@ voice turn.
 
 | Decision                                                | Today                          | Jev question                                                |
 | ------------------------------------------------------- | ------------------------------ | ----------------------------------------------------------- |
-| Where does a sentence go (terminal, browser, assistant) | Word lists, then Jev tier 3    | Choice, live since 2026-09-23 (30/30 on its eval)           |
+| Where does a sentence go (terminal, browser, assistant) | Word lists, then Jev tier 3    | Choice, live since 2026-09-23                              |
 | Which agent is it for                                   | Choice over the live board     | Choice over the live board, wired to the voice 2026-09-23   |
 | Is it asking for status rather than giving an order     | Phrase match, board answers    | Noul, later, if the phrase match misses real questions      |
 | Is a waiting permission prompt safe to allow            | Only the person, by voice      | Noul, used to rank and phrase the ask, never to grant alone |
@@ -48,8 +47,8 @@ voice turn.
 - `bin/agents`: `agents`, `agents say`, `agents pick "<words>"`, `agents --json`.
 - `tests/test_agent_board.py` (21 checks) and two new checks in
   `tests/test_terminal_events.py`.
-- `tests/eval_agent_board_jev.py`: 19/20 on 2026-09-23, none sent to the wrong
-  agent, worst latency 0.58 s. With topics on the menu, 20/20 the same afternoon.
+- `tests/eval_agent_board_jev.py`: the live eval. Its results stay private,
+  because TypeSafe's agreement (2.3(f)) bars publishing Jev performance results.
 - **Topics on the menu** (2026-09-23). Each board line carries the session's
   transcript path, and the board reads the newest `ai-title` Claude Code writes
   there. No UserPromptSubmit hook needed. The voice names a session by it.

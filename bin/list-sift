@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""list-sift: judge every row of a contact list against one criterion, by Jev.
+
+    list-sift contacts.csv --keep "invests at seed in consumer apps" --out fit.csv
+    list-sift contacts.csv --keep "..." --where state=TX --where grade=A,B
+    list-sift contacts.csv --keep "..." --limit 200            a sample first
+    list-sift contacts.csv --keep "..." --estimate             count and time, no calls
+
+After AkashPriyadarshii/jev-curate: a streaming sifter, one typed judgment
+per row. list-audit counts what a list IS; this asks what each row is FOR.
+
+Facts first (Canny's rule): --where filters run in code before any call, and
+only the rows that survive are judged. Names and contact channels (email,
+phone, LinkedIn, Twitter) are dropped from what is sent, since they say
+nothing about fit and need not leave the machine. The input is only read. --out gets
+every judged row with `sift_score` and `sift_keep`, and a rerun judges only
+the rows not in it yet, failed ones included.
+"""
+import argparse
+import csv
+import json
+import re
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import jev  # noqa: E402
+
+csv.field_size_limit(10**9)
+
+# Contact channels and names say nothing about fit, so they never leave the
+# machine: data minimisation for a list of real people sent to a cloud API.
+CHANNEL = re.compile(r"e-?mail|phone|mobile|linkedin|twitter|^x$|whatsapp|telegram|record_?id"
+                     r"|(^|_|\b)(full_?name|first_?name|last_?name|name)$", re.I)
+# Throughput scaled with workers up to 8 with no errors on a 50-row run,
+# 2026-09-24 (figures kept private under TypeSafe's agreement 2.3(f)). Fifty
+# rows is not a rate-limit test: watch `errors` on the first big run and lower
+# this if it climbs. A million rows is still many hours, which is why --where
+# and --estimate exist.
+WORKERS = 8
+BATCH = 64
+
+
+def parse_where(items):
+    out = []
+    for item in items or []:
+        col, _, vals = item.partition("=")
+        out.append((col.strip(), {v.strip().lower() for v in vals.split(",")}))
+    return out
+
+
+def passes(row, where):
+    return all((row.get(col) or "").strip().lower() in vals for col, vals in where)
+
+
+def payload(row):
+    return {k: v for k, v in row.items() if v and v.strip() and not CHANNEL.search(k or "")}
+
+
+def judge_rows(rows, criterion, ask, workers):
+    def one(row):
+        a = ask({"contact": payload(row)}, {"fit": {"type": "noul", "instructions":
+                f"Does `contact` fit this criterion: {criterion}? Judge only from the fields given."}})
+        n = ((a or {}).get("fit") or {}).get("noul")
+        return None if n is None else float(n)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(one, rows))
+
+
+def main(argv=None, ask=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("csv")
+    ap.add_argument("--keep", required=True, help="the criterion, in plain words")
+    ap.add_argument("--where", action="append", help="col=v1,v2 exact-match filter, run before any call")
+    ap.add_argument("--out", help="judged rows go here (default: <csv>.sift.csv)")
+    ap.add_argument("--limit", type=int, help="stop after judging this many rows")
+    ap.add_argument("--threshold", type=float, default=0.7)
+    ap.add_argument("--workers", type=int, default=WORKERS)
+    ap.add_argument("--estimate", action="store_true", help="count rows the filters leave; make no calls")
+    args = ap.parse_args(argv)
+    where = parse_where(args.where)
+    src = Path(args.csv)
+    out = Path(args.out) if args.out else src.with_suffix(".sift.csv")
+
+    with src.open(newline="", encoding="utf-8", errors="replace") as fh:
+        reader = csv.DictReader(fh)
+        fields = reader.fieldnames or []
+        missing = [c for c, _ in where if c not in fields]
+        if missing:
+            print(f"list-sift: no column {', '.join(missing)} in {src.name}", file=sys.stderr)
+            return 2
+        if args.estimate:
+            n = sum(1 for row in reader if passes(row, where))
+            # A rough planning figure per call, spread over the workers.
+            print(json.dumps({"rows": n, "est_minutes_at_workers": round(n * 0.3 / args.workers / 60, 1)}))
+            return 0
+        if ask is None:
+            if not (jev.api_key() and jev.allowed()):
+                print("list-sift: no Jev key (TYPESAFE_API_KEY or the Keychain entry)", file=sys.stderr)
+                return 1
+
+            def ask(state, questions):
+                return jev.ask(state, questions, timeout=5.0)
+
+        # Resume by the rows that got a score, not the highest one: a row Jev
+        # failed on sits below rows that succeeded and must be retried.
+        done = set()
+        if out.exists():
+            with out.open(newline="") as prev:
+                done = {int(r["sift_row"]) for r in csv.DictReader(prev)}
+        fresh = not out.exists()
+        judged = kept = errors = 0
+        started = time.perf_counter()
+        with out.open("a", newline="") as sink:
+            writer = csv.DictWriter(sink, fieldnames=["sift_row", "sift_score", "sift_keep"] + fields)
+            if fresh:
+                writer.writeheader()
+            batch = []
+
+            def flush():
+                nonlocal judged, kept, errors
+                scores = judge_rows([r for _, r in batch], args.keep, ask, args.workers)
+                for (i, row), s in zip(batch, scores):
+                    if s is None:
+                        errors += 1
+                        continue
+                    keep = s >= args.threshold
+                    kept += keep
+                    judged += 1
+                    writer.writerow({"sift_row": i, "sift_score": round(s, 3), "sift_keep": int(keep), **row})
+                sink.flush()
+                batch.clear()
+
+            for i, row in enumerate(reader):
+                if i in done or not passes(row, where):
+                    continue
+                if args.limit and judged + errors + len(batch) >= args.limit:
+                    break
+                batch.append((i, row))
+                if len(batch) >= BATCH:
+                    flush()
+            if batch:
+                flush()
+    secs = time.perf_counter() - started
+    print(json.dumps({"judged": judged, "kept": kept, "errors": errors, "already_judged": len(done),
+                      "rows_per_s": round(judged / secs, 1) if secs else None, "out": str(out)}))
+    return 0 if not errors else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

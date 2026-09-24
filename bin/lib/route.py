@@ -470,11 +470,12 @@ def _ask_model(prompt: str, timeout: float, argv: list[str] | None = None) -> st
 
 
 # Jev may send a sentence to the terminal only when it is at least this sure.
-# Measured 2026-09-23 on the 30 hand-labelled sentences in
-# tests/eval_route_jev.py: three bubble and window fragments came back
-# terminal at 0.55, 0.56 and 0.62, and every real terminal request scored 0.80
-# or higher. The asymmetry in `_classified` is why the floor sits on the
-# terminal side only.
+# Set from a live measurement kept out of this public repo, because TypeSafe's
+# customer agreement (2.3(f)) bars publishing Jev performance results.
+# Re-measure with tests/eval_route_jev.py before moving it. Fragments about
+# the bubble and windows scored below it and real terminal requests above.
+# The asymmetry in `_classified` is why the floor sits on the terminal side
+# only.
 JEV_TERMINAL_FLOOR = 0.7
 
 JEV_QUESTION = {"dest": {
@@ -509,9 +510,9 @@ def classify_default(said: str, memory: dict) -> str | None:
 def classify_with_jev(said: str, memory: dict) -> str | None:
     """One Choice question to TypeSafe's Jev, None when it cannot answer.
 
-    The frontmost application is in the state because it moved one sentence
-    of the thirty: "No, let's talk to text feature. We just built the bubble."
-    scored terminal 0.80 with it and 0.59 without. HUD_CLASSIFY_JEV=off
+    The frontmost application is in the state because it moved one eval
+    sentence across the floor: "No, let's talk to text feature. We just built
+    the bubble." HUD_CLASSIFY_JEV=off
     switches the tier off again.
     """
     if os.environ.get("HUD_CLASSIFY_JEV") == "off":

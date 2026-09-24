@@ -11,10 +11,9 @@ fictional; the sentences have the shape of notes the skill writes. Labelled by
 hand on 2026-09-23. Dimensions count as right when the stored set equals the
 label; modality and source must match exactly.
 
-Result 2026-09-23: Jev dims 22/24, modality 24/24, source 22/24; keywords
-9, 13, 20. Worst note 0.58 s end to end against 0.06 s. Misses: "a church in
-Austin" also tagged social, "apparently engaged" also emotional and read as
-told directly, "I think she is struggling" read as told directly.
+Scores stay private: TypeSafe's customer agreement (2.3(f)) bars publishing
+Jev performance results. Hard cases worth keeping: "a church in Austin",
+"apparently engaged", "I think she is struggling".
 """
 import json
 import os

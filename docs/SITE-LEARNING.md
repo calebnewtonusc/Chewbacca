@@ -103,35 +103,23 @@ site show example.com                     # the map and every page read so far
 
 ## Measured: Jev as the pointer
 
-`tests/eval_ground_jev.py`, run 2026-09-23. It covers 30 spoken-style
-requests over six real pages (Airbnb, Booking, Wikipedia, GitHub, Hacker
-News, Stripe). Each page's controls go to Jev as one choice question, with
-72 to 255 options.
+`tests/eval_ground_jev.py` runs 30 spoken-style requests over six real pages
+(Airbnb, Booking, Wikipedia, GitHub, Hacker News, Stripe), each page's
+controls going to Jev as one choice question. It was run 2026-09-23 and cleared
+its falsifier (top-1 under about 90%, or wrong answers as confident as right
+ones). The scores stay off this public repo: TypeSafe's customer agreement
+(2.3(f)) bars publishing Jev performance results.
 
-| Measure                        | Result                                   |
-| ------------------------------ | ---------------------------------------- |
-| top-1, first run               | 26/30 against the original answer key    |
-| top-1, key corrected           | 29/30 (97%)                              |
-| word-overlap baseline          | 12/30 (40%)                              |
-| latency                        | p50 0.24 s, max 0.35 s                   |
-| mean top probability           | 0.93 when right, 0.52 on the one miss    |
-| act only at >= 0.7             | 28 of 30 acted on, 28 right              |
-| act only at >= 0.9             | 22 of 30 acted on, 22 right              |
-
-The key was corrected in three places where the page proved Jev's pick right.
-Booking has two support links. Wikipedia links Español directly. Stripe's two
-"Contact sales" controls differed only by an invisible U+2060 character, which
-`site snap` now strips.
-
-The one real miss was "open the comments on the Claude post" on Hacker News,
-at 0.49. The tree flattens the story list, so "918 comments" loses the row it
-belongs to. The confidence was low, so a confidence-shaped interface would
-have asked instead of clicking the wrong link.
-
-The falsifier was top-1 under about 90%, or wrong answers as confident as right
-ones. Neither happened. On this set, "act at 0.7 or above, otherwise show the
-top two, otherwise ask" never clicks a wrong control. Thirty rows is a small
-set, so this is a go for building, not proof it works everywhere.
+What it taught is design. The answer key was corrected in three places where
+the page proved Jev's pick right: Booking has two support links, Wikipedia
+links Español directly, and Stripe's two "Contact sales" controls differed only
+by an invisible U+2060 character, which `site snap` now strips. The one real
+miss was "open the comments on the Claude post" on Hacker News: the tree
+flattens the story list, so a comments link loses the row it belongs to. Its
+confidence was low, so a confidence-shaped interface ("act at 0.7 or above,
+otherwise show the top two, otherwise ask") would have asked instead of
+clicking the wrong link. Thirty rows is a small set, so this is a go for
+building, not proof it works everywhere.
 
 ## Next to build, in order
 

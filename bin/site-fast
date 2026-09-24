@@ -1,0 +1,12 @@
+#!/bin/bash
+# site-fast URL GOAL: one browser goal through jev-ultrafast (Jev picks the
+# operation and element, Claude writes text only when a field needs it).
+# The agent lives in its own checkout; setup.sh clones it to SITE_FAST_HOME.
+set -euo pipefail
+HOME_DIR="${SITE_FAST_HOME:-$HOME/dev/jev-ultrafast}"
+LIB="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib" && pwd)"
+if [ ! -d "$HOME_DIR/jev_ultrafast" ]; then
+  echo "site-fast: jev-ultrafast is not at $HOME_DIR. setup.sh installs it; SITE_FAST_HOME points elsewhere." >&2
+  exit 1
+fi
+exec uv run --quiet --project "$HOME_DIR" python "$LIB/site_fast.py" "$@"

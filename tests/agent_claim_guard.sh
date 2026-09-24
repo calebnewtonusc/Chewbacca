@@ -15,6 +15,11 @@ no(){ printf '  \033[0;31mfail\033[0m  %s\n' "$1"; fail=$((fail+1)); }
 command -v jq >/dev/null 2>&1 || { echo "  skip: jq not installed"; exit 0; }
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+# The hook marks each prompt id as handled in $TMPDIR, and the ids below are
+# fixed. Left pointing at the real $TMPDIR, the first run's markers made every
+# later run on this Mac skip cases 1 and 3 and report them as failures
+# (2026-09-24: p1 and p3 files from a run days earlier).
+export TMPDIR="$TMP"
 
 # A transcript with a user turn and no agent launch.
 printf '%s\n' '{"type":"user","message":"go"}' '{"type":"assistant","message":"ok"}' > "$TMP/bare.jsonl"

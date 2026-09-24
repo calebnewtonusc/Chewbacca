@@ -30,17 +30,16 @@ EVENTS = MEMORY / "agent-events.jsonl"
 # would drop real agents. Two hours of silence with no SessionEnd is taken as
 # a window closed without the hook firing.
 STALE_AFTER_S = 7200.0
-# Measured 2026-09-23 with tests/eval_agent_board_jev.py, four sessions and 20
-# hand-labelled sentences: every right pick scored 0.96 or higher, and the
-# nearest miss, "Commit everything" (meant for nobody), came back none at 0.57.
-# 19/20 right and zero sentences sent to the wrong agent; the one miss ("the
-# heads up display one") fell to none, so the voice would ask, not misroute.
+# Set from a live measurement kept out of this public repo, because TypeSafe's
+# customer agreement (2.3(f)) bars publishing Jev performance results.
+# Re-measure with tests/eval_agent_board_jev.py before moving it. Below the
+# floor the voice asks which agent rather than misrouting.
 PICK_FLOOR = 0.7
 # Jev's own 2.5 s timeout is the router's, which answers before anything else
 # happens. A picked agent is followed by a model run of 20 s or more, so a
-# slower pick costs little and a timed-out one costs a "which one?". Measured
-# 2026-09-23 afternoon on the eval's 20 sentences: p50 0.66 s, worst 6.12 s,
-# and 4 of 20 timed out at 2.5 s (none misrouted, all fell to asking).
+# slower pick costs little and a timed-out one costs a "which one?". Some
+# eval picks ran past 2.5 s on 2026-09-23 and fell to asking (figures kept
+# private under TypeSafe's agreement 2.3(f)).
 PICK_TIMEOUT_S = 8.0
 # One board read never needs more than the tail: 400 KB is the rotation cap
 # the hook writes with, so this reads at most one generation.

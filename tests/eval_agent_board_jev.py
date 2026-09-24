@@ -8,15 +8,12 @@ A made-up board of four sessions, the way they would sit on a real afternoon,
 and sentences labelled by hand with the session they are for, or None when a
 person would have to say which. Prints every probability so PICK_FLOOR can be
 set from what separates the right answers from the wrong ones.
-Result 2026-09-23: 19/20, none sent to the wrong agent, worst latency 0.58 s.
-The miss: "The heads up display one" chose none at 0.90, because nothing on the
-menu says the Chewbacca session is building the HUD. The menu needs each
-session's topic, not only its folder and current tool call.
-Topics are on the menu now (each session's transcript `ai-title`), and the
-board below carries the titles Claude Code would have written.
-Result 2026-09-23 afternoon, with topics: 20/20, the heads-up-display sentence
-included, p50 0.66 s, worst 6.12 s. At Jev's default 2.5 s timeout 4 of the 20
-timed out and fell to "which one?", which is why pick waits PICK_TIMEOUT_S.
+Results stay on the machine that ran them: TypeSafe's customer agreement
+(2.3(f)) bars publishing Jev performance results. What the first run taught
+is design, not a score: "The heads up display one" could not be placed until
+the menu carried each session's topic, so topics are on the menu now (each
+session's transcript `ai-title`), and the board below carries the titles
+Claude Code would have written.
 """
 import pathlib
 import sys

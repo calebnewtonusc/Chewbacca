@@ -39,8 +39,11 @@ PROMPT=$(printf '%s' "$PAYLOAD" | jq -r '.prompt // empty')
 # must not carry the animation rules.
 echo "$PROMPT" | grep -qiE 'design|ui|ux|css|animat|scroll|hover|layout|landing|hero|component|page|site|website|gizmo|svg|motion|typograph|spacing|color|colour' || exit 0
 
-ENGINE="$HOME/Desktop/2026-Code/ux-engine"
-[ -d "$ENGINE" ] || exit 0
+# The engine adds what this project has learned. The hard numbers below do not
+# need it, and exiting when it was absent meant every Mac but the author's got
+# no design context at all: on 2026-09-24 the hook was silent on "make the hero
+# scroll animation smoother" here, and its own test had failed for as long.
+ENGINE="${UX_ENGINE:-$HOME/Desktop/2026-Code/ux-engine}"
 
 AVOID=""
 if [ -x "$ENGINE/bin/ux-trial" ]; then
@@ -86,10 +89,14 @@ AFTER BUILDING, run these rather than assuming:
   ux-compose --effects a,b,c             whether the effects fight each other
   ux-lint <paths>                        generated-look tells
 
-LEARNED IN THIS PROJECT ($TRIALS trial(s) recorded so far):
-$AVOID
 EOF
 )
+if [ -d "$ENGINE" ]; then
+  CONTEXT="$CONTEXT
+
+LEARNED IN THIS PROJECT ($TRIALS trial(s) recorded so far):
+$AVOID"
+fi
 
 jq -n --arg c "$CONTEXT" \
   '{hookSpecificOutput: {hookEventName: "UserPromptSubmit", additionalContext: $c}}'

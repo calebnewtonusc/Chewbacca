@@ -8,7 +8,8 @@ Twenty sentences have the shape of real routed ones from the voice
 transcript (fragments, a bare "No", "Create a bubble", a trip plan), with any
 personal detail swapped out; the rest are cases the word lists are known to
 miss. Labelled by hand on 2026-09-23.
-Result that day: 30/30, worst latency 0.32 s.
+Scores stay private: TypeSafe's customer agreement (2.3(f)) bars publishing
+Jev performance results.
 """
 import pathlib
 import sys

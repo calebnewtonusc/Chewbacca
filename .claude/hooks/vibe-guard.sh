@@ -98,24 +98,19 @@ MSG
   fi
 fi
 
-# ── 2. verification claims ───────────────────────────────────────────────
-#
-# Deliberately narrow. Past tense assertions that something now works, not
-# descriptions of what was changed. "I changed the exponent" is a report.
-# "It works now" is a claim.
-if printf '%s' "$LOWER" | grep -qE "(that'?s fixed|it'?s fixed now|it works now|now works|confirmed working|i verified|verified (that|it)|all tests pass|tests (are )?(all )?(green|passing)|everything passes|no longer (broken|fails))"; then
-  EVIDENCE=0
+evidence() {
+  EV=0
   # Codex's transcript is not Claude JSONL. Its adapter records successful
   # completed shell calls after the last patch; parsing it as Claude content
   # would always report no evidence, even after an actual successful check.
   if printf '%s' "$INPUT" | jq -e '.agent == "codex" and .codex_evidence_after_write == true' >/dev/null 2>&1; then
-    EVIDENCE=1
+    EV=1
   elif [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
     # Walk this turn's tail and ask a simple question: did anything RUN after
     # the last thing that was WRITTEN? A build, a test, a screenshot, a grep
     # of the shipped bundle all count. An edit followed only by prose does
     # not, and that ordering is the signature of every wrong claim above.
-    EVIDENCE=$(python3 - "$TRANSCRIPT" <<'PY'
+    EV=$(python3 - "$TRANSCRIPT" <<'PY'
 import json, sys
 last_write = -1
 last_run = -1
@@ -155,10 +150,21 @@ for i, raw in enumerate(lines[-4000:]):
                     last_write = i
         elif name in {"Read", "Grep", "Glob"}:
             last_run = i
-print(1 if last_run > last_write else 0)
+print("none" if last_write < 0 else (1 if last_run > last_write else 0))
 PY
 )
   fi
+  printf '%s' "${EV:-0}"
+}
+
+# ── 2. verification claims ───────────────────────────────────────────────
+#
+# Deliberately narrow. Past tense assertions that something now works, not
+# descriptions of what was changed. "I changed the exponent" is a report.
+# "It works now" is a claim.
+if printf '%s' "$LOWER" | grep -qE "(that'?s fixed|it'?s fixed now|it works now|now works|confirmed working|i verified|verified (that|it)|all tests pass|tests (are )?(all )?(green|passing)|everything passes|no longer (broken|fails))"; then
+  EVIDENCE=$(evidence)
+  [ "$EVIDENCE" = "none" ] && EVIDENCE=0
   if [ "${EVIDENCE:-0}" != "1" ]; then
     touch "$GUARD"
     cat >&2 <<'MSG'
@@ -177,6 +183,66 @@ Or drop the claim and say what was changed instead.
 MSG
     exit 2
   fi
+  exit 0
 fi
 
-exit 0
+# ── 3. claims the phrase list misses (Canny's rule) ─────────────────────
+#
+# qkal/Canny, 2026-09: "Facts go to code. Judgments go to Jev. Only facts can
+# block." Its first live run caught Claude ending on "Done. Skipped tests,
+# one-liner" after writing a file with a heredoc and running nothing. The
+# list above never matches "Done.", "Shipped", "that should do it", and
+# widening a regex until it does is how a guard starts firing on ordinary
+# sentences.
+#
+# So the FACT is the same one section 2 uses: a file was written this turn and
+# nothing ran after it. Only when that fact holds does Jev get asked the
+# judgment: is this reply telling the user the work is finished? Jev down, no
+# key, or unsure, and nothing blocks.
+[ "${VIBE_GUARD_JEV:-on}" = "off" ] && exit 0
+EVIDENCE=$(evidence)
+[ "$EVIDENCE" = "0" ] || exit 0
+
+JEV_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../bin/lib" 2>/dev/null && pwd)"
+if [ -n "${VIBE_GUARD_JEV_STUB+set}" ]; then
+  # Test seam: "claim,report" probabilities instead of a network call.
+  ANSWER="$VIBE_GUARD_JEV_STUB"
+else
+  [ -n "$JEV_LIB" ] && [ -f "$JEV_LIB/jev.py" ] || exit 0
+  ANSWER=$(printf '%s' "$MSG" | head -c 4000 | python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+import jev
+reply = sys.stdin.read()
+a = jev.ask({"reply": reply}, {
+    "claims_done": {"type": "noul", "instructions":
+        "Does `reply` tell the user that the requested work is finished, fixed, "
+        "working, shipped or verified?"},
+    "reports_open": {"type": "noul", "instructions":
+        "Does `reply` say that something was not checked, failed, is still "
+        "open, or needs the user to decide?"},
+}, timeout=3.0)
+if a:
+    print("%s,%s" % (a["claims_done"]["noul"], a["reports_open"]["noul"]))
+' "$JEV_LIB" 2>/dev/null)
+fi
+[ -n "$ANSWER" ] || exit 0
+# Block only on a confident claim that reports nothing open. The lines were
+# set from seven replies scored live on 2026-09-24; the scores are kept out of
+# this public repo, because TypeSafe's customer agreement (2.3(f)) bars
+# publishing Jev performance results. Seven is not a calibration; refit once
+# real turns are labelled.
+python3 -c 'import sys; c, o = map(float, sys.argv[1].split(",")); sys.exit(0 if c >= 0.85 and o < 0.5 else 1)' "$ANSWER" || exit 0
+
+touch "$GUARD"
+cat >&2 <<'MSG'
+
+vibe-guard: this reply tells the user the work is done, and nothing ran after
+the last file was written.
+
+A file changed and no build, test, run or read came after it, so the reply is
+describing what the edit should do rather than what it did. Run the check that
+applies and report what it printed. If no check applies to this change, say so
+plainly and stop again.
+MSG
+exit 2

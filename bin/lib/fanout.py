@@ -52,11 +52,11 @@ CLAUDE_MODEL = os.environ.get("FANOUT_CLAUDE_MODEL", "sonnet")
 # large enough that the per-call system prompt is not most of the bill.
 CLAUDE_BATCH = 8
 CLAUDE_TIMEOUT_S = 180
-# One synthetic two-question call took 9.1 s cold on 2026-09-23; the people
-# eval saw 0.58 s warm. 30 s covers the cold case with room.
+# A cold call ran several seconds on 2026-09-23 (figures kept private under
+# TypeSafe's agreement 2.3(f)). 30 s covers the cold case with room.
 JEV_TIMEOUT_S = 30
-# 2026-09-23, 25 questions a call: two in flight gave 16 of 16, 0.2 to 8.7 s
-# each. One sequential call got an HTTP 520 after 17.5 s, hence the retries.
+# Two in flight held on 2026-09-23. One call got an HTTP 520, hence the
+# retries.
 # More workers were never measured cleanly (the first try hit the key race
 # fixed in jev.api_key).
 JEV_WORKERS = 2

@@ -30,8 +30,8 @@ import jev  # noqa: E402
 
 DATA = pathlib.Path(os.environ.get("LINKEDIN_UX_DIR", pathlib.Path.home() / "dev/gavin-context/research/linkedin-ux"))
 MAX_OPTIONS = 255  # the API's ceiling on choices
-# Act without asking only at or above this; from tests/eval_ground_jev.py on 2026-09-23,
-# where 0.7 acted on 28 of 30 and got all 28 right. Re-set it from this file's own runs.
+# Act without asking only at or above this; set from tests/eval_ground_jev.py on 2026-09-23
+# (results kept private under TypeSafe's agreement 2.3(f)). Re-set it from this file's own runs.
 ACT_FLOOR = 0.7
 
 

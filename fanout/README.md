@@ -59,7 +59,6 @@ things in that table are artifacts:
 
 - Claude's prices after the first run are prompt-cache reads, because the same
   prompts ran several times. On the real sample, run each arm once.
-- C's precision is set by the guessed thresholds. Jev also took 0.2 to 8.7 s per
-  25-question call, measured two at a time, so C was the slowest arm.
+- C's precision is set by the guessed thresholds, and C was the slowest arm.
 
 Built with Chewbacca

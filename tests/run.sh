@@ -926,6 +926,11 @@ if group "hud"; then
   check  "the terminal state folds and tails" python3 "$ROOT/tests/test_terminal_state.py"
   check  "the agent board folds every session and picks by Jev" python3 "$ROOT/tests/test_agent_board.py"
   check  "fanout runs the JevBacca kill test with injected judges" python3 "$ROOT/tests/test_fanout.py"
+  check  "site-fast types a field value or nothing" python3 "$ROOT/tests/test_site_fast.py"
+  check  "untrusted-screen flags text aimed at the agent, and only that" python3 "$ROOT/tests/test_screen.py"
+  check  "model-route maps Jev's class to the router's targets" python3 "$ROOT/tests/test_model_route.py"
+  check  "intro walks you, a person, an org, and nothing else" python3 "$ROOT/tests/test_intro.py"
+  check  "list-sift judges only what survives the facts" python3 "$ROOT/tests/test_list_sift.py"
   # The same file has a pytest-only path (the fixtures at its top) that no
   # runner ever exercised: none of the python3 interpreters on the dev Macs,
   # 3.12 through 3.14 and /usr/bin, has pytest, so a bare `python3 -m pytest`

@@ -18,8 +18,9 @@ Jev win is a win over the cheapest thing, not over nothing.
 The key was corrected once, after the first run on 2026-09-23, and only where
 the page itself proved the pick right: Booking has two support links, Wikipedia
 links Español directly, and Stripe's two "Contact sales" differed only by an
-invisible U+2060 (now stripped by `site snap`). That run scored 26/30 against
-the original key; the one real miss (the Hacker News comments link) stands.
+invisible U+2060 (now stripped by `site snap`). The one real miss (the Hacker
+News comments link) stands. Scores stay private: TypeSafe's customer agreement
+(2.3(f)) bars publishing Jev performance results.
 
 Fixtures are `site snap --json` of public pages, read 2026-09-23. Booking and
 Airbnb tailor their pages to where the reader is, so every control naming a
