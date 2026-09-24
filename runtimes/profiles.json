@@ -77,6 +77,24 @@
         "The existing chatgpt-tab bridge is separate from local agent setup."
       ],
       "sources": []
+    },
+    "perplexity-computer": {
+      "label": "Perplexity Computer",
+      "binary": null,
+      "instruction_file": "CHEWBACCA.md",
+      "skills_dir": null,
+      "config": null,
+      "adapter": "export",
+      "apps": ["browser", "desktop"],
+      "model_flag": null,
+      "model_discovery": "Choose the model in Perplexity; Chewbacca does not pick one.",
+      "notes": [
+        "Skills import as one zip per skill; each SKILL.md description must be 1024 characters or fewer.",
+        "Personal context stays on the Mac. Perplexity reads the private brain live through its computer connection; nothing personal is exported.",
+        "Claude hooks do not run inside Perplexity. Perplexity applies its own approval checks for sends, publishes and deletions.",
+        "Mac-control skills run through the Perplexity Mac connection instead of Claude's native tools."
+      ],
+      "sources": []
     }
   },
   "platforms": {

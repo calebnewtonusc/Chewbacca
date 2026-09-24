@@ -124,9 +124,11 @@ limit of this adapter, separate from the products' own Windows support.
 ```sh
 chewbacca agent export --runtime generic --destination ./agent-instructions
 chewbacca agent export --runtime chatgpt-web --destination ./browser-instructions
+chewbacca agent export --runtime perplexity-computer --destination ./perplexity
 ```
 
-Exports contain public guidance and preserve existing text. Configure the target
+Exports contain public guidance and preserve existing text. The Perplexity export
+also packages every skill as an upload-ready zip; see [Perplexity](PERPLEXITY.md). Configure the target
 host to load the export. Hooks and native skill/tool discovery remain unverified.
 
 Add runtime requirements and official sources in `runtimes/profiles.json`, then

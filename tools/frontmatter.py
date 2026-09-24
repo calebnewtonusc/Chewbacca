@@ -24,6 +24,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 REQUIRED = ("name", "description")
+MAX_DESCRIPTION = 1024
 
 
 def problems(path):
@@ -55,6 +56,10 @@ def problems(path):
         # An unbalanced quote swallows the rest of the block.
         if value[0] in "\"'" and not value.endswith(value[0]):
             out.append(f"{key.strip()}: opening quote is never closed")
+        # Claude Code, Codex and Perplexity all cap a skill description at
+        # 1024 characters. Past that the skill is rejected or cut off.
+        if key.strip() == "description" and len(value.strip("\"'")) > MAX_DESCRIPTION:
+            out.append(f"description is {len(value.strip(chr(34)+chr(39)))} chars; the limit is {MAX_DESCRIPTION}")
 
     for r in REQUIRED:
         if r not in seen:

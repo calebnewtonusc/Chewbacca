@@ -69,6 +69,7 @@ One command installs **57 slash commands, 107 skills (40 written here, 6 cloned 
 Then you stop typing commands entirely and just talk.
 
 Choose Claude Code, Codex, or both with `chewbacca setup --runtime NAME`.
+Perplexity Computer imports the same skills and reads the same brain; see [Perplexity](docs/PERPLEXITY.md).
 The adapters share one private brain and skill library, while preserving each
 host's hooks, model settings and permissions. Other apps can receive public
 instruction exports. [Runtime and platform setup](docs/RUNTIMES.md).
