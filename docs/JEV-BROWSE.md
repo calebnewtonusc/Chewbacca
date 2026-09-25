@@ -37,3 +37,14 @@ frames, shadow roots, uploads and pop-up tabs are outside jev-ultrafast's MVP.
 
 `JEV_ULTRAFAST_PIN` in `bin/jev-browse`. Read the upstream diff first: this
 drives a signed-in browser.
+
+## The bridge, for Perplexity Computer
+
+Perplexity Computer's commands on the Mac have no network, so it cannot run
+jev-browse, Jev or Clay directly. `bin/chewbacca-bridge` is a launchd service
+the person installs once (`chewbacca-bridge install`). It runs a fixed list of
+tools with validated arguments when a job file lands in
+`/tmp/chewbacca-bridge/in`, and writes the result to `/tmp/chewbacca-bridge/out`.
+It is not a shell: `chewbacca-bridge tools` lists everything it will run, and
+`--allow-commit` is refused from a job. Every job is logged to
+`~/.chewbacca/bridge.log`.

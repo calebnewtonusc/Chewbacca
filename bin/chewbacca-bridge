@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+"""chewbacca-bridge: a fixed set of Chewbacca tools, run on the Mac for an agent that cannot.
+
+Perplexity Computer reaches this Mac through its app, and commands it runs there
+have no network. Jev, Clay and jev-browse need the network. This is a small
+launchd service, started by the person, that runs a FIXED list of tools with
+validated arguments when a job file appears, and writes back the result.
+
+It is deliberately not a shell. There is no "run this command": every tool is
+named below with the only arguments it accepts. A browser press that sends,
+pays or deletes is still refused by jev-browse's floor, and --allow-commit is
+not accepted from a job at all: lifting the floor stays a thing the person does
+in their own Terminal.
+
+    chewbacca-bridge install      write and load the LaunchAgent (run once, in Terminal)
+    chewbacca-bridge uninstall    unload and remove it
+    chewbacca-bridge status       is it running, and the last jobs
+    chewbacca-bridge serve        the service loop (launchd runs this)
+    chewbacca-bridge call <tool> [args...]   submit a job, wait, print the result
+    chewbacca-bridge tools        what it will run
+
+Jobs:    /tmp/chewbacca-bridge/in/<id>.json   {"id", "tool", "args": [...]}
+Results: /tmp/chewbacca-bridge/out/<id>.json  {"id", "rc", "stdout", "stderr", "ms"}
+Log:     ~/.chewbacca/bridge.log, one line per job, arguments included, keys never.
+"""
+import json
+import os
+import pathlib
+import plistlib
+import re
+import shutil
+import subprocess
+import sys
+import time
+import uuid
+
+HERE = pathlib.Path(__file__).resolve().parent
+BASE = pathlib.Path(os.environ.get("CHEWBACCA_BRIDGE_DIR", "/tmp/chewbacca-bridge"))
+INBOX, OUTBOX = BASE / "in", BASE / "out"
+LOG = pathlib.Path.home() / ".chewbacca" / "bridge.log"
+LABEL = "com.chewbacca.bridge"
+PLIST = pathlib.Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
+POLL_S = 0.25
+MAX_OUT = 200_000
+PATH = f"{pathlib.Path.home()}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+
+
+class Refused(ValueError):
+    pass
+
+
+def _https(url: str) -> str:
+    if not re.fullmatch(r"https://[A-Za-z0-9.-]+(?::\d+)?(?:/[^\s]*)?", url or ""):
+        raise Refused("url must be https")
+    return url
+
+
+def _text(value: str, limit: int = 2000) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value) > limit or "\x00" in value:
+        raise Refused("text argument is empty or too long")
+    return value
+
+
+def jev_browse(args):
+    if args[:1] == ["doctor"]:
+        return [str(HERE / "jev-browse"), "doctor"], 120
+    if args[:1] != ["run"]:
+        raise Refused("jev-browse accepts: doctor | run --url --goal [--goal] [--max-seconds N] [--keep-open]")
+    argv, i, goals, url = [str(HERE / "jev-browse"), "run", "--json"], 1, 0, None
+    while i < len(args):
+        flag = args[i]
+        if flag == "--url":
+            url = _https(args[i + 1]); argv += [flag, url]; i += 2
+        elif flag == "--goal":
+            argv += [flag, _text(args[i + 1])]; goals += 1; i += 2
+        elif flag == "--max-seconds":
+            n = float(args[i + 1])
+            if not 1 <= n <= 600:
+                raise Refused("--max-seconds must be 1 to 600")
+            argv += [flag, str(n)]; i += 2
+        elif flag in ("--keep-open", "--json"):
+            argv += [flag] if flag == "--keep-open" else []; i += 1
+        elif flag == "--allow-commit":
+            raise Refused("--allow-commit is only for the person, in their own Terminal")
+        else:
+            raise Refused(f"jev-browse: {flag} is not accepted")
+    if not url or not goals:
+        raise Refused("jev-browse run needs --url and --goal")
+    return argv, 660
+
+
+def jev_ask(args):
+    """One TypeSafe call through bin/lib/jev.py with the Keychain key. args: [state_json, questions_json]."""
+    if len(args) != 2:
+        raise Refused("jev-ask takes a state JSON and a questions JSON")
+    state, questions = json.loads(_text(args[0], 60_000)), json.loads(_text(args[1], 60_000))
+    if not isinstance(questions, dict) or not questions:
+        raise Refused("questions must be a JSON object")
+    code = ("import json,sys; sys.path.insert(0,%r); import jev; "
+            "print(json.dumps(jev.ask(json.loads(sys.argv[1]), json.loads(sys.argv[2]), timeout=20)))") % str(HERE / "lib")
+    return [sys.executable, "-c", code, json.dumps(state), json.dumps(questions)], 40
+
+
+def perplexity_tab(args):
+    if args not in (["status", "--json"], ["last"]):
+        raise Refused("perplexity-tab accepts: status --json | last")
+    return [str(HERE / "perplexity-tab"), *args], 30
+
+
+def fixed(argv, timeout):
+    def build(args):
+        if args:
+            raise Refused("this tool takes no arguments")
+        return argv, timeout
+    return build
+
+
+TOOLS = {
+    "jev-browse": jev_browse,
+    "jev-ask": jev_ask,
+    "perplexity-tab": perplexity_tab,
+    "clay-balance": fixed([str(HERE / "clay-balance")], 30),
+    "browser-harness-doctor": fixed(["uv", "run", "--project", str(pathlib.Path.home() / ".chewbacca/jev-ultrafast"),
+                                     "-q", "browser-harness", "--doctor"], 60),
+    "ping": fixed(["/bin/echo", "pong"], 5),
+}
+
+
+def log(line: str) -> None:
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    with LOG.open("a") as f:
+        f.write(time.strftime("%Y-%m-%dT%H:%M:%S ") + line + "\n")
+
+
+def ensure_dirs() -> None:
+    for d in (BASE, INBOX, OUTBOX):
+        d.mkdir(parents=True, exist_ok=True)
+        os.chmod(d, 0o700)
+
+
+def run_job(path: pathlib.Path) -> None:
+    started = time.monotonic()
+    job_id = path.stem
+    result = {"id": job_id, "rc": 1, "stdout": "", "stderr": ""}
+    try:
+        st = path.stat()
+        if st.st_uid != os.getuid():
+            raise Refused("job file is not owned by this user")
+        job = json.loads(path.read_text())
+        tool, args = job.get("tool"), job.get("args") or []
+        if tool not in TOOLS or not isinstance(args, list) or not all(isinstance(a, str) for a in args):
+            raise Refused(f"unknown tool {tool!r}; see chewbacca-bridge tools")
+        argv, timeout = TOOLS[tool](args)
+        log(f"run {job_id} {tool} {json.dumps(args)[:500]}")
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
+                              env={**os.environ, "PATH": PATH}, stdin=subprocess.DEVNULL)
+        result.update(rc=proc.returncode, stdout=proc.stdout[-MAX_OUT:], stderr=proc.stderr[-20_000:])
+    except Refused as err:
+        result.update(rc=126, stderr=f"refused: {err}")
+        log(f"refused {job_id}: {err}")
+    except subprocess.TimeoutExpired:
+        result.update(rc=124, stderr="timed out")
+    except Exception as err:  # noqa: BLE001
+        result.update(rc=1, stderr=f"{type(err).__name__}: {err}"[:2000])
+    finally:
+        path.unlink(missing_ok=True)
+    result["ms"] = round((time.monotonic() - started) * 1000)
+    tmp = OUTBOX / f".{job_id}.tmp"
+    tmp.write_text(json.dumps(result))
+    os.chmod(tmp, 0o600)
+    tmp.rename(OUTBOX / f"{job_id}.json")
+    log(f"done {job_id} rc={result['rc']} {result['ms']}ms")
+
+
+def serve() -> int:
+    ensure_dirs()
+    log("serve: up")
+    while True:
+        for path in sorted(INBOX.glob("*.json")):
+            run_job(path)
+        for old in OUTBOX.glob("*.json"):
+            if time.time() - old.stat().st_mtime > 3600:
+                old.unlink(missing_ok=True)
+        time.sleep(POLL_S)
+
+
+def call(tool: str, args: list[str], timeout: float = 700.0) -> int:
+    ensure_dirs()
+    job_id = uuid.uuid4().hex[:12]
+    tmp = INBOX / f".{job_id}.tmp"
+    tmp.write_text(json.dumps({"id": job_id, "tool": tool, "args": args}))
+    os.chmod(tmp, 0o600)
+    tmp.rename(INBOX / f"{job_id}.json")
+    out = OUTBOX / f"{job_id}.json"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if out.exists():
+            result = json.loads(out.read_text())
+            out.unlink(missing_ok=True)
+            sys.stdout.write(result.get("stdout", ""))
+            if result.get("stderr"):
+                sys.stderr.write(result["stderr"] if result["stderr"].endswith("\n") else result["stderr"] + "\n")
+            return int(result.get("rc", 1))
+        time.sleep(0.2)
+    print("chewbacca-bridge: no answer; is the service running? chewbacca-bridge status", file=sys.stderr)
+    return 125
+
+
+def install() -> int:
+    PLIST.parent.mkdir(parents=True, exist_ok=True)
+    plist = {
+        "Label": LABEL,
+        "ProgramArguments": [shutil.which("python3") or "/usr/bin/python3", str(pathlib.Path(__file__).resolve()), "serve"],
+        "RunAtLoad": True, "KeepAlive": True,
+        "StandardErrorPath": str(LOG.with_suffix(".err")),
+        "EnvironmentVariables": {"PATH": PATH},
+    }
+    PLIST.write_bytes(plistlib.dumps(plist))
+    uid = os.getuid()
+    subprocess.run(["launchctl", "bootout", f"gui/{uid}/{LABEL}"], capture_output=True)
+    r = subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", str(PLIST)], capture_output=True, text=True)
+    if r.returncode:
+        print(r.stderr.strip(), file=sys.stderr)
+        return r.returncode
+    time.sleep(1.0)
+    rc = call("ping", [], timeout=10)
+    print("chewbacca-bridge: running" if rc == 0 else "chewbacca-bridge: loaded, but ping failed; see ~/.chewbacca/bridge.err")
+    return rc
+
+
+def uninstall() -> int:
+    subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{LABEL}"], capture_output=True)
+    PLIST.unlink(missing_ok=True)
+    print("chewbacca-bridge: removed")
+    return 0
+
+
+def status() -> int:
+    r = subprocess.run(["launchctl", "print", f"gui/{os.getuid()}/{LABEL}"], capture_output=True, text=True)
+    print("loaded" if r.returncode == 0 else "not loaded")
+    if LOG.exists():
+        print("".join(LOG.read_text().splitlines(keepends=True)[-10:]), end="")
+    return 0 if r.returncode == 0 else 1
+
+
+def main(argv: list[str]) -> int:
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__)
+        return 0
+    cmd, rest = argv[0], argv[1:]
+    if cmd == "serve":
+        return serve()
+    if cmd == "call" and rest:
+        return call(rest[0], rest[1:])
+    if cmd == "tools":
+        print("\n".join(sorted(TOOLS)))
+        return 0
+    return {"install": install, "uninstall": uninstall, "status": status}.get(cmd, lambda: (print(__doc__), 2)[1])()
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
