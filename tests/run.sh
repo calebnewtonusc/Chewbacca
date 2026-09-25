@@ -568,12 +568,17 @@ if group "installer"; then
   check  "every relative link in the docs resolves" \
     python3 "$ROOT/tools/linkcheck.py"
 
-  check  "the backlog lists open work" bash -c '
+  # The real BACKLOG.md lives in the team's private repo, so these read a
+  # fixture: on CI, where that repo is absent, they failed from 2026-09-21 to
+  # 2026-09-25 while passing on every Mac that had CHEWBACCA_PRIVATE set.
+  mkdir -p "$TMP/backlog"
+  printf '## Now\n\n| # | Item | Status |\n|---|---|---|\n| 1 | Ship it | open |\n\n## Dead\n\n| Item | Reason |\n|---|---|\n| An old idea | superseded |\n' > "$TMP/backlog/BACKLOG.md"
+  check  "the backlog lists open work" env CHEWBACCA_PRIVATE="$TMP/backlog" bash -c '
     out=$("$1/bin/backlog" 2>/dev/null)
     case "$out" in *"open now"*) : ;;
       *) echo "backlog printed nothing"; exit 1 ;; esac' _ "$ROOT"
 
-  check  "the backlog keeps dead items and their reason" bash -c '
+  check  "the backlog keeps dead items and their reason" env CHEWBACCA_PRIVATE="$TMP/backlog" bash -c '
     "$1/bin/backlog" dead 2>/dev/null | grep -q . || {
       echo "dead items vanished, so somebody will propose them again"; exit 1; }' _ "$ROOT"
 

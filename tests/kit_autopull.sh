@@ -18,6 +18,10 @@ FAILED=0
 fail() { echo "FAIL: $*"; FAILED=1; }
 
 git init -q --bare "$TMP/origin.git"
+# The bare repo's HEAD names git's default branch, which is master on CI's
+# git and main on this Mac. Cloned with HEAD on a branch that does not exist,
+# the clone has no checkout and every step below fails (CI, 2026-09-21 on).
+git -C "$TMP/origin.git" symbolic-ref HEAD refs/heads/main
 git clone -q "$TMP/origin.git" "$TMP/work" 2>/dev/null
 git -C "$TMP/work" config user.email t@t; git -C "$TMP/work" config user.name t
 echo one > "$TMP/work/a.txt"
