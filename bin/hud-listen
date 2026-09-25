@@ -195,6 +195,11 @@ SUPERASSISTANT = Path(__file__).resolve().parent / "superassistant"
 # measured on 2026-09-20) to reach `hud-music` now reaches it in the time
 # one search and one AppleScript take.
 MUSIC = Path(__file__).resolve().parent / "hud-music"
+# Perplexity Computer in a Chrome tab. See bin/perplexity-tab.
+PERPLEXITY = Path(__file__).resolve().parent / "perplexity-tab"
+# A Computer turn can run for many minutes. Past this the voice stops
+# listening for the answer and says where to find it. Guessed.
+PERPLEXITY_WAIT_S = float(os.environ.get("HUD_PERPLEXITY_WAIT_S", "1800"))
 _superassistant: object = None
 
 
@@ -2692,6 +2697,9 @@ class Listener:
         board = agent_board.load()
         board.pop(self.session, None)
         line = agent_board.summary(board)
+        pline = perplexity_status()
+        if pline:
+            line = line.rstrip(".") + ". " + pline if board else pline
         self.log("agents:", line)
         self.send("s " + json.dumps(line))
         self.speak(line)
@@ -2851,6 +2859,8 @@ class Listener:
             outcome = "done" if opened else "failed"
             self.record(req, decision, None, outcome)
             return outcome
+        if decision.dest == "perplexity":
+            return self.to_perplexity(req, decision)
         if decision.dest == "terminal" and not req.tty and not self.choose_agent(req):
             self.record(req, decision, None, "done")
             return "done"
@@ -2918,6 +2928,59 @@ class Listener:
                 self.send("s " + json.dumps("draft in terminal, say send"))
             self.maybe_summarize()
         return "done" if ok else "failed"
+
+    def to_perplexity(self, req: Request, decision: "route.Decision") -> str:
+        """Hand the sentence to Perplexity Computer and read the answer back.
+
+        The send is synchronous and short, so a failure is heard at once. The
+        wait is a thread: a Computer turn can take minutes, and the voice must
+        stay free for the next sentence meanwhile. A continuation ("and also")
+        stays in the session last used; anything else opens a fresh one.
+        """
+        prompt = route.perplexity_prompt(req.said)
+        fresh = not decision.reason.startswith("continuation")
+        argv = [str(PERPLEXITY), "new" if fresh else "send", "--json", "--stdin"]
+        try:
+            result = subprocess.run(argv, input=prompt, capture_output=True, text=True, timeout=90)
+            sent = json.loads(result.stdout.strip().splitlines()[-1]) if result.stdout.strip() else {}
+        except (OSError, subprocess.TimeoutExpired, ValueError) as err:
+            self.log("perplexity send failed:", err)
+            sent = {}
+        if not sent.get("sent"):
+            why = (sent.get("error") or "couldn't reach the Perplexity tab in Chrome").rstrip(".")
+            self.send("s " + json.dumps("Perplexity: " + why))
+            self.speak("I couldn't send that to Perplexity.")
+            self.record(req, decision, None, "failed")
+            return "failed"
+        self.send("s " + json.dumps("to Perplexity"))
+        self.record(req, decision, None, "done")
+
+        def work() -> None:
+            try:
+                done = subprocess.run(
+                    [str(PERPLEXITY), "wait", "--json", "--timeout", str(PERPLEXITY_WAIT_S)]
+                    + (["--session", sent["session"]] if sent.get("session") else [])
+                    + (["--after", str(sent["before"])] if isinstance(sent.get("before"), int) else []),
+                    capture_output=True, text=True, timeout=PERPLEXITY_WAIT_S + 60,
+                )
+                got = json.loads(done.stdout.strip().splitlines()[-1]) if done.stdout.strip() else {}
+            except (OSError, subprocess.TimeoutExpired, ValueError) as err:
+                self.log("perplexity wait failed:", err)
+                got = {}
+            if got.get("state") == "done" and got.get("text"):
+                answer = got["text"]
+                self.send("w " + json.dumps(answer) + " done=true")
+                line = subtitle(prose(answer)) or "Perplexity is done."
+                self.send("s " + json.dumps("Perplexity: " + line))
+                self.speak("Perplexity says: " + line)
+            elif got.get("state") == "waiting":
+                self.send("s " + json.dumps("Perplexity is waiting on you"))
+                self.speak("Perplexity is waiting on you in Chrome.")
+            else:
+                self.send("s " + json.dumps("Perplexity is still going, check the tab"))
+
+        threading.Thread(target=work, daemon=True).start()
+        return "done"
 
     def prompt_for(self, req: Request, seen: str) -> str:
         """The prompt, with what a stopped run left on the glass in front.
@@ -3301,6 +3364,21 @@ class Listener:
         if self.first_level_at is not None or not voiced:
             self.report_turn()
         return ok, run.text, run.said, run.first_text, run.answer(), voiced
+
+
+def perplexity_status() -> str:
+    """One spoken line for the Perplexity tab, or "" when there is none."""
+    try:
+        r = subprocess.run([str(PERPLEXITY), "status", "--json", "--timeout", "5"],
+                           capture_output=True, text=True, timeout=10)
+        state = json.loads(r.stdout.strip() or "{}")
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return ""
+    if state.get("state") == "busy":
+        return "Perplexity is working" + (f" on {state['title']}" if state.get("title") else "") + "."
+    if state.get("state") == "idle" and state.get("session_url"):
+        return "Perplexity is idle" + (f", last on {state['title']}" if state.get("title") else "") + "."
+    return ""
 
 
 def claim_socket(path: str) -> tuple[int | None, str]:

@@ -1040,6 +1040,7 @@ if group "reasoning backends"; then
   check "the installer ships everything it registers" bash "$ROOT/tests/setup_ships_what_it_registers.sh"
   check "shared agent instructions are current" python3 "$ROOT/tools/agents_md.py" --check
   check "ChatGPT turn boundaries" python3 "$ROOT/tests/test_chatgpt_tab.py"
+  check "Perplexity turn boundaries and voice routing" python3 "$ROOT/tests/test_perplexity_tab.py"
   check "gateway protocol and execution" python3 "$ROOT/tests/test_chatgpt_gateway.py"
   check "provider selection and ownership" python3 "$ROOT/tests/test_mac_use_providers.py"
   check "Codex shared instructions and optional health" python3 "$ROOT/tests/test_codex.py"

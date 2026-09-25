@@ -502,7 +502,7 @@ link_tool() {
 
 install_backend_launchers() {
   local backend_tool
-  for backend_tool in chatgpt-tab chatgpt-gateway mac-use chrome-js; do
+  for backend_tool in chatgpt-tab chatgpt-gateway perplexity-tab mac-use chrome-js; do
     link_tool "$backend_tool"
   done
   log "Chewbacca backend launchers refreshed in ~/.local/bin"
