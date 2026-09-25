@@ -7,7 +7,7 @@ requires: [chewbacca]
 
 # jev-browse
 
-`jev-browse` wraps [browser-use/jev-ultrafast](https://github.com/browser-use/jev-ultrafast). Each step reads the page into a numbered table of controls. One TypeSafe request picks the operation (click, type, select, scroll, wait, done, blocked) and its target, all in the same round trip. A small LLM writes text only when a field needs typing. There are no screenshots and no generated selectors.
+`jev-browse` wraps [browser-use/jev-ultrafast](https://github.com/browser-use/jev-ultrafast). Each step reads the page into a numbered table of controls. One TypeSafe request picks the operation (click, type, select, scroll, wait, done, blocked) and its target, all in the same round trip. Text for a field comes from the goal: put it in quotes. One quoted string is typed as written with no model call; with several, Jev picks which one goes in which field. There is no text model, no screenshots and no generated selectors.
 
 ## When
 
@@ -25,7 +25,7 @@ requires: [chewbacca]
 ```
 jev-browse doctor
 jev-browse run --url "https://app.clay.com/workspaces/<id>/home" \
-  --goal "Open the table named Series A founders and sort it by funding date" --json
+  --goal 'Search people for "VP of Sales" in "Boston", stop when results show' --json
 ```
 
 The `--json` result has a `status`:
@@ -34,7 +34,7 @@ The `--json` result has a `status`:
 - `yours_to_press`: the run reached a control that sends, submits, pays, deletes, signs in, runs or enriches, and left it alone. `control` names it. Tell the person where it is and ask.
 - `blocked`, `timeout`, `failed`: say which, in one line. Then try `chrome-js` or read the window with `chewie see`.
 
-Each `--goal` should be one sentence, one outcome, and name its own stopping point: "Stop when the filtered rows are visible". Repeat `--goal` for an ordered list.
+Each `--goal` should be one sentence, one outcome, and name its own stopping point: "Stop when the filtered rows are visible". Every piece of text to type goes in quotes; a typing step with no quoted text stops with `failed` instead of guessing. Repeat `--goal` for an ordered list.
 
 ## The floor
 
@@ -42,10 +42,7 @@ The wrapper, not the goal text, refuses any click whose label reads like send, s
 
 ## Setup
 
-`jev-browse install` clones jev-ultrafast at a pinned commit into `~/.chewbacca/jev-ultrafast` and runs `uv sync`. Chrome connects over Browser Harness, so allow remote debugging when Chrome asks. The runner reads keys from the environment or the login Keychain:
-
-- `TYPESAFE_API_KEY`: the same key `bin/lib/jev.py` uses.
-- `TEXT_MODEL_API_KEY`, else `OPENROUTER_API_KEY`: the small model that writes field text. The default is `inception/mercury-2.5` on OpenRouter.
+`jev-browse install` clones jev-ultrafast at a pinned commit into `~/.chewbacca/jev-ultrafast` and runs `uv sync`. Chrome connects over Browser Harness, so allow remote debugging when Chrome asks. It needs one key, `TYPESAFE_API_KEY`, the same one `bin/lib/jev.py` reads from the environment or the login Keychain.
 
 Owned tabs open in the background of the Chrome profile Browser Harness attaches to. For client work, that should be the profile signed in to the client's account.
 

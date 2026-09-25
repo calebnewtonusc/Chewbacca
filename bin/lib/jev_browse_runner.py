@@ -25,6 +25,57 @@ COMMIT = re.compile(
 )
 
 
+QUOTED = re.compile(r'"([^"\n]{1,500})"|\u201c([^\u201d\n]{1,500})\u201d')
+
+
+def quoted(goal: str) -> list[str]:
+    """Every literal string in the goal, in order, deduplicated."""
+    out = []
+    for a, b in QUOTED.findall(goal or ""):
+        value = a or b
+        if value not in out:
+            out.append(value)
+    return out
+
+
+def jev_pick_value(context, candidates, post_json, validate_choice, api_key):
+    """Which quoted string goes in this field: a choice, so Jev answers it. No text model."""
+    ids = [str(i) for i in range(len(candidates))]
+    body = {
+        "model": "jev-latest",
+        "state": {"field": context.get("field"), "page": {"title": (context.get("page") or {}).get("title", "")},
+                  "recent_actions": context.get("recent_actions", [])},
+        "questions": {"value": {
+            "type": "choice",
+            "criteria": {i: {"text": c} for i, c in zip(ids, candidates)},
+            "instructions": {"goal": context.get("goal", ""),
+                             "rule": "Pick the quoted value the goal means for THIS field, by its label."},
+        }},
+    }
+    started = time.perf_counter()
+    result = post_json("https://api.typesafe.ai/v1/systemone", api_key, body)
+    answer = validate_choice(result["answers"].get("value", {}), ids)
+    return candidates[int(answer["choice"])], {
+        "model": "jev-pick-from-goal", "latency_ms": round((time.perf_counter() - started) * 1000),
+        "confidence": answer["confidence"], "usage": result.get("usage", {}),
+    }
+
+
+def field_value(context, pick):
+    """The text for a field comes from the goal, never from a generator.
+
+    One quoted string: typed as written, zero calls. Several: Jev picks which
+    one belongs in this field. None: stop and say so, because the agent that
+    wrote the goal already knows the text and should have quoted it.
+    """
+    candidates = quoted(context.get("goal", ""))
+    if not candidates:
+        raise ValueError('This step types into a field; put the exact text in quotes in the goal, e.g. search for "Series A".')
+    if len(candidates) == 1:
+        return candidates[0], {"model": "literal-from-goal", "latency_ms": 0, "usage": {}}
+    return pick(context, candidates)
+
+
 class YoursToPress(Exception):
     def __init__(self, label):
         super().__init__(label)
@@ -52,6 +103,15 @@ def main() -> int:
             return original(self, action, page, text)
 
         jb.Browser.act = guarded
+
+    import os
+    from jev_ultrafast import agent as ja
+    from jev_ultrafast import model as jm
+
+    def pick(context, candidates):
+        return jev_pick_value(context, candidates, jm.post_json, jm.validate_choice, os.environ["TYPESAFE_API_KEY"])
+
+    ja.field_text = lambda context: field_value(context, pick)
 
     started = time.perf_counter()
     deadline = started + float(request.get("max_seconds") or 180)

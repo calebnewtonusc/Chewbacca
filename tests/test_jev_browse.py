@@ -53,6 +53,38 @@ class FloorTests(unittest.TestCase):
         self.assertFalse(runner.committing({"kind": "type", "label": "Send a message"}))
 
 
+class FieldValueTests(unittest.TestCase):
+    def test_one_quote_is_typed_as_written_with_no_call(self):
+        called = []
+        v, meta = runner.field_value({"goal": 'search for "Series A founders"'}, lambda c, x: called.append(x))
+        self.assertEqual(v, "Series A founders")
+        self.assertEqual(meta["model"], "literal-from-goal")
+        self.assertEqual(called, [])
+
+    def test_several_quotes_go_to_jev(self):
+        v, _ = runner.field_value({"goal": 'title "VP Sales" in "Boston"'}, lambda c, x: (x[1], {}))
+        self.assertEqual(v, "Boston")
+
+    def test_curly_quotes_count(self):
+        self.assertEqual(runner.quoted("type \u201cAcme\u201d"), ["Acme"])
+
+    def test_no_quote_stops_instead_of_guessing(self):
+        with self.assertRaises(ValueError):
+            runner.field_value({"goal": "search for series a"}, lambda c, x: ("x", {}))
+
+    def test_jev_pick_builds_a_choice(self):
+        seen = {}
+
+        def post(url, key, body):
+            seen.update(body)
+            return {"answers": {"value": {"choice": "1", "confidence": 1.0, "probabilities": {"0": 0.0, "1": 1.0}}}}
+
+        v, meta = runner.jev_pick_value({"goal": "g", "field": {"label": "Location"}}, ["Series A", "Boston"],
+                                        post, lambda a, ids: a, "k")
+        self.assertEqual(v, "Boston")
+        self.assertEqual(seen["questions"]["value"]["type"], "choice")
+
+
 class RunnerTests(unittest.TestCase):
     def run_fake(self, actions, allow=False):
         with tempfile.TemporaryDirectory() as tmp:
@@ -60,7 +92,9 @@ class RunnerTests(unittest.TestCase):
             pkg.mkdir()
             (pkg / "__init__.py").write_text("from .browser import Agent\n")
             (pkg / "browser.py").write_text(FAKE)
-            env = {**os.environ, "PYTHONPATH": tmp, "FAKE_ACTIONS": json.dumps(actions)}
+            (pkg / "agent.py").write_text("field_text = None\n")
+            (pkg / "model.py").write_text("post_json = None\nvalidate_choice = None\n")
+            env = {**os.environ, "PYTHONPATH": tmp, "TYPESAFE_API_KEY": "k", "FAKE_ACTIONS": json.dumps(actions)}
             req = json.dumps({"url": "https://example.com", "goals": ["g"], "allow_commit": allow})
             proc = subprocess.run([sys.executable, str(RUNNER)], input=req, capture_output=True, text=True, env=env)
             return json.loads(proc.stdout.strip().splitlines()[-1])

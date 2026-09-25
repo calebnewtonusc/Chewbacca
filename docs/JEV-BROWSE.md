@@ -17,9 +17,13 @@ jev-browse run --url https://en.wikipedia.org/wiki/Main_Page \
   pay, buy, book, delete, archive, sign in, apply, invite, share, merge,
   deploy, run or enrich is not executed. The run stops with `yours_to_press`
   and names the control. `--allow-commit` lifts it for one run, after a yes.
-- **Keys from the Keychain.** `TYPESAFE_API_KEY` is the same entry
-  `bin/lib/jev.py` reads. The text model key is `TEXT_MODEL_API_KEY`, else
-  `OPENROUTER_API_KEY`. Nothing goes in argv, the goal or the log.
+- **No text model.** Upstream calls a small LLM to write field text. Here the
+  text comes from the goal: one quoted string is typed as written, and with
+  several, one more Jev choice picks which quote belongs in the field (a
+  Location field gets "Boston", not "Series A"). No quotes, no typing: it
+  stops rather than invent a value.
+- **One key.** `TYPESAFE_API_KEY`, the same Keychain entry `bin/lib/jev.py`
+  reads. Nothing goes in argv, the goal or the log.
 - **One JSON result** for agents: status, final URL and title, the actions
   taken, the Jev decision count and the elapsed time. A `done` carries a
   `verify` note, because DONE is Jev's claim and not proof.

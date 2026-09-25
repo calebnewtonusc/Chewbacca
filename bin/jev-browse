@@ -3,8 +3,9 @@
 #
 # Wraps browser-use/jev-ultrafast: every step reads the page into an indexed
 # table of controls, one TypeSafe request picks the operation and its target,
-# and a small LLM writes text only when a field needs typing. No screenshots,
-# no generated selectors. Seconds, not minutes, for a narrow goal.
+# and text for a field comes from the goal itself: put it in quotes. One quote
+# is typed as written; with several, Jev picks which one goes in which field.
+# No text model, no screenshots, no generated selectors.
 #
 #   jev-browse install                     clone the pinned jev-ultrafast, uv sync
 #   jev-browse doctor                      checkout, uv, keys, Chrome connection
@@ -16,9 +17,8 @@
 # `yours_to_press` and names the control, because in this kit that press is
 # the person's. --allow-commit lifts it for one run, only when they said so.
 #
-# Keys never go in the goal, the log or argv. TYPESAFE_API_KEY and
-# TEXT_MODEL_API_KEY come from the environment, else the login Keychain
-# (services TYPESAFE_API_KEY, TEXT_MODEL_API_KEY, then OPENROUTER_API_KEY).
+# One key: TYPESAFE_API_KEY, from the environment, else the login Keychain.
+# It never goes in the goal, the log or argv.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$0")")" && pwd)"
@@ -35,13 +35,8 @@ keychain() { security find-generic-password -s "$1" -w 2>/dev/null || true; }
 
 load_keys() {
   if [ -z "${TYPESAFE_API_KEY:-}" ]; then TYPESAFE_API_KEY="$(keychain TYPESAFE_API_KEY)"; fi
-  if [ -z "${TEXT_MODEL_API_KEY:-}" ]; then TEXT_MODEL_API_KEY="$(keychain TEXT_MODEL_API_KEY)"; fi
-  if [ -z "${TEXT_MODEL_API_KEY:-}" ]; then TEXT_MODEL_API_KEY="$(keychain OPENROUTER_API_KEY)"; fi
-  export TYPESAFE_API_KEY TEXT_MODEL_API_KEY
+  export TYPESAFE_API_KEY
   export TYPESAFE_MODEL="${TYPESAFE_MODEL:-jev-latest}"
-  export TEXT_MODEL_BASE_URL="${TEXT_MODEL_BASE_URL:-https://openrouter.ai/api/v1}"
-  export TEXT_MODEL="${TEXT_MODEL:-inception/mercury-2.5}"
-  export TEXT_MODEL_REASONING="${TEXT_MODEL_REASONING:-none}"
 }
 
 cmd_install() {
@@ -65,8 +60,6 @@ cmd_doctor() {
   load_keys
   [ -n "$TYPESAFE_API_KEY" ] && echo "ok    TypeSafe key" \
     || { echo "MISS  TypeSafe key: security add-generic-password -s TYPESAFE_API_KEY -a \"\$USER\" -w"; ok=1; }
-  [ -n "$TEXT_MODEL_API_KEY" ] && echo "ok    text model key ($TEXT_MODEL)" \
-    || { echo "MISS  text model key: security add-generic-password -s TEXT_MODEL_API_KEY -a \"\$USER\" -w  (an OpenRouter key)"; ok=1; }
   if [ -d "$DIR/jev_ultrafast" ]; then
     (cd "$DIR" && uv run -q browser-harness --doctor) && echo "ok    Chrome over Browser Harness" \
       || { echo "MISS  Chrome connection: allow remote debugging in Chrome when it asks"; ok=1; }
