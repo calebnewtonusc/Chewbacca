@@ -101,6 +101,18 @@ def jev_ask(args):
     return [sys.executable, "-c", code, json.dumps(state), json.dumps(questions)], 40
 
 
+def page_read(args):
+    """Read-only: the page's text, links and control labels, in a background tab."""
+    if not 1 <= len(args) <= 2:
+        raise Refused("page-read takes <https-url> [wait_seconds]")
+    url = _https(args[0])
+    wait = float(args[1]) if len(args) == 2 else 3.0
+    if not 0.5 <= wait <= 20:
+        raise Refused("wait_seconds must be 0.5 to 20")
+    jev = pathlib.Path.home() / ".chewbacca/jev-ultrafast"
+    return ["uv", "run", "--project", str(jev), "-q", "python", str(HERE / "lib/page_read.py"), url, str(wait)], 60
+
+
 def perplexity_tab(args):
     if args not in (["status", "--json"], ["last"]):
         raise Refused("perplexity-tab accepts: status --json | last")
@@ -118,6 +130,7 @@ def fixed(argv, timeout):
 TOOLS = {
     "jev-browse": jev_browse,
     "jev-ask": jev_ask,
+    "page-read": page_read,
     "perplexity-tab": perplexity_tab,
     "clay-balance": fixed([str(HERE / "clay-balance")], 30),
     "browser-harness-doctor": fixed(["uv", "run", "--project", str(pathlib.Path.home() / ".chewbacca/jev-ultrafast"),

@@ -70,6 +70,12 @@ class BridgeTests(unittest.TestCase):
             stop.set()
         self.assertIn("refused", self.b.LOG.read_text())
 
+    def test_page_read_is_https_only(self):
+        with self.assertRaises(self.b.Refused):
+            self.b.page_read(["javascript:alert(1)"])
+        argv, _ = self.b.page_read(["https://app.clay.com/x", "4"])
+        self.assertEqual(argv[-2:], ["https://app.clay.com/x", "4.0"])
+
     def test_tools_listing(self):
         out = subprocess.run([sys.executable, str(TOOL), "tools"], capture_output=True, text=True).stdout
         self.assertIn("jev-browse", out)
