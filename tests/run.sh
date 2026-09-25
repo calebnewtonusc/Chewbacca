@@ -1036,6 +1036,7 @@ if group "reasoning backends"; then
   check "circle detector accepts circles, not triangles" bash "$ROOT/tests/circle_shapes.sh"
   check "no drawn line is ever jagged" bash "$ROOT/tests/path_smoothness.sh"
   check "portals open and close" bash "$ROOT/tests/portal_state.sh"
+  check "page-render draws the same pixels every run" bash "$ROOT/tests/page_render.sh"
   check "the drawn extent never walks backwards" bash "$ROOT/tests/sweep_monotonic.sh"
   check "the vibe guard refuses claims with no evidence" bash "$ROOT/tests/vibe_guard.sh"
   check "stage 8 is enforced: a first-name collision is refused" bash "$ROOT/tests/fusion_guard.sh"

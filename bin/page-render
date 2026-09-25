@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+"""Render a live, animated web page to video on a virtual clock.
+
+  page-render URL out.mp4 [--size 1920x1080] [--duration 14] [--fps 60]
+              [--sub 4] [--setup JS] [--clip SELECTOR] [--local-storage k=v]
+  page-render URL sheet.png --preview 1      one frame per second, tiled
+
+Screen recording drops frames and records whatever the machine was doing. This
+never does: the page's clock is Playwright's fake one, paused, and advanced by
+exactly one subframe between screenshots, so a 60fps render of a WebGL scene
+comes out at 60fps on a laptop that could only draw it at 20.
+
+Three clocks have to be held, not one:
+  - timers, Date and performance.now: Playwright's page.clock.
+  - requestAnimationFrame: replaced with a queue flushed once per subframe.
+    The fake clock fires rAF on a 16 ms grid, so without this every subframe
+    inside one grid step is identical and the motion blur below is a no-op.
+  - CSS transitions and animations: they run on the compositor's real clock,
+    not on any JS clock. Each one is paused and its currentTime set from the
+    virtual time on every subframe.
+
+Motion blur is the @twoclipping method (research/motion-template in the brain):
+--sub screenshots per output frame, averaged by ffmpeg tmix.
+"""
+
+import argparse
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+from playwright.sync_api import sync_playwright
+
+# Any fixed instant works; this is 2026-01-01T00:00:00Z.
+EPOCH_MS = 1767225600000
+
+# Added as an init script after the fake clock's, so it runs before any page
+# script and wins: no callback ever reaches the fake clock's own rAF, which
+# fires on a 16 ms grid whose phase moved between identical runs and made the
+# first frame land 3 ms apart (tests/page_render.sh, 1 run in 3).
+DRIVE = """
+(() => {
+  let queue = [], id = 0;
+  window.requestAnimationFrame = (cb) => { queue.push([++id, cb]); return id; };
+  window.cancelAnimationFrame = (n) => { queue = queue.filter(([k]) => k !== n); };
+  // An animation's own currentTime counts compositor time, which kept running
+  // through load; reading it made two renders disagree. It starts at the
+  // virtual instant it is first seen instead.
+  window.__pageRenderStep = () => {
+    const now = performance.now();
+    const run = queue; queue = [];
+    for (const [, cb] of run) { try { cb(now); } catch (e) { console.error(e); } }
+    for (const a of document.getAnimations()) {
+      if (a.__t0 === undefined) { a.__t0 = now; a.pause(); }
+      a.currentTime = now - a.__t0;
+    }
+  };
+})();
+"""
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("url")
+    ap.add_argument("out")
+    ap.add_argument("--size", default="1920x1080")
+    ap.add_argument("--scale", type=float, default=1, help="device pixel ratio")
+    ap.add_argument("--duration", type=float, default=10, help="seconds of page time")
+    ap.add_argument("--fps", type=int, default=60)
+    ap.add_argument("--sub", type=int, default=4, help="subframes per frame, blended for motion blur")
+    ap.add_argument("--setup", default="", help="JS run once after load, before the clock starts")
+    ap.add_argument("--settle", type=float, default=2, help="real seconds to let imports and fonts land after setup")
+    ap.add_argument("--clip", default="", help="CSS selector to crop to")
+    ap.add_argument("--local-storage", action="append", default=[], metavar="K=V")
+    ap.add_argument("--preview", type=float, default=0, help="seconds between frames; writes a tiled sheet instead of video")
+    a = ap.parse_args()
+
+    if not a.preview and not shutil.which("ffmpeg"):
+        print("page-render: ffmpeg not found (brew install ffmpeg)", file=sys.stderr)
+        return 2
+    w, h = (int(x) for x in a.size.lower().split("x"))
+    storage = dict(kv.split("=", 1) for kv in a.local_storage)
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(args=["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"])
+        ctx = browser.new_context(viewport={"width": w, "height": h}, device_scale_factor=a.scale)
+        if storage:
+            items = ";".join(f"localStorage.setItem({k!r},{v!r})" for k, v in storage.items())
+            ctx.add_init_script(f"try{{{items}}}catch(e){{}}")
+        page = ctx.new_page()
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        # Paused before the page exists, at a fixed date, so page time starts
+        # at the same instant however long the load takes. Pausing after load
+        # let real load time leak into performance.now and into every timer
+        # set during load: two renders of one page came out different
+        # (tests/page_render.sh caught it on the first run).
+        # install() starts the clock flowing; installing a minute early makes
+        # pause_at a jump forward to one exact instant instead of wherever the
+        # real milliseconds between the two calls left it.
+        page.clock.install(time=EPOCH_MS - 60_000)
+        page.clock.pause_at(EPOCH_MS)
+        page.add_init_script(DRIVE)
+        page.goto(a.url, wait_until="networkidle")
+        if a.setup:
+            page.evaluate(f"async () => {{ {a.setup} }}")
+        page.wait_for_timeout(a.settle * 1000)
+
+        clip = None
+        if a.clip:
+            box = page.locator(a.clip).first.bounding_box()
+            if not box:
+                print(f"page-render: {a.clip} has no box", file=sys.stderr)
+                return 1
+            clip = {k: box[k] for k in ("x", "y", "width", "height")}
+
+        # The fake clock ticks in whole milliseconds, so keep page time as a
+        # float and advance by the rounded difference: 240 subframes a second
+        # land as 4, 4, 4, 5 ms steps and never drift.
+        virtual = {"at": 0.0, "ms": 0}
+
+        def shot(step_ms: float) -> bytes:
+            virtual["at"] += step_ms
+            advance = round(virtual["at"]) - virtual["ms"]
+            if advance > 0:
+                page.clock.run_for(advance)
+                virtual["ms"] += advance
+            page.evaluate("window.__pageRenderStep()")
+            return page.screenshot(clip=clip, type="png", scale="device")
+
+        if a.preview:
+            tmp = Path(tempfile.mkdtemp(prefix="page-render-"))
+            n = int(a.duration / a.preview) + 1
+            frame_ms = 1000 / a.fps
+            per = round(a.preview * 1000 / frame_ms)
+            for i in range(n):
+                for k in range(per if i else 1):
+                    png = shot(frame_ms if i else 0)
+                (tmp / f"{i:04d}.png").write_bytes(png)
+            cols = min(n, 4)
+            rows = -(-n // cols)
+            subprocess.run(
+                ["ffmpeg", "-loglevel", "error", "-y", "-i", str(tmp / "%04d.png"),
+                 "-vf", f"scale=iw/2:-1,tile={cols}x{rows}:padding=8:color=white", "-frames:v", "1", a.out],
+                check=True,
+            )
+            print(f"page-render: {n} frames, one per {a.preview}s -> {a.out} (frames in {tmp})")
+        else:
+            rate = a.fps * a.sub
+            blur = f"tmix=frames={a.sub}," if a.sub > 1 else ""
+            ff = subprocess.Popen(
+                ["ffmpeg", "-loglevel", "error", "-y", "-f", "image2pipe", "-framerate", str(rate), "-i", "-",
+                 "-vf", f"{blur}select='not(mod(n\\,{a.sub}))',setpts=N/{a.fps}/TB,scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                 "-r", str(a.fps), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "16",
+                 "-movflags", "+faststart", a.out],
+                stdin=subprocess.PIPE,
+            )
+            total = int(a.duration * rate)
+            step = 1000 / rate
+            for i in range(total):
+                ff.stdin.write(shot(step))
+                if i % rate == 0:
+                    print(f"\rpage-render: {i // rate}/{int(a.duration)} s", end="", file=sys.stderr, flush=True)
+            ff.stdin.close()
+            if ff.wait():
+                return 1
+            print(f"\rpage-render: {a.duration}s at {a.fps}fps x{a.sub} -> {a.out}", file=sys.stderr)
+        for e in errors:
+            print(f"page-render: page error: {e}", file=sys.stderr)
+        browser.close()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

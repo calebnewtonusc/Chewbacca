@@ -41,7 +41,7 @@ outside them, go watch two more and add what you learn.
 
 ### The rules, from practitioners who have made hundreds
 
-**One to three features. Never more.** Stated as *the* biggest mistake people
+**One to three features. Never more.** Stated as _the_ biggest mistake people
 make: "include way too many features... otherwise people will just switch off."
 This is the rule most likely to be overridden by the person asking, who will
 say "show everything". Showing everything is the failure mode with a name.
@@ -207,6 +207,29 @@ macOS on Apple Silicon. `cap` on PATH with Screen Recording granted, `node`,
 `playwright-core`. **The product must be running and reachable at the plan's
 url**, which is usually a local dev server you start first.
 
+## Web scenes that animate themselves: render, do not record
+
+When the thing to show is a web page that already plays on its own (a WebGL
+scene, a scripted demo, a scroll-synced story), a screen recording is the wrong
+tool: it drops frames whenever the laptop is busy and captures real time.
+`page-render` runs the page on a fake clock and screenshots it one subframe at
+a time, so a 60fps render of a heavy shader comes out at 60fps anyway, with
+real motion blur (4 subframes per frame, blended by ffmpeg).
+
+```bash
+# one frame per second, tiled: check this before every full render
+page-render http://127.0.0.1:4173/ sheet.png --preview 1 --duration 12 \
+  --setup "document.querySelector('#scene').scrollIntoView()"
+# then the clip, cropped to one element, at 2x
+page-render http://127.0.0.1:4173/ clip.mp4 --duration 12 --scale 2 --clip "#stage"
+```
+
+It holds timers, `performance.now`, `requestAnimationFrame` and every CSS
+animation on the same virtual clock; `tests/page_render.sh` proves two renders
+match byte for byte. Cost: about 25 s of wall time per second of 2x video.
+The method is @twoclipping's code-only motion template (in the brain at
+research/motion-template); the story rules above still decide what to show.
+
 ## Native apps: iOS Simulator, not a browser
 
 `demo-shoot.mjs` drives Playwright, so it only works on something a browser can
@@ -314,7 +337,7 @@ trusting it.
 - **FILM A SEPARATE WINDOW, NOT A SIBLING TAB.** Caleb's rule, 2026-09-16:
   "When making a video interacting with chewbacca, ALWAYS operate with it in a
   different tab." A sibling tab is not enough on its own, because VS Code raises
-  whichever tab is producing output: every tool call the *recording* session
+  whichever tab is producing output: every tool call the _recording_ session
   makes pulls focus off the tab being filmed and onto itself. Open the demo in
   its own window with `ctrl+alt+cmd+w` (`claude-vscode.window.open`) and record
   that window id. Then the camera and the performance cannot steal focus from
