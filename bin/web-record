@@ -5,7 +5,7 @@ the path they took, so the site can be driven by meaning afterwards.
     web-record start acconline.austincc.edu     record in the background
     web-record status                           what is recording, how much so far
     web-record stop                             stop every recording
-    web-record show acconline.austincc.edu      the pages and the clicks between them
+    web-record show acconline.austincc.edu [hours]   the pages (from Chrome's history too) and the clicks
 
 "Record me using an app", 2026-09-25, for Blackboard: the procedure notes say
 guessing a Blackboard URL is worse than reading one, and the fastest way to
@@ -139,14 +139,50 @@ def template(url: str) -> str:
     return ID.sub("{id}", path.split("#")[0])
 
 
-def show(host: str) -> None:
+CHROME = Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
+# Chrome stores visit times as microseconds since 1601-01-01.
+WEBKIT_EPOCH = 11644473600
+
+
+def history(host: str, hours: float) -> list[dict]:
+    """Every visit to the host in every Chrome profile, from Chrome's own file.
+
+    The recorder's AppleScript saw zero windows on 2026-09-25 while the person
+    clicked through Blackboard 35 times, because a Playwright copy of Chrome was
+    also running and AppleScript spoke to that one. History is written by the
+    real profile whatever else is open, so the path is never lost; only the
+    click labels are."""
+    import shutil
+    import sqlite3
+    import tempfile
+    since = (time.time() - hours * 3600 + WEBKIT_EPOCH) * 1_000_000
     rows = []
+    for db in CHROME.glob("*/History"):
+        with tempfile.TemporaryDirectory() as tmp:
+            copy = Path(tmp) / "h.db"
+            try:
+                shutil.copy(db, copy)
+                con = sqlite3.connect(copy)
+                for t, url, title in con.execute(
+                        "select v.visit_time, u.url, u.title from visits v join urls u on v.url = u.id "
+                        "where u.url like ? and v.visit_time > ? order by v.visit_time", (f"%://{host}/%", since)):
+                    rows.append({"t": t / 1_000_000 - WEBKIT_EPOCH, "kind": "page", "url": url, "title": title or "",
+                                 "profile": db.parent.name})
+                con.close()
+            except (OSError, sqlite3.Error):
+                continue
+    return rows
+
+
+def show(host: str, hours: float = 24) -> None:
+    rows = history(host, hours)
     for f in sorted(folder(host).glob("*.jsonl")):
         for line in f.read_text().splitlines():
             try:
                 rows.append(json.loads(line))
             except ValueError:
                 pass
+    rows.sort(key=lambda r: r["t"])
     if not rows:
         print("nothing recorded yet")
         return
@@ -207,8 +243,8 @@ def main() -> int:
             n = sum(len(f.read_text().splitlines()) for f in (ROOT / name).glob("*.jsonl"))
             print(f"recording {name}: {n} events so far")
         return 0
-    if cmd == "show" and len(args) == 2:
-        show(args[1])
+    if cmd == "show" and len(args) in (2, 3):
+        show(args[1], float(args[2]) if len(args) == 3 else 24)
         return 0
     print(__doc__)
     return 2

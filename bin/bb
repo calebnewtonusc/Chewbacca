@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""bb: open any Blackboard page or item by saying what it is.
+
+    bb anth discussions             a course page
+    bb spanish grades
+    bb homework 2                   an item, by its own name
+    bb where do I turn in my anthropology paper     Jev picks when the words do not
+    bb calendar                     Blackboard-wide pages
+    bb --print ...                  the address, without opening it
+
+Opens a tab in the Chrome profile Blackboard is signed into (BB_PROFILE,
+default "Profile 5"), by handing the address to Chrome's own binary, which
+reaches the running Chrome whatever other copies are open. AppleScript
+cannot: with a Playwright Chrome also running on 2026-09-25 it saw zero windows.
+"""
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import bb  # noqa: E402
+
+CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+PROFILE = os.environ.get("BB_PROFILE", "Profile 5")
+
+
+def main() -> int:
+    args = sys.argv[1:]
+    only_print = "--print" in args
+    said = " ".join(a for a in args if a != "--print").strip()
+    if not said or said in ("-h", "--help"):
+        print(__doc__)
+        return 2
+    r = bb.resolve(said)
+    if "ask" in r:
+        print("which one? " + " or ".join(r["ask"]))
+        return 1
+    if "url" not in r:
+        print(r.get("why", "not found"))
+        return 1
+    if only_print:
+        print(json.dumps(r))
+        return 0
+    subprocess.Popen([CHROME, f"--profile-directory={PROFILE}", r["url"]],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    print(f"opened {r['label']}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

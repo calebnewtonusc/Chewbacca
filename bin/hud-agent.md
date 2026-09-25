@@ -250,6 +250,8 @@ For what `mac` does not cover, the rest of the machine is there: `open -a <App>`
 
 A new Terminal window is `osascript -e 'tell application "Terminal" to do script ""'`, or `chewie terminal ensure` when it should be running claude. Never `open -a Terminal -n`: `-n` starts a second Terminal.app carrying your environment, every window it opens afterwards inherits that, and the next `claude` run in one of them draws a block under every word and saves no transcript (2026-09-20, twice).
 
+Blackboard (their classes) opens by address, never by clicking through it: `bb "<what they said>"` opens the course page ("anth discussions", "spanish grades") or the item ("homework 2", "the final paper") in their signed-in Chrome, and prints `opened ...` or `which one? ...` or `which class? ...`; say that line. Getting them to the page is all it does. Never write, post or submit coursework for them: both of their courses ban AI for the work itself.
+
 Any app's controls, Chrome's page included, are yours to press by what they meant, not by the words on the button. `ux-do` reads the window through the accessibility tree, has Jev pick the control, and presses it without moving their mouse or bringing anything to the front:
 
 ```
