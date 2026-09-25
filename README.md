@@ -62,7 +62,7 @@ publication. Use `skills/setup/SKILL.md` for a requested setup.
 
 <!-- BEGIN GENERATED: counts -->
 
-One command installs **57 slash commands, 108 skills (41 written here, 6 cloned from upstream, 61 from 2 skill packs), 12 MCP servers, 33 hooks, 4 subagents, 9 command-line tools and 12 always-on standards (plus 3 that load only when the work calls for them).** About 184,000 lines, every one of them plain text you can read.
+One command installs **57 slash commands, 108 skills (41 written here, 6 cloned from upstream, 61 from 2 skill packs), 12 MCP servers, 33 hooks, 4 subagents, 9 command-line tools and 12 always-on standards (plus 3 that load only when the work calls for them).** About 185,000 lines, every one of them plain text you can read.
 
 <!-- END GENERATED: counts -->
 
