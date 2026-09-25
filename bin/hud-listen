@@ -45,6 +45,11 @@ import voice_memory  # noqa: E402
 import terminal_state  # noqa: E402
 import agent_board  # noqa: E402
 import decision_log  # noqa: E402
+import quick  # noqa: E402
+
+# HUD_QUICK=off: math, time, date, conversions and weather go to the model
+# like everything else, instead of being computed (bin/lib/quick.py).
+QUICK = os.environ.get("HUD_QUICK", "on") != "off"
 
 # HUD_ROUTE=off: every sentence goes to the assistant and nothing is written
 # to ~/.bob/memory, which is how the fake-display test runs without a
@@ -1990,6 +1995,8 @@ class Listener:
         # seconds to send to a model.
         if not relayed and self.pleasantry(said):
             return
+        if QUICK and not relayed and self.quick_answer(said, typed):
+            return
         if not relayed and self.music_request(said, typed):
             return
         # A relayed event (a click the display reported) and a request already
@@ -2128,6 +2135,35 @@ class Listener:
         self.remember(req, answer, True, "done")
         self.send("s " + json.dumps(answer))
         self.speak(answer)
+        self.settle("done", self.LEAVE_AFTER)
+        return True
+
+    def quick_answer(self, said: str, typed: bool) -> bool:
+        """Math, time, date, a unit conversion or the weather, computed, with no
+        model turn. Same shape as `pleasantry`; see bin/lib/quick.py for why.
+
+        Only when nothing is running: an answer spoken over a run in flight
+        would talk across it, and the queue keeps its order."""
+        if self.in_flight():
+            return False
+        started = time.monotonic()
+        try:
+            found = quick.answer(said)
+        except Exception as err:  # a fast path must never cost the person their answer
+            self.log("quick failed:", err)
+            return False
+        finally:
+            quick.warm()
+        if not found:
+            return False
+        answer = found["text"]
+        self.log(f"quick: {found['kind']} in {(time.monotonic() - started) * 1000:.0f}ms:", answer)
+        req = Request(said=said, spoken_at=time.monotonic(), pointed=None, typed=typed)
+        self.remember(req, answer, True, "done")
+        self.send("s " + json.dumps(answer))
+        self.send("w " + json.dumps(answer) + " done=true")
+        if not typed:
+            self.speak(answer)
         self.settle("done", self.LEAVE_AFTER)
         return True
 
@@ -3477,6 +3513,8 @@ def main() -> int:
                 print(f"names: {count} written to {NAMES}", file=sys.stderr, flush=True)
 
         threading.Thread(target=names, daemon=True).start()
+    if QUICK:
+        quick.warm()
     return Listener(
         args.model_cmd, args.verbose, args.bare, voice=voice, profile=args.profile
     ).run()
