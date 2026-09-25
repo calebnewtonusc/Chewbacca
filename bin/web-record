@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""web-record: watch the person use one website in their own Chrome, and keep
+the path they took, so the site can be driven by meaning afterwards.
+
+    web-record start acconline.austincc.edu     record in the background
+    web-record status                           what is recording, how much so far
+    web-record stop                             stop every recording
+    web-record show acconline.austincc.edu      the pages and the clicks between them
+
+"Record me using an app", 2026-09-25, for Blackboard: the procedure notes say
+guessing a Blackboard URL is worse than reading one, and the fastest way to
+read the real ones is to watch the person who already knows where things are.
+
+What is kept: each page's address and title, and the name of each link,
+button or tab clicked on it. Never what is typed, never a field's value, never
+the page's text, and nothing from any other site. Tabs on the host only, found
+by AppleScript once a second; Chrome is never launched, focused or raised.
+Local only: ~/.bob/recordings/<host>/<date>.jsonl.
+
+Needs Chrome's View > Developer > Allow JavaScript from Apple Events in the
+profile the site is open in (Profile 5 had it on since 2026-09-23). Clicks
+inside an embedded frame (older Blackboard content) are not seen; the page
+change they cause still is.
+"""
+import datetime
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(os.environ.get("WEB_RECORD_DIR", str(Path.home() / ".bob" / "recordings")))
+POLL_S = 1.0
+# Kept in sessionStorage, which survives a same-tab navigation on the same
+# origin, so the click that caused a page load is still there to drain after it.
+JS = r"""(function(){
+var K='__kyberRec';
+if(!window.__kyberRecOn){window.__kyberRecOn=1;
+document.addEventListener('click',function(e){try{
+var el=e.target.closest('a,button,[role=button],[role=link],[role=tab],[role=menuitem],[role=option],[role=treeitem],[role=checkbox],summary,select');
+if(!el)return;
+var name=(el.getAttribute('aria-label')||el.innerText||el.getAttribute('title')||'').replace(/\s+/g,' ').trim().slice(0,80);
+var q=JSON.parse(sessionStorage.getItem(K)||'[]');
+q.push({t:Date.now(),label:name,role:el.getAttribute('role')||el.tagName.toLowerCase(),href:el.getAttribute('href'),from:location.pathname+location.search});
+sessionStorage.setItem(K,JSON.stringify(q.slice(-200)));}catch(_){}} ,true);}
+var c=sessionStorage.getItem(K)||'[]';sessionStorage.removeItem(K);
+return JSON.stringify({url:location.href,title:document.title,clicks:JSON.parse(c)});})()"""
+
+
+def poll_script(host: str, js_path: Path) -> str:
+    return f'''
+if application "Google Chrome" is running then
+  set js to (read POSIX file "{js_path}" as «class utf8»)
+  set out to ""
+  tell application "Google Chrome"
+    repeat with w in windows
+      repeat with t in tabs of w
+        if (URL of t) contains "{host}" then
+          try
+            set out to out & (execute t javascript js) & linefeed
+          on error errText
+            set out to out & "ERR " & errText & linefeed
+          end try
+        end if
+      end repeat
+    end repeat
+  end tell
+  return out
+end if
+return ""
+'''
+
+
+def folder(host: str) -> Path:
+    return ROOT / re.sub(r"[^a-z0-9.-]", "_", host.lower())
+
+
+def record(host: str) -> None:
+    d = folder(host)
+    d.mkdir(parents=True, exist_ok=True)
+    js_path = d / "rec.js"
+    js_path.write_text(JS)
+    script = poll_script(host, js_path)
+    last_url, warned = {}, False
+    stopping = []
+    signal.signal(signal.SIGTERM, lambda *_: stopping.append(1))
+    while not stopping:
+        try:
+            out = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=10).stdout
+        except subprocess.TimeoutExpired:
+            out = ""
+        now = time.time()
+        log = d / f"{datetime.date.today().isoformat()}.jsonl"
+        rows = []
+        for line in out.splitlines():
+            if line.startswith("ERR "):
+                if "turned off" in line and not warned:
+                    rows.append({"t": now, "kind": "error", "why": "JavaScript from Apple Events is off in that profile"})
+                    warned = True
+                continue
+            try:
+                page = json.loads(line)
+            except ValueError:
+                continue
+            for c in page.get("clicks") or []:
+                rows.append({"t": c.get("t", 0) / 1000, "kind": "click", "label": c.get("label"), "role": c.get("role"),
+                             "href": c.get("href"), "from": c.get("from")})
+            url = page.get("url", "")
+            if last_url.get("any") != url:
+                rows.append({"t": now, "kind": "page", "url": url, "title": page.get("title", "")})
+                last_url["any"] = url
+        if rows:
+            with log.open("a", encoding="utf-8") as f:
+                for r in sorted(rows, key=lambda r: r["t"]):
+                    f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        time.sleep(POLL_S)
+
+
+def pids() -> dict:
+    out = {}
+    for pid_file in ROOT.glob("*/pid"):
+        try:
+            pid = int(pid_file.read_text())
+            os.kill(pid, 0)
+            out[pid_file.parent.name] = pid
+        except (ValueError, OSError):
+            pid_file.unlink(missing_ok=True)
+    return out
+
+
+ID = re.compile(r"_\d+_\d+")
+
+
+def template(url: str) -> str:
+    path = re.sub(r"^https?://[^/]+", "", url)
+    return ID.sub("{id}", path.split("#")[0])
+
+
+def show(host: str) -> None:
+    rows = []
+    for f in sorted(folder(host).glob("*.jsonl")):
+        for line in f.read_text().splitlines():
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                pass
+    if not rows:
+        print("nothing recorded yet")
+        return
+    pages, steps, last_click = {}, [], None
+    for r in rows:
+        if r["kind"] == "click":
+            last_click = r
+        elif r["kind"] == "page":
+            key = template(r["url"])
+            p = pages.setdefault(key, {"n": 0, "title": r.get("title", "")})
+            p["n"] += 1
+            if last_click and r["t"] - last_click["t"] < 8:
+                steps.append((template(last_click.get("from") or ""), last_click.get("label"), key))
+            last_click = None
+    print(f"{len(pages)} page shapes, {sum(1 for r in rows if r['kind'] == 'click')} clicks\n")
+    for key, p in sorted(pages.items(), key=lambda kv: -kv[1]["n"]):
+        print(f"  {p['n']:>3}  {key}   {p['title'][:50]}")
+    if steps:
+        print("\nclick -> page")
+        for frm, label, to in steps:
+            print(f"  {frm[:50]:50}  [{(label or '')[:34]}]  -> {to}")
+
+
+def main() -> int:
+    args = sys.argv[1:]
+    cmd = args[0] if args else "status"
+    if cmd == "_run" and len(args) == 2:
+        record(args[1])
+        return 0
+    if cmd == "start" and len(args) == 2:
+        host = args[1]
+        if host.split("/")[0] != host or "." not in host:
+            print("give a host, like acconline.austincc.edu")
+            return 2
+        if folder(host).name in pids():
+            print(f"already recording {host}")
+            return 0
+        d = folder(host)
+        d.mkdir(parents=True, exist_ok=True)
+        proc = subprocess.Popen([sys.executable, __file__, "_run", host], stdout=subprocess.DEVNULL,
+                                stderr=open(d / "recorder.log", "a"), start_new_session=True)
+        (d / "pid").write_text(str(proc.pid))
+        print(f"recording {host}: every page you open there and the name of each thing you click. "
+              f"Nothing you type. `web-record stop` ends it.")
+        return 0
+    if cmd == "stop":
+        running = pids()
+        for name, pid in running.items():
+            os.kill(pid, signal.SIGTERM)
+            (ROOT / name / "pid").unlink(missing_ok=True)
+        print("stopped " + (", ".join(running) if running else "nothing, nothing was recording"))
+        return 0
+    if cmd == "status":
+        running = pids()
+        if not running:
+            print("not recording")
+        for name in running:
+            n = sum(len(f.read_text().splitlines()) for f in (ROOT / name).glob("*.jsonl"))
+            print(f"recording {name}: {n} events so far")
+        return 0
+    if cmd == "show" and len(args) == 2:
+        show(args[1])
+        return 0
+    print(__doc__)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
