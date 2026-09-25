@@ -76,6 +76,28 @@ class BridgeTests(unittest.TestCase):
         argv, _ = self.b.page_read(["https://app.clay.com/x", "4"])
         self.assertEqual(argv[-2:], ["https://app.clay.com/x", "4.0"])
 
+    def test_git_is_read_and_fetch(self):
+        with self.assertRaises(self.b.Refused):
+            self.b.REGISTRY["git"](["-C", "/tmp", "push"])
+        with self.assertRaises(self.b.Refused):
+            self.b.REGISTRY["git"](["-C", "/tmp", "-c", "x=y", "status"])
+        self.b.REGISTRY["git"](["-C", "/tmp", "status"])
+
+    def test_no_shell_agents(self):
+        with self.assertRaises(self.b.Refused):
+            self.b.REGISTRY["claude-tab"](["send", "rm -rf ~"])
+        self.assertNotIn("op", self.b.TOOLS)
+        self.assertNotIn("gemini", self.b.TOOLS)
+
+    def test_sends_are_out(self):
+        with self.assertRaises(self.b.Refused):
+            self.b.REGISTRY["imsg"](["send", "--to", "+15555550123", "--text", "hi"])
+        with self.assertRaises(self.b.Refused):
+            self.b.REGISTRY["himalaya"](["message", "send"])
+        argv, _ = self.b.REGISTRY["gog"](["gmail", "search", "from:jonah"])
+        self.assertIn("--gmail-no-send", argv)
+        self.assertNotIn("write-file", self.b.TOOLS)
+
     def test_tools_listing(self):
         out = subprocess.run([sys.executable, str(TOOL), "tools"], capture_output=True, text=True).stdout
         self.assertIn("jev-browse", out)

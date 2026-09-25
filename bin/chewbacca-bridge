@@ -127,6 +127,134 @@ def fixed(argv, timeout):
     return build
 
 
+# ---------------------------------------------------------------------------
+# The registry. Every entry is a named program, the only subcommands it may
+# run, flags forced on, and a timeout. Arguments go through argv, never a
+# shell. Reads, Jev, the browser, the kit's own tools and adding a reminder or
+# a todo are in. Sends, deletes, commits, pushes and free file writes are out:
+# an unattended service should not be able to message someone or rewrite a
+# file with no one watching. Sends go through the agent's own connectors,
+# where the person approves each one. Also out: agents with their own shell
+# (claude-tab send, gemini), op and stripe.
+# ---------------------------------------------------------------------------
+HOME = pathlib.Path.home()
+BREW = "/opt/homebrew/bin"
+LOCAL = str(HOME / ".local/bin")
+PROTECTED = (".ssh", ".aws", ".gnupg", "Library/Keychains", ".config/op", ".codex/auth.json",
+             ".claude/.credentials.json", "Library/Application Support/gogcli")
+ANY = None
+
+
+def _bin(name: str) -> str:
+    for d in (str(HERE), LOCAL, BREW, "/usr/local/bin", "/usr/bin"):
+        path = pathlib.Path(d) / name
+        if path.exists():
+            return str(path)
+    return name
+
+
+def _safe_path(arg: str) -> None:
+    if not (arg.startswith("/") or arg.startswith("~")):
+        return
+    real = pathlib.Path(os.path.expanduser(arg)).resolve()
+    allowed = (HOME, pathlib.Path("/tmp").resolve(), pathlib.Path("/private/tmp"))
+    if not any(real == a or a in real.parents for a in allowed):
+        raise Refused(f"path outside your home and /tmp: {arg}")
+    rel = str(real.relative_to(HOME)) if HOME in real.parents else ""
+    if any(rel == p or rel.startswith(p + "/") for p in PROTECTED):
+        raise Refused(f"protected path: {arg}")
+
+
+def spec(program, subs=ANY, forced=(), timeout=120, deny=(), depth=1):
+    """subs: allowed first words (depth 1) or first-two-word tuples (depth 2); ANY = anything.
+    deny: words refused anywhere in the arguments."""
+    def build(args):
+        for a in args:
+            if len(a) > 8000 or "\x00" in a:
+                raise Refused("argument too long or has a NUL")
+            if a in ("--allow-commit",) or a in deny:
+                raise Refused(f"{a} is not run through the bridge")
+            _safe_path(a)
+        if subs is not ANY:
+            key = tuple(args[:depth]) if depth > 1 else (args[0] if args else "")
+            if key not in subs:
+                shown = sorted(" ".join(k) if isinstance(k, tuple) else k for k in subs)
+                raise Refused(f"{program}: allowed: {', '.join(shown)}")
+        return [_bin(program), *forced, *args], timeout
+    return build
+
+
+REGISTRY = {
+    # --- Jev and the browser -------------------------------------------------
+    "jev": spec("jev", timeout=60),
+    "ux-do": spec("ux-do", timeout=60),
+    "site": spec("site", timeout=300),
+    "stays": spec("stays", timeout=600),
+    "chatgpt-tab": spec("chatgpt-tab", timeout=600),
+    "claude-tab": spec("claude-tab", subs={"status", "last", "list"}, timeout=30),  # send = a full shell
+    # --- lists, graphs, GTM ------------------------------------------------
+    "list-audit": spec("list-audit"), "list-gate": spec("list-gate"),
+    "list-sift": spec("list-sift", timeout=1800), "graph-fuse": spec("graph-fuse", timeout=600),
+    "gtme-math": spec("gtme-math"), "gtme-graph": spec("gtme-graph", timeout=600),
+    "gtme-library": spec("gtme-library"), "gtme-learning": spec("gtme-learning"),
+    "clay-fixture-check": spec("clay-fixture-check"), "intro": spec("intro"),
+    "people": spec("people", deny=("delete", "forget", "purge", "send")),
+    "work-ledger": spec("work-ledger"), "backlog": spec("backlog"),
+    "task-graph": spec("task-graph", timeout=600),
+    # --- quality gates and the kit's memory ---------------------------------
+    "model-route": spec("model-route", timeout=30), "slop-check": spec("slop-check"),
+    "prose-check": spec("prose-check"), "code-slop": spec("code-slop"),
+    "secret-scan": spec("secret-scan"), "skill-scan": spec("skill-scan"),
+    "craft-gate": spec("craft-gate"), "method": spec("method"), "scars": spec("scars"),
+    "learn": spec("learn"), "kits": spec("kits"), "corpus": spec("corpus"),
+    "kit-debt": spec("kit-debt"), "closeout": spec("closeout"),
+    "durable-check": spec("durable-check"), "handoff-check": spec("handoff-check"),
+    "superassistant": spec("superassistant"), "textbook": spec("textbook"),
+    "guide": spec("guide"), "coursework": spec("coursework"),
+    # --- the screen, sound and media ----------------------------------------
+    "hud": spec("hud", timeout=60), "hud-speak": spec("hud-speak", timeout=120),
+    "hud-music": spec("hud-music", timeout=60), "hud-guide": spec("hud-guide", timeout=60),
+    "hud-context": spec("hud-context", timeout=30), "portal": spec("portal", timeout=30),
+    "brief-audio": spec("brief-audio", timeout=600), "summarize": spec("summarize", timeout=300),
+    "yt-transcript": spec("yt-transcript", timeout=300), "sag": spec("sag", timeout=120),
+    "sonos": spec("sonos", timeout=30), "openhue": spec("openhue", timeout=30),
+    "eightctl": spec("eightctl", timeout=30), "goplaces": spec("goplaces", timeout=60),
+    "blogwatcher": spec("blogwatcher", timeout=120),
+    # --- your accounts: read, plus adding a reminder or a todo --------------
+    "gog": spec("gog", forced=("--readonly", "--gmail-no-send"), timeout=180),
+    "himalaya": spec("himalaya", depth=2, subs={
+        ("envelope", "list"), ("envelope", "search"), ("folder", "list"), ("account", "list"),
+        ("message", "read"), ("message", "thread"), ("message", "export")}, timeout=180),
+    "imsg": spec("imsg", subs={"chats", "history"}, timeout=60),
+    "remindctl": spec("remindctl", subs={"show", "list", "add", "status"}, timeout=30),
+    "things": spec("things", subs={"add", "show", "search", "inbox", "today", "upcoming", "anytime",
+                                   "someday", "logbook", "projects", "areas", "tags", "all"}, timeout=30),
+    "gh": spec("gh", depth=2, subs={
+        ("issue", "list"), ("issue", "view"), ("issue", "status"), ("pr", "list"), ("pr", "view"),
+        ("pr", "diff"), ("pr", "checks"), ("pr", "status"), ("repo", "view"), ("repo", "list"),
+        ("run", "list"), ("run", "view"), ("release", "list"), ("release", "view"),
+        ("search", "repos"), ("search", "issues"), ("search", "prs"), ("search", "code"),
+        ("auth", "status")}, timeout=120),
+    "git": spec("git", subs={"-C"}, timeout=120),
+    "cap": spec("cap", deny=("delete", "share", "send", "publish"), timeout=120),
+}
+
+
+def _git_guard(build):
+    def wrapped(args):
+        # git -C <repo under home> <status|log|diff|show|branch|fetch|remote -v|rev-parse|ls-files>
+        if len(args) < 3 or args[2] not in ("status", "log", "diff", "show", "branch", "fetch", "remote", "rev-parse", "ls-files"):
+            raise Refused("git: -C <repo> status|log|diff|show|branch|fetch|remote|rev-parse|ls-files")
+        if args[2] == "remote" and args[3:] not in ([], ["-v"]):
+            raise Refused("git remote: only -v")
+        if any(a == "-c" or a.startswith("--upload-pack") for a in args):
+            raise Refused("git: -c and custom transports are not run through the bridge")
+        return build(args)
+    return wrapped
+
+
+REGISTRY["git"] = _git_guard(REGISTRY["git"])
+
 TOOLS = {
     "jev-browse": jev_browse,
     "jev-ask": jev_ask,
@@ -136,6 +264,7 @@ TOOLS = {
     "browser-harness-doctor": fixed(["uv", "run", "--project", str(pathlib.Path.home() / ".chewbacca/jev-ultrafast"),
                                      "-q", "browser-harness", "--doctor"], 60),
     "ping": fixed(["/bin/echo", "pong"], 5),
+    **REGISTRY,
 }
 
 

@@ -49,6 +49,12 @@ jev-browse, Jev or Clay directly. `bin/chewbacca-bridge` is a launchd service
 the person installs once (`chewbacca-bridge install`). It runs a fixed list of
 tools with validated arguments when a job file lands in
 `/tmp/chewbacca-bridge/in`, and writes the result to `/tmp/chewbacca-bridge/out`.
-It is not a shell: `chewbacca-bridge tools` lists everything it will run, and
-`--allow-commit` is refused from a job. Every job is logged to
+It is not a shell. `chewbacca-bridge tools` lists its roughly 70 tools: Jev
+and the browser, the list and graph tools, the kit's gates and memory, the
+HUD and media, and your accounts read-only (gog with --readonly and
+--gmail-no-send, himalaya, imsg, gh, git status and fetch), plus adding a
+reminder or a todo. Sends, deletes, commits, pushes and free file writes are
+not in it: an unattended service should not message anyone or rewrite files
+with nobody watching. Those go through the agent's connectors, where you
+approve each one. `--allow-commit` is refused from a job. Every job is logged to
 `~/.chewbacca/bridge.log`.
