@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# jev-browse: a browser task in the user's own Chrome, decided by Jev.
+#
+# Wraps browser-use/jev-ultrafast: every step reads the page into an indexed
+# table of controls, one TypeSafe request picks the operation and its target,
+# and text for a field comes from the goal itself: put it in quotes. One quote
+# is typed as written; with several, Jev picks which one goes in which field.
+# No text model, no screenshots, no generated selectors.
+#
+#   jev-browse install                     clone the pinned jev-ultrafast, uv sync
+#   jev-browse doctor                      checkout, uv, keys, Chrome connection
+#   jev-browse run --url <url> --goal "<one narrow goal>" [--goal ...]
+#              [--max-seconds 180] [--keep-open] [--allow-commit] [--json]
+#
+# The floor: a click on anything that sends, submits, pays, deletes, books,
+# signs in, runs or enriches is not executed. The run stops with
+# `yours_to_press` and names the control, because in this kit that press is
+# the person's. --allow-commit lifts it for one run, only when they said so.
+#
+# One key: TYPESAFE_API_KEY, from the environment, else the login Keychain.
+# It never goes in the goal, the log or argv.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$0")")" && pwd)"
+DIR="${JEV_ULTRAFAST_DIR:-$HOME/.chewbacca/jev-ultrafast}"
+REPO="https://github.com/browser-use/jev-ultrafast.git"
+# Pinned: a browser agent that clicks in a signed-in Chrome is not something to
+# track a moving main for. Bump deliberately, after reading the diff.
+PIN="${JEV_ULTRAFAST_PIN:-1231850a0bf1a0c0341fe408ef1668dbbfdfac46}"
+RUNNER="$HERE/lib/jev_browse_runner.py"
+
+die() { echo "jev-browse: $*" >&2; exit 1; }
+
+keychain() { security find-generic-password -s "$1" -w 2>/dev/null || true; }
+
+load_keys() {
+  if [ -z "${TYPESAFE_API_KEY:-}" ]; then TYPESAFE_API_KEY="$(keychain TYPESAFE_API_KEY)"; fi
+  export TYPESAFE_API_KEY
+  export TYPESAFE_MODEL="${TYPESAFE_MODEL:-jev-latest}"
+}
+
+cmd_install() {
+  command -v uv >/dev/null || die "uv is not installed: brew install uv"
+  if [ ! -d "$DIR/.git" ]; then
+    mkdir -p "$(dirname "$DIR")"
+    git clone -q "$REPO" "$DIR"
+  fi
+  git -C "$DIR" fetch -q origin
+  git -C "$DIR" checkout -q "$PIN"
+  (cd "$DIR" && uv sync -q)
+  echo "jev-ultrafast $PIN installed at $DIR"
+  echo "next: jev-browse doctor"
+}
+
+cmd_doctor() {
+  local ok=0
+  [ -d "$DIR/jev_ultrafast" ] && echo "ok    checkout at $DIR ($(git -C "$DIR" rev-parse --short HEAD 2>/dev/null))" \
+    || { echo "MISS  no checkout: jev-browse install"; ok=1; }
+  command -v uv >/dev/null && echo "ok    uv" || { echo "MISS  uv: brew install uv"; ok=1; }
+  load_keys
+  [ -n "$TYPESAFE_API_KEY" ] && echo "ok    TypeSafe key" \
+    || { echo "MISS  TypeSafe key: security add-generic-password -s TYPESAFE_API_KEY -a \"\$USER\" -w"; ok=1; }
+  if [ -d "$DIR/jev_ultrafast" ]; then
+    (cd "$DIR" && uv run -q browser-harness --doctor) && echo "ok    Chrome over Browser Harness" \
+      || { echo "MISS  Chrome connection: allow remote debugging in Chrome when it asks"; ok=1; }
+  fi
+  return $ok
+}
+
+cmd_run() {
+  local url="" max=180 keep=false commit=false json=false
+  local goals=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --url) url="$2"; shift 2 ;;
+      --goal) goals+=("$2"); shift 2 ;;
+      --max-seconds) max="$2"; shift 2 ;;
+      --keep-open) keep=true; shift ;;
+      --allow-commit) commit=true; shift ;;
+      --json) json=true; shift ;;
+      *) die "unknown argument $1" ;;
+    esac
+  done
+  [ -n "$url" ] || die "--url is required"
+  [ "${#goals[@]}" -gt 0 ] || die "--goal is required"
+  case "$url" in https://*|http://127.0.0.1*|http://localhost*) ;; *) die "--url must be https" ;; esac
+  [ -d "$DIR/jev_ultrafast" ] || die "not installed: jev-browse install"
+  load_keys
+  [ -n "$TYPESAFE_API_KEY" ] || die "no TypeSafe key; run jev-browse doctor"
+  local request
+  request="$(python3 - "$url" "$max" "$keep" "$commit" "${goals[@]}" <<'PY'
+import json, sys
+url, max_s, keep, commit, *goals = sys.argv[1:]
+print(json.dumps({"url": url, "goals": goals, "max_seconds": float(max_s),
+                  "keep_open": keep == "true", "allow_commit": commit == "true"}))
+PY
+)"
+  local out
+  out="$(printf '%s' "$request" | (cd "$DIR" && uv run -q python "$RUNNER"))" || true
+  [ -n "$out" ] || die "the run produced no result"
+  if $json; then printf '%s\n' "$out"; return; fi
+  python3 - "$out" <<'PY'
+import json, sys
+r = json.loads(sys.argv[1])
+s = r.get("status")
+print(f"{s}: {r.get('title') or ''} {r.get('url')}".strip())
+if s == "yours_to_press":
+    print(f"left for you: {r.get('control')!r}")
+if r.get("error"):
+    print("error:", r["error"])
+if r.get("verify"):
+    print(r["verify"])
+print(f"{len(r.get('actions') or [])} actions, {r.get('decisions', 0)} Jev decisions, {r.get('elapsed_ms', 0)} ms")
+PY
+}
+
+case "${1:-}" in
+  install) shift; cmd_install "$@" ;;
+  doctor) shift; cmd_doctor "$@" ;;
+  run) shift; cmd_run "$@" ;;
+  -h|--help|"") sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) die "unknown command $1 (install, doctor, run)" ;;
+esac

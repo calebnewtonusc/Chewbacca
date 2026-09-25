@@ -1,0 +1,419 @@
+#!/usr/bin/env python3
+"""perplexity-tab: drive a signed-in Perplexity Computer tab in Chrome.
+
+The Perplexity sibling of `chatgpt-tab` and `claude-tab`. It is what lets the
+voice hand a sentence to Perplexity Computer and hear the answer, the same way
+it hands one to a Claude Code tab.
+
+    perplexity-tab status [--json]      idle | busy | waiting | absent
+    perplexity-tab new "<prompt>"       open a fresh session and send, do not wait
+    perplexity-tab send "<prompt>"      send into the session in the tab, do not wait
+    perplexity-tab wait                 block until the pending turn finishes
+    perplexity-tab last                 the newest finished answer
+    perplexity-tab ask "<prompt>"       send, wait, print the answer
+    perplexity-tab ask --new "<prompt>" the same, in a fresh session
+
+WHY CHROME AND NOT THE MAC APP. The Perplexity Mac app is an Electron-style
+shell whose web content is not exposed to the accessibility tree the way VS
+Code's message input is, and System Events UI scripting is the one thing the
+app's own tool runner refuses. Chrome's "Allow JavaScript from Apple Events" is
+already on for the Default profile, `chrome-js` already drives it, and the
+page's own controls are stable, labelled elements:
+
+    composer   #ask-input, a Lexical contenteditable
+    submit     button[aria-label="Submit"]
+    busy       button[aria-label^="Stop response"]
+    a turn     each finished assistant turn carries [data-workflow-final-text]
+    the answer the last [data-renderer="lm"] inside that block
+
+Observed on 2026-09-24 against perplexity.ai/computer and a live task page.
+Selectors are in one place (DOM below) and every one of them fails closed: a
+missing control is an error, never a plausible-looking partial answer.
+
+WAITING. A Computer turn can stop to ask the person something (a confirmation
+card, a choice). The Stop button is gone and no new finished block exists, so
+that state is reported as `waiting`, which the voice reads as "Perplexity is
+waiting on you" instead of hanging until the timeout.
+
+No cookies, private APIs or credentials: only what is on the page.
+"""
+import argparse
+import contextlib
+import fcntl
+import json
+import os
+import pathlib
+import re
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+
+HERE = pathlib.Path(__file__).resolve().parent
+CHROME_JS = HERE / "chrome-js"
+ORIGIN = "https://www.perplexity.ai"
+HOME = ORIGIN + "/computer"
+TASK_RE = re.compile(r"^https://www\.perplexity\.ai/computer/tasks/[0-9a-f-]{8,}$")
+POLL_SECONDS = 1.5
+# Computer streams its steps into the same block the answer lands in, so a
+# finished block is required and stability is on top of it, never instead.
+STABLE_SECONDS = 3.0
+# A turn with no Stop button and no new finished block has stopped to ask the
+# person something. Held this long before it is called waiting, because the
+# Stop button blinks off between steps. Guessed, never measured.
+WAITING_AFTER_S = 12.0
+JS_TIMEOUT = 20
+# Where the voice keeps the session it last used, so "and also..." lands in
+# the same one.
+STATE = pathlib.Path(os.environ.get("BOB_MEMORY_DIR", str(pathlib.Path.home() / ".bob" / "memory"))) / "perplexity.json"
+
+
+class BridgeError(RuntimeError):
+    pass
+
+
+def task_url(value):
+    value = (value or "").split("?")[0].split("#")[0].rstrip("/")
+    if not TASK_RE.match(value):
+        raise BridgeError("session must be an https://www.perplexity.ai/computer/tasks/<id> URL")
+    return value
+
+
+def run_js(source, timeout=JS_TIMEOUT, session=None, activate=False):
+    """Run `source` in the Perplexity tab, bounding the whole chrome-js tree."""
+    match = task_url(session) if session else HOME
+    guard = "location.origin !== " + json.dumps(ORIGIN) + " || !location.pathname.startsWith('/computer')"
+    if session:
+        guard += " || (location.origin + location.pathname).replace(/\\/$/, '') !== " + json.dumps(match)
+    source = "(() => { if (" + guard + ") return 'WRONG_SESSION'; return (" + source + "); })()"
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".js", encoding="utf-8") as script:
+        script.write(source)
+        script.flush()
+        try:
+            proc = subprocess.Popen(
+                [str(CHROME_JS), "--match", match, "--file", script.name]
+                + (["--activate"] if activate else []),
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                start_new_session=True,
+            )
+        except OSError as exc:
+            raise BridgeError(f"Chrome bridge unavailable: {exc}") from exc
+        try:
+            out, err = proc.communicate(timeout=max(0.01, timeout))
+        except (subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.communicate()
+            if isinstance(exc, KeyboardInterrupt):
+                raise
+            raise BridgeError(f"Chrome JavaScript timed out after {timeout:g}s; submission was not retried") from exc
+    if proc.returncode:
+        raise BridgeError((err or out).strip() or "chrome-js failed")
+    out = out.strip()
+    if out.startswith("NO_TAB_MATCHING"):
+        raise BridgeError("no Perplexity Computer tab in Chrome. Open perplexity.ai/computer and sign in")
+    if out == "WRONG_SESSION":
+        raise BridgeError("the Perplexity tab moved to another session; refusing to use it")
+    return out
+
+
+def open_tab(url=HOME, settle=8.0):
+    """Open a Perplexity tab in Chrome's front window. Only called when none exists."""
+    script = (
+        'tell application "Google Chrome"\n'
+        '  if (count of windows) = 0 then make new window\n'
+        f'  tell window 1 to make new tab with properties {{URL:{json.dumps(url)}}}\n'
+        'end tell'
+    )
+    try:
+        subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=15, check=True)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise BridgeError(f"could not open a Perplexity tab in Chrome: {exc}") from exc
+    time.sleep(settle)
+
+
+DOM = r'''
+const visible = e => !!(e && (e.offsetWidth || e.offsetHeight || e.getClientRects().length));
+const composer = document.querySelector('#ask-input[contenteditable="true"], #ask-input');
+const label = e => [e.getAttribute('aria-label'), e.getAttribute('data-testid'), e.getAttribute('title')].filter(Boolean).join(' ');
+const buttons = [...document.querySelectorAll('button')].filter(visible);
+const stop = buttons.some(e => /^stop response/i.test(label(e)));
+const finals = [...document.querySelectorAll('[data-workflow-final-text]')];
+const last = finals.at(-1);
+const answers = last ? [...last.querySelectorAll('[data-renderer="lm"]')] : [];
+const answer = answers.at(-1);
+const queries = buttons.filter(e => /^copy query$/i.test(label(e))).length;
+const url = location.origin + location.pathname.replace(/\/$/, '');
+const draft = composer ? (composer.innerText || '').replace(/\u200b/g, '').trim() : '';
+const state = !composer ? 'absent' : stop ? 'busy' : 'idle';
+const snap = {
+  count: finals.length, queries,
+  text: answer ? (answer.innerText || answer.textContent || '').trim() : '',
+  composer: !!composer, busy: stop, state,
+  healthy: state === 'idle' && !draft, session_url: /\/computer\/tasks\//.test(url) ? url : '',
+  url, draft,
+  title: (document.title || '').replace(/\s*[|\-]\s*Perplexity.*$/i, '').trim(),
+  detail: !composer ? 'no Perplexity composer on the page; sign in to perplexity.ai in Chrome'
+        : draft ? 'the Perplexity composer holds an unsent draft'
+        : stop ? 'Perplexity is still working' : ''
+};
+'''
+
+
+def snapshot(timeout=JS_TIMEOUT, session=None):
+    deadline = time.monotonic() + timeout
+    for attempt in range(2):
+        try:
+            raw = run_js("(() => {" + DOM + "return JSON.stringify(snap); })()",
+                         max(0.01, (deadline - time.monotonic()) / (2 - attempt)), session)
+            break
+        except BridgeError as exc:
+            # Only reads retry. A timed-out mutation may already have sent.
+            if attempt or "timed out" not in str(exc) or time.monotonic() >= deadline:
+                raise
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict) or not isinstance(data.get("count"), int) or "composer" not in data:
+            raise ValueError("invalid snapshot")
+        return data
+    except (ValueError, TypeError) as exc:
+        raise BridgeError("Chrome returned no usable Perplexity page; check View > Developer > "
+                          "Allow JavaScript from Apple Events") from exc
+
+
+def go_home(timeout=JS_TIMEOUT):
+    """Point the Perplexity tab at a fresh session, opening one if none exists."""
+    try:
+        run_js("(() => { location.assign(" + json.dumps(HOME) + "); return 'ok'; })()", timeout)
+    except BridgeError as exc:
+        if "no Perplexity Computer tab" not in str(exc):
+            raise
+        open_tab(HOME)
+        return
+    time.sleep(6.0)
+
+
+def send(prompt, timeout=JS_TIMEOUT, session=None):
+    if not prompt.strip():
+        raise BridgeError("prompt is empty")
+    deadline = time.monotonic() + timeout
+    # One submission attempt. Retrying an ambiguous timeout could send twice.
+    source = "(() => {" + DOM + r'''
+if (!composer) return 'NO_COMPOSER';
+if (snap.busy) return 'BUSY';
+if (window.__chewbaccaSubmit === 'queued') return 'BUSY';
+if (snap.draft) return 'DRAFT';
+window.__chewbaccaTurn = snap;
+composer.focus();
+document.execCommand('insertText', false, PROMPT);
+window.__chewbaccaSubmit = 'queued';
+setTimeout(() => {
+    const button = [...document.querySelectorAll('button')].find(e => visible(e) && !e.disabled && /^submit$/i.test(label(e)));
+    if (button) { button.click(); window.__chewbaccaSubmit = 'sent'; }
+    else { window.__chewbaccaSubmit = 'failed'; }
+}, 400);
+return 'queued';
+})()'''.replace("PROMPT", json.dumps(prompt))
+    raw = run_js(source, timeout, session, activate=True)
+    errors = {
+        "NO_COMPOSER": "no Perplexity composer found; sign in to perplexity.ai in Chrome",
+        "BUSY": "Perplexity is still working on the last turn; wait before sending another",
+        "DRAFT": "the Perplexity composer holds an unsent draft; clear or send it first",
+    }
+    if raw != "queued":
+        raise BridgeError(errors.get(raw, "Perplexity submission failed"))
+    while time.monotonic() < deadline:
+        state = run_js("window.__chewbaccaSubmit || 'unknown'", max(0.01, deadline - time.monotonic()), session)
+        if state == "sent":
+            return
+        if state == "unknown" and not session:
+            # A fresh session navigates to /computer/tasks/<id> on submit,
+            # which drops the page's window state. That navigation is the send.
+            return
+        if state != "queued":
+            raise BridgeError("the Perplexity Submit button was not available; the prompt is still in the composer")
+        time.sleep(min(0.1, max(0, deadline - time.monotonic())))
+    raise BridgeError("submission acknowledgement timed out; do not resend blindly")
+
+
+def is_new_turn(before, current):
+    return current["count"] > before["count"]
+
+
+def wait_for_answer(before, timeout=1800, session=None, read=None, clock=time.monotonic, sleep=time.sleep):
+    """The new finished answer, or an error that says why there is none.
+
+    Returns (state, text): ("done", answer) or ("waiting", "") when the turn
+    stopped to ask the person something.
+    """
+    read = read or snapshot
+    deadline = clock() + timeout
+    previous = None
+    stable_since = None
+    quiet_since = None
+    saw_busy = False
+    while clock() < deadline:
+        current = read(timeout=min(JS_TIMEOUT, max(0.01, deadline - clock())), session=session)
+        if not current["composer"]:
+            raise BridgeError("the Perplexity composer disappeared; the session may need sign-in")
+        url = current.get("session_url") or ""
+        if session and url and url != session:
+            raise BridgeError("the Perplexity tab moved to another session during the turn")
+        if url and not session:
+            session = url  # a fresh session gets its id on submit; pin it
+        saw_busy |= bool(current.get("busy"))
+        new = is_new_turn(before, current)
+        if new and current["text"] and not current.get("busy"):
+            fingerprint = (current["count"], current["text"])
+            if fingerprint != previous:
+                previous, stable_since = fingerprint, clock()
+            elif clock() - stable_since >= STABLE_SECONDS:
+                return "done", current["text"], session
+        else:
+            previous, stable_since = None, None
+        if not new and not current.get("busy") and saw_busy:
+            quiet_since = quiet_since or clock()
+            if clock() - quiet_since >= WAITING_AFTER_S:
+                return "waiting", "", session
+        else:
+            quiet_since = None
+        sleep(min(POLL_SECONDS, max(0, deadline - clock())))
+    raise BridgeError(f"no finished Perplexity answer within {timeout:g}s; partial output was not returned")
+
+
+def remember(session):
+    if not session:
+        return
+    try:
+        STATE.parent.mkdir(parents=True, exist_ok=True)
+        STATE.write_text(json.dumps({"session": session, "t": time.time()}) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def remembered():
+    try:
+        data = json.loads(STATE.read_text(encoding="utf-8"))
+        return data.get("session") or None, float(data.get("t") or 0.0)
+    except (OSError, ValueError):
+        return None, 0.0
+
+
+@contextlib.contextmanager
+def turn_lock():
+    path = pathlib.Path(tempfile.gettempdir()) / f"chewbacca-perplexity-{os.getuid()}.lock"
+    fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise BridgeError("another Perplexity bridge turn is running") from exc
+        yield
+
+
+def start(prompt, fresh, session, timeout):
+    """Send one prompt; the baseline and the pinned session for the wait."""
+    if fresh:
+        go_home(min(JS_TIMEOUT, timeout))
+        session = None
+    try:
+        before = snapshot(min(JS_TIMEOUT, timeout), session)
+    except BridgeError as exc:
+        if session or "no Perplexity Computer tab" not in str(exc):
+            raise
+        open_tab(HOME)
+        before = snapshot(min(JS_TIMEOUT, timeout), None)
+    pinned = session or before.get("session_url") or None
+    send(prompt, min(JS_TIMEOUT, timeout), pinned)
+    # A fresh session gets its /computer/tasks/<id> URL a moment after the
+    # submit. Pin it now, so the wait cannot drift to another Perplexity tab.
+    deadline = time.monotonic() + 10.0
+    while not pinned and time.monotonic() < deadline:
+        time.sleep(1.0)
+        with contextlib.suppress(BridgeError):
+            pinned = snapshot(5.0, None).get("session_url") or None
+    return before, pinned
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__, prog="perplexity-tab",
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="command", required=True)
+    for command in ("status", "new", "send", "wait", "last", "ask"):
+        p = sub.add_parser(command)
+        p.add_argument("--session", help="pin an existing https://www.perplexity.ai/computer/tasks/... session")
+        p.add_argument("--timeout", type=float, default=1800 if command in ("wait", "ask") else JS_TIMEOUT)
+        p.add_argument("--json", action="store_true", help="print a JSON result")
+        if command in ("new", "send", "ask"):
+            p.add_argument("prompt", nargs="?")
+            p.add_argument("--stdin", action="store_true", help="read the prompt from stdin")
+        if command == "wait":
+            p.add_argument("--after", type=int, help="finished-turn count before the send (from send --json)")
+        if command == "ask":
+            p.add_argument("--new", action="store_true", help="start a fresh session first")
+    args = parser.parse_args(argv)
+    if args.timeout <= 0:
+        parser.error("--timeout must be positive")
+    session = task_url(args.session) if args.session else None
+    try:
+        if args.command == "status":
+            try:
+                state = snapshot(args.timeout, session)
+                state.pop("text", None)
+                state.pop("draft", None)
+            except BridgeError as exc:
+                state = {"state": "absent", "healthy": False, "detail": str(exc), "composer": False}
+            print(json.dumps(state) if args.json else state["state"])
+            if not state["healthy"] and state.get("detail"):
+                print("perplexity-tab: " + state["detail"], file=sys.stderr)
+            return 0 if state["healthy"] else 1
+        if args.command == "last":
+            print(snapshot(args.timeout, session)["text"])
+            return 0
+        with turn_lock():
+            started = time.monotonic()
+            if args.command in ("new", "send", "ask"):
+                if args.stdin and args.prompt is not None:
+                    parser.error("use either a prompt or --stdin")
+                prompt = sys.stdin.read() if args.stdin else args.prompt
+                if prompt is None:
+                    parser.error("provide a prompt or --stdin")
+                fresh = args.command == "new" or getattr(args, "new", False)
+                before, pinned = start(prompt, fresh, session, args.timeout)
+                remember(pinned)
+                if args.command in ("new", "send"):
+                    print(json.dumps({"sent": True, "session": pinned, "before": before["count"]})
+                          if args.json else "sent")
+                    return 0
+            else:
+                pinned = session or remembered()[0]
+                before = snapshot(min(JS_TIMEOUT, args.timeout), pinned)
+                if args.after is not None:
+                    before = {**before, "count": args.after}
+                else:
+                    before = {**before, "count": before["count"] - (0 if before.get("busy") else 1)}
+            remaining = args.timeout - (time.monotonic() - started)
+            if remaining <= 0:
+                raise BridgeError("the turn timed out during submission; do not resend blindly")
+            state, text, pinned = wait_for_answer(before, remaining, pinned)
+            remember(pinned)
+            if args.json:
+                print(json.dumps({"state": state, "text": text, "session": pinned}))
+            elif state == "waiting":
+                print("perplexity-tab: Perplexity stopped to ask you something; answer it in the tab", file=sys.stderr)
+                return 2
+            else:
+                print(text)
+            return 0
+    except BridgeError as exc:
+        if args.json:
+            print(json.dumps({"state": "failed", "error": str(exc)}))
+        print("perplexity-tab: " + str(exc), file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("perplexity-tab: interrupted; Perplexity may still be working", file=sys.stderr)
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main())
