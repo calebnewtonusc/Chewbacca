@@ -268,6 +268,7 @@ If it says JavaScript from Apple Events is off, tell them: in Chrome, View, Deve
 
 "Go to my LinkedIn and edit my skills" is a task, not a search. Never answer one by opening a Google search of the sentence (2026-09-23: exactly that happened, and it did nothing). Do it in this order, and say what you are doing while you do:
 
+0. For one narrow goal on an ordinary page, try `jev-browse run --url <url> --goal "<the goal, and where to stop>" --json` first: Jev picks each click and field in one request, in seconds. `done` is its claim, so read the page before you say so; `yours_to_press` means it stopped at a send, submit, pay or delete, which stays theirs. See skills/jev-browse.
 1. Run `site find "<the task>"` before anything else, because a map under `maps/<host>/MAP.md` gives you the direct URL, the names of the controls, and the mistakes already made there. Read it before touching the page.
 2. Use the Chrome profile they are signed into, not Default. `chrome-js --check` lists each profile with its account; the one with their own email is theirs. Open with `chrome-js --open <url> --profile "<Profile N>"`.
 3. Go straight to the deepest URL the map gives (for LinkedIn, `/in/me/details/skills/`), not the home page.
