@@ -1,10 +1,14 @@
 """ux-do: only named controls reach Jev, it acts at the floor and asks below
 it, a send is found and never pressed, and with Jev down only a unique exact
 label acts. Fixture snapshot; Jev and agent-desktop are stubs."""
+import json
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 sys.dont_write_bytecode = True
+os.environ["BOB_DECISIONS"] = os.path.join(tempfile.mkdtemp(), "d.jsonl")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin" / "lib"))
 import ux  # noqa: E402
 
@@ -69,11 +73,30 @@ def main() -> int:
 
     calls = []
     ux.run = lambda args: calls.append(args) or {"ok": True}
-    ux.do("dark mode on", app="Site", ask=jev_picks("Dark mode", 0.95), snapshot=SNAP)
-    ux.do("search box", app="Site", text="flights", ask=jev_picks("Search", 0.95), snapshot=SNAP)
-    ux.do("about", app="Site", ask=jev_picks("About me", 0.95), snapshot=SNAP)
+    ux.VERIFY_S, ux.VERIFY_EVERY_S = 0.05, 0.01
+    unchanged = lambda: SNAP  # noqa: E731
+    ux.do("dark mode on", app="Site", ask=jev_picks("Dark mode", 0.95), snapshot=SNAP, observe=unchanged)
+    ux.do("search box", app="Site", text="flights", ask=jev_picks("Search", 0.95), snapshot=SNAP, observe=unchanged)
+    ux.do("about", app="Site", ask=jev_picks("About me", 0.95), snapshot=SNAP, observe=unchanged)
     check("checkbox toggles, field types, link clicks, all by ref",
           calls == [["toggle", "@s:e7"], ["type", "@s:e5", "flights"], ["click", "@s:e3"]])
+
+    def after(change):
+        tree = json.loads(json.dumps(SNAP))
+        change(tree["data"]["tree"]["children"])
+        return lambda: tree
+
+    r = ux.do("about", app="Site", ask=jev_picks("About me", 0.95), snapshot=SNAP, observe=unchanged)
+    check("a press that changes nothing is not done", r["status"] == "no change")
+    r = ux.do("about", app="Site", ask=jev_picks("About me", 0.95), snapshot=SNAP,
+              observe=after(lambda kids: kids.append({"ref_id": "@t:e1", "role": "link", "name": "Home"})))
+    check("a press the window shows is done", r["status"] == "done" and r["why"] == "the window changed")
+    r = ux.do("dark mode", app="Site", ask=jev_picks("Dark mode", 0.95), snapshot=SNAP,
+              observe=after(lambda kids: kids[5].update(states=["checked"])))
+    check("a toggle is done only when its state flips", r["status"] == "done" and "flipped" in r["why"])
+    r = ux.do("search", app="Site", text="flights", ask=jev_picks("Search", 0.95), snapshot=SNAP,
+              observe=after(lambda kids: kids[3].update(value="flights")))
+    check("typing is done only when the text is in the field", r["status"] == "done")
     r = ux.do("about", app="Site", text="x", ask=jev_picks("About me", 0.95), snapshot=SNAP)
     check("text into a link is refused", r["status"] == "error")
 

@@ -50,7 +50,7 @@ def classify(prompt: str, ask=None) -> dict:
             return out
 
         def ask(state, questions):
-            return jev.ask(state, questions, timeout=TIMEOUT_S)
+            return jev.ask(state, questions, timeout=TIMEOUT_S, decision="model-route")
     answers = ask({"request": prompt[:SNIPPET]}, {"task": {
         "type": "choice",
         "instructions": {

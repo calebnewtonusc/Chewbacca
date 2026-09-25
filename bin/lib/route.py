@@ -531,7 +531,7 @@ def classify_with_jev(said: str, memory: dict) -> str | None:
     app = context.get("app") or "nothing"
     if app == "Terminal" and context.get("claude_tab"):
         app = "Terminal (Claude Code)"
-    answers = jev.ask({"spoken": said, "frontmost_app": app}, JEV_QUESTION, timeout=CLASSIFY_TIMEOUT_S)
+    answers = jev.ask({"spoken": said, "frontmost_app": app}, JEV_QUESTION, timeout=CLASSIFY_TIMEOUT_S, decision="route")
     answer = (answers or {}).get("dest") or {}
     choice = answer.get("choice")
     if choice not in DESTS:

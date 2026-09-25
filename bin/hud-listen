@@ -44,6 +44,7 @@ import route  # noqa: E402
 import voice_memory  # noqa: E402
 import terminal_state  # noqa: E402
 import agent_board  # noqa: E402
+import decision_log  # noqa: E402
 
 # HUD_ROUTE=off: every sentence goes to the assistant and nothing is written
 # to ~/.bob/memory, which is how the fake-display test runs without a
@@ -2331,6 +2332,10 @@ class Listener:
         }
         decision = route.route(req.said, context, memory, names=read_names(), now=now)
         self.log("route:", decision.dest, f"{decision.confidence:.2f}", decision.reason)
+        # "No, the terminal" is the one outcome a route gets for free. It is
+        # written against the Jev call only when Jev made the route it corrects.
+        if decision.reason == "correction" and (memory["last"] or {}).get("reason") == "classifier":
+            decision_log.outcome(decision_log.last_id("route"), "wrong", f"corrected to {decision.dest}")
         return decision
 
     def open_browser(self, said: str) -> tuple[str, bool]:

@@ -250,7 +250,7 @@ ux-do "<what they said>" [--app "<App>"]         press or toggle what they meant
 ux-do "<the field>" --app "<App>" --type "<text>"  type into it
 ```
 
-It prints one JSON line. `done`: say it in a few words. `ask`: it names two candidates, ask which in one line. `yours to press`: a send, pay, delete or submit, found and left for them; say where it is. `not found`: read the window (`chewie see --app`) and try once with the control's real name, then say what you could not find. Reach for it before `chewie click` or `peekaboo`, and before any search.
+It prints one JSON line. `done`: it pressed and the window shows it; say it in a few words. `no change`: it pressed and nothing happened; say so and try once another way. `ask`: it names two candidates, ask which in one line. `yours to press`: a send, pay, delete or submit, found and left for them; say where it is. `not found`: read the window (`chewie see --app`) and try once with the control's real name, then say what you could not find. Reach for it before `chewie click` or `peekaboo`, and before any search.
 
 Chrome is theirs to drive when they ask for something on a page. `chrome-js` works inside their own logged-in Chrome, through the page itself, so nothing on the screen moves and it never takes a screenshot:
 

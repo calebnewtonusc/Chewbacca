@@ -22,9 +22,11 @@ import json
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import decision_log  # noqa: E402
 import jev  # noqa: E402
 
 AGENT_DESKTOP = "agent-desktop"
@@ -46,6 +48,11 @@ IRREVERSIBLE = re.compile(
     r"\b(send|submit|pay|purchase|buy|order|place order|checkout|check out|delete|remove|"
     r"unsubscribe|confirm|transfer|post|publish|sign out|log out|cancel subscription)\b", re.I)
 TIMEOUT_S = 20
+# How long a press gets to show up in the window before it counts as having
+# done nothing. guessed, never measured: a local page change or a toggle shows
+# at once, a link that loads a new page can take a second or two.
+VERIFY_S = 2.5
+VERIFY_EVERY_S = 0.5
 
 
 def run(args: list[str]) -> dict:
@@ -107,7 +114,7 @@ def choose(intent: str, app: str, found: list[dict], ask=None) -> dict:
             return {"pick": None, "p": 0.0, "alternatives": [], "via": "no Jev and no unique label"}
 
         def ask(state, questions):
-            return jev.ask(state, questions, timeout=5.0)
+            return jev.ask(state, questions, timeout=5.0, decision="ux-do")
     criteria = {f"c{i}": label(c) for i, c in enumerate(menu)}
     criteria["none"] = "none of these controls does what the person asked"
     answers = ask({"asked": intent, "app": app}, {"control": {"type": "choice", "instructions": {
@@ -144,8 +151,40 @@ def act(control: dict, text: str | None) -> dict:
     return run(["click", ref])
 
 
+def fingerprint(tree: dict) -> set:
+    return {(c["role"], c["name"], c["value"], tuple(sorted(map(str, c["states"])))) for c in controls(tree)}
+
+
+def verify(pick: dict, text: str | None, before: dict, observe) -> tuple[bool, str]:
+    """Whether the window shows the press, read again after it. A fact, never Jev.
+
+    A toggle must flip its control's state, typed text must be in the field's
+    value, and anything else must change the window at all. Confidence in the
+    choice is not evidence the press worked, which is the failure the
+    orchestration playbook names: "call a high-confidence choice a successful
+    click"."""
+    then = fingerprint(before)
+    deadline = time.monotonic() + VERIFY_S
+    while True:
+        snap = observe()
+        tree = ((snap or {}).get("data") or {}).get("tree") or {}
+        now = controls(tree) if snap and snap.get("ok") else []
+        same = [c for c in now if c["role"] == pick["role"] and c["name"] == pick["name"]]
+        if text is not None:
+            if any(text in c["value"] for c in same):
+                return True, "the text is in the field"
+        elif pick["role"] in {"checkbox", "switch", "togglebutton"}:
+            if same and sorted(map(str, same[0]["states"])) != sorted(map(str, pick["states"])):
+                return True, "the control flipped"
+        elif now and fingerprint(tree) != then:
+            return True, "the window changed"
+        if time.monotonic() >= deadline:
+            return False, "the window did not change"
+        time.sleep(VERIFY_EVERY_S)
+
+
 def do(intent: str, app: str | None = None, text: str | None = None, dry: bool = False, ask=None,
-       snapshot=None) -> dict:
+       snapshot=None, observe=None) -> dict:
     app = app or front_app()
     if not app:
         return {"status": "error", "why": "no app in front"}
@@ -168,7 +207,12 @@ def do(intent: str, app: str | None = None, text: str | None = None, dry: bool =
         return {**base, "status": "yours to press", "why": "a send, payment, delete or submit"}
     if dry:
         return {**base, "status": "would act"}
+    did = decision_log.last_id("ux-do") if c["via"] == "jev" else None
     result = act(pick, text)
     if not result.get("ok"):
+        decision_log.outcome(did, "unknown", "the press itself failed")
         return {**base, "status": "error", "why": (result.get("error") or {}).get("message", "action failed")}
-    return {**base, "status": "done"}
+    observe = observe or (lambda: run(["snapshot", "--app", app, "-i", "--compact"]))
+    ok, seen = verify(pick, text, (snap.get("data") or {}).get("tree") or {}, observe)
+    decision_log.outcome(did, "right" if ok else "wrong", seen)
+    return {**base, "status": "done" if ok else "no change", "why": seen}

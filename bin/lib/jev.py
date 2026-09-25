@@ -10,8 +10,13 @@ Docs: https://docs.typesafe.ai/api.md
 import json
 import os
 import subprocess
+import sys
+import time
 import urllib.error
 import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import decision_log  # noqa: E402
 
 URL = "https://api.typesafe.ai/v1/systemone"
 MODEL = os.environ.get("TYPESAFE_MODEL", "jev-latest")
@@ -70,7 +75,9 @@ def allowed() -> bool:
         return False
 
 
-def ask(state, questions: dict, timeout: float = TIMEOUT_S) -> dict | None:
+def ask(state, questions: dict, timeout: float = TIMEOUT_S, decision: str | None = None) -> dict | None:
+    """`decision` names the call in ~/.bob/decisions.jsonl (bin/lib/decision_log.py).
+    Unnamed calls, the bulk ones, are not logged."""
     if not allowed():
         return None
     key = api_key()
@@ -80,9 +87,14 @@ def ask(state, questions: dict, timeout: float = TIMEOUT_S) -> dict | None:
     req = urllib.request.Request(URL, data=body, method="POST", headers={
         "Authorization": f"Bearer {key}", "Content-Type": "application/json",
     })
+    started, answers, error = time.monotonic(), None, None
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             answers = json.loads(resp.read()).get("answers")
-    except (OSError, urllib.error.URLError, ValueError):
-        return None
-    return answers if isinstance(answers, dict) else None
+    except (OSError, urllib.error.URLError, ValueError) as err:
+        error = type(err).__name__
+    answers = answers if isinstance(answers, dict) else None
+    if decision:
+        decision_log.record(decision, state, answers, (time.monotonic() - started) * 1000,
+                            error or (None if answers else "no answers"))
+    return answers

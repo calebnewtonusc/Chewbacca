@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""decisions: what Jev decided, and what actually happened after.
+
+    decisions                          the last 20, newest last
+    decisions --name route -n 50       one decision type
+    decisions stats                    calls, errors, median ms, right/wrong by confidence
+    decisions mark <id> right|wrong|unknown [note]    label one by hand
+
+Reads ~/.bob/decisions.jsonl, written by jev.ask(..., decision=...). Local
+only: the log and these figures never go into a repo (TypeSafe's agreement,
+2.3(f), bars publishing Jev performance results).
+"""
+import argparse
+import datetime
+import json
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import decision_log  # noqa: E402
+
+
+def show(d: dict) -> str:
+    when = datetime.datetime.fromtimestamp(d["t"]).strftime("%m-%d %H:%M")
+    answers = " ".join(f"{q}={a.get('choice', '')}{'@' if 'choice' in a else ''}{a.get('p', '')}"
+                       for q, a in (d.get("answers") or {}).items())
+    mark = d.get("outcome") or "-"
+    return f"{d['id']}  {when}  {d['decision']:12} {mark:7} {d.get('ms', 0):>5}ms  {answers or d.get('error')}  | {d['state'][:70]}"
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("command", nargs="?", default="tail", choices=["tail", "stats", "mark"])
+    ap.add_argument("rest", nargs="*")
+    ap.add_argument("--name")
+    ap.add_argument("-n", type=int, default=20)
+    ap.add_argument("--json", action="store_true")
+    args = ap.parse_args()
+    if args.command == "mark":
+        if len(args.rest) < 2:
+            ap.error("mark <id> right|wrong|unknown [note]")
+        ok = decision_log.outcome(args.rest[0], args.rest[1], " ".join(args.rest[2:]))
+        print("marked" if ok else "not marked: the outcome must be right, wrong or unknown")
+        return 0 if ok else 1
+    if args.command == "stats":
+        table = decision_log.stats()
+        if args.json:
+            print(json.dumps(table, indent=2))
+            return 0
+        if not table:
+            print("no decisions logged yet")
+        for name, s in sorted(table.items()):
+            print(f"{name}: {s['calls']} calls, {s['errors']} errors, median {s['median_ms']} ms")
+            for bucket, b in sorted(s["buckets"].items()):
+                n = b["right"] + b["wrong"]
+                print(f"  confidence {bucket}+: {b['right']}/{n} right")
+        return 0
+    rows = [d for d in decision_log.joined() if not args.name or d["decision"] == args.name][-args.n:]
+    if args.json:
+        print(json.dumps(rows, indent=2))
+    elif not rows:
+        print("no decisions logged yet")
+    for d in rows if not args.json else []:
+        print(show(d))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

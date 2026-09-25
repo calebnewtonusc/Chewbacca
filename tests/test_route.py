@@ -245,7 +245,7 @@ def main() -> int:
     seen_state = []
 
     def answering(choice, probs):
-        def ask(state, questions, timeout=0):
+        def ask(state, questions, timeout=0, decision=None):
             seen_state.append(state)
             return None if choice is None else {"dest": {"type": "choice", "choice": choice, "probabilities": probs}}
         return ask

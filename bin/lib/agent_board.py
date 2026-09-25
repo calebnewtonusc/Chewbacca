@@ -234,7 +234,7 @@ def pick(said: str, board: dict, ask=None) -> dict:
         import jev
 
         def ask(state, questions):
-            return jev.ask(state, questions, timeout=PICK_TIMEOUT_S)
+            return jev.ask(state, questions, timeout=PICK_TIMEOUT_S, decision="agent-board")
     criteria, keys = menu(board)
     answers = ask({"spoken": said}, {"agent": {
         "type": "choice",

@@ -24,6 +24,7 @@ export PEOPLE_DIR="$TMP/people"
 export COURSEWORK_DIR="$TMP/coursework"
 export CHEWBACCA_LOG_DIR="$TMP/logs"
 export SUPERASSISTANT_DIR="$TMP/superassistant"
+export BOB_DECISIONS="$TMP/decisions.jsonl"
 
 group() { CURRENT="$1"; [ -n "$ONLY" ] && [ "$ONLY" != "$1" ] && return 1
           echo -e "\n${BLD}$1${NC}"; return 0; }
@@ -937,6 +938,7 @@ if group "hud"; then
   check  "model-route maps Jev's class to the router's targets" python3 "$ROOT/tests/test_model_route.py"
   check  "intro walks you, a person, an org, and nothing else" python3 "$ROOT/tests/test_intro.py"
   check  "ux-do acts on what was meant, asks when unsure, never presses send" python3 "$ROOT/tests/test_ux.py"
+  check  "every named Jev decision is logged and joined to what happened" python3 "$ROOT/tests/test_decision_log.py"
   check  "list-sift judges only what survives the facts" python3 "$ROOT/tests/test_list_sift.py"
   # The same file has a pytest-only path (the fixtures at its top) that no
   # runner ever exercised: none of the python3 interpreters on the dev Macs,

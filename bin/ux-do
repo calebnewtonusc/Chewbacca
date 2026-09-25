@@ -6,7 +6,7 @@
     ux-do "search box" --type "flights to Tokyo"     type into what it finds
     ux-do "the about link" --dry                     choose, report, press nothing
 
-Prints one JSON line. status: done, would act, ask (two candidates, the voice
+Prints one JSON line. status: done (pressed, and the window shows it), no change (pressed, nothing happened), would act, ask (two candidates, the voice
 asks which), yours to press (a send, payment, delete or submit, found and not
 pressed), not found, error. Exit 0 on done or would act, 1 otherwise.
 """

@@ -22,6 +22,14 @@ scoring and yes/no go to Jev. An exact rule stays in code.**
 
 ## The foundation: a decision registry with outcomes
 
+Built so far (2026-09-25): the log and the outcome join. `jev.ask(..., decision=<name>)`
+writes `~/.bob/decisions.jsonl` through `bin/lib/decision_log.py`; the router, the agent
+board, model-route and ux-do are named. Outcomes come from observation only: ux-do reads
+the window again after pressing, and a spoken "no, the terminal" marks the Jev route it
+corrects. `decisions stats` gives right and wrong by confidence bucket. The registry
+files, nightly calibration and shadow mode below are not built; PR #3's decision-lab is
+the offline half of calibration and can read this log.
+
 Every idea further down plugs into this. Build it first, because without it each Jev
 call is a one-off with a hand-set threshold and a hand-written eval.
 
