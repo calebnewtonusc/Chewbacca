@@ -190,7 +190,14 @@ def do(intent: str, app: str | None = None, text: str | None = None, dry: bool =
         return {"status": "error", "why": "no app in front"}
     snap = snapshot if snapshot is not None else run(["snapshot", "--app", app, "-i", "--compact"])
     if not snap.get("ok"):
-        return {"status": "error", "why": (snap.get("error") or {}).get("message", "snapshot failed")}
+        err = snap.get("error") or {}
+        # On 2026-09-25 Chrome's only window was on another desktop and the
+        # voice would have read "Window 'w-47915' exists but is not exposed
+        # through accessibility" aloud. agent-desktop can only read a window
+        # that is on screen.
+        if err.get("code") == "ACTION_NOT_SUPPORTED":
+            return {"status": "error", "why": f"{app}'s window is on another desktop or hidden; bring it up and ask again"}
+        return {"status": "error", "why": err.get("message", "snapshot failed")}
     found = controls((snap.get("data") or {}).get("tree") or {})
     if not found:
         return {"status": "error", "why": f"no controls readable in {app}"}

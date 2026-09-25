@@ -102,6 +102,9 @@ def main() -> int:
 
     r = ux.do("x", app="Site", snapshot={"ok": False, "error": {"message": "WINDOW_NOT_FOUND"}})
     check("no window says so", r["status"] == "error" and "WINDOW" in r["why"])
+    r = ux.do("x", app="Site", snapshot={"ok": False, "error": {"code": "ACTION_NOT_SUPPORTED",
+                                                                "message": "Window 'w-1' exists but is not exposed"}})
+    check("an off-screen window is said in words, not the raw error", "another desktop" in r["why"])
 
     print("all passed" if not failed else f"{failed} failed")
     return 1 if failed else 0
